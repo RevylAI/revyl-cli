@@ -24,14 +24,20 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--profile <name>] [--platform ios|android] [--remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Use:   "build [--profile <name>] [--platform ios|android] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
-By default, this runs the configured local build command from .revyl/config.yaml,
-finds the generated artifact, and registers it as a Revyl build version.
+By default, this uploads source from the current Git worktree and runs the selected
+.revyl/config.yaml recipe on Revyl cloud build runners. Cloud builds require a
+configured app_id and authenticated access; cloud build usage and plan limits apply.
 
-Use --remote to run the build on Revyl cloud build runners.`,
+Use --local to run the same recipe on this machine and upload the generated artifact.
+Local execution requires the recipe's toolchain and is not supported on Windows.
+--remote remains supported; --remote=false also selects local execution.
+
+Use --profile and --platform to resolve ambiguous choices in CI or --json mode.
+Cloud failures are reported without falling back to local execution.`,
 	DisableFlagsInUseLine: true,
 	Args:                  cobra.NoArgs,
 	RunE:                  runBuild,
@@ -123,6 +129,7 @@ var (
 	buildCommandPlatform      string
 	buildCommandImage         string
 	buildCommandRemote        bool
+	buildCommandLocal         bool
 	buildDetachFlag           bool
 	buildNoCacheFlag          bool
 	buildRequireConfiguredApp bool
@@ -175,7 +182,8 @@ func init() {
 	buildCmd.Flags().StringVar(&buildCommandProfile, "profile", "", "Named build profile from .revyl/config.yaml")
 	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform (ios or android)")
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
-	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", false, "Run the build on Revyl cloud build runners")
+	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", true, "Run on Revyl cloud build runners (default; --remote=false selects local execution)")
+	buildCmd.Flags().BoolVar(&buildCommandLocal, "local", false, "Run the build on this machine and upload the artifact instead of building in the cloud")
 	buildCmd.Flags().StringArrayVar(&buildEnvFlags, "env", nil, "Remote build environment override (repeatable: --env KEY=VALUE)")
 	buildCmd.Flags().StringArrayVar(&buildSecretRefFlags, "secret", nil, "Build secret name (repeatable; local builds read the process environment)")
 	buildCmd.Flags().IntVar(&buildTimeoutSeconds, "timeout", 0, "Remote build timeout in seconds (overrides the selected recipe timeout_seconds)")
@@ -355,7 +363,7 @@ func validateLocalBuildSecrets(platformKey string, platformCfg config.BuildPlatf
 	}
 	sort.Strings(missing)
 	return fmt.Errorf(
-		"local build secrets are not set in the process environment: %s; export them or source a gitignored .env.local before running revyl build",
+		"local build secrets are not set in the process environment: %s; export them or source a gitignored .env.local before retrying the local build",
 		strings.Join(missing, ", "),
 	)
 }

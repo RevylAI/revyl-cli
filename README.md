@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.111-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.112-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -86,7 +86,7 @@ revyl doctor                            # Check CLI, auth, connectivity
 revyl auth login                        # Approve in a browser (if not already authed)
 revyl init                              # Detect and write the local project config
 revyl skill install                     # Choose optional agent skills; none preselected
-revyl build --profile development --platform ios  # Build and upload one recipe
+revyl build --profile development --platform ios  # Build one recipe in the cloud
 revyl dev --profile development --platform ios    # Launch TUI: live-device development loop
 ```
 
@@ -155,18 +155,19 @@ that already started.
 
 Build profiles are customer-named recipes, not active modes. A profile can
 contain an iOS recipe, an Android recipe, or both. Select the profile and
-platform per invocation; add `--remote` to execute the same inherited commands,
-environment, secret references, and output contract on a Revyl cloud runner,
-with that recipe's remote image and caches:
+platform per invocation. `revyl build` executes the recipe on a Revyl cloud
+runner by default, with its remote image and caches:
 
 ```bash
 revyl build --profile development --platform ios
-revyl build --profile development --platform ios --remote
 ```
 
 When omitted values have exactly one eligible choice, the CLI resolves them.
 Otherwise it prompts interactively or fails non-interactively with the valid
 choices. No profile is stored as active or default.
+
+See [Build with Revyl](docs/builds.md) for prerequisites, source uploads,
+billing, and migration guidance for existing scripts.
 
 When you're ready to run outside the dev loop:
 

@@ -91,7 +91,7 @@ func TestActionableBuildConfigErrorPointsToAppRoot(t *testing.T) {
 	err := actionableBuildConfigError(&config.ConfigError{Code: "config_not_found"})
 	message := err.Error()
 	if !strings.Contains(message, "run this command from the app root") ||
-		!strings.Contains(message, "-C <app-root>") {
+		!strings.Contains(message, "-C <app-root>") || !strings.Contains(message, "revyl init") {
 		t.Fatalf("error = %q", message)
 	}
 }
@@ -383,6 +383,25 @@ func TestRemoteBuildWithoutAppExplainsExactBinding(t *testing.T) {
 	}, "test-key", true, &buildProgress{})
 	if err == nil || !strings.Contains(err.Error(), "build.profiles.release.ios.app_id") || !strings.Contains(err.Error(), "revyl config validate") {
 		t.Fatalf("error = %v, want exact remote app binding guidance", err)
+	}
+	for _, want := range []string{"remote build release/ios", "revyl app list --platform ios", "revyl app create", "Set its UUID"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestRemoteBuildInvalidAppIDExplainsWhereToFindUUID(t *testing.T) {
+	err := runProjectRemoteBuild(newBuildTestCommand(), projectBuildInvocation{
+		Profile: "release", Platform: "ios", AppID: "My App",
+	}, "test-key", true, &buildProgress{})
+	if err == nil {
+		t.Fatal("expected invalid app ID error")
+	}
+	for _, want := range []string{"app_id for release/ios must be a UUID", "revyl app list --platform ios", "not its name"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want %q", err, want)
+		}
 	}
 }
 

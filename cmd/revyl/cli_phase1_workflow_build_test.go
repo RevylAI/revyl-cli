@@ -43,6 +43,7 @@ func TestRunBuildLocalBuildUnsupportedOnWindows(t *testing.T) {
 	previousGOOS := buildHostGOOS
 	previousPlatform := buildCommandPlatform
 	previousRemote := buildCommandRemote
+	previousLocal := buildCommandLocal
 	previousDetach := buildDetachFlag
 	previousNoCache := buildNoCacheFlag
 	previousJSON := buildCommandJSON
@@ -50,6 +51,7 @@ func TestRunBuildLocalBuildUnsupportedOnWindows(t *testing.T) {
 		buildHostGOOS = previousGOOS
 		buildCommandPlatform = previousPlatform
 		buildCommandRemote = previousRemote
+		buildCommandLocal = previousLocal
 		buildDetachFlag = previousDetach
 		buildNoCacheFlag = previousNoCache
 		buildCommandJSON = previousJSON
@@ -57,7 +59,8 @@ func TestRunBuildLocalBuildUnsupportedOnWindows(t *testing.T) {
 
 	buildHostGOOS = "windows"
 	buildCommandPlatform = ""
-	buildCommandRemote = false
+	buildCommandRemote = true
+	buildCommandLocal = true
 	buildDetachFlag = false
 	buildNoCacheFlag = false
 	buildCommandJSON = false
@@ -164,38 +167,13 @@ build:
         output_path: build/app.apk
 `)
 
-	originalBuildVersion := buildVersion
-	originalBuildNoSetCurrent := buildNoSetCurrent
-	originalBuildCommandJSON := buildCommandJSON
-	originalBuildCommandProfile := buildCommandProfile
-	originalBuildCommandPlatform := buildCommandPlatform
-	originalBuildCommandRemote := buildCommandRemote
-	originalBuildDetachFlag := buildDetachFlag
-	originalBuildNoCacheFlag := buildNoCacheFlag
 	originalBuildRequireConfiguredApp := buildRequireConfiguredApp
 	t.Cleanup(func() {
-		buildVersion = originalBuildVersion
-		buildNoSetCurrent = originalBuildNoSetCurrent
-		buildCommandJSON = originalBuildCommandJSON
-		buildCommandProfile = originalBuildCommandProfile
-		buildCommandPlatform = originalBuildCommandPlatform
-		buildCommandRemote = originalBuildCommandRemote
-		buildDetachFlag = originalBuildDetachFlag
-		buildNoCacheFlag = originalBuildNoCacheFlag
 		buildRequireConfiguredApp = originalBuildRequireConfiguredApp
 	})
-
-	buildVersion = "1.2.3"
-	buildNoSetCurrent = false
-	buildCommandJSON = true
-	buildCommandProfile = "development"
-	buildCommandPlatform = "android"
-	buildCommandRemote = false
-	buildDetachFlag = false
-	buildNoCacheFlag = false
 	buildRequireConfiguredApp = false
 
-	cmd := newBuildTestCommand()
+	cmd := newPublicBuildTestCommand(t, "--local", "--json", "--profile=development", "--platform=android", "--version=1.2.3")
 	output := captureStdout(t, func() {
 		if err := runBuild(cmd, nil); err != nil {
 			t.Fatalf("runBuild() error = %v", err)

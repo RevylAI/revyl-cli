@@ -128,6 +128,14 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	if err != nil {
 		return fmt.Errorf("app id must be a valid UUID: %w", err)
 	}
+	opts.markFailureStage("app_resolution")
+	app, err := client.GetApp(ctx, appID.String())
+	if err != nil {
+		return fmt.Errorf("validate remote build app: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(app.Platform), resolved.Platform) {
+		return fmt.Errorf("app platform %q does not match build platform %q; run 'revyl app list --platform %s' and update the recipe's app_id", app.Platform, resolved.Platform, resolved.Platform)
+	}
 	// Remote builds run on a shared pool of Revyl sandbox build runners. There
 	// is no org-scoped capacity to pre-flight; the enqueue call is authoritative
 	// and surfaces a clear error if the pool is full or unavailable.

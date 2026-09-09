@@ -73,6 +73,7 @@ func resetBuildUploadGlobals(t *testing.T) {
 	originalBuildCommandJSON := buildCommandJSON
 	originalBuildCommandPlatform := buildCommandPlatform
 	originalBuildCommandRemote := buildCommandRemote
+	originalBuildCommandLocal := buildCommandLocal
 	originalBuildDetachFlag := buildDetachFlag
 	originalBuildNoCacheFlag := buildNoCacheFlag
 	originalBuildRequireConfiguredApp := buildRequireConfiguredApp
@@ -98,6 +99,7 @@ func resetBuildUploadGlobals(t *testing.T) {
 		buildCommandJSON = originalBuildCommandJSON
 		buildCommandPlatform = originalBuildCommandPlatform
 		buildCommandRemote = originalBuildCommandRemote
+		buildCommandLocal = originalBuildCommandLocal
 		buildDetachFlag = originalBuildDetachFlag
 		buildNoCacheFlag = originalBuildNoCacheFlag
 		buildRequireConfiguredApp = originalBuildRequireConfiguredApp
@@ -122,7 +124,8 @@ func resetBuildUploadGlobals(t *testing.T) {
 	buildNoSetCurrent = false
 	buildCommandJSON = false
 	buildCommandPlatform = ""
-	buildCommandRemote = false
+	buildCommandRemote = true
+	buildCommandLocal = false
 	buildDetachFlag = false
 	buildNoCacheFlag = false
 	buildRequireConfiguredApp = false

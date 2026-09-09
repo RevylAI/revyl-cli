@@ -73,14 +73,15 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 		defer ui.SetQuietMode(false)
 	}
 
+	remoteExecution := buildCommandRemote && !buildCommandLocal
 	mode := "local"
-	if buildCommandRemote {
+	if remoteExecution {
 		mode = "remote"
 	}
 	analyticsProperties := map[string]interface{}{"build_mode": mode}
 	progress := &buildProgress{}
 	defer func() {
-		status := buildDomainStatus(returnErr, buildCommandRemote && buildDetachFlag)
+		status := buildDomainStatus(returnErr, remoteExecution && buildDetachFlag)
 		var completedErr *analytics.CompletedError
 		if returnErr != nil && errors.As(returnErr, &completedErr) {
 			for key, value := range completedErr.Completion().Properties {
@@ -106,6 +107,9 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 				// invocation the outer analytical domain.
 				returnErr = analytics.CompletedWithExitCode(returnErr, completion)
 			}
+			if remoteExecution {
+				returnErr = fmt.Errorf("%w\n\n'revyl build' runs in the cloud by default. To build on this machine instead, use 'revyl build --local' with your local toolchain. Local builds still require authentication and upload the artifact.", returnErr)
+			}
 			// Selection errors, authored commands, and build output can all carry
 			// customer data. Preserve the original user-facing error while keeping
 			// the centralized failure event deliberately generic.
@@ -114,13 +118,13 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 	}()
 
 	progress.markFailureStage("validation")
-	if err := validateBuildFlags(cmd); err != nil {
+	if err := validateBuildFlags(cmd, remoteExecution); err != nil {
 		return err
 	}
 	progress.markFailureStage("authentication")
 	apiKey, err := getAPIKey()
 	if err != nil {
-		return err
+		return fmt.Errorf("%w; run 'revyl auth login' to authenticate", err)
 	}
 	progress.markFailureStage("configuration")
 	cwd, err := os.Getwd()
@@ -142,7 +146,7 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 	analyticsProperties["build_platform"] = invocation.Platform
 	analyticsProperties["selection_source"] = invocation.SelectionSource
 
-	if buildCommandRemote {
+	if remoteExecution {
 		return runProjectRemoteBuild(cmd, invocation, apiKey, jsonOutput, progress)
 	}
 	return runLocalBuild(cmd, invocation, apiKey, jsonOutput, interactive, progress)
@@ -152,7 +156,7 @@ func actionableBuildConfigError(err error) error {
 	var configError *config.ConfigError
 	if errors.As(err, &configError) && configError.Code == "config_not_found" {
 		return analytics.WithSafeDiagnostic(
-			errors.New("no .revyl/config.yaml applies to the current directory; run this command from the app root or pass '-C <app-root>'"),
+			errors.New("no .revyl/config.yaml applies to the current directory; run this command from the app root or pass '-C <app-root>'. To configure a new project, run 'revyl init'"),
 			"project configuration could not be used",
 		)
 	}
@@ -187,28 +191,31 @@ func buildDomainStatus(err error, detachedRemote bool) string {
 	return "failed"
 }
 
-func validateBuildFlags(cmd *cobra.Command) error {
+func validateBuildFlags(cmd *cobra.Command, remoteExecution bool) error {
+	if buildCommandLocal && buildCommandRemote && cmd.Flags().Changed("remote") {
+		return fmt.Errorf("--local and --remote cannot be used together; use --local for this machine or omit both flags for a cloud build")
+	}
 	platform := strings.TrimSpace(buildCommandPlatform)
 	if platform != "" && platform != "ios" && platform != "android" {
 		return fmt.Errorf("--platform must be ios or android")
 	}
-	if buildCommandRemote {
+	if remoteExecution {
 		return nil
 	}
 	if len(buildEnvFlags) > 0 {
-		return fmt.Errorf("--env is only supported with --remote")
+		return fmt.Errorf("--env is only supported for cloud builds; omit --local or --remote=false")
 	}
 	if strings.TrimSpace(buildCommandImage) != "" {
-		return fmt.Errorf("--image is only supported with --remote")
+		return fmt.Errorf("--image is only supported for cloud builds; omit --local or --remote=false")
 	}
 	if cmd.Flags().Changed("timeout") {
-		return fmt.Errorf("--timeout is only supported with --remote")
+		return fmt.Errorf("--timeout is only supported for cloud builds; omit --local or --remote=false")
 	}
 	if buildDetachFlag {
-		return fmt.Errorf("--detach is only supported with --remote")
+		return fmt.Errorf("--detach is only supported for cloud builds; omit --local or --remote=false")
 	}
 	if buildNoCacheFlag {
-		return fmt.Errorf("--no-cache is only supported with --remote")
+		return fmt.Errorf("--no-cache is only supported for cloud builds; omit --local or --remote=false")
 	}
 	return checkLocalBuildSupported()
 }
@@ -485,7 +492,7 @@ func validateLocalSecretEnvironment(secretRefs []string) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"local build secrets are not set in the process environment: %s; export them or source a gitignored .env.local before running revyl build",
+		"local build secrets are not set in the process environment: %s; export them or source a gitignored .env.local before retrying the local build",
 		strings.Join(missing, ", "),
 	)
 }
@@ -700,15 +707,16 @@ func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation
 	progress.markFailureStage("configuration")
 	if invocation.AppID == "" {
 		return fmt.Errorf(
-			"no app is configured for remote build %s/%s; add 'build.profiles.%s.%s.app_id' to .revyl/config.yaml, run 'revyl config validate', then retry",
+			"no app is configured for remote build %s/%s. Run 'revyl app list --platform %s' to find an app, or 'revyl app create' to create one. Set its UUID in 'build.profiles.%s.%s.app_id' in .revyl/config.yaml, run 'revyl config validate', then retry",
 			invocation.Profile,
+			invocation.Platform,
 			invocation.Platform,
 			invocation.Profile,
 			invocation.Platform,
 		)
 	}
 	if _, err := uuid.Parse(invocation.AppID); err != nil {
-		return fmt.Errorf("configured app_id for %s/%s must be a UUID", invocation.Profile, invocation.Platform)
+		return fmt.Errorf("configured app_id for %s/%s must be a UUID; run 'revyl app list --platform %s' and replace the recipe's app_id with the app's UUID, not its name", invocation.Profile, invocation.Platform, invocation.Platform)
 	}
 	envOverrides, err := parseRemoteBuildEnvOverrides(buildEnvFlags)
 	if err != nil {
