@@ -150,6 +150,10 @@ func verifyInstalledUpgrade(ctx context.Context, binaryPath, expectedVersion str
 	return installed.Version, nil
 }
 
+// upgradeProcessCleanupWait bounds how long a cancelled updater may keep the
+// caller waiting on output it never drains.
+var upgradeProcessCleanupWait = time.Second
+
 func runUpgradeProcess(ctx context.Context, cmd *exec.Cmd) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -169,7 +173,7 @@ func runUpgradeProcess(ctx context.Context, cmd *exec.Cmd) error {
 		select {
 		case <-done:
 			return ctx.Err()
-		case <-time.After(time.Second):
+		case <-time.After(upgradeProcessCleanupWait):
 			return fmt.Errorf("%w: timed out waiting for the updater to finish cleanup", ctx.Err())
 		}
 	}

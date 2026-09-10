@@ -140,6 +140,7 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 		{name: "no fallback", platform: "android", failEnqueue: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			withFastRemoteBuildPolling(t)
 			testutil.SetHomeDir(t, t.TempDir())
 			t.Setenv("REVYL_API_KEY", "test-key")
 			t.Setenv("CI", "true")

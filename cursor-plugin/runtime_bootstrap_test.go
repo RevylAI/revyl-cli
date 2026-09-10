@@ -504,7 +504,11 @@ func TestPOSIXRuntimeLauncherRetriesTransientDownloadFailures(t *testing.T) {
 
 	command := runtimeLauncherCommandForTest(pluginRoot)
 	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
-	command.Env = fixture.Environment(t, "REVYL_RUNTIME_SOURCE="+sourceRuntime)
+	command.Env = fixture.Environment(
+		t,
+		"REVYL_RUNTIME_SOURCE="+sourceRuntime,
+		"REVYL_PLUGIN_DOWNLOAD_RETRY_DELAY=0",
+	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
@@ -541,7 +545,7 @@ func TestPOSIXRuntimeLauncherReportsExhaustedDownloadRetries(t *testing.T) {
 
 	command := runtimeLauncherCommandForTest(pluginRoot)
 	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
-	command.Env = fixture.Environment(t)
+	command.Env = fixture.Environment(t, "REVYL_PLUGIN_DOWNLOAD_RETRY_DELAY=0")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout

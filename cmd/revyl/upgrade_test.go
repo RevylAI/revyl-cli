@@ -264,54 +264,6 @@ func TestRunUpgradeDoesNotApplyFetchTimeoutToDownload(t *testing.T) {
 	}
 }
 
-func TestDownloadBinaryRespectsContextDeadlineNotReleaseCheckTimeout(t *testing.T) {
-	// Trickle the body so the transfer outlasts a short context deadline but
-	// finishes well within downloadBinary's own 5-minute client timeout.
-	payload := bytes.Repeat([]byte("x"), 64*1024)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
-		flusher, _ := w.(http.Flusher)
-		const chunk = 4 * 1024
-		for i := 0; i < len(payload); i += chunk {
-			end := i + chunk
-			if end > len(payload) {
-				end = len(payload)
-			}
-			_, _ = w.Write(payload[i:end])
-			if flusher != nil {
-				flusher.Flush()
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}))
-	defer server.Close()
-
-	// The bug: the download shared the 30s release-check context. Any short
-	// deadline aborts the slow transfer mid-stream.
-	shortCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	if path, err := downloadBinary(shortCtx, server.URL); err == nil {
-		os.Remove(path)
-		t.Fatal("expected download to fail under a short context deadline")
-	}
-
-	// The fix: with the root context the client's own timeout governs, so the
-	// slow transfer completes.
-	path, err := downloadBinary(context.Background(), server.URL)
-	if err != nil {
-		t.Fatalf("download under root context failed: %v", err)
-	}
-	defer os.Remove(path)
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read temp file: %v", err)
-	}
-	if len(got) != len(payload) {
-		t.Fatalf("downloaded %d bytes, want %d", len(got), len(payload))
-	}
-}
-
 func TestPerformBrewUpgrade_CallsCorrectCommands(t *testing.T) {
 	var calls [][]string
 	original := brewCommandRunner
@@ -754,4 +706,52 @@ func configureGitHubTestRequest(t *testing.T, baseURL string) {
 		gitHubRetryBaseDelay = originalBaseDelay
 		gitHubRetryMaxDelay = originalMaxDelay
 	})
+}
+
+func TestDownloadBinaryRespectsContextDeadlineNotReleaseCheckTimeout(t *testing.T) {
+	// Trickle the body so the transfer outlasts a short context deadline but
+	// finishes well within downloadBinary's own 5-minute client timeout.
+	payload := bytes.Repeat([]byte("x"), 8*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		flusher, _ := w.(http.Flusher)
+		const chunk = 1024
+		for i := 0; i < len(payload); i += chunk {
+			end := i + chunk
+			if end > len(payload) {
+				end = len(payload)
+			}
+			_, _ = w.Write(payload[i:end])
+			if flusher != nil {
+				flusher.Flush()
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	// The bug: the download shared the 30s release-check context. Any short
+	// deadline aborts the slow transfer mid-stream.
+	shortCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if path, err := downloadBinary(shortCtx, server.URL); err == nil {
+		os.Remove(path)
+		t.Fatal("expected download to fail under a short context deadline")
+	}
+
+	// The fix: with the root context the client's own timeout governs, so the
+	// slow transfer completes.
+	path, err := downloadBinary(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("download under root context failed: %v", err)
+	}
+	defer os.Remove(path)
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read temp file: %v", err)
+	}
+	if len(got) != len(payload) {
+		t.Fatalf("downloaded %d bytes, want %d", len(got), len(payload))
+	}
 }

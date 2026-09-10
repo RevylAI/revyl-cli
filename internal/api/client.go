@@ -77,12 +77,14 @@ const (
 	// DefaultMaxRetries is the default number of retry attempts for transient failures.
 	DefaultMaxRetries = 3
 
-	// DefaultRetryBaseDelay is the base delay for exponential backoff.
-	DefaultRetryBaseDelay = 500 * time.Millisecond
-
 	// DefaultRetryMaxDelay is the maximum delay between retries.
 	DefaultRetryMaxDelay = 10 * time.Second
 )
+
+// DefaultRetryBaseDelay is the base delay for exponential backoff. Test suites
+// that drive the client against a stubbed 5xx shrink it so a retry path costs
+// its request count, not its wall clock.
+var DefaultRetryBaseDelay = 500 * time.Millisecond
 
 // Client is the Revyl API client.
 type Client struct {

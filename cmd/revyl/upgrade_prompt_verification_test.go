@@ -51,7 +51,19 @@ func (output *blockedUpgradeOutput) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+func TestBlockedUpgradeOutputHelper(t *testing.T) {
+	if os.Getenv("REVYL_UPGRADE_BLOCKED_OUTPUT_HELPER") != "1" {
+		return
+	}
+	fmt.Print("upgrading")
+	time.Sleep(time.Minute)
+	os.Exit(0)
+}
+
 func TestUpgradeProcessCancellationBoundsOutputWait(t *testing.T) {
+	previousCleanupWait := upgradeProcessCleanupWait
+	upgradeProcessCleanupWait = 50 * time.Millisecond
+	t.Cleanup(func() { upgradeProcessCleanupWait = previousCleanupWait })
 	output := &blockedUpgradeOutput{started: make(chan struct{}), release: make(chan struct{})}
 	defer close(output.release)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,13 +87,4 @@ func TestUpgradeProcessCancellationBoundsOutputWait(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("updater cancellation waited indefinitely for output")
 	}
-}
-
-func TestBlockedUpgradeOutputHelper(t *testing.T) {
-	if os.Getenv("REVYL_UPGRADE_BLOCKED_OUTPUT_HELPER") != "1" {
-		return
-	}
-	fmt.Print("upgrading")
-	time.Sleep(time.Minute)
-	os.Exit(0)
 }

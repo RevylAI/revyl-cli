@@ -1195,30 +1195,6 @@ func TestExpoDeviceLaunchContractBlocksWhenDeviceHeadShapeDrifts(t *testing.T) {
 	}
 }
 
-func TestCheckManifestURLs_ManifestBodyTimeoutDetail(t *testing.T) {
-	manifestTimeout := 500 * time.Millisecond
-	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, manifestTimeout)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
-		time.Sleep(1500 * time.Millisecond)
-		json.NewEncoder(w).Encode(testExpoManifestForTunnel("http://" + r.Host))
-	}))
-	defer srv.Close()
-
-	c := checkManifestURLsForPlatformWithTimeout(8081, srv.URL, "ios", manifestTimeout)
-	if c.Passed {
-		t.Fatal("expected manifest body timeout")
-	}
-	if !strings.Contains(c.Detail, "expo_manifest_body") {
-		t.Fatalf("detail = %q, expected body timeout detail", c.Detail)
-	}
-}
-
 func TestCheckExpoBundlePrewarm_AllowsSlowBundleHeaders(t *testing.T) {
 	var bundleHeaderPlatform string
 	var bundleAccept string
@@ -1818,4 +1794,28 @@ func websocketUpgradeHandler(w http.ResponseWriter, r *http.Request) {
 	resp := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", accept)
 	buf.WriteString(resp)
 	buf.Flush()
+}
+
+func TestCheckManifestURLs_ManifestBodyTimeoutDetail(t *testing.T) {
+	manifestTimeout := 50 * time.Millisecond
+	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, manifestTimeout)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(300 * time.Millisecond)
+		json.NewEncoder(w).Encode(testExpoManifestForTunnel("http://" + r.Host))
+	}))
+	defer srv.Close()
+
+	c := checkManifestURLsForPlatformWithTimeout(8081, srv.URL, "ios", manifestTimeout)
+	if c.Passed {
+		t.Fatal("expected manifest body timeout")
+	}
+	if !strings.Contains(c.Detail, "expo_manifest_body") {
+		t.Fatalf("detail = %q, expected body timeout detail", c.Detail)
+	}
 }

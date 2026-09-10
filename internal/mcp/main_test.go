@@ -3,6 +3,9 @@ package mcp
 import (
 	"os"
 	"testing"
+	"time"
+
+	"github.com/revyl/cli/internal/api"
 )
 
 // TestMain neutralizes an inherited REVYL_API_KEY before the suite runs.
@@ -15,5 +18,6 @@ func TestMain(m *testing.M) {
 	if err := os.Unsetenv("REVYL_API_KEY"); err != nil {
 		panic("clear REVYL_API_KEY: " + err.Error())
 	}
+	api.DefaultRetryBaseDelay = time.Millisecond
 	os.Exit(m.Run())
 }

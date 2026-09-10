@@ -31,7 +31,7 @@ var maxCapturedOutputBytes = 1 << 20
 
 // outputDrainGrace bounds how long a killed script's surviving grandchildren
 // may hold the output pipes open before the runner abandons them.
-const outputDrainGrace = 5 * time.Second
+var outputDrainGrace = 5 * time.Second
 
 // launchEnvKeyPattern is the launch-variable key rule shared with the backend.
 var launchEnvKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)

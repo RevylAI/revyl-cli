@@ -9,6 +9,7 @@ PLUGIN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 MANIFEST_PATH=${REVYL_RUNTIME_MANIFEST:-"$PLUGIN_DIR/runtime-manifest.json"}
 TEMPORARY_PATH=
 DOWNLOAD_ATTEMPTS=3
+DOWNLOAD_RETRY_DELAY=${REVYL_PLUGIN_DOWNLOAD_RETRY_DELAY:-1}
 
 # cleanup removes only this process's incomplete download.
 cleanup() {
@@ -223,7 +224,7 @@ download() {
   url=$1
   destination=$2
   attempt=1
-  delay=1
+  delay=$DOWNLOAD_RETRY_DELAY
   while :; do
     if download_attempt "$url" "$destination"; then
       return 0

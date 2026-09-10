@@ -643,73 +643,6 @@ func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
 // that worker actions count as activity and extend idle timeout.
 // ---------------------------------------------------------------------------
 
-func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing.T) {
-	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/execution/device-proxy/wf-worker-reset/tap":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
-		case "/api/v1/execution/device/status/cancel/wf-worker-reset":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"message":"cancelled"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer apiServer.Close()
-
-	now := time.Now()
-	mgr := &DeviceSessionManager{
-		apiClient:     api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		ownedSessions: map[int]bool{0: true},
-		sessions: map[int]*DeviceSession{
-			0: {
-				Index:         0,
-				SessionID:     "test-session-worker-reset",
-				WorkflowRunID: "wf-worker-reset",
-				WorkerBaseURL: "https://worker.example",
-				Platform:      "ios",
-				StartedAt:     now,
-				LastActivity:  now,
-				IdleTimeout:   1200 * time.Millisecond,
-			},
-		},
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: 0,
-		nextIndex:   1,
-	}
-
-	mgr.mu.Lock()
-	mgr.resetIdleTimerForSessionLocked(0, context.Background())
-	mgr.mu.Unlock()
-
-	time.Sleep(800 * time.Millisecond)
-
-	_, err := mgr.WorkerRequestForSession(context.Background(), 0, "/tap", map[string]int{
-		"x": 1,
-		"y": 2,
-	})
-	if err != nil {
-		t.Fatalf("WorkerRequestForSession returned error: %v", err)
-	}
-
-	// This point is beyond the original timeout window, so without idle reset
-	// the session would have been auto-cleared.
-	time.Sleep(800 * time.Millisecond)
-	if mgr.GetSession(0) == nil {
-		t.Fatal("session should still be active after worker action reset the idle timer")
-	}
-
-	// After the refreshed timeout window, the session should expire.
-	deadline := time.Now().Add(4 * time.Second)
-	for mgr.GetSession(0) != nil {
-		if time.Now().After(deadline) {
-			t.Fatal("session should expire after refreshed idle timeout window")
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_MultiSession: Verify multi-session add, resolve,
 // and active switching.
@@ -2586,73 +2519,6 @@ func TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone(t *t
 	}
 }
 
-// TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget verifies
-// that cancelStepBestEffort returns within the cancel budget even when the
-// worker reports the step as still running indefinitely. This guards
-// against stuck steps blocking the user's terminal forever.
-func TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget(t *testing.T) {
-	t.Parallel()
-
-	const stepID = "step-stuck-002"
-
-	var (
-		statusCalls    int
-		cancelCalls    int
-		stepStatusPath = "/api/v1/execution/device-proxy/wf-stuck/step_status/" + stepID
-		stepCancelPath = "/api/v1/execution/device-proxy/wf-stuck/step_cancel/" + stepID
-	)
-
-	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case stepCancelPath:
-			cancelCalls++
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelling"}`))
-		case stepStatusPath:
-			statusCalls++
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer apiServer.Close()
-
-	mgr := &DeviceSessionManager{
-		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		sessions: map[int]*DeviceSession{
-			0: {
-				Index:         0,
-				SessionID:     "sess-stuck",
-				WorkflowRunID: "wf-stuck",
-				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
-				Platform:      "android",
-			},
-		},
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: 0,
-	}
-
-	start := time.Now()
-	mgr.cancelStepBestEffort(mgr.sessions[0], stepID)
-	elapsed := time.Since(start)
-
-	// Must not exceed budget (with small fudge for scheduling).
-	maxAllowed := stepCancelBudget + 750*time.Millisecond
-	if elapsed > maxAllowed {
-		t.Fatalf("cancelStepBestEffort took %v, want <= %v", elapsed, maxAllowed)
-	}
-	// Must have actually sent the cancel.
-	if cancelCalls != 1 {
-		t.Fatalf("step_cancel calls = %d, want 1", cancelCalls)
-	}
-	// Must have polled at least once for terminal status before giving up.
-	if statusCalls < 1 {
-		t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
-	}
-}
-
 func TestStopOwnedSessionsPreservesAttachedSessions(t *testing.T) {
 	manager := NewDeviceSessionManager(nil, "")
 	manager.sessions[0] = &DeviceSession{Index: 0, SessionID: "owned"}
@@ -2948,5 +2814,139 @@ func TestLoadAnchorImageRejectsManagedDirectoryRedirect(t *testing.T) {
 				t.Fatal("disk anchor read followed directory redirect")
 			}
 		})
+	}
+}
+
+func TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget(t *testing.T) {
+	t.Parallel()
+
+	const stepID = "step-stuck-002"
+
+	previousBudget := stepCancelBudget
+	stepCancelBudget = 250 * time.Millisecond
+	t.Cleanup(func() { stepCancelBudget = previousBudget })
+
+	var (
+		statusCalls    int
+		cancelCalls    int
+		stepStatusPath = "/api/v1/execution/device-proxy/wf-stuck/step_status/" + stepID
+		stepCancelPath = "/api/v1/execution/device-proxy/wf-stuck/step_cancel/" + stepID
+	)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case stepCancelPath:
+			cancelCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelling"}`))
+		case stepStatusPath:
+			statusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-stuck",
+				WorkflowRunID: "wf-stuck",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "android",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	start := time.Now()
+	mgr.cancelStepBestEffort(mgr.sessions[0], stepID)
+	elapsed := time.Since(start)
+
+	// Must not exceed budget (with small fudge for scheduling).
+	maxAllowed := stepCancelBudget + 750*time.Millisecond
+	if elapsed > maxAllowed {
+		t.Fatalf("cancelStepBestEffort took %v, want <= %v", elapsed, maxAllowed)
+	}
+	// Must have actually sent the cancel.
+	if cancelCalls != 1 {
+		t.Fatalf("step_cancel calls = %d, want 1", cancelCalls)
+	}
+	// Must have polled at least once for terminal status before giving up.
+	if statusCalls < 1 {
+		t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
+	}
+}
+
+func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-worker-reset/tap":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
+		case "/api/v1/execution/device/status/cancel/wf-worker-reset":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"cancelled"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	now := time.Now()
+	mgr := &DeviceSessionManager{
+		apiClient:     api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		ownedSessions: map[int]bool{0: true},
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "test-session-worker-reset",
+				WorkflowRunID: "wf-worker-reset",
+				WorkerBaseURL: "https://worker.example",
+				Platform:      "ios",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   300 * time.Millisecond,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+		nextIndex:   1,
+	}
+
+	mgr.mu.Lock()
+	mgr.resetIdleTimerForSessionLocked(0, context.Background())
+	mgr.mu.Unlock()
+
+	time.Sleep(200 * time.Millisecond)
+
+	_, err := mgr.WorkerRequestForSession(context.Background(), 0, "/tap", map[string]int{
+		"x": 1,
+		"y": 2,
+	})
+	if err != nil {
+		t.Fatalf("WorkerRequestForSession returned error: %v", err)
+	}
+
+	// This point is beyond the original timeout window, so without idle reset
+	// the session would have been auto-cleared.
+	time.Sleep(200 * time.Millisecond)
+	if mgr.GetSession(0) == nil {
+		t.Fatal("session should still be active after worker action reset the idle timer")
+	}
+
+	// After the refreshed timeout window, the session should expire.
+	deadline := time.Now().Add(2 * time.Second)
+	for mgr.GetSession(0) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session should expire after refreshed idle timeout window")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

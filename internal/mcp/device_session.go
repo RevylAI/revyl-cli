@@ -2440,7 +2440,7 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 // post-cancel poll for terminal status. Picked so a healthy agent loop has
 // enough yield points to land CancelledError, but a stuck step doesn't
 // block the user's terminal indefinitely.
-const stepCancelBudget = 5 * time.Second
+var stepCancelBudget = 5 * time.Second
 
 // cancelStepBestEffort sends POST /step_cancel/{stepID} and then briefly
 // polls /step_status/{stepID} until the step reaches a terminal status, so

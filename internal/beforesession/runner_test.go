@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/revyl/cli/internal/config"
 )
@@ -128,20 +129,6 @@ exit 3
 	}
 	if strings.Contains(err.Error(), "super-secret") {
 		t.Fatalf("Run() error leaked script output: %q", err)
-	}
-}
-
-func TestRun_TimesOut(t *testing.T) {
-	skipPOSIXShellFixture(t)
-	root := newRepoRoot(t)
-	writeScript(t, root, "scripts/hang.sh", "#!/bin/sh\nsleep 30\n")
-
-	_, err := Run(context.Background(), root, testBeforeScript("./scripts/hang.sh", 1))
-	if err == nil {
-		t.Fatal("Run() error = nil, want a timeout")
-	}
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("Run() error = %q, want a timeout message", err)
 	}
 }
 
@@ -384,5 +371,22 @@ func TestRun_RejectsTruncatedStdout(t *testing.T) {
 	}
 	if len(result.Values) != 0 {
 		t.Fatalf("Run() values = %v, want none on truncation", result.Values)
+	}
+}
+
+func TestRun_TimesOut(t *testing.T) {
+	skipPOSIXShellFixture(t)
+	previousGrace := outputDrainGrace
+	outputDrainGrace = 50 * time.Millisecond
+	t.Cleanup(func() { outputDrainGrace = previousGrace })
+	root := newRepoRoot(t)
+	writeScript(t, root, "scripts/hang.sh", "#!/bin/sh\nsleep 30\n")
+
+	_, err := Run(context.Background(), root, testBeforeScript("./scripts/hang.sh", 1))
+	if err == nil {
+		t.Fatal("Run() error = nil, want a timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("Run() error = %q, want a timeout message", err)
 	}
 }

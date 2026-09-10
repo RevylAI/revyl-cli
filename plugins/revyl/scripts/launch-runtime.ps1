@@ -128,6 +128,9 @@ function Invoke-RuntimeDownload {
     )
 
     $delaySeconds = 1
+    if ($env:REVYL_PLUGIN_DOWNLOAD_RETRY_DELAY) {
+        $delaySeconds = [int]$env:REVYL_PLUGIN_DOWNLOAD_RETRY_DELAY
+    }
     for ($attempt = 1; $attempt -le $script:DownloadAttempts; $attempt++) {
         try {
             Invoke-WebRequest `
