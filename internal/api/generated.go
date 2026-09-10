@@ -945,6 +945,36 @@ func (e LaunchConfigurationKind) Valid() bool {
 	}
 }
 
+// Defines values for LaunchCrashEvidence.
+const (
+	LaunchCrashEvidenceAppCode         LaunchCrashEvidence = "app_code"
+	LaunchCrashEvidenceInconclusive    LaunchCrashEvidence = "inconclusive"
+	LaunchCrashEvidenceInstrumentation LaunchCrashEvidence = "instrumentation"
+	LaunchCrashEvidenceNotChecked      LaunchCrashEvidence = "not_checked"
+	LaunchCrashEvidenceNotFound        LaunchCrashEvidence = "not_found"
+	LaunchCrashEvidenceUnavailable     LaunchCrashEvidence = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the LaunchCrashEvidence enum.
+func (e LaunchCrashEvidence) Valid() bool {
+	switch e {
+	case LaunchCrashEvidenceAppCode:
+		return true
+	case LaunchCrashEvidenceInconclusive:
+		return true
+	case LaunchCrashEvidenceInstrumentation:
+		return true
+	case LaunchCrashEvidenceNotChecked:
+		return true
+	case LaunchCrashEvidenceNotFound:
+		return true
+	case LaunchCrashEvidenceUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LaunchEnvVarErrorCode.
 const (
 	LaunchEnvVarErrorCodeLaunchVariableInvalid            LaunchEnvVarErrorCode = "launch_variable_invalid"
@@ -966,6 +996,51 @@ func (e LaunchEnvVarErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for LaunchFailureCategory.
+const (
+	LaunchFailureCategoryAppBuild       LaunchFailureCategory = "app_build"
+	LaunchFailureCategoryInfrastructure LaunchFailureCategory = "infrastructure"
+	LaunchFailureCategoryUnknown        LaunchFailureCategory = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the LaunchFailureCategory enum.
+func (e LaunchFailureCategory) Valid() bool {
+	switch e {
+	case LaunchFailureCategoryAppBuild:
+		return true
+	case LaunchFailureCategoryInfrastructure:
+		return true
+	case LaunchFailureCategoryUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LaunchRuntimeProbe.
+const (
+	LaunchRuntimeProbeFailed      LaunchRuntimeProbe = "failed"
+	LaunchRuntimeProbeNotRun      LaunchRuntimeProbe = "not_run"
+	LaunchRuntimeProbePassed      LaunchRuntimeProbe = "passed"
+	LaunchRuntimeProbeUnavailable LaunchRuntimeProbe = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the LaunchRuntimeProbe enum.
+func (e LaunchRuntimeProbe) Valid() bool {
+	switch e {
+	case LaunchRuntimeProbeFailed:
+		return true
+	case LaunchRuntimeProbeNotRun:
+		return true
+	case LaunchRuntimeProbePassed:
+		return true
+	case LaunchRuntimeProbeUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlanInfoBillingPeriod.
 const (
 	PlanInfoBillingPeriodMonthly PlanInfoBillingPeriod = "monthly"
@@ -978,6 +1053,27 @@ func (e PlanInfoBillingPeriod) Valid() bool {
 	case PlanInfoBillingPeriodMonthly:
 		return true
 	case PlanInfoBillingPeriodYearly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PlanInfoPaymentMethodStatus.
+const (
+	PlanInfoPaymentMethodStatusMissing PlanInfoPaymentMethodStatus = "missing"
+	PlanInfoPaymentMethodStatusSaved   PlanInfoPaymentMethodStatus = "saved"
+	PlanInfoPaymentMethodStatusUnknown PlanInfoPaymentMethodStatus = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the PlanInfoPaymentMethodStatus enum.
+func (e PlanInfoPaymentMethodStatus) Valid() bool {
+	switch e {
+	case PlanInfoPaymentMethodStatusMissing:
+		return true
+	case PlanInfoPaymentMethodStatusSaved:
+		return true
+	case PlanInfoPaymentMethodStatusUnknown:
 		return true
 	default:
 		return false
@@ -4065,6 +4161,9 @@ type LLMConfig struct {
 // LaunchConfigurationKind Stored app-launch configuration payload type.
 type LaunchConfigurationKind string
 
+// LaunchCrashEvidence defines model for LaunchCrashEvidence.
+type LaunchCrashEvidence string
+
 // LaunchEnvVarErrorCode Stable failure categories for resolving stored launch variables.
 type LaunchEnvVarErrorCode string
 
@@ -4089,6 +4188,27 @@ type LaunchEnvVarSnapshotEntry struct {
 	Kind  *LaunchConfigurationKind `json:"kind,omitempty"`
 	Value *string                  `json:"value,omitempty"`
 }
+
+// LaunchFailureCategory defines model for LaunchFailureCategory.
+type LaunchFailureCategory string
+
+// LaunchFailureDiagnosis defines model for LaunchFailureDiagnosis.
+type LaunchFailureDiagnosis struct {
+	Category      *LaunchFailureCategory `json:"category,omitempty"`
+	CrashEvidence *LaunchCrashEvidence   `json:"crash_evidence,omitempty"`
+	RuntimeProbe  *LaunchRuntimeProbe    `json:"runtime_probe,omitempty"`
+}
+
+// LaunchFailureSummary defines model for LaunchFailureSummary.
+type LaunchFailureSummary struct {
+	Error         string                 `json:"error"`
+	ErrorType     *string                `json:"error_type,omitempty"`
+	LaunchFailure LaunchFailureDiagnosis `json:"launch_failure"`
+	Stage         string                 `json:"stage"`
+}
+
+// LaunchRuntimeProbe defines model for LaunchRuntimeProbe.
+type LaunchRuntimeProbe string
 
 // LocationConfig GPS location configuration for simulator/emulator.
 type LocationConfig struct {
@@ -4565,15 +4685,19 @@ type PaginatedBuildsWithJobsResponse_Items_Item struct {
 
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {
-	AvailablePlans  *[]BillingPlanTerms    `json:"available_plans,omitempty"`
-	BillingPeriod   *PlanInfoBillingPeriod `json:"billing_period,omitempty"`
-	CancelsAt       *int                   `json:"cancels_at,omitempty"`
-	CurrentTerms    *BillingPlanTerms      `json:"current_terms,omitempty"`
-	Discounts       *[]DiscountItem        `json:"discounts,omitempty"`
-	DisplayName     string                 `json:"display_name"`
-	Entitlements    *[]EntitlementItem     `json:"entitlements,omitempty"`
-	FreeCreditLabel string                 `json:"free_credit_label"`
-	MonthlyBase     float32                `json:"monthly_base"`
+	AvailablePlans      *[]BillingPlanTerms          `json:"available_plans,omitempty"`
+	BillingPeriod       *PlanInfoBillingPeriod       `json:"billing_period,omitempty"`
+	CanEnablePayg       *bool                        `json:"can_enable_payg,omitempty"`
+	CancelsAt           *int                         `json:"cancels_at,omitempty"`
+	CurrentTerms        *BillingPlanTerms            `json:"current_terms,omitempty"`
+	Discounts           *[]DiscountItem              `json:"discounts,omitempty"`
+	DisplayName         string                       `json:"display_name"`
+	Entitlements        *[]EntitlementItem           `json:"entitlements,omitempty"`
+	FreeCreditLabel     string                       `json:"free_credit_label"`
+	MonthlyBase         float32                      `json:"monthly_base"`
+	OverageAllowed      *bool                        `json:"overage_allowed,omitempty"`
+	PaygEnrolled        *bool                        `json:"payg_enrolled,omitempty"`
+	PaymentMethodStatus *PlanInfoPaymentMethodStatus `json:"payment_method_status,omitempty"`
 
 	// PeriodEnd Current subscription billing-period end in Unix milliseconds.
 	PeriodEnd *int `json:"period_end,omitempty"`
@@ -4594,6 +4718,9 @@ type PlanInfo struct {
 
 // PlanInfoBillingPeriod defines model for PlanInfo.BillingPeriod.
 type PlanInfoBillingPeriod string
+
+// PlanInfoPaymentMethodStatus defines model for PlanInfo.PaymentMethodStatus.
+type PlanInfoPaymentMethodStatus string
 
 // PlanInfoPlan defines model for PlanInfo.Plan.
 type PlanInfoPlan string
@@ -5129,18 +5256,21 @@ type ReportContextResponse struct {
 	TestName               *string                      `json:"test_name,omitempty"`
 	TestVersionId          *string                      `json:"test_version_id,omitempty"`
 	TestVersionNumber      *int                         `json:"test_version_number,omitempty"`
+	Tldr                   *ReportContextResponse_Tldr  `json:"tldr,omitempty"`
+	TotalSteps             *int                         `json:"total_steps,omitempty"`
+	TotalValidations       *int                         `json:"total_validations,omitempty"`
+	TraceId                *string                      `json:"trace_id,omitempty"`
+	UpdatedAt              *string                      `json:"updated_at,omitempty"`
+	ValidationsPassed      *int                         `json:"validations_passed,omitempty"`
+	VideoUrl               *string                      `json:"video_url,omitempty"`
+	WarningSteps           *int                         `json:"warning_steps,omitempty"`
+	WhepUrl                *string                      `json:"whep_url,omitempty"`
+	WorkflowExecutionId    *string                      `json:"workflow_execution_id,omitempty"`
+}
 
-	// Tldr TLDR output with structured citations
-	Tldr                *TLDROutput `json:"tldr,omitempty"`
-	TotalSteps          *int        `json:"total_steps,omitempty"`
-	TotalValidations    *int        `json:"total_validations,omitempty"`
-	TraceId             *string     `json:"trace_id,omitempty"`
-	UpdatedAt           *string     `json:"updated_at,omitempty"`
-	ValidationsPassed   *int        `json:"validations_passed,omitempty"`
-	VideoUrl            *string     `json:"video_url,omitempty"`
-	WarningSteps        *int        `json:"warning_steps,omitempty"`
-	WhepUrl             *string     `json:"whep_url,omitempty"`
-	WorkflowExecutionId *string     `json:"workflow_execution_id,omitempty"`
+// ReportContextResponse_Tldr defines model for ReportContextResponse.Tldr.
+type ReportContextResponse_Tldr struct {
+	union json.RawMessage
 }
 
 // ReportContextStepResponse High-context step payload for CLI/agent report consumption.
@@ -9792,6 +9922,68 @@ func (t RemoteBuildRequest_Source) MarshalJSON() ([]byte, error) {
 }
 
 func (t *RemoteBuildRequest_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsTLDROutput returns the union data inside the ReportContextResponse_Tldr as a TLDROutput
+func (t ReportContextResponse_Tldr) AsTLDROutput() (TLDROutput, error) {
+	var body TLDROutput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTLDROutput overwrites any union data inside the ReportContextResponse_Tldr as the provided TLDROutput
+func (t *ReportContextResponse_Tldr) FromTLDROutput(v TLDROutput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTLDROutput performs a merge with any union data inside the ReportContextResponse_Tldr, using the provided TLDROutput
+func (t *ReportContextResponse_Tldr) MergeTLDROutput(v TLDROutput) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsLaunchFailureSummary returns the union data inside the ReportContextResponse_Tldr as a LaunchFailureSummary
+func (t ReportContextResponse_Tldr) AsLaunchFailureSummary() (LaunchFailureSummary, error) {
+	var body LaunchFailureSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLaunchFailureSummary overwrites any union data inside the ReportContextResponse_Tldr as the provided LaunchFailureSummary
+func (t *ReportContextResponse_Tldr) FromLaunchFailureSummary(v LaunchFailureSummary) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLaunchFailureSummary performs a merge with any union data inside the ReportContextResponse_Tldr, using the provided LaunchFailureSummary
+func (t *ReportContextResponse_Tldr) MergeLaunchFailureSummary(v LaunchFailureSummary) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ReportContextResponse_Tldr) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ReportContextResponse_Tldr) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
