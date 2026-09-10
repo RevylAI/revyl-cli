@@ -537,7 +537,7 @@ func TestSyncToRemote_VersionConflict(t *testing.T) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/update"):
 			w.WriteHeader(http.StatusConflict)
-			_, _ = w.Write([]byte(`{"detail":"version conflict"}`))
+			_, _ = w.Write([]byte(`{"detail":{"error":"version_conflict","message":"Test was modified by another user. Your version: 3, current version: 4","current_version":4,"expected_version":3}}`))
 		case r.URL.Path == "/api/v1/tests/scripts" || r.URL.Path == "/api/v1/modules/list":
 			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
 		default:
@@ -569,6 +569,50 @@ func TestSyncToRemote_VersionConflict(t *testing.T) {
 	}
 	if results[0].Error != nil {
 		t.Fatalf("expected Error = nil for conflict, got %v", results[0].Error)
+	}
+}
+
+func TestSyncToRemote_DuplicateNameIsNotAVersionConflict(t *testing.T) {
+	testsDir := t.TempDir()
+	const duplicateNameDetail = `A test named "Login" already exists in this organization.`
+
+	client, cleanup := newResolverTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/update"):
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"detail":"A test named \"Login\" already exists in this organization."}`))
+		case r.URL.Path == "/api/v1/tests/scripts" || r.URL.Path == "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
+		default:
+			t.Fatalf("unexpected path: %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer cleanup()
+
+	local := &config.LocalTest{
+		Meta: config.TestMeta{
+			RemoteID:      "existing-id",
+			RemoteVersion: 3,
+			LocalVersion:  3,
+		},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: "Login", Platform: "ios"},
+			Blocks:   []config.TestBlock{{Type: "instructions", StepDescription: "Tap login"}},
+		},
+	}
+
+	resolver := NewResolver(client, &config.ProjectConfig{}, map[string]*config.LocalTest{"login": local})
+
+	results, err := resolver.SyncToRemote(context.Background(), "login", testsDir, false)
+	if err != nil {
+		t.Fatalf("SyncToRemote() error = %v", err)
+	}
+	if results[0].Conflict {
+		t.Fatal("expected Conflict = false for a duplicate-name rejection")
+	}
+	if results[0].Error == nil || results[0].Error.Error() != duplicateNameDetail {
+		t.Fatalf("expected the backend's duplicate-name message, got %v", results[0].Error)
 	}
 }
 

@@ -305,7 +305,7 @@ func TestSyncTestActionCmd_PushConflictReturnsError(t *testing.T) {
 			_, _ = w.Write([]byte(`{"items":[{"id":"app-1","name":"MyApp","platform":"ios","versions_count":1,"latest_version":"1.0.0"}],"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false}`))
 		case r.URL.Path == "/api/v1/tests/update/test-1":
 			w.WriteHeader(http.StatusConflict)
-			_, _ = w.Write([]byte(`{"detail":"conflict"}`))
+			_, _ = w.Write([]byte(`{"detail":{"error":"version_conflict","message":"Test was modified by another user. Your version: 1, current version: 2","current_version":2,"expected_version":1}}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}

@@ -417,8 +417,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				Force:           force,
 			})
 			if err != nil {
-				// Check if it's a version conflict
-				if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 409 {
+				if apiErr, ok := err.(*api.APIError); ok && apiErr.IsTestVersionConflict() {
 					result.Conflict = true
 				} else {
 					result.Error = err

@@ -167,7 +167,19 @@ func newScriptMockServer(t *testing.T) *httptest.Server {
 		if testID == "conflict-test" {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"detail": "Version conflict",
+				"detail": map[string]interface{}{
+					"error":            "version_conflict",
+					"message":          "Test was modified by another user. Your version: 1, current version: 2",
+					"current_version":  2,
+					"expected_version": 1,
+				},
+			})
+			return
+		}
+		if testID == "duplicate-name-test" {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"detail": `A test named "Login" already exists in this organization.`,
 			})
 			return
 		}
@@ -426,6 +438,35 @@ func TestUpdateTestConflict(t *testing.T) {
 	}
 	if apiErr.StatusCode != 409 {
 		t.Errorf("UpdateTest conflict: expected status 409, got %d", apiErr.StatusCode)
+	}
+	if !apiErr.IsTestVersionConflict() {
+		t.Error("UpdateTest conflict: expected a structured version conflict")
+	}
+}
+
+func TestUpdateTestDuplicateNameIsNotAVersionConflict(t *testing.T) {
+	server := newScriptMockServer(t)
+	defer server.Close()
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	ctx := context.Background()
+
+	_, err := client.UpdateTest(ctx, &api.UpdateTestRequest{
+		TestID: "duplicate-name-test",
+		Name:   "Login",
+	})
+	if err == nil {
+		t.Fatal("UpdateTest duplicate name: expected error, got nil")
+	}
+	apiErr, ok := err.(*api.APIError)
+	if !ok {
+		t.Fatalf("UpdateTest duplicate name: expected *api.APIError, got %T", err)
+	}
+	if apiErr.IsTestVersionConflict() {
+		t.Error("UpdateTest duplicate name: a plain-text 409 must not read as a version conflict")
+	}
+	want := `A test named "Login" already exists in this organization.`
+	if apiErr.Error() != want {
+		t.Errorf("UpdateTest duplicate name: expected %q, got %q", want, apiErr.Error())
 	}
 }
 

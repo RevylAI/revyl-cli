@@ -326,6 +326,16 @@ func (e *APIError) Error() string {
 	return base
 }
 
+// IsTestVersionConflict reports whether a test update was rejected because the
+// remote version advanced past the caller's expected version. Other 409s on the
+// same route (for example renaming a test to a name that already exists) carry a
+// plain-text detail and are not resolved by forcing the push.
+func (e *APIError) IsTestVersionConflict() bool {
+	return e != nil &&
+		e.StatusCode == http.StatusConflict &&
+		e.DetailString("error") == "version_conflict"
+}
+
 // DetailString returns a string field from a structured detail payload.
 func (e *APIError) DetailString(key string) string {
 	if e == nil || e.DetailObject == nil {

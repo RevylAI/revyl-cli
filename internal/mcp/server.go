@@ -3982,8 +3982,7 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 
 	resp, err := s.apiClient.UpdateTest(ctx, updateReq)
 	if err != nil {
-		// Check for version conflict
-		if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 409 {
+		if apiErr, ok := err.(*api.APIError); ok && apiErr.IsTestVersionConflict() {
 			return nil, UpdateTestOutput{
 				Success: false,
 				Error:   "Version conflict: remote test has been modified. Use force=true to overwrite.",
