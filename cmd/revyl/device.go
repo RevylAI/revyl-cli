@@ -3412,4 +3412,14 @@ func init() {
 	deviceLogsCmd.Flags().Bool("no-follow", false, "Single snapshot then exit")
 	deviceLogsCmd.Flags().String("interval", "2s", "Poll interval (e.g. 1s, 500ms)")
 	deviceLogsCmd.Flags().Bool("json", false, "Output raw JSON per poll")
+
+	devicePushCmd.Flags().String("title", "", "Notification title")
+	devicePushCmd.Flags().String("body", "", "Notification body")
+	devicePushCmd.Flags().Int("badge", 0, "Badge count")
+	devicePushCmd.PersistentFlags().String("bundle-id", "", "Target app bundle id")
+	devicePushCmd.PersistentFlags().Bool("json", false, "Output as JSON")
+	sessionFlag(devicePushCmd)
+	sessionFlag(devicePushApnsCmd)
+	devicePushCmd.AddCommand(devicePushApnsCmd)
+	deviceCmd.AddCommand(devicePushCmd)
 }

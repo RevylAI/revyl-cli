@@ -2676,8 +2676,9 @@ func (m *DeviceSessionManager) lockInputAction(ctx context.Context, session *Dev
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
 // Retrying these creates duplicate work (e.g. duplicate agent steps).
 var nonIdempotentPaths = map[string]bool{
-	"/execute_step":  true,
-	"/install_async": true,
+	"/execute_step":      true,
+	"/install_async":     true,
+	"/push_notification": true,
 }
 
 // workerRequestForSession is the internal implementation that sends a worker
