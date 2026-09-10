@@ -191,55 +191,60 @@ func TestInstallRemoteDevBuild_ReturnsTerminalWorkerFailure(t *testing.T) {
 }
 
 func TestDevStatusRemoteBuildProgressSinkPreservesRemoteMetadata(t *testing.T) {
-	cwd := t.TempDir()
-	status := devStatus{
-		PID:           os.Getpid(),
-		SessionID:     "session-1",
-		BuildMode:     "remote",
-		InstalledSeed: true,
-		SeededVersion: "1.2.3",
-		RebuildCount:  2,
-		Build: &devloop.BuildStatus{
-			State:         devloop.BuildStateQueued,
-			RemoteJobID:   "job-123",
-			SeededVersion: "1.2.3",
-		},
-		LastRebuild: &devRebuildInfo{
-			Status:      "running",
-			Seq:         2,
-			RemoteJobID: "job-123",
-			Logs:        []devRebuildLogEntry{newDevRebuildLog("info", "Remote build queued")},
-		},
-	}
-	writeDevLogsTestStatus(t, cwd, "default", status)
-	statusPath := devCtxStatusPath(cwd, "default")
-	sink := newDevStatusRemoteBuildProgressSink(statusPath)
+	for _, progress := range []remoteDevBuildProgress{
+		{State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device"},
+		remoteBuildProgressFromStatus(&api.RemoteBuildStatusResponse{Status: "pending", Phase: stringPtrOrNil("organization_concurrency")}),
+	} {
+		t.Run(progress.Phase, func(t *testing.T) {
+			cwd := t.TempDir()
+			status := devStatus{
+				PID:           os.Getpid(),
+				SessionID:     "session-1",
+				BuildMode:     "remote",
+				InstalledSeed: true,
+				SeededVersion: "1.2.3",
+				RebuildCount:  2,
+				Build: &devloop.BuildStatus{
+					State:         devloop.BuildStateQueued,
+					RemoteJobID:   "job-123",
+					SeededVersion: "1.2.3",
+				},
+				LastRebuild: &devRebuildInfo{
+					Status:      "running",
+					Seq:         2,
+					RemoteJobID: "job-123",
+					Logs:        []devRebuildLogEntry{newDevRebuildLog("info", "Remote build queued")},
+				},
+			}
+			writeDevLogsTestStatus(t, cwd, "default", status)
+			statusPath := devCtxStatusPath(cwd, "default")
+			sink := newDevStatusRemoteBuildProgressSink(statusPath)
 
-	publishRemoteDevBuildProgress(sink, remoteDevBuildProgress{
-		State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device",
-	})
+			publishRemoteDevBuildProgress(sink, progress)
 
-	data, err := os.ReadFile(statusPath.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var updated devStatus
-	if err := json.Unmarshal(data, &updated); err != nil {
-		t.Fatal(err)
-	}
-	if updated.Build == nil ||
-		updated.Build.State != devloop.BuildStateInstalling ||
-		updated.Build.Phase != "device_install" {
-		t.Fatalf("build progress = %+v", updated.Build)
-	}
-	if updated.Build.RemoteJobID != "job-123" || updated.LastRebuild.RemoteJobID != "job-123" {
-		t.Fatalf("remote job metadata was not preserved: build=%+v rebuild=%+v", updated.Build, updated.LastRebuild)
-	}
-	if !updated.InstalledSeed || updated.SeededVersion != "1.2.3" {
-		t.Fatalf("seed metadata = (%v, %q)", updated.InstalledSeed, updated.SeededVersion)
-	}
-	if got := updated.LastRebuild.Logs[len(updated.LastRebuild.Logs)-1].Message; got != "Installing remote build on device" {
-		t.Fatalf("last progress log = %q", got)
+			data, err := os.ReadFile(statusPath.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var updated devStatus
+			if err := json.Unmarshal(data, &updated); err != nil {
+				t.Fatal(err)
+			}
+			if updated.Build == nil ||
+				updated.Build.State != progress.State ||
+				updated.Build.Phase != progress.Phase {
+				t.Fatalf("build progress = %+v", updated.Build)
+			}
+			if updated.Build.RemoteJobID != "job-123" || updated.LastRebuild.RemoteJobID != "job-123" {
+				t.Fatalf("remote job metadata was not preserved: build=%+v rebuild=%+v", updated.Build, updated.LastRebuild)
+			}
+			if !updated.InstalledSeed || updated.SeededVersion != "1.2.3" {
+				t.Fatalf("seed metadata = (%v, %q)", updated.InstalledSeed, updated.SeededVersion)
+			}
+			if got := updated.LastRebuild.Logs[len(updated.LastRebuild.Logs)-1].Message; got != progress.Message {
+				t.Fatalf("last progress log = %q", got)
+			}
+		})
 	}
 }
 

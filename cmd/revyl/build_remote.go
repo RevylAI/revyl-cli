@@ -322,7 +322,8 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	waitCtx, stopWaitSignals := interruptibleBuildWaitContext(ctx)
 	defer stopWaitSignals()
 	opts.markFailureStage("poll")
-	status, err := pollRemoteBuildStatusResult(waitCtx, client, jobID, opts.JSON)
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	status, err := pollRemoteBuildStatusResult(waitCtx, client, jobID, opts.JSON, quiet)
 	if err != nil {
 		if opts.JSON {
 			result := remoteBuildFailureJSON(resolved, jobID, status, err)
@@ -573,16 +574,20 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 	jobID := strings.TrimSpace(args[0])
+	quiet, _ := cmd.Flags().GetBool("quiet")
 
 	var status *api.RemoteBuildStatusResponse
 	if buildStatusFollow {
 		followCtx, stopFollowSignals := interruptibleBuildWaitContext(cmd.Context())
 		defer stopFollowSignals()
-		status, err = pollRemoteBuildStatusResult(followCtx, client, jobID, buildStatusJSON)
+		status, err = pollRemoteBuildStatusResult(followCtx, client, jobID, buildStatusJSON, quiet)
 	} else {
 		status, err = client.GetRemoteBuildStatus(cmd.Context(), jobID)
 	}
 	if buildStatusJSON {
+		if !quiet && !buildStatusFollow && isOrganizationConcurrencyWait(status) {
+			fmt.Fprintln(cmd.ErrOrStderr(), api.ConcurrencyUpgradeHint)
+		}
 		if status != nil {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")

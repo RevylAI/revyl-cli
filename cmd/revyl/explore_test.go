@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ type fakeExploreAPI struct {
 	apps          map[string]*api.App
 	searchResults []api.App
 	launchVars    []api.OrgLaunchVariable
+	launch        *api.ExplorationLaunchResponse
 	reports       []*api.ExplorationRunReportResponse
 	reportErr     error
 	reportCalls   int
@@ -45,6 +47,9 @@ func (f *fakeExploreAPI) ListOrgLaunchVariables(context.Context) (*api.OrgLaunch
 }
 
 func (f *fakeExploreAPI) LaunchExploration(context.Context, string, *api.ExplorationLaunchRequest) (*api.ExplorationLaunchResponse, error) {
+	if f.launch != nil {
+		return f.launch, nil
+	}
 	return nil, errors.New("not implemented")
 }
 
@@ -274,6 +279,62 @@ func TestExploreConcurrencyWarningRequiresKnownTrimmedCount(t *testing.T) {
 				t.Fatalf("exploreConcurrencyWasTrimmed() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestExploreConcurrencyTrimIncludesUpgradeWithoutChangingJSON(t *testing.T) {
+	for _, jsonMode := range []bool{false, true} {
+		for _, quiet := range []bool{false, true} {
+			for _, launched := range []int{0, 2, 5} {
+				for _, noWait := range []bool{false, true} {
+					t.Run(fmt.Sprintf("json=%t/quiet=%t/launched=%d/no-wait=%t", jsonMode, quiet, launched, noWait), func(t *testing.T) {
+						resetExploreFlagsForTest(t)
+						t.Setenv("REVYL_API_KEY", "test-key")
+						exploreExplorerCount, exploreNoWait, exploreNoInheritedLaunchVars = 5, noWait, true
+						appID := uuid.NewString()
+						run := exploreRun("running", "processing", "processing", nil)
+						configMap := map[string]interface{}{"lane_count": float64(launched)}
+						run.Config = &configMap
+						report := exploreReport("completed", "completed", "ready", launched, launched)
+						report.Run.Config = &configMap
+						client := &fakeExploreAPI{
+							apps:    map[string]*api.App{appID: {ID: appID, Name: "Example", Platform: "ios"}},
+							launch:  &api.ExplorationLaunchResponse{Run: run, ReportUrl: "https://app.example/report"},
+							reports: []*api.ExplorationRunReportResponse{report},
+						}
+						previous := exploreNewClient
+						exploreNewClient = func(string, bool) exploreAPI { return client }
+						t.Cleanup(func() { exploreNewClient = previous })
+						cmd := &cobra.Command{}
+						cmd.SetContext(context.Background())
+						cmd.Flags().Bool("json", jsonMode, "")
+						cmd.Flags().Bool("quiet", quiet, "")
+						var stdout, stderr bytes.Buffer
+						cmd.SetOut(&stdout)
+						cmd.SetErr(&stderr)
+						if err := runExploreRun(cmd, []string{appID}); err != nil {
+							t.Fatal(err)
+						}
+						if jsonMode {
+							var output exploreOutput
+							if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+								t.Fatalf("stdout is not valid JSON: %v", err)
+							}
+							if output.ExplorersRequested != 5 || output.ExplorersLaunched != launched {
+								t.Fatalf("explorer counts changed: %+v", output)
+							}
+						}
+						wantCount := 0
+						if !quiet && launched == 2 {
+							wantCount = 1
+						}
+						if strings.Count(stderr.String(), api.ConcurrencyUpgradeHint) != wantCount || strings.Contains(stdout.String(), api.ConcurrencyUpgradeHint) {
+							t.Fatalf("want %d hints on stderr only: stdout=%s stderr=%s", wantCount, stdout.String(), stderr.String())
+						}
+					})
+				}
+			}
+		}
 	}
 }
 

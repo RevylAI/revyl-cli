@@ -318,7 +318,7 @@ func (e *APIError) Error() string {
 		base = fmt.Sprintf("HTTP %d: %s", e.StatusCode, http.StatusText(e.StatusCode))
 	}
 
-	if e.Hint != "" {
+	if e.Hint != "" && !strings.Contains(base, e.Hint) {
 		return base + "\n" + e.Hint
 	}
 	return base
@@ -356,12 +356,10 @@ func (e *APIError) DetailBool(key string) bool {
 //
 // Parameters:
 //   - statusCode: The HTTP status code
-//   - message: The parsed error message from the response
-//   - detail: The parsed error detail from the response
 //
 // Returns:
 //   - string: A hint message, or empty string if no hint is applicable
-func authHintForStatus(statusCode int, message, detail string) string {
+func authHintForStatus(statusCode int) string {
 	if statusCode == 401 {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
@@ -496,15 +494,21 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		}
 	}
 
-	return &APIError{
+	apiError := &APIError{
 		StatusCode:       statusCode,
 		Code:             errResp.Code,
 		Message:          message,
 		Detail:           detail,
 		ValidationIssues: validationIssues,
 		DetailObject:     detailObject,
-		Hint:             authHintForStatus(statusCode, message, detail),
+		Hint:             authHintForStatus(statusCode),
 	}
+	if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusConflict) &&
+		(isConcurrencyLimitMessage(message+" "+detail) || isConcurrencyLimitCode(apiError.Code) ||
+			isConcurrencyLimitCode(apiError.DetailString("code")) || isConcurrencyLimitCode(apiError.DetailString("error_type"))) {
+		apiError.Hint = ConcurrencyUpgradeHint
+	}
+	return apiError
 }
 
 // stripHTMLTags removes HTML tags from a string.
@@ -4293,6 +4297,10 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	var result StartDeviceResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
+	}
+	if result.Error != nil {
+		message := withConcurrencyUpgradeHint(*result.Error)
+		result.Error = &message
 	}
 
 	return &result, nil

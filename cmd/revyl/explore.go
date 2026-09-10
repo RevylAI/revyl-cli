@@ -187,6 +187,7 @@ func runExploreRun(cmd *cobra.Command, args []string) error {
 			output.ExplorersRequested,
 			output.ExplorersLaunched,
 		)
+		fmt.Fprintln(cmd.ErrOrStderr(), api.ConcurrencyUpgradeHint)
 	}
 
 	if exploreOpen && strings.TrimSpace(launch.ReportUrl) != "" {

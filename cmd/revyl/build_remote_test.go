@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +19,8 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/ui"
+	"github.com/spf13/cobra"
 )
 
 func withFastRemoteBuildPolling(t *testing.T) {
@@ -70,6 +74,24 @@ func remoteBuildStatusServer(t *testing.T, status api.RemoteBuildStatusResponse,
 	}))
 }
 
+func remoteBuildStatusSequenceServer(t *testing.T, statuses ...api.RemoteBuildStatusResponse) *httptest.Server {
+	t.Helper()
+	requests := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/apps/remote/job-1/logs":
+			_, _ = w.Write([]byte(`{"events":[]}`))
+		case "/api/v1/apps/remote/job-1/status":
+			_ = json.NewEncoder(w).Encode(statuses[min(requests, len(statuses)-1)])
+			requests++
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
 func TestPollRemoteBuildStatusResultTreatsCancelledAsTerminalError(t *testing.T) {
 	withFastRemoteBuildPolling(t)
 	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
@@ -78,7 +100,7 @@ func TestPollRemoteBuildStatusResultTreatsCancelledAsTerminalError(t *testing.T)
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false)
+	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false, false)
 
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("pollRemoteBuildStatusResult() error = %v, want cancelled", err)
@@ -93,7 +115,7 @@ func TestPollRemoteBuildStatusResultRejectsSuccessWithoutVersionID(t *testing.T)
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false)
+	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false, false)
 
 	if err == nil || !strings.Contains(err.Error(), "no build version ID") {
 		t.Fatalf("pollRemoteBuildStatusResult() error = %v, want missing version ID", err)
@@ -112,7 +134,7 @@ func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
 	client := api.NewClientWithBaseURL("test-key", server.URL)
 	var err error
 	output := captureStdoutAndStderr(t, func() {
-		_, err = pollRemoteBuildStatusResult(context.Background(), client, "job-1", false)
+		_, err = pollRemoteBuildStatusResult(context.Background(), client, "job-1", false, false)
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "xcodebuild failed") {
@@ -129,7 +151,10 @@ func TestPrintRemoteBuildConcurrencyWaitIsConcise(t *testing.T) {
 	if !strings.Contains(output, remoteBuildConcurrencyWaitMessage) {
 		t.Fatalf("output missing concurrency wait message:\n%s", output)
 	}
-	for _, unwanted := range []string{"another build", "Upgrade", "settings/plans"} {
+	if !strings.Contains(output, api.ConcurrencyUpgradeHint) {
+		t.Fatalf("output missing upgrade action:\n%s", output)
+	}
+	for _, unwanted := range []string{"another build"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("output contains obsolete text %q:\n%s", unwanted, output)
 		}
@@ -156,6 +181,132 @@ func TestOrganizationConcurrencyWaitRequiresQueuedStatusAndExactPhase(t *testing
 	if remoteBuildDisplayKey(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase}) ==
 		remoteBuildDisplayKey(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &dispatch}) {
 		t.Fatal("display state should change when a pending build enters organization concurrency")
+	}
+}
+
+func TestRemoteBuildConcurrencyUpgradeHintStaysOffStdout(t *testing.T) {
+	if output := captureStdout(t, printRemoteBuildConcurrencyWait); output != "" {
+		t.Fatalf("upgrade guidance must not contaminate JSON stdout: %q", output)
+	}
+}
+
+func TestPollRemoteBuildConcurrencyOffersUpgradeOnce(t *testing.T) {
+	withFastRemoteBuildPolling(t)
+	for _, jsonMode := range []bool{false, true} {
+		for _, quiet := range []bool{false, true} {
+			for _, debug := range []bool{false, true} {
+				t.Run(fmt.Sprintf("json=%t/quiet=%t/debug=%t", jsonMode, quiet, debug), func(t *testing.T) {
+					previousQuiet, previousDebug := ui.IsQuietMode(), ui.IsDebugMode()
+					ui.SetQuietMode(jsonMode || quiet)
+					ui.SetDebugMode(debug)
+					t.Cleanup(func() { ui.SetQuietMode(previousQuiet); ui.SetDebugMode(previousDebug) })
+					phase := "organization_concurrency"
+					server := remoteBuildStatusSequenceServer(t,
+						api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
+						api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
+						api.RemoteBuildStatusResponse{Status: "queued", Phase: &phase},
+						api.RemoteBuildStatusResponse{Status: "pending", Phase: stringPtrOrNil("dispatch")},
+						api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
+						api.RemoteBuildStatusResponse{Status: "success", VersionId: stringPtrOrNil("version-1")},
+					)
+					defer server.Close()
+					client := api.NewClientWithBaseURL("test-key", server.URL)
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+					defer cancel()
+					var stdout string
+					output := captureStdoutAndStderr(t, func() {
+						stdout = captureStdout(t, func() {
+							if _, err := pollRemoteBuildStatusResult(ctx, client, "job-1", jsonMode, quiet); err != nil {
+								t.Fatal(err)
+							}
+						})
+					})
+					wantCount := 1
+					if quiet {
+						wantCount = 0
+					}
+					if count := strings.Count(output, api.ConcurrencyUpgradeHint); count != wantCount || stdout != "" {
+						t.Fatalf("hint count = %d, want %d; stdout=%q stderr=%q", count, wantCount, stdout, output)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestBuildStatusConcurrencyJSONPreservesContractAndOffersUpgrade(t *testing.T) {
+	withFastRemoteBuildPolling(t)
+	for _, jsonMode := range []bool{false, true} {
+		for _, quiet := range []bool{false, true} {
+			for _, follow := range []bool{false, true} {
+				for _, phase := range []string{"organization_concurrency", "dispatch"} {
+					t.Run(fmt.Sprintf("json=%t/quiet=%t/follow=%t/%s", jsonMode, quiet, follow, phase), func(t *testing.T) {
+						server := remoteBuildStatusSequenceServer(t,
+							api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
+							api.RemoteBuildStatusResponse{Status: "success", VersionId: stringPtrOrNil("version-1")},
+						)
+						defer server.Close()
+						t.Setenv("REVYL_API_KEY", "test-key")
+						t.Setenv("REVYL_BACKEND_URL", server.URL)
+						previousJSON, previousFollow, previousQuiet := buildStatusJSON, buildStatusFollow, ui.IsQuietMode()
+						buildStatusJSON, buildStatusFollow = jsonMode, follow
+						ui.SetQuietMode(quiet || jsonMode)
+						t.Cleanup(func() {
+							buildStatusJSON, buildStatusFollow = previousJSON, previousFollow
+							ui.SetQuietMode(previousQuiet)
+						})
+						cmd := &cobra.Command{}
+						cmd.Flags().Bool("quiet", quiet, "")
+						ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+						defer cancel()
+						cmd.SetContext(ctx)
+						var commandStderr bytes.Buffer
+						cmd.SetErr(&commandStderr)
+						var stdout string
+						stderr := captureStdoutAndStderr(t, func() {
+							stdout = captureStdout(t, func() {
+								if err := runBuildStatus(cmd, []string{"job-1"}); err != nil {
+									t.Fatal(err)
+								}
+							})
+						}) + commandStderr.String()
+						if jsonMode {
+							var decoded map[string]interface{}
+							if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+								t.Fatalf("invalid JSON stdout: %v", err)
+							}
+							if len(decoded) != 2 || (!follow && (decoded["status"] != "pending" || decoded["phase"] != phase)) || (follow && (decoded["status"] != "success" || decoded["version_id"] != "version-1")) {
+								t.Fatalf("build status contract changed: %s", stdout)
+							}
+						} else if stdout != "" {
+							t.Fatalf("human status must stay on stderr: %q", stdout)
+						}
+						wantHint := !quiet && phase == "organization_concurrency"
+						if got := strings.Contains(stderr, api.ConcurrencyUpgradeHint); got != wantHint {
+							t.Fatalf("hint present = %t, want %t: %s", got, wantHint, stderr)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestRemoteBuildProgressOnlyOffersConcurrencyUpgradeForOrgQueue(t *testing.T) {
+	for _, state := range []string{"pending", "queued", "building", "running", "success", "failed", "cancelled"} {
+		for _, phase := range []string{"organization_concurrency", "dispatch", "capacity", "xcodebuild", ""} {
+			t.Run(state+"/"+phase, func(t *testing.T) {
+				status := &api.RemoteBuildStatusResponse{Status: state, Phase: stringPtrOrNil(phase)}
+				progress := remoteBuildProgressFromStatus(status)
+				wantHint := (state == "pending" || state == "queued") && phase == "organization_concurrency"
+				if strings.Contains(progress.Message, api.ConcurrencyUpgradeHint) != wantHint || isOrganizationConcurrencyWait(status) != wantHint {
+					t.Fatalf("unexpected upgrade guidance: %+v", progress)
+				}
+				if phase != "" && progress.Phase != phase {
+					t.Fatalf("phase changed: %+v", progress)
+				}
+			})
+		}
 	}
 }
 

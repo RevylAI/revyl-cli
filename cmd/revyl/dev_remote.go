@@ -734,7 +734,7 @@ func waitRemoteDevBuild(
 	cwd string,
 	progressSink remoteDevBuildProgressSink,
 ) (remoteDevBuildResult, error) {
-	status, err := pollRemoteBuildStatusResultWithProgress(ctx, client, job.jobID, false, progressSink)
+	status, err := pollRemoteBuildStatusResultWithProgress(ctx, client, job.jobID, false, ui.IsQuietMode(), progressSink)
 	if err != nil {
 		return remoteDevBuildResult{jobID: job.jobID, duration: time.Since(job.started)}, err
 	}
@@ -974,8 +974,8 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 	}, nil
 }
 
-func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string, jsonMode bool) (*api.RemoteBuildStatusResponse, error) {
-	return pollRemoteBuildStatusResultWithProgress(ctx, client, jobID, jsonMode, nil)
+func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string, jsonMode, quiet bool) (*api.RemoteBuildStatusResponse, error) {
+	return pollRemoteBuildStatusResultWithProgress(ctx, client, jobID, jsonMode, quiet, nil)
 }
 
 // pollRemoteBuildStatusResultWithProgress waits for a remote build and publishes status transitions.
@@ -994,7 +994,7 @@ func pollRemoteBuildStatusResultWithProgress(
 	ctx context.Context,
 	client *api.Client,
 	jobID string,
-	jsonMode bool,
+	jsonMode, quiet bool,
 	progressSink remoteDevBuildProgressSink,
 ) (*api.RemoteBuildStatusResponse, error) {
 	ticker := time.NewTicker(remoteBuildPollInterval)
@@ -1002,6 +1002,7 @@ func pollRemoteBuildStatusResultWithProgress(
 
 	lastDisplayKey := ""
 	lastProgressKey := ""
+	concurrencyHintShown := false
 	logCursor := "0-0"
 	logFormatter := &remoteBuildLogFormatter{}
 	startTime := time.Now()
@@ -1032,6 +1033,15 @@ func pollRemoteBuildStatusResultWithProgress(
 			}
 			displayKey := remoteBuildDisplayKey(status)
 			if displayKey != lastDisplayKey {
+				if !quiet && !concurrencyHintShown && isOrganizationConcurrencyWait(status) {
+					ui.StopSpinner()
+					if jsonMode {
+						fmt.Fprintln(os.Stderr, api.ConcurrencyUpgradeHint)
+					} else {
+						ui.PrintInfo("%s", api.ConcurrencyUpgradeHint)
+					}
+					concurrencyHintShown = true
+				}
 				if ui.IsDebugMode() {
 					elapsed := time.Since(startTime).Round(time.Second)
 					ui.PrintInfo("[%s] Remote build status: %s", elapsed, remoteBuildDisplayStatus(status))
@@ -1139,6 +1149,7 @@ const remoteBuildConcurrencyWaitMessage = "Waiting for available concurrency"
 
 func printRemoteBuildConcurrencyWait() {
 	ui.PrintInfo("%s", remoteBuildConcurrencyWaitMessage)
+	ui.PrintInfo("%s", api.ConcurrencyUpgradeHint)
 }
 
 // remoteBuildProgressFromStatus maps a backend build status to the stable dev lifecycle.
@@ -1164,6 +1175,9 @@ func remoteBuildProgressFromStatus(status *api.RemoteBuildStatusResponse) remote
 	switch strings.ToLower(strings.TrimSpace(status.Status)) {
 	case "pending", "queued":
 		progress.State = devloop.BuildStateQueued
+		if isOrganizationConcurrencyWait(status) {
+			progress.Message = remoteBuildConcurrencyWaitMessage + ". " + api.ConcurrencyUpgradeHint
+		}
 	case "success":
 		progress.State = devloop.BuildStateInstalling
 		progress.Message = "Remote build completed"
