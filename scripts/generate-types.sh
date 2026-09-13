@@ -4,6 +4,7 @@
 # Usage:
 #   ./generate-types.sh          # Use cached openapi.json (default, for CI/contributors)
 #   ./generate-types.sh --fetch  # Fetch fresh spec from backend (internal dev)
+#   ./generate-types.sh --input PATH # Use a full contract exported from this checkout
 #
 # The cached openapi.json is the source of truth for CI and open source contributors.
 # Internal developers can use --fetch to update the cached spec from a running backend.
@@ -56,7 +57,14 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 # Only fetch from backend if --fetch flag is passed
-if [ "${1:-}" = "--fetch" ]; then
+INPUT_SPEC="$CACHED_SPEC"
+if [ "${1:-}" = "--input" ]; then
+    if [ -z "${2:-}" ] || [ ! -s "$2" ]; then
+        echo "Error: --input requires a nonempty OpenAPI file"
+        exit 1
+    fi
+    INPUT_SPEC="$2"
+elif [ "${1:-}" = "--fetch" ]; then
     echo "Fetching fresh OpenAPI spec from $OPENAPI_URL..."
     if curl -s --fail "$OPENAPI_URL" -o "$FETCHED_SPEC" 2>/dev/null \
         && [ -s "$FETCHED_SPEC" ] \
@@ -84,9 +92,8 @@ else
     echo "Using cached OpenAPI spec..."
 fi
 
-# Check if cached spec exists
-if [ ! -s "$CACHED_SPEC" ]; then
-    echo "✗ No usable cached openapi.json found at $CACHED_SPEC"
+if [ ! -s "$INPUT_SPEC" ]; then
+    echo "✗ No usable openapi.json found at $INPUT_SPEC"
     echo ""
     echo "Options:"
     echo "  1. Run with --fetch flag (requires running backend)"
@@ -94,7 +101,7 @@ if [ ! -s "$CACHED_SPEC" ]; then
     exit 1
 fi
 
-echo "✓ Using spec: $CACHED_SPEC"
+echo "✓ Using spec: $INPUT_SPEC"
 echo ""
 
 # Fail closed through the explicit CLI operation allowlist. The filter also
@@ -102,7 +109,7 @@ echo ""
 # as an intentional schema-hidden exception, and removes unreachable schemas.
 echo "Applying explicit CLI OpenAPI allowlist..."
 python3 "$SCRIPT_DIR/filter_openapi_for_cli.py" \
-    --input "$CACHED_SPEC" \
+    --input "$INPUT_SPEC" \
     --output "$FILTERED_SPEC" \
     --project-dir "$PROJECT_DIR" \
     --allowlist "$SCRIPT_DIR/openapi-allowlist.txt" \

@@ -150,6 +150,24 @@ func (e AtlasAnnotationAgentKind) Valid() bool {
 	}
 }
 
+// Defines values for AtlasAnnotationAgentToolMentionMetadataDispatchKind.
+const (
+	AtlasAnnotationAgentToolMentionMetadataDispatchKindCloudAgentFollowUp AtlasAnnotationAgentToolMentionMetadataDispatchKind = "cloud_agent_follow_up"
+	AtlasAnnotationAgentToolMentionMetadataDispatchKindCloudAgentLaunch   AtlasAnnotationAgentToolMentionMetadataDispatchKind = "cloud_agent_launch"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAnnotationAgentToolMentionMetadataDispatchKind enum.
+func (e AtlasAnnotationAgentToolMentionMetadataDispatchKind) Valid() bool {
+	switch e {
+	case AtlasAnnotationAgentToolMentionMetadataDispatchKindCloudAgentFollowUp:
+		return true
+	case AtlasAnnotationAgentToolMentionMetadataDispatchKindCloudAgentLaunch:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AtlasAnnotationOriginSurface.
 const (
 	AtlasAnnotationOriginSurfaceAppAtlas    AtlasAnnotationOriginSurface = "app_atlas"
@@ -759,6 +777,27 @@ func (e ConfigurationAuthority) Valid() bool {
 	case ConfigurationAuthorityGitDefaultBranch:
 		return true
 	case ConfigurationAuthorityManual:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CursorCloudAgentStartingPointType.
+const (
+	CursorCloudAgentStartingPointTypeBranch      CursorCloudAgentStartingPointType = "branch"
+	CursorCloudAgentStartingPointTypeCommit      CursorCloudAgentStartingPointType = "commit"
+	CursorCloudAgentStartingPointTypePullRequest CursorCloudAgentStartingPointType = "pull_request"
+)
+
+// Valid indicates whether the value is a known member of the CursorCloudAgentStartingPointType enum.
+func (e CursorCloudAgentStartingPointType) Valid() bool {
+	switch e {
+	case CursorCloudAgentStartingPointTypeBranch:
+		return true
+	case CursorCloudAgentStartingPointTypeCommit:
+		return true
+	case CursorCloudAgentStartingPointTypePullRequest:
 		return true
 	default:
 		return false
@@ -1864,6 +1903,18 @@ type AsyncStatus string
 // AtlasAnnotationAgentKind defines model for AtlasAnnotationAgentKind.
 type AtlasAnnotationAgentKind string
 
+// AtlasAnnotationAgentToolMentionMetadata defines model for AtlasAnnotationAgentToolMentionMetadata.
+type AtlasAnnotationAgentToolMentionMetadata struct {
+	AgentKind    string                                              `json:"agent_kind"`
+	DispatchKind AtlasAnnotationAgentToolMentionMetadataDispatchKind `json:"dispatch_kind"`
+	DisplayName  string                                              `json:"display_name"`
+	EndUtf16     int                                                 `json:"end_utf16"`
+	StartUtf16   int                                                 `json:"start_utf16"`
+}
+
+// AtlasAnnotationAgentToolMentionMetadataDispatchKind defines model for AtlasAnnotationAgentToolMentionMetadata.DispatchKind.
+type AtlasAnnotationAgentToolMentionMetadataDispatchKind string
+
 // AtlasAnnotationAnchor Immutable evidence anchor for a thread.
 //
 // “observation_id“ references an exact observation; observation ids are
@@ -1923,7 +1974,8 @@ type AtlasAnnotationAuthor struct {
 
 // AtlasAnnotationComment defines model for AtlasAnnotationComment.
 type AtlasAnnotationComment struct {
-	Attachments *[]AtlasAttachment `json:"attachments,omitempty"`
+	AgentToolMentions *[]AtlasAnnotationComment_AgentToolMentions_Item `json:"agent_tool_mentions,omitempty"`
+	Attachments       *[]AtlasAttachment                               `json:"attachments,omitempty"`
 
 	// Author Author identity for authenticated org members.
 	//
@@ -1943,6 +1995,11 @@ type AtlasAnnotationComment struct {
 	Version   *int                      `json:"version,omitempty"`
 }
 
+// AtlasAnnotationComment_AgentToolMentions_Item defines model for AtlasAnnotationComment.agent_tool_mentions.Item.
+type AtlasAnnotationComment_AgentToolMentions_Item struct {
+	union json.RawMessage
+}
+
 // AtlasAnnotationCommentEditRequest defines model for AtlasAnnotationCommentEditRequest.
 type AtlasAnnotationCommentEditRequest struct {
 	AddAttachmentIds    *[]openapi_types.UUID          `json:"add_attachment_ids,omitempty"`
@@ -1960,6 +2017,123 @@ type AtlasAnnotationCommentResponse struct {
 	ThreadLastActivityAt time.Time              `json:"thread_last_activity_at"`
 }
 
+// AtlasAnnotationCursorAdjustSettingsAction defines model for AtlasAnnotationCursorAdjustSettingsAction.
+type AtlasAnnotationCursorAdjustSettingsAction struct {
+	RecoveryKind     string                                        `json:"recovery_kind"`
+	RecoveryRevision string                                        `json:"recovery_revision"`
+	Settings         AtlasAnnotationCursorCloudAgentLaunchSettings `json:"settings"`
+}
+
+// AtlasAnnotationCursorCloudAgentLaunchSettings defines model for AtlasAnnotationCursorCloudAgentLaunchSettings.
+type AtlasAnnotationCursorCloudAgentLaunchSettings struct {
+	AutoCreatePr       *bool                `json:"auto_create_pr,omitempty"`
+	ConnectionId       openapi_types.UUID   `json:"connection_id"`
+	ConnectionType     CursorConnectionType `json:"connection_type"`
+	CredentialRevision int                  `json:"credential_revision"`
+
+	// DeviceTarget A device model + runtime combination.
+	DeviceTarget      *DevicePair                       `json:"device_target,omitempty"`
+	LaunchEnvVarIds   *[]openapi_types.UUID             `json:"launch_env_var_ids,omitempty"`
+	ModelId           *string                           `json:"model_id,omitempty"`
+	RepositoryUrl     string                            `json:"repository_url"`
+	StartingPoint     *string                           `json:"starting_point,omitempty"`
+	StartingPointType CursorCloudAgentStartingPointType `json:"starting_point_type"`
+}
+
+// AtlasAnnotationCursorCloudAgentSummary defines model for AtlasAnnotationCursorCloudAgentSummary.
+type AtlasAnnotationCursorCloudAgentSummary struct {
+	AgentKind *string `json:"agent_kind,omitempty"`
+
+	// LaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
+	LaunchSubmissionStatus  CloudAgentConversationLaunchSubmissionStatus `json:"launch_submission_status"`
+	ProviderConversationUrl *string                                      `json:"provider_conversation_url,omitempty"`
+}
+
+// AtlasAnnotationCursorConnectAction defines model for AtlasAnnotationCursorConnectAction.
+type AtlasAnnotationCursorConnectAction struct {
+	RecoveryKind string `json:"recovery_kind"`
+}
+
+// AtlasAnnotationCursorFollowupDelivery defines model for AtlasAnnotationCursorFollowupDelivery.
+type AtlasAnnotationCursorFollowupDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus  CloudAgentConversationLaunchSubmissionStatus                 `json:"delivery_status"`
+	RecoveryActions []AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item defines model for AtlasAnnotationCursorFollowupDelivery.recovery_actions.Item.
+type AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationCursorFollowupMention defines model for AtlasAnnotationCursorFollowupMention.
+type AtlasAnnotationCursorFollowupMention struct {
+	AgentKind    string                                `json:"agent_kind"`
+	Delivery     AtlasAnnotationCursorFollowupDelivery `json:"delivery"`
+	DispatchKind string                                `json:"dispatch_kind"`
+	DisplayName  string                                `json:"display_name"`
+	EndUtf16     int                                   `json:"end_utf16"`
+	StartUtf16   int                                   `json:"start_utf16"`
+}
+
+// AtlasAnnotationCursorFollowupMentionInput defines model for AtlasAnnotationCursorFollowupMentionInput.
+type AtlasAnnotationCursorFollowupMentionInput struct {
+	AgentKind    string `json:"agent_kind"`
+	DispatchKind string `json:"dispatch_kind"`
+	EndUtf16     int    `json:"end_utf16"`
+	StartUtf16   int    `json:"start_utf16"`
+	UserPrompt   string `json:"user_prompt"`
+}
+
+// AtlasAnnotationCursorLaunchAnotherAction defines model for AtlasAnnotationCursorLaunchAnotherAction.
+type AtlasAnnotationCursorLaunchAnotherAction struct {
+	RecoveryKind     string `json:"recovery_kind"`
+	RecoveryRevision string `json:"recovery_revision"`
+}
+
+// AtlasAnnotationCursorLaunchDelivery defines model for AtlasAnnotationCursorLaunchDelivery.
+type AtlasAnnotationCursorLaunchDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus        CloudAgentConversationLaunchSubmissionStatus               `json:"delivery_status"`
+	LaunchSettingsSummary string                                                     `json:"launch_settings_summary"`
+	RecoveryActions       []AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item defines model for AtlasAnnotationCursorLaunchDelivery.recovery_actions.Item.
+type AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationCursorLaunchMention defines model for AtlasAnnotationCursorLaunchMention.
+type AtlasAnnotationCursorLaunchMention struct {
+	AgentKind    string                              `json:"agent_kind"`
+	Delivery     AtlasAnnotationCursorLaunchDelivery `json:"delivery"`
+	DispatchKind string                              `json:"dispatch_kind"`
+	DisplayName  string                              `json:"display_name"`
+	EndUtf16     int                                 `json:"end_utf16"`
+	StartUtf16   int                                 `json:"start_utf16"`
+}
+
+// AtlasAnnotationCursorLaunchMentionInput defines model for AtlasAnnotationCursorLaunchMentionInput.
+type AtlasAnnotationCursorLaunchMentionInput struct {
+	AgentKind    string                                        `json:"agent_kind"`
+	DispatchKind string                                        `json:"dispatch_kind"`
+	EndUtf16     int                                           `json:"end_utf16"`
+	Settings     AtlasAnnotationCursorCloudAgentLaunchSettings `json:"settings"`
+	StartUtf16   int                                           `json:"start_utf16"`
+	UserPrompt   string                                        `json:"user_prompt"`
+}
+
+// AtlasAnnotationCursorRetryAction defines model for AtlasAnnotationCursorRetryAction.
+type AtlasAnnotationCursorRetryAction struct {
+	RecoveryKind     string `json:"recovery_kind"`
+	RecoveryRevision string `json:"recovery_revision"`
+}
+
 // AtlasAnnotationFeedbackItem defines model for AtlasAnnotationFeedbackItem.
 type AtlasAnnotationFeedbackItem struct {
 	AnchorX         float32 `json:"anchor_x"`
@@ -1974,19 +2148,20 @@ type AtlasAnnotationFeedbackItem struct {
 	// ``user_id`` is the authenticated PropelAuth user id (authorization and
 	// audit key); ``display_name``/``avatar_url`` are snapshots taken at write
 	// time so attribution survives membership changes.
-	Author           AtlasAnnotationAuthor        `json:"author"`
-	CreatedAt        time.Time                    `json:"created_at"`
-	LastActivityAt   time.Time                    `json:"last_activity_at"`
-	NodeId           *string                      `json:"node_id,omitempty"`
-	ObservationId    string                       `json:"observation_id"`
-	ObservedAt       *time.Time                   `json:"observed_at,omitempty"`
-	OriginSurface    AtlasAnnotationOriginSurface `json:"origin_surface"`
-	PreviewMentions  *[]AtlasAnnotationMention    `json:"preview_mentions,omitempty"`
-	PreviewText      *string                      `json:"preview_text,omitempty"`
-	ReplyCount       *int                         `json:"reply_count,omitempty"`
-	ScreenLabel      *string                      `json:"screen_label,omitempty"`
-	ScreenshotHeight int                          `json:"screenshot_height"`
-	ScreenshotWidth  int                          `json:"screenshot_width"`
+	Author                   AtlasAnnotationAuthor                      `json:"author"`
+	CreatedAt                time.Time                                  `json:"created_at"`
+	LastActivityAt           time.Time                                  `json:"last_activity_at"`
+	NodeId                   *string                                    `json:"node_id,omitempty"`
+	ObservationId            string                                     `json:"observation_id"`
+	ObservedAt               *time.Time                                 `json:"observed_at,omitempty"`
+	OriginSurface            AtlasAnnotationOriginSurface               `json:"origin_surface"`
+	PreviewAgentToolMentions *[]AtlasAnnotationAgentToolMentionMetadata `json:"preview_agent_tool_mentions,omitempty"`
+	PreviewMentions          *[]AtlasAnnotationMention                  `json:"preview_mentions,omitempty"`
+	PreviewText              *string                                    `json:"preview_text,omitempty"`
+	ReplyCount               *int                                       `json:"reply_count,omitempty"`
+	ScreenLabel              *string                                    `json:"screen_label,omitempty"`
+	ScreenshotHeight         int                                        `json:"screenshot_height"`
+	ScreenshotWidth          int                                        `json:"screenshot_width"`
 
 	// Severity Finding severity. Presence marks a thread as a ranked finding;
 	// a thread without severity is a plain conversation.
@@ -2034,12 +2209,18 @@ type AtlasAnnotationOriginSurface string
 
 // AtlasAnnotationReplyRequest defines model for AtlasAnnotationReplyRequest.
 type AtlasAnnotationReplyRequest struct {
-	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
-	Body          string                `json:"body"`
+	AgentToolMentions *[]AtlasAnnotationReplyRequest_AgentToolMentions_Item `json:"agent_tool_mentions,omitempty"`
+	AttachmentIds     *[]openapi_types.UUID                                 `json:"attachment_ids,omitempty"`
+	Body              string                                                `json:"body"`
 
 	// ClientRequestId Client-generated UUID making retried submissions idempotent.
 	ClientRequestId *string                        `json:"client_request_id,omitempty"`
 	Mentions        *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
+}
+
+// AtlasAnnotationReplyRequest_AgentToolMentions_Item defines model for AtlasAnnotationReplyRequest.agent_tool_mentions.Item.
+type AtlasAnnotationReplyRequest_AgentToolMentions_Item struct {
+	union json.RawMessage
 }
 
 // AtlasAnnotationSeverity Finding severity. Presence marks a thread as a ranked finding;
@@ -2077,12 +2258,13 @@ type AtlasAnnotationThread struct {
 	// stable across Atlas reprocessing, and genuine evidence deletion cascades
 	// the thread away entirely. Coordinates are normalized to ``[0, 1]``
 	// against the original screenshot dimensions captured at creation.
-	Anchor       AtlasAnnotationAnchor     `json:"anchor"`
-	AppId        string                    `json:"app_id"`
-	AtlasUrl     *string                   `json:"atlas_url,omitempty"`
-	CommentCount *int                      `json:"comment_count,omitempty"`
-	Comments     *[]AtlasAnnotationComment `json:"comments,omitempty"`
-	CreatedAt    time.Time                 `json:"created_at"`
+	Anchor       AtlasAnnotationAnchor                   `json:"anchor"`
+	AppId        string                                  `json:"app_id"`
+	AtlasUrl     *string                                 `json:"atlas_url,omitempty"`
+	CloudAgent   *AtlasAnnotationCursorCloudAgentSummary `json:"cloud_agent,omitempty"`
+	CommentCount *int                                    `json:"comment_count,omitempty"`
+	Comments     *[]AtlasAnnotationComment               `json:"comments,omitempty"`
+	CreatedAt    time.Time                               `json:"created_at"`
 
 	// CreatedBy Author identity for authenticated org members.
 	//
@@ -3277,6 +3459,9 @@ type CursorCloudAgentConversationAttributionLaunch struct {
 	// LaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
 	LaunchSubmissionStatus CloudAgentConversationLaunchSubmissionStatus `json:"launch_submission_status"`
 }
+
+// CursorCloudAgentStartingPointType defines model for CursorCloudAgentStartingPointType.
+type CursorCloudAgentStartingPointType string
 
 // CursorConnectionType defines model for CursorConnectionType.
 type CursorConnectionType string
@@ -9151,6 +9336,422 @@ func (t ActionBlock_StepType) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ActionBlock_StepType) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationCursorLaunchMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationCursorLaunchMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCursorLaunchMention() (AtlasAnnotationCursorLaunchMention, error) {
+	var body AtlasAnnotationCursorLaunchMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorLaunchMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationCursorLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCursorLaunchMention(v AtlasAnnotationCursorLaunchMention) error {
+	v.DispatchKind = "cloud_agent_launch"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorLaunchMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationCursorLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCursorLaunchMention(v AtlasAnnotationCursorLaunchMention) error {
+	v.DispatchKind = "cloud_agent_launch"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorFollowupMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationCursorFollowupMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCursorFollowupMention() (AtlasAnnotationCursorFollowupMention, error) {
+	var body AtlasAnnotationCursorFollowupMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorFollowupMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationCursorFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCursorFollowupMention(v AtlasAnnotationCursorFollowupMention) error {
+	v.DispatchKind = "cloud_agent_follow_up"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorFollowupMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationCursorFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCursorFollowupMention(v AtlasAnnotationCursorFollowupMention) error {
+	v.DispatchKind = "cloud_agent_follow_up"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationComment_AgentToolMentions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"dispatch_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationComment_AgentToolMentions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "cloud_agent_follow_up":
+		return t.AsAtlasAnnotationCursorFollowupMention()
+	case "cloud_agent_launch":
+		return t.AsAtlasAnnotationCursorLaunchMention()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationComment_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationCursorConnectAction returns the union data inside the AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationCursorConnectAction
+func (t AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorConnectAction() (AtlasAnnotationCursorConnectAction, error) {
+	var body AtlasAnnotationCursorConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorConnectAction overwrites any union data inside the AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorConnectAction
+func (t *AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorConnectAction(v AtlasAnnotationCursorConnectAction) error {
+	v.RecoveryKind = "connect_cursor"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorConnectAction performs a merge with any union data inside the AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorConnectAction
+func (t *AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorConnectAction(v AtlasAnnotationCursorConnectAction) error {
+	v.RecoveryKind = "connect_cursor"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "connect_cursor":
+		return t.AsAtlasAnnotationCursorConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationCursorFollowupDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationCursorConnectAction returns the union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorConnectAction
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorConnectAction() (AtlasAnnotationCursorConnectAction, error) {
+	var body AtlasAnnotationCursorConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorConnectAction overwrites any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorConnectAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorConnectAction(v AtlasAnnotationCursorConnectAction) error {
+	v.RecoveryKind = "connect_cursor"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorConnectAction performs a merge with any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorConnectAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorConnectAction(v AtlasAnnotationCursorConnectAction) error {
+	v.RecoveryKind = "connect_cursor"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorAdjustSettingsAction returns the union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorAdjustSettingsAction
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorAdjustSettingsAction() (AtlasAnnotationCursorAdjustSettingsAction, error) {
+	var body AtlasAnnotationCursorAdjustSettingsAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorAdjustSettingsAction overwrites any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorAdjustSettingsAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorAdjustSettingsAction(v AtlasAnnotationCursorAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorAdjustSettingsAction performs a merge with any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorAdjustSettingsAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorAdjustSettingsAction(v AtlasAnnotationCursorAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorLaunchAnotherAction returns the union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorLaunchAnotherAction
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorLaunchAnotherAction() (AtlasAnnotationCursorLaunchAnotherAction, error) {
+	var body AtlasAnnotationCursorLaunchAnotherAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorLaunchAnotherAction overwrites any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorLaunchAnotherAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorLaunchAnotherAction(v AtlasAnnotationCursorLaunchAnotherAction) error {
+	v.RecoveryKind = "launch_another"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorLaunchAnotherAction performs a merge with any union data inside the AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorLaunchAnotherAction
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorLaunchAnotherAction(v AtlasAnnotationCursorLaunchAnotherAction) error {
+	v.RecoveryKind = "launch_another"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "adjust_settings":
+		return t.AsAtlasAnnotationCursorAdjustSettingsAction()
+	case "connect_cursor":
+		return t.AsAtlasAnnotationCursorConnectAction()
+	case "launch_another":
+		return t.AsAtlasAnnotationCursorLaunchAnotherAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationCursorLaunchMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationCursorLaunchMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCursorLaunchMentionInput() (AtlasAnnotationCursorLaunchMentionInput, error) {
+	var body AtlasAnnotationCursorLaunchMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorLaunchMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationCursorLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationCursorLaunchMentionInput(v AtlasAnnotationCursorLaunchMentionInput) error {
+	v.DispatchKind = "cloud_agent_launch"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorLaunchMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCursorLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCursorLaunchMentionInput(v AtlasAnnotationCursorLaunchMentionInput) error {
+	v.DispatchKind = "cloud_agent_launch"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorFollowupMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationCursorFollowupMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCursorFollowupMentionInput() (AtlasAnnotationCursorFollowupMentionInput, error) {
+	var body AtlasAnnotationCursorFollowupMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorFollowupMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationCursorFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationCursorFollowupMentionInput(v AtlasAnnotationCursorFollowupMentionInput) error {
+	v.DispatchKind = "cloud_agent_follow_up"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorFollowupMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCursorFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCursorFollowupMentionInput(v AtlasAnnotationCursorFollowupMentionInput) error {
+	v.DispatchKind = "cloud_agent_follow_up"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"dispatch_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "cloud_agent_follow_up":
+		return t.AsAtlasAnnotationCursorFollowupMentionInput()
+	case "cloud_agent_launch":
+		return t.AsAtlasAnnotationCursorLaunchMentionInput()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
