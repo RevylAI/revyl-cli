@@ -55,7 +55,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-4-20250514
+          model: claude-opus-5
           trigger_phrase: "/review"
           direct_prompt: "You are a mobile PR review bot. Read CLAUDE.md for instructions."
           allowed_tools: "Bash,Read,Glob,Grep,Write"

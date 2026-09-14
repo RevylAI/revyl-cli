@@ -423,9 +423,9 @@ func (s *Server) handleManageFiles(ctx context.Context, req *mcp.CallToolRequest
 func (s *Server) registerManageVariablesTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_variables",
-		Description: `Manage test variables and environment variables. Use the "action" param to select an operation.
+		Description: `Manage a test's variables. Use the "action" param to select an operation.
 
-Test variables use {{name}} syntax in step descriptions. Env vars are encrypted at rest and injected at app launch.
+Test variables are referenced as {{name}} in step descriptions. Environment variables and launch vars are not managed here; use the device-session launch_vars inputs instead.
 
 Actions:
   list_vars       - List test variables. Params: test_name (required)

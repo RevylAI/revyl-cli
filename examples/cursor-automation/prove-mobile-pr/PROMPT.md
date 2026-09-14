@@ -117,15 +117,12 @@ revyl report annotations create --body-file /tmp/revyl-finding-slug-finding.md -
 Open the marked screenshot after the first command. Publish only when its marker identifies the element named by the finding; otherwise refine `--target` and preview again. Write the exact finding text to the body file without passing it through a shell argument. The private receipt binds creation to the reviewed screenshot and coordinates. Already navigated past the buggy screen? Add `--action <id> --role before|after` to the preview command.
 
 - Severity is a promise, so under-claim: `blocker` only when you watched it block a user's task, `issue` for a real problem worth flagging, `polish` for nits. Unsure it is real? Put it in the write-up prose, never in a thread.
-- At the beginning of every proof run, before deciding what to test, run `revyl report annotations list --json`. This is mandatory even when you expect no new findings. Treat every open result, including findings created by humans or on earlier pushes, as part of this review. Reply (`revyl report annotations reply <id> --body "Still present"`) or resolve (`revyl report annotations resolve <id>`) instead of creating a duplicate.
+- Before deciding what to test, run `revyl report annotations list --json` and treat every open result, including findings created by humans or on earlier pushes, as part of this review; the review must account for existing findings even when you expect no new ones. Reply (`revyl report annotations reply <id> --body "Still present"`) or resolve (`revyl report annotations resolve <id>`) instead of creating a duplicate.
 - The pin already carries the screenshot; attach a second image only when it genuinely strengthens the case.
 - Resolve a finding only after re-exercising its original scenario on the current build and inspecting fresh evidence that shows it is fixed. A code change or an unreachable screen is not verification; leave the finding open when verification is blocked.
-- Immediately before `revyl proof comment`, run `revyl report annotations list --json` again. Reconcile every returned open finding against what you proved, not only findings you created during this run. Resolve every finding you directly verified as fixed, downgrade (`revyl report annotations severity <id> --severity issue|polish`) any whose severity you cannot support, and leave unverified findings open. Do not publish the write-up until this final lifecycle check is complete. Findings render on the pull request as you create them; the write-up is the narrative around them. Never restate a finding in both places.
+- Immediately before `revyl proof comment`, run `revyl report annotations list --json` again and reconcile every returned open finding against what you proved, not only findings you created during this run: resolve findings you directly verified as fixed, downgrade (`revyl report annotations severity <id> --severity issue|polish`) any whose severity you cannot support, and leave unverified findings open. Publish the write-up only after that reconciliation, because findings render on the pull request as you create them; the write-up is the narrative around them. Never restate a finding in both places.
 
-## Hard rules
+## Scope of a proof run
 
-- **Never claim proof without a device session.** If you could not start a device on the matching build, say so plainly and omit the Evidence section.
-- **Never rebuild** to produce an artifact for this run.
-- **Never** merge, close, commit, or push as part of proof.
+- Merging, closing, committing, and pushing are outside a proof run; the pull request stays as you found it.
 - Post the comment as soon as the write-up is ready. Nothing else reads your result; that comment is the report.
-- Never paste `REVYL_API_KEY`, launch-var values, tokens, or other secrets into the comment, chat, code, or logs — reference names only.

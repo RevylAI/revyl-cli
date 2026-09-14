@@ -78,17 +78,18 @@ every session ` + "`revyl device list`" + ` would show. Indexes only mean anythi
 project directory they were assigned in, so target by session ID whenever more
 than one session is live.
 
-Auth: when .revyl/config.yaml has a session.auth_bypass section, Revyl applies
-its configured launch variables at boot and its configured deep link after
-launch. To re-fire that deep link without reminting, run:
+Auth: when .revyl/config.yaml has a session.auth_bypass section, Revyl applies its
+configured launch variables at boot and fires its deep link after launch. If the
+app shows a logged-out state mid-session while the boot token is still valid,
+re-fire the deep link (refresh does not remint; launch env is fixed at boot):
 
 ` + "```bash" + `
 revyl dev auth refresh
 ` + "```" + `
 
 If the token itself expired, run ` + "`revyl dev stop`" + ` then
-` + "`revyl dev`" + ` so session.before_script runs again when configured and
-updated launch environment is applied.
+` + "`revyl dev`" + ` so session.before_script runs again when configured and a fresh
+launch environment is applied.
 
 Stop with ` + "`revyl dev stop`" + ` when done. Never paste launch-var values or
 tokens into code, logs, screenshots, or PRs — reference key names only.

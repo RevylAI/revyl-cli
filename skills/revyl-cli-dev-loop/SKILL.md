@@ -256,36 +256,6 @@ build finished. Track build completion via `dev status` (`building` -> `idle`)
 or `dev logs --build --follow`. With `--seed-latest`, the handshake/status
 report `installed_seed` + `seeded_version` for the build already on screen.
 
-If `--detach` is unavailable (older CLI), fall back to the environment's
-non-blocking shell mode:
-
-1. **Background long-running loops** -- use the agent environment's non-blocking shell mode for `revyl dev`.
-2. **Poll for readiness** -- `Hot reload ready` means the Expo/Metro transport
-   is up; `Dev loop ready`, a viewer URL, or successful `revyl device` evidence
-   means the full device loop is ready. If output stalls on device provisioning
-   after `Hot reload ready`, debug the worker/device session path instead of
-   changing the relay/tunnel strategy.
-3. **Detect failures early** -- if the process exits or output contains
-   `Error:` before the ready line, stop and report the error to the user.
-4. **Device commands in a separate terminal** -- `revyl device tap`,
-   `screenshot`, `type`, and `swipe` are short-lived. Run them in a
-   different Shell call, not the dev-loop terminal.
-5. **Do not interact with TTY prompts** -- the dev loop prints
-   `[r] rebuild native + reinstall` and `[q] quit`. These require a real
-   TTY. In agent shells, use `revyl dev rebuild`, `revyl dev stop`, or restart
-   the loop instead.
-6. **Attaching to an existing session** -- if no suitable session exists, run
-   `revyl dev` normally and let Revyl choose the context. If exactly one
-   relevant current session exists, attach it with
-   `revyl dev attach active --context <name>`, then start with `revyl dev`.
-   If multiple sessions exist, use an explicit session id or index; do not
-   guess.
-7. **Keep logs concise** -- use `revyl dev --debug` only for relay/HMR
-   troubleshooting. When reporting results, summarize the state transitions and
-   include only the first actionable error, relevant relay/session IDs, and a
-   small log tail. Do not paste long spinner output or full debug streams unless
-   the user asks for raw logs.
-
 ## Cloud Agent Relay Note
 
 In Cursor or similar cloud-agent environments, start with the Revyl-managed
@@ -380,16 +350,3 @@ CURSOR_AGENT=1 npx expo start --tunnel --dev-client
 revyl dev --no-build --app-id <app-id> --tunnel '<full Expo dev-client link>'
 ```
 
-```
-Shell(command="revyl dev --no-build --app-id <app-id>", block_until_ms=0)
-AwaitShell(pattern="Dev loop ready", block_until_ms=120000)
-
-# Or attach to an existing context
-Shell(command="revyl dev list")
-Shell(command="revyl dev attach active --context <name>")
-Shell(command="revyl dev --context <name>", block_until_ms=0)
-AwaitShell(pattern="Dev loop ready", block_until_ms=120000)
-
-Shell(command="revyl device screenshot")
-Shell(command="revyl device tap --target 'Login button'")
-```
