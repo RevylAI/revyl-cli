@@ -199,39 +199,22 @@ func TestExecuteLocalRecipePrintsBuildToolGuidanceOnlyToStderr(t *testing.T) {
 		},
 	}
 
-	originalStderr := os.Stderr
-	stderrPath := filepath.Join(t.TempDir(), "stderr.txt")
-	stderrFile, err := os.Create(stderrPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = stderrFile
 	originalQuietMode := ui.IsQuietMode()
 	ui.SetQuietMode(true)
 	t.Cleanup(func() {
 		ui.SetQuietMode(originalQuietMode)
-		os.Stderr = originalStderr
-		_ = stderrFile.Close()
 	})
 
 	var buildErr error
-	stdout := captureStdout(t, func() {
+	stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
 		buildErr = executeLocalRecipe(context.Background(), invocation, true, &buildProgress{})
 	})
-	os.Stderr = originalStderr
-	if err := stderrFile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	stderr, err := os.ReadFile(stderrPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	if stdout != "" {
-		t.Fatalf("JSON stdout was polluted: %q", stdout)
+		t.Fatalf("JSON stdout was polluted: %q (err=%v)", stdout, buildErr)
 	}
-	if !strings.Contains(string(stderr), "How to fix:") || !strings.Contains(string(stderr), "brew install bazelisk") {
-		t.Fatalf("stderr did not preserve build-tool guidance: %q", stderr)
+	if !strings.Contains(stderr, "How to fix:") || !strings.Contains(stderr, "brew install bazelisk") {
+		t.Fatalf("stderr did not preserve build-tool guidance: %q (err=%v)", stderr, buildErr)
 	}
 	var toolErr *build.BuildToolError
 	if !errors.As(buildErr, &toolErr) {

@@ -549,6 +549,12 @@ func captureStdout(t *testing.T, fn func()) string {
 
 func captureStdoutAndStderr(t *testing.T, fn func()) string {
 	t.Helper()
+	stdout, stderr := captureStdoutAndStderrSeparate(t, fn)
+	return stdout + stderr
+}
+
+func captureStdoutAndStderrSeparate(t *testing.T, fn func()) (string, string) {
+	t.Helper()
 
 	origOut, origErr := os.Stdout, os.Stderr
 	rOut, wOut, err := os.Pipe()
@@ -578,9 +584,7 @@ func captureStdoutAndStderr(t *testing.T, fn func()) string {
 
 	os.Stdout = origOut
 	os.Stderr = origErr
-	out := finishCapturedPipe(t, rOut, wOut, outResult, "stdout")
-	errOutput := finishCapturedPipe(t, rErr, wErr, errResult, "stderr")
-	return out + errOutput
+	return finishCapturedPipe(t, rOut, wOut, outResult, "stdout"), finishCapturedPipe(t, rErr, wErr, errResult, "stderr")
 }
 
 type capturedPipeResult struct {

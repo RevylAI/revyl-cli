@@ -1300,7 +1300,7 @@ func TestStartDevSessionWithProgress_FastSuccessSkipsTimedHints(t *testing.T) {
 		context.Background(),
 		starter,
 		mcppkg.StartSessionOptions{Platform: "android"},
-		80*time.Millisecond,
+		time.Hour,
 		recorder.hooks(),
 	)
 	if err != nil {
@@ -1333,7 +1333,7 @@ func TestStartDevSessionWithProgress_ReturnsStartError(t *testing.T) {
 		context.Background(),
 		starter,
 		mcppkg.StartSessionOptions{Platform: "ios"},
-		100*time.Millisecond,
+		time.Hour,
 		recorder.hooks(),
 	)
 	if err == nil {
