@@ -460,14 +460,13 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
 	ui.PrintInfo("Build Version: %s", versionStr)
 
-	// Post-process iOS artifacts (tar.gz → zip, .app → zip).
 	if build.IsTarGz(artifactPath) {
 		ui.Println()
-		ui.StartSpinner("Extracting .app from tar.gz...")
+		ui.StartSpinner("Extracting .app from archive...")
 		zipPath, extractErr := build.ExtractAppFromTarGz(artifactPath)
 		ui.StopSpinner()
 		if extractErr != nil {
-			ui.PrintError("Failed to extract .app from tar.gz: %v", extractErr)
+			ui.PrintError("Failed to extract .app from archive: %v", extractErr)
 			return extractErr
 		}
 		defer os.Remove(zipPath)
@@ -1440,14 +1439,13 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
 	ui.PrintInfo("Build Version: %s", versionStr)
 
-	// Convert tar.gz to zip for iOS builds (EAS produces tar.gz)
 	if build.IsTarGz(artifactPath) {
 		ui.Println()
-		ui.StartSpinner("Extracting .app from tar.gz...")
+		ui.StartSpinner("Extracting .app from archive...")
 		zipPath, err := build.ExtractAppFromTarGz(artifactPath)
 		ui.StopSpinner()
 		if err != nil {
-			ui.PrintError("Failed to extract .app from tar.gz: %v", err)
+			ui.PrintError("Failed to extract .app from archive: %v", err)
 			return err
 		}
 		defer os.Remove(zipPath) // Clean up temp zip after upload

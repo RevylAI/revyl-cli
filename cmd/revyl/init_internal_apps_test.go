@@ -86,6 +86,12 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 			wantConcreteBuild: []string{"ios"},
 		},
 		{
+			path:              "app-clip-minimal",
+			wantBuildSystem:   "Xcode",
+			wantPlatforms:     []string{"ios"},
+			wantConcreteBuild: []string{"ios"},
+		},
+		{
 			path:                      "bazel-minimal",
 			wantBuildSystem:           "Bazel",
 			wantPlatforms:             []string{"android", "ios"},

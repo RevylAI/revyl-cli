@@ -50,6 +50,12 @@ func TestInternalAppsFixtures(t *testing.T) {
 			wantConcreteTargets: []string{"ios"},
 		},
 		{
+			path:                "app-clip-minimal",
+			wantSystem:          SystemXcode,
+			wantPlatforms:       []string{"ios"},
+			wantConcreteTargets: []string{"ios"},
+		},
+		{
 			path:                filepath.Join("expo-monorepo-hoisted", "apps", "mobile"),
 			wantSystem:          SystemExpo,
 			wantPlatforms:       []string{"android", "ios"},

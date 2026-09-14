@@ -3380,13 +3380,12 @@ func sequentialBuildAndUpload(
 			}
 		}
 
-		// Convert tar.gz to zip for iOS builds (EAS produces tar.gz).
 		if build.IsTarGz(artifactPath) {
-			ui.StartSpinner("Extracting .app from tar.gz...")
+			ui.StartSpinner("Extracting .app from archive...")
 			zipPath, extractErr := build.ExtractAppFromTarGz(artifactPath)
 			ui.StopSpinner()
 			if extractErr != nil {
-				ui.PrintWarning("Failed to extract .app from tar.gz: %v", extractErr)
+				ui.PrintWarning("Failed to extract .app from archive: %v", extractErr)
 				outcome.RecordFailure(platform)
 				return
 			}
@@ -3628,11 +3627,11 @@ func runWizardBuildForPlatform(
 
 	if build.IsTarGz(artifactPath) {
 		outputMu.Lock()
-		ui.PrintInfo("[%s] Extracting .app from tar.gz...", platform)
+		ui.PrintInfo("[%s] Extracting .app from archive...", platform)
 		outputMu.Unlock()
 		zipPath, err := build.ExtractAppFromTarGz(artifactPath)
 		if err != nil {
-			result.Err = fmt.Errorf("failed to extract .app from tar.gz: %w", err)
+			result.Err = fmt.Errorf("failed to extract .app from archive: %w", err)
 			return result
 		}
 		defer os.Remove(zipPath)

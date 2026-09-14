@@ -4,30 +4,22 @@ package build
 import (
 	"archive/tar"
 	"archive/zip"
-	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"howett.net/plist"
 )
 
-// ResolveArtifactPath resolves the artifact path, supporting glob patterns.
-//
-// Parameters:
-//   - workDir: The working directory to resolve relative paths from
-//   - output: The output path pattern (may contain globs like *.apk)
-//
-// Returns:
-//   - string: The resolved absolute path to the artifact
-//   - error: Any error that occurred during resolution
-//
-// If the output contains a glob pattern, the most recently modified matching file is returned.
+// ResolveArtifactPath resolves a path or the most recently modified glob match.
 func ResolveArtifactPath(workDir, output string) (string, error) {
-	// Handle absolute paths
 	if filepath.IsAbs(output) {
 		if _, err := os.Stat(output); err != nil {
-			// Try glob matching
 			matches, err := filepath.Glob(output)
 			if err != nil || len(matches) == 0 {
 				return "", fmt.Errorf("artifact not found: %s", output)
@@ -37,15 +29,12 @@ func ResolveArtifactPath(workDir, output string) (string, error) {
 		return output, nil
 	}
 
-	// Handle relative paths
 	fullPath := filepath.Join(workDir, output)
 
-	// Check if it's a direct path
 	if _, err := os.Stat(fullPath); err == nil {
 		return fullPath, nil
 	}
 
-	// Try glob matching
 	matches, err := filepath.Glob(fullPath)
 	if err != nil {
 		return "", fmt.Errorf("invalid glob pattern: %w", err)
@@ -58,14 +47,6 @@ func ResolveArtifactPath(workDir, output string) (string, error) {
 	return getMostRecentFile(matches)
 }
 
-// getMostRecentFile returns the most recently modified file from a list of paths.
-//
-// Parameters:
-//   - paths: List of file paths to check
-//
-// Returns:
-//   - string: Path to the most recently modified file
-//   - error: Any error that occurred
 func getMostRecentFile(paths []string) (string, error) {
 	if len(paths) == 0 {
 		return "", fmt.Errorf("no files provided")
@@ -92,25 +73,13 @@ func getMostRecentFile(paths []string) (string, error) {
 	return mostRecent, nil
 }
 
-// IsTarGz checks if the file is a tar.gz archive.
-//
-// Parameters:
-//   - path: The file path to check
-//
-// Returns:
-//   - bool: True if the file is a tar.gz archive
+// IsTarGz recognizes gzip archive filenames, including EAS artifacts named .gz.
 func IsTarGz(path string) bool {
-	return strings.HasSuffix(strings.ToLower(path), ".tar.gz") ||
+	return strings.HasSuffix(strings.ToLower(path), ".gz") ||
 		strings.HasSuffix(strings.ToLower(path), ".tgz")
 }
 
-// IsAppBundle checks if the path is a .app bundle directory.
-//
-// Parameters:
-//   - path: The path to check
-//
-// Returns:
-//   - bool: True if the path is a .app bundle directory
+// IsAppBundle reports whether the path is an .app directory.
 func IsAppBundle(path string) bool {
 	if !strings.HasSuffix(path, ".app") {
 		return false
@@ -122,32 +91,23 @@ func IsAppBundle(path string) bool {
 	return info.IsDir()
 }
 
-// ExtractAppFromArchive extracts a .app bundle from a tar.gz or zip archive and zips it.
-// It detects the actual format by reading magic bytes, so it handles cases where
-// EAS outputs a zip file with a .tar.gz extension.
-//
-// Parameters:
-//   - archivePath: Path to the archive (tar.gz or zip)
-//
-// Returns:
-//   - string: Path to the created zip file
-//   - error: Any error that occurred during extraction
-//
-// The function searches for a .app directory within the archive and creates
-// a zip file containing it. The caller is responsible for cleaning up the
-// returned zip file.
+// ExtractAppFromArchive selects an app from ZIP or gzip-tar contents and returns a ZIP.
+// The caller must remove the returned file.
 func ExtractAppFromArchive(archivePath string) (string, error) {
-	// Detect actual format by reading magic bytes
+	return extractAppFromArchive(archivePath, defaultArchiveLimits())
+}
+
+func extractAppFromArchive(archivePath string, limits archiveLimits) (string, error) {
 	isZip, err := isZipFile(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to detect archive format: %w", err)
 	}
 
 	if isZip {
-		return extractAppFromZip(archivePath)
+		return extractAppFromZip(archivePath, limits)
 	}
 
-	return extractAppFromTarGz(archivePath)
+	return extractAppFromTarGz(archivePath, limits)
 }
 
 // ExtractAppFromTarGz is kept for backward compatibility; it delegates to ExtractAppFromArchive.
@@ -155,15 +115,13 @@ func ExtractAppFromTarGz(tarGzPath string) (string, error) {
 	return ExtractAppFromArchive(tarGzPath)
 }
 
-// isZipFile checks if a file is a zip archive by reading its magic bytes.
 func isZipFile(path string) (bool, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- The caller selects this local input archive.
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
 
-	// Zip magic bytes: PK\x03\x04
 	magic := make([]byte, 4)
 	if _, err := io.ReadFull(f, magic); err != nil {
 		return false, nil // Can't read magic bytes, assume not zip
@@ -172,180 +130,220 @@ func isZipFile(path string) (bool, error) {
 	return magic[0] == 'P' && magic[1] == 'K' && magic[2] == 0x03 && magic[3] == 0x04, nil
 }
 
-// extractAppFromZip extracts a .app bundle from a zip archive and re-zips it.
-func extractAppFromZip(zipPath string) (string, error) {
+func extractAppFromZip(zipPath string, limits archiveLimits) (resultPath string, resultErr error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open zip: %w", err)
 	}
-	defer r.Close()
-
-	// Create temp directory for extraction
+	defer func() {
+		if r != nil {
+			resultErr = errors.Join(resultErr, r.Close())
+		}
+	}()
+	layout, err := validateZipArchive(&r.Reader)
+	if err != nil {
+		return "", err
+	}
 	tempDir, err := os.MkdirTemp("", "revyl-extract-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
-
-	var appPath string
-	for _, f := range r.File {
-		// Determine target path, sanitizing against path traversal
-		targetPath := filepath.Join(tempDir, f.Name)
-		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(tempDir)+string(os.PathSeparator)) {
-			return "", fmt.Errorf("zip entry %q attempts path traversal outside extraction directory", f.Name)
-		}
-
-		// Track .app bundle path
-		if strings.Contains(f.Name, ".app") {
-			parts := strings.Split(f.Name, ".app")
-			if len(parts) > 0 {
-				potentialAppPath := filepath.Join(tempDir, parts[0]+".app")
-				if appPath == "" || len(potentialAppPath) < len(appPath) {
-					appPath = potentialAppPath
-				}
-			}
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(targetPath, f.Mode()); err != nil {
-				return "", fmt.Errorf("failed to create directory: %w", err)
+	defer cleanupArchiveExtraction(tempDir, &resultPath, &resultErr, os.RemoveAll)
+	budget := &archiveWorkspaceBudget{limitBytes: limits.workspaceBytes}
+	extractor, err := newArchiveExtractor(tempDir, layout, budget)
+	if err != nil {
+		return "", err
+	}
+	for index, entry := range r.File {
+		member := layout.members[index]
+		if member.isLink || member.isDir {
+			if err := extractor.extractMember(member, nil); err != nil {
+				return "", err
 			}
 			continue
 		}
-
-		// Ensure parent directory exists
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-			return "", fmt.Errorf("failed to create parent directory: %w", err)
-		}
-
-		rc, err := f.Open()
+		reader, err := entry.Open()
 		if err != nil {
 			return "", fmt.Errorf("failed to open zip entry: %w", err)
 		}
-
-		outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
-		if err != nil {
-			rc.Close()
-			return "", fmt.Errorf("failed to create file: %w", err)
+		if err := errors.Join(extractor.extractMember(member, reader), reader.Close()); err != nil {
+			return "", err
 		}
-
-		if _, err := io.Copy(outFile, rc); err != nil {
-			outFile.Close()
-			rc.Close()
-			return "", fmt.Errorf("failed to write file: %w", err)
-		}
-		outFile.Close()
-		rc.Close()
 	}
-
-	if appPath == "" {
-		return "", fmt.Errorf("no .app bundle found in archive")
+	closeErr := r.Close()
+	r = nil
+	if closeErr != nil {
+		return "", fmt.Errorf("failed to close source zip: %w", closeErr)
 	}
-
-	if _, err := os.Stat(appPath); err != nil {
-		return "", fmt.Errorf(".app bundle not found after extraction: %w", err)
+	if err := extractor.stageLinks(); err != nil {
+		return "", err
 	}
-
-	return ZipAppBundle(appPath)
+	appPath, err := preferredIOSAppBundle(tempDir, layout)
+	if err != nil {
+		return "", err
+	}
+	return zipAppBundle(appPath, extractor.metadata, budget, limits.artifactBytes)
 }
 
-// extractAppFromTarGz extracts a .app bundle from a tar.gz archive and zips it.
-func extractAppFromTarGz(tarGzPath string) (string, error) {
-	// Open the tar.gz file
-	file, err := os.Open(tarGzPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open tar.gz: %w", err)
-	}
-	defer file.Close()
-
-	// Create gzip reader
-	gzReader, err := gzip.NewReader(file)
-	if err != nil {
-		return "", fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer gzReader.Close()
-
-	// Create tar reader
-	tarReader := tar.NewReader(gzReader)
-
-	// Create temp directory for extraction
+func extractAppFromTarGz(tarGzPath string, limits archiveLimits) (resultPath string, resultErr error) {
 	tempDir, err := os.MkdirTemp("", "revyl-extract-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer cleanupArchiveExtraction(tempDir, &resultPath, &resultErr, os.RemoveAll)
+	budget := &archiveWorkspaceBudget{limitBytes: limits.workspaceBytes}
+	if err := budget.reserve(archiveFilesystemEntryBytes); err != nil {
+		return "", err
+	}
+	// The caller explicitly selects the local source archive to upload.
+	file, err := os.Open(tarGzPath) // #nosec G304
+	if err != nil {
+		return "", fmt.Errorf("failed to open tar.gz: %w", err)
+	}
+	stagedTar, layout, stageErr := stageValidatedTar(file, tempDir, budget)
+	closeErr := file.Close()
+	if stagedTar != nil {
+		defer func() {
+			if stagedTar != nil {
+				resultErr = errors.Join(resultErr, stagedTar.Close())
+			}
+		}()
+	}
+	if err := errors.Join(stageErr, closeErr); err != nil {
+		return "", err
+	}
+	stagedInfo, err := stagedTar.Stat()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect temporary tar: %w", err)
+	}
+	extractionDir := filepath.Join(tempDir, "app")
+	if err := os.Mkdir(extractionDir, 0o700); err != nil {
+		return "", fmt.Errorf("failed to create extraction directory: %w", err)
+	}
+	metadata, extractErr := extractValidatedTar(tar.NewReader(stagedTar), extractionDir, layout, budget)
+	closeErr = stagedTar.Close()
+	removeErr := os.Remove(stagedTar.Name())
+	stagedTar = nil
+	if err := errors.Join(extractErr, closeErr, removeErr); err != nil {
+		return "", fmt.Errorf("failed to extract temporary tar: %w", err)
+	}
+	budget.usedBytes -= stagedInfo.Size() + archiveFilesystemEntryBytes
+	appPath, err := preferredIOSAppBundle(extractionDir, layout)
+	if err != nil {
+		return "", err
+	}
+	return zipAppBundle(appPath, metadata, budget, limits.artifactBytes)
+}
 
-	// Extract all files
-	var appPath string
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
+func extractValidatedTar(reader *tar.Reader, tempDir string, layout *archiveLayout, budget *archiveWorkspaceBudget) (extractedArchiveMetadata, error) {
+	extractor, err := newArchiveExtractor(tempDir, layout, budget)
+	if err != nil {
+		return nil, err
+	}
+	for _, member := range layout.members {
+		if _, err := reader.Next(); err != nil {
+			return nil, fmt.Errorf("failed to read validated tar entry: %w", err)
+		}
+		if err := extractor.extractMember(member, reader); err != nil {
+			return nil, err
+		}
+	}
+	if err := extractor.stageLinks(); err != nil {
+		return nil, err
+	}
+	return extractor.metadata, nil
+}
+
+type iosAppBundleCandidate struct {
+	path              string
+	normalizedPath    string
+	isAppClip         bool
+	appBundleCount    int
+	pathDepth         int
+	malformedMetadata bool
+}
+
+func preferredIOSAppBundle(rootDir string, layout *archiveLayout) (string, error) {
+	var candidates []iosAppBundleCandidate
+	err := filepath.WalkDir(rootDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".app") {
+			return nil
+		}
+		relativePath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			return err
+		}
+		plistPath, err := resolveArchiveMember(filepath.ToSlash(filepath.Join(relativePath, "Info.plist")), layout.links)
+		if err != nil {
+			return err
+		}
+		// Bundle paths and links were validated inside the private extraction root.
+		data, err := os.ReadFile(filepath.Join(rootDir, filepath.FromSlash(plistPath))) // #nosec G304
+		if os.IsNotExist(err) {
+			return nil
 		}
 		if err != nil {
-			return "", fmt.Errorf("failed to read tar entry: %w", err)
+			return err
 		}
-
-		// Determine the target path, sanitizing against path traversal attacks
-		targetPath := filepath.Join(tempDir, header.Name)
-		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(tempDir)+string(os.PathSeparator)) {
-			return "", fmt.Errorf("tar entry %q attempts path traversal outside extraction directory", header.Name)
+		// Plists are open dictionaries; only app-role keys affect local selection.
+		var metadata map[string]any
+		_, parseErr := plist.Unmarshal(data, &metadata)
+		if parseErr != nil {
+			metadata = nil
 		}
-
-		// Check if this is part of a .app bundle
-		if strings.Contains(header.Name, ".app") {
-			parts := strings.Split(header.Name, ".app")
-			if len(parts) > 0 {
-				potentialAppPath := filepath.Join(tempDir, parts[0]+".app")
-				if appPath == "" || len(potentialAppPath) < len(appPath) {
-					appPath = potentialAppPath
-				}
-			}
+		platform, _ := metadata["DTPlatformName"].(string)
+		companionID, _ := metadata["WKCompanionAppBundleIdentifier"].(string)
+		if metadata["WKWatchKitApp"] == true || metadata["WKApplication"] == true || companionID != "" || strings.HasPrefix(strings.ToLower(platform), "watch") {
+			return nil
 		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
-				return "", fmt.Errorf("failed to create directory: %w", err)
+		_, hasAppClipMetadata := metadata["NSAppClip"]
+		candidate := iosAppBundleCandidate{
+			path: path, normalizedPath: strings.ToLower(filepath.ToSlash(relativePath)),
+			isAppClip: hasAppClipMetadata, malformedMetadata: parseErr != nil,
+		}
+		parts := strings.Split(candidate.normalizedPath, "/")
+		candidate.pathDepth = len(parts)
+		for _, part := range parts {
+			if strings.HasSuffix(part, ".app") {
+				candidate.appBundleCount++
 			}
-		case tar.TypeReg:
-			// Ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-				return "", fmt.Errorf("failed to create parent directory: %w", err)
-			}
-
-			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
-			if err != nil {
-				return "", fmt.Errorf("failed to create file: %w", err)
-			}
-
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
-				return "", fmt.Errorf("failed to write file: %w", err)
-			}
-			outFile.Close()
-		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-				return "", fmt.Errorf("failed to create parent directory: %w", err)
-			}
-			if err := os.Symlink(header.Linkname, targetPath); err != nil {
-				// Ignore symlink errors on some systems
-				continue
+			if part == "appclips" {
+				candidate.isAppClip = true
 			}
 		}
+		if candidate.isAppClip && (!hasAppClipMetadata || candidate.appBundleCount != 1) {
+			return nil
+		}
+		// Preserve malformed hosts for API validation instead of substituting a Clip.
+		candidates = append(candidates, candidate)
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect app bundles: %w", err)
 	}
-
-	if appPath == "" {
-		return "", fmt.Errorf("no .app bundle found in archive")
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no supported iOS .app bundle found in archive; include an iPhone app or a standalone App Clip with NSAppClip metadata")
 	}
-
-	// Verify the .app exists
-	if _, err := os.Stat(appPath); err != nil {
-		return "", fmt.Errorf(".app bundle not found after extraction: %w", err)
-	}
-
-	// Zip the .app bundle
-	return ZipAppBundle(appPath)
+	sort.Slice(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if a.isAppClip != b.isAppClip {
+			return !a.isAppClip
+		}
+		if a.appBundleCount != b.appBundleCount {
+			return a.appBundleCount < b.appBundleCount
+		}
+		if a.pathDepth != b.pathDepth {
+			return a.pathDepth < b.pathDepth
+		}
+		if a.malformedMetadata != b.malformedMetadata {
+			return !a.malformedMetadata
+		}
+		return a.normalizedPath < b.normalizedPath
+	})
+	return candidates[0].path, nil
 }
 
 // PlatformFromFilePath infers the device platform ("ios" or "android") from an
@@ -359,7 +357,7 @@ func PlatformFromFilePath(path string) string {
 	case strings.HasSuffix(lower, ".ipa"),
 		strings.HasSuffix(lower, ".app"),
 		strings.HasSuffix(lower, ".app.zip"),
-		strings.HasSuffix(lower, ".tar.gz"),
+		strings.HasSuffix(lower, ".gz"),
 		strings.HasSuffix(lower, ".tgz"):
 		return "ios"
 	default:
@@ -367,110 +365,111 @@ func PlatformFromFilePath(path string) string {
 	}
 }
 
-// ZipAppBundle creates a zip archive from a .app bundle directory.
-//
-// Parameters:
-//   - appPath: Path to the .app bundle directory
-//
-// Returns:
-//   - string: Path to the created zip file
-//   - error: Any error that occurred during zipping
-//
-// The caller is responsible for cleaning up the returned zip file.
+// ZipAppBundle packages an .app directory. The caller must remove the returned ZIP.
 func ZipAppBundle(appPath string) (string, error) {
-	// Create temp zip file
+	return zipAppBundle(appPath, nil, &archiveWorkspaceBudget{limitBytes: archiveWorkspaceLimitBytes}, archiveUploadLimitBytes)
+}
+
+func zipAppBundle(appPath string, metadata extractedArchiveMetadata, budget *archiveWorkspaceBudget, artifactLimitBytes int64) (string, error) {
+	if err := budget.reserve(archiveFilesystemEntryBytes); err != nil {
+		return "", err
+	}
 	zipFile, err := os.CreateTemp("", "revyl-*.zip")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp zip file: %w", err)
 	}
 	zipPath := zipFile.Name()
 
-	// Create zip writer
-	zipWriter := zip.NewWriter(zipFile)
+	output := &archiveBudgetWriter{target: zipFile, workspace: budget, limitBytes: artifactLimitBytes}
+	zipWriter := zip.NewWriter(output)
+	var repackedBytes int64
 
-	// Walk the .app directory and add files
 	appName := filepath.Base(appPath)
-	err = filepath.Walk(appPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(appPath, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Get relative path within the .app
-		relPath, err := filepath.Rel(filepath.Dir(appPath), path)
+		relPath, err := filepath.Rel(filepath.Dir(appPath), filePath)
 		if err != nil {
 			return err
 		}
 
-		// Handle symlinks
-		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(path)
-			if err != nil {
-				return nil // Skip symlinks we can't read
-			}
-
-			header := &zip.FileHeader{
-				Name:   relPath,
-				Method: zip.Deflate,
-			}
-			header.SetMode(info.Mode())
-
-			writer, err := zipWriter.CreateHeader(header)
-			if err != nil {
-				return err
-			}
-
-			_, err = writer.Write([]byte(linkTarget))
-			return err
-		}
-
-		// Handle directories
-		if info.IsDir() {
-			if relPath != appName {
-				_, err := zipWriter.Create(relPath + "/")
-				return err
-			}
+		relPath = filepath.ToSlash(relPath)
+		if info.IsDir() && relPath == appName {
 			return nil
 		}
 
-		// Handle regular files
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
 			return err
 		}
 		header.Name = relPath
 		header.Method = zip.Deflate
+		var original archiveFileMetadata
+		if metadata != nil {
+			var found bool
+			original, found, err = metadata.lookup(filePath)
+			if err != nil {
+				return err
+			}
+			if found {
+				header.SetMode(original.mode)
+			} else if info.IsDir() {
+				header.SetMode(os.ModeDir | 0o755)
+			} else {
+				return fmt.Errorf("missing archive metadata for %q", relPath)
+			}
+		}
+		if info.IsDir() {
+			header.Name += "/"
+			header.Method = zip.Store
+		}
 
 		writer, err := zipWriter.CreateHeader(header)
 		if err != nil {
 			return err
 		}
 
-		file, err := os.Open(path)
+		if info.IsDir() {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget := original.linkTarget
+			if metadata == nil {
+				linkTarget, err = os.Readlink(filePath)
+				if err != nil {
+					return fmt.Errorf("failed to read app bundle symlink: %w", err)
+				}
+			}
+			written, err := copyArchiveContent(writer, strings.NewReader(filepath.ToSlash(linkTarget)), budget.limitBytes-repackedBytes)
+			repackedBytes += written
+			return err
+		}
+
+		// Walk does not follow symlinks; link entries are handled above, and the app root is caller-selected or validated.
+		file, err := os.Open(filePath) // #nosec G304
 		if err != nil {
 			return err
 		}
-		defer file.Close()
-
-		_, err = io.Copy(writer, file)
-		return err
+		written, copyErr := copyArchiveContent(writer, file, budget.limitBytes-repackedBytes)
+		repackedBytes += written
+		return errors.Join(copyErr, file.Close())
 	})
 
+	if err == nil && metadata != nil {
+		err = writeArchiveSymlinks(zipWriter, appPath, metadata, budget.limitBytes-repackedBytes)
+	}
 	if err != nil {
-		zipWriter.Close()
-		zipFile.Close()
-		os.Remove(zipPath)
-		return "", fmt.Errorf("failed to create zip: %w", err)
+		return "", fmt.Errorf("failed to create zip: %w", errors.Join(err, zipWriter.Close(), zipFile.Close(), os.Remove(zipPath)))
 	}
 
 	if err := zipWriter.Close(); err != nil {
-		zipFile.Close()
-		os.Remove(zipPath)
-		return "", fmt.Errorf("failed to close zip writer: %w", err)
+		return "", fmt.Errorf("failed to close zip writer: %w", errors.Join(err, zipFile.Close(), os.Remove(zipPath)))
 	}
 
 	if err := zipFile.Close(); err != nil {
-		os.Remove(zipPath)
-		return "", fmt.Errorf("failed to close zip file: %w", err)
+		return "", fmt.Errorf("failed to close zip file: %w", errors.Join(err, os.Remove(zipPath)))
 	}
 
 	return zipPath, nil

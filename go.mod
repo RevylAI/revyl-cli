@@ -25,8 +25,10 @@ require (
 	go.opentelemetry.io/proto/otlp v1.7.1
 	golang.org/x/sys v0.45.0
 	golang.org/x/term v0.41.0
+	golang.org/x/text v0.39.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
+	howett.net/plist v1.0.1
 )
 
 require (
@@ -63,5 +65,4 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
 )

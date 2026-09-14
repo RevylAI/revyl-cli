@@ -69,13 +69,17 @@ echo "$result" | jq '.report_link'
 
 ## Expo/EAS builds
 
-Upload an Expo build URL directly (`.tar.gz` is auto-converted to `.zip`):
+Upload an Expo build URL directly. iOS gzip-compressed tar archives named `.gz`,
+`.tar.gz`, or `.tgz` are converted to `.zip`; ZIP-content EAS artifacts using
+these suffixes also work. The same formats work with `--file`.
+See [upload existing builds](../../docs/build-uploads.md) for App Clip uploads.
 
 ```bash
 curl -fsSL https://revyl.com/install.sh | sh
 revyl build upload \
   --url "https://expo.dev/artifacts/eas/..." \
   --header "Authorization: Bearer $EXPO_TOKEN" \
+  --platform ios \
   --app <app-id>
 revyl workflow run smoke-tests
 ```
