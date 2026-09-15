@@ -35,6 +35,12 @@ This default changes only `revyl build`. `revyl dev` remains local unless you
 pass `--remote`; test/workflow `--build` continuations remain local, and
 `revyl build upload` still uploads an existing artifact.
 
+## Uploading existing builds
+
+Use `revyl build upload` to upload an artifact produced by your own pipeline.
+To associate it with a GitHub PR, see
+[Use your own CI](https://docs.revyl.ai/integrations/github#use-your-own-ci).
+
 ## Migrating existing local builds
 
 If an existing script must keep building on the invoking machine, add

@@ -49,7 +49,11 @@ var buildUploadCmd = &cobra.Command{
 	Short: "Upload an existing build artifact",
 	Long: `Upload an existing build artifact and register it in Revyl.
 
-This command does not run a build. Use ` + "`revyl build`" + ` to build from source.`,
+This command does not run a build. Use ` + "`revyl build`" + ` to build from source.
+
+To match a GitHub PR from any CI runner, pass --repo owner/name and --commit
+with the full PR head SHA. Add --pr to select a PR explicitly. These flags
+override detected SCM identity; GitHub Actions and Buildkite are detected automatically.`,
 	Example: `  revyl build upload --file ./app.apk --app <id>
   revyl build upload --file ./build/App.app.zip --platform ios --yes
   revyl build upload --url https://artifacts.example.com/app.apk --app <id>
@@ -214,6 +218,7 @@ func init() {
 	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
 	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions)")
 	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
+	registerBuildUploadSCMFlags(buildUploadCmd)
 	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on Revyl's cloud build runners")
 	_ = buildUploadCmd.Flags().MarkHidden("remote")
 	buildUploadCmd.Flags().BoolVar(&buildSkip, "skip-build", false, "Deprecated")
@@ -276,6 +281,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 // Returns:
 //   - error: Any error that occurred during the build/upload process
 func runBuildUpload(cmd *cobra.Command, args []string) error {
+	if err := applyBuildUploadSCMFlags(cmd); err != nil {
+		return err
+	}
 	if v, _ := cmd.Flags().GetBool("json"); v {
 		buildUploadJSON = true
 	}
@@ -491,7 +499,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	}
 
 	// Collect metadata (no build command or duration for direct uploads).
-	metadata := build.CollectMetadata(cwd, "", devicePlatform, 0)
+	metadata := build.CollectMetadataWithContext(cmd.Context(), cwd, "", devicePlatform, 0)
 
 	ui.Println()
 	ui.StartSpinner("Uploading artifact...")
@@ -677,7 +685,7 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	ui.PrintInfo("Build Version:  %s", versionStr)
 
 	// Collect metadata (no build command or duration for URL uploads).
-	metadata := build.CollectMetadata(cwd, "", devicePlatform, 0)
+	metadata := build.CollectMetadataWithContext(cmd.Context(), cwd, "", devicePlatform, 0)
 	metadata["source"] = "cli_url_upload"
 
 	ui.Println()

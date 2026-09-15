@@ -120,13 +120,50 @@ func TestCollectMetadataGitHubActionsFallbackSHA(t *testing.T) {
 	}
 }
 
-func TestCollectMetadataNoGitHubActionsContext(t *testing.T) {
+func TestCollectMetadataOutsideSupportedCI(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("BUILDKITE", "")
 	t.Setenv("GITHUB_REPOSITORY", "acme/mobile")
 
 	metadata := CollectMetadata(t.TempDir(), "", "ios", 0)
 	if _, ok := metadata["scm_provider"]; ok {
-		t.Fatalf("did not expect scm_provider outside GitHub Actions")
+		t.Fatalf("did not expect scm_provider outside supported CI")
+	}
+}
+
+func TestCollectMetadataBuildkitePullRequest(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("BUILDKITE", "true")
+	t.Setenv("BUILDKITE_REPO", "https://github.com/acme/mobile.git")
+	t.Setenv("BUILDKITE_PULL_REQUEST", "42")
+	t.Setenv("BUILDKITE_PULL_REQUEST_HEAD_COMMIT", "")
+	t.Setenv("BUILDKITE_COMMIT", "head-sha")
+	t.Setenv("BUILDKITE_BRANCH", "feature/checkout")
+	t.Setenv("BUILDKITE_BUILD_ID", "build-id")
+	t.Setenv("BUILDKITE_BUILD_URL", "https://buildkite.com/acme/mobile/builds/42")
+	t.Setenv("BUILDKITE_BUILD_CREATOR", "Jane Doe")
+
+	metadata := CollectMetadata(t.TempDir(), "", "Android", 0)
+
+	checks := map[string]interface{}{
+		"ci_system":         "buildkite",
+		"ci_run_id":         "build-id",
+		"ci_run_url":        "https://buildkite.com/acme/mobile/builds/42",
+		"ci_actor":          "Jane Doe",
+		"github_repository": "acme/mobile",
+		"scm_provider":      "github",
+		"scm_repo":          "acme/mobile",
+		"scm_namespace":     "acme",
+		"scm_project":       "mobile",
+		"scm_review_number": 42,
+		"pr_number":         42,
+		"scm_head_sha":      "head-sha",
+		"scm_platform":      "android",
+	}
+	for key, want := range checks {
+		if got := metadata[key]; got != want {
+			t.Fatalf("%s = %#v, want %#v", key, got, want)
+		}
 	}
 }
 

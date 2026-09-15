@@ -7,14 +7,48 @@ import (
 	"testing"
 )
 
-func TestSetCIHeaders_NotInActions(t *testing.T) {
+func TestSetCIHeaders_OutsideSupportedCI(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("BUILDKITE", "")
 
 	req := httptest.NewRequest("POST", "http://example.test", nil)
 	setCIHeaders(req)
 
 	if got := req.Header.Get("X-CI-System"); got != "" {
-		t.Fatalf("expected no X-CI-System header outside Actions, got %q", got)
+		t.Fatalf("expected no X-CI-System header outside supported CI, got %q", got)
+	}
+}
+
+func TestSetCIHeaders_BuildkitePullRequest(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("BUILDKITE", "true")
+	t.Setenv("BUILDKITE_REPO", "git@github.com:acme/mobile.git")
+	t.Setenv("BUILDKITE_PULL_REQUEST", "42")
+	t.Setenv("BUILDKITE_PULL_REQUEST_HEAD_COMMIT", "")
+	t.Setenv("BUILDKITE_COMMIT", "head-sha")
+	t.Setenv("BUILDKITE_BRANCH", "feature/checkout")
+	t.Setenv("BUILDKITE_BUILD_ID", "build-id")
+	t.Setenv("BUILDKITE_BUILD_URL", "https://buildkite.com/acme/mobile/builds/42")
+	t.Setenv("BUILDKITE_BUILD_CREATOR", "Jane Doe")
+
+	req := httptest.NewRequest("POST", "http://example.test", nil)
+	setCIHeaders(req)
+
+	checks := map[string]string{
+		"X-CI-System":     "buildkite",
+		"X-CI-Commit-SHA": "head-sha",
+		"X-CI-Branch":     "feature/checkout",
+		"X-CI-Run-ID":     "build-id",
+		"X-CI-Run-URL":    "https://buildkite.com/acme/mobile/builds/42",
+		"X-CI-Repository": "acme/mobile",
+		"X-CI-Actor":      "Jane Doe",
+		"X-CI-PR-URL":     "https://github.com/acme/mobile/pull/42",
+		"X-CI-PR-Number":  "42",
+	}
+	for key, want := range checks {
+		if got := req.Header.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
 }
 
