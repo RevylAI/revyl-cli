@@ -1206,24 +1206,6 @@ func (e ProjectConfigurationReplaceResponseOutcome) Valid() bool {
 	}
 }
 
-// Defines values for ProofHarnessKind.
-const (
-	ProofHarnessKindCursor ProofHarnessKind = "cursor"
-	ProofHarnessKindRevyl  ProofHarnessKind = "revyl"
-)
-
-// Valid indicates whether the value is a known member of the ProofHarnessKind enum.
-func (e ProofHarnessKind) Valid() bool {
-	switch e {
-	case ProofHarnessKindCursor:
-		return true
-	case ProofHarnessKindRevyl:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for RepositoryProjectCatalogRepositoryReportMode.
 const (
 	RepositoryProjectCatalogRepositoryReportModePrComment     RepositoryProjectCatalogRepositoryReportMode = "pr_comment"
@@ -1236,24 +1218,6 @@ func (e RepositoryProjectCatalogRepositoryReportMode) Valid() bool {
 	case RepositoryProjectCatalogRepositoryReportModePrComment:
 		return true
 	case RepositoryProjectCatalogRepositoryReportModePrDescription:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ScmBuildTargetResponsePlatform.
-const (
-	ScmBuildTargetResponsePlatformAndroid ScmBuildTargetResponsePlatform = "android"
-	ScmBuildTargetResponsePlatformIos     ScmBuildTargetResponsePlatform = "ios"
-)
-
-// Valid indicates whether the value is a known member of the ScmBuildTargetResponsePlatform enum.
-func (e ScmBuildTargetResponsePlatform) Valid() bool {
-	switch e {
-	case ScmBuildTargetResponsePlatformAndroid:
-		return true
-	case ScmBuildTargetResponsePlatformIos:
 		return true
 	default:
 		return false
@@ -4944,34 +4908,6 @@ type PlatformTargetConfig struct {
 	DefaultPair DevicePair `json:"default_pair"`
 }
 
-// PrReviewConfigSummary Compact, serializable summary of a parsed “pr_review“ config.
-//
-// Used for the settings-page banner and the PR comment. Persisted into
-// “scm_review_configs.metadata“ via “model_dump(mode="json")“.
-type PrReviewConfigSummary struct {
-	Builds      *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
-	Checks      *[]string                     `json:"checks,omitempty"`
-	Enabled     *bool                         `json:"enabled,omitempty"`
-	Preset      *string                       `json:"preset,omitempty"`
-	PreviewLink *bool                         `json:"preview_link,omitempty"`
-	ProjectRoot *string                       `json:"project_root,omitempty"`
-
-	// ProofHarnessKind Closed set of agents that can run a proof of changes.
-	ProofHarnessKind  *ProofHarnessKind `json:"proof_harness_kind,omitempty"`
-	ProofOfChanges    *bool             `json:"proof_of_changes,omitempty"`
-	StrictBuildChecks *bool             `json:"strict_build_checks,omitempty"`
-	Workflows         *[]string         `json:"workflows,omitempty"`
-}
-
-// PrReviewConfigSummaryBuild One enabled preview build in a config summary.
-type PrReviewConfigSummaryBuild struct {
-	App           *string `json:"app,omitempty"`
-	Framework     *string `json:"framework,omitempty"`
-	Image         *string `json:"image,omitempty"`
-	Platform      string  `json:"platform"`
-	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
-}
-
 // ProjectBuildCache Canonical build-cache meaning shared by configuration contracts.
 type ProjectBuildCache struct {
 	Key   string   `json:"key"`
@@ -5130,9 +5066,6 @@ type ProjectCursorProofRepository struct {
 	RepositoryName                string `json:"repository_name"`
 	RepositoryRelativeProjectRoot string `json:"repository_relative_project_root"`
 }
-
-// ProofHarnessKind Closed set of agents that can run a proof of changes.
-type ProofHarnessKind string
 
 // RedeemCLIDeviceCredentialRequest Poll from the CLI holding the device code.
 type RedeemCLIDeviceCredentialRequest struct {
@@ -5557,176 +5490,6 @@ type RevokeCLIApiKeyResponse struct {
 // RevylProofHarness Revyl's own step agent driving a device session (the default).
 type RevylProofHarness struct {
 	Kind string `json:"kind"`
-}
-
-// ScmActions defines model for ScmActions.
-type ScmActions struct {
-	AdaptiveSystemPrompt      *string   `json:"adaptive_system_prompt,omitempty"`
-	AdaptiveValidation        *bool     `json:"adaptive_validation,omitempty"`
-	CuratedWorkflows          *[]string `json:"curated_workflows,omitempty"`
-	NaturalLanguageAssertions *[]string `json:"natural_language_assertions,omitempty"`
-	PreviewLink               *bool     `json:"preview_link,omitempty"`
-
-	// ProjectRoot Optional checkout-relative directory containing `.revyl/config.yaml` for Cursor proof runs (e.g. `ios`).
-	ProjectRoot *string `json:"project_root,omitempty"`
-
-	// ProofHarness Which agent runs the proof of changes.
-	ProofHarness      *ScmActions_ProofHarness `json:"proof_harness,omitempty"`
-	StrictBuildChecks *bool                    `json:"strict_build_checks,omitempty"`
-}
-
-// ScmActions_ProofHarness Which agent runs the proof of changes.
-type ScmActions_ProofHarness struct {
-	union json.RawMessage
-}
-
-// ScmBuildTargetResponse defines model for ScmBuildTargetResponse.
-type ScmBuildTargetResponse struct {
-	AppId openapi_types.UUID `json:"app_id"`
-
-	// BuildConfiguration Sandbox build configuration stored by the API and used by build jobs.
-	BuildConfiguration   BuildConfig                    `json:"build_configuration"`
-	BuildConfigurationId openapi_types.UUID             `json:"build_configuration_id"`
-	Enabled              *bool                          `json:"enabled,omitempty"`
-	Framework            *string                        `json:"framework,omitempty"`
-	Name                 *string                        `json:"name,omitempty"`
-	Platform             ScmBuildTargetResponsePlatform `json:"platform"`
-	SourceSubdir         *string                        `json:"source_subdir,omitempty"`
-	UseExistingCi        *bool                          `json:"use_existing_ci,omitempty"`
-}
-
-// ScmBuildTargetResponsePlatform defines model for ScmBuildTargetResponse.Platform.
-type ScmBuildTargetResponsePlatform string
-
-// ScmConfigFileStateResponse Detection state of the committed “.revyl/config.yaml“ for a repo.
-//
-// Attributes:
-//
-//	status: ``managed`` (file applied), ``error`` (file present but
-//	    unusable), or ``none`` (UI-managed; no usable file).
-//	config_file_path: The detected file path, if any.
-//	commit_sha: The detected file blob sha, if any.
-//	html_url: A link to the file on the provider, if any.
-//	error: An actionable error message, if any.
-//	summary: Compact summary of the applied config, if managed.
-//	synced_at: ISO timestamp of the last reconcile, if any.
-type ScmConfigFileStateResponse struct {
-	CommitSha      *string `json:"commit_sha,omitempty"`
-	ConfigFilePath *string `json:"config_file_path,omitempty"`
-	Error          *string `json:"error,omitempty"`
-	HtmlUrl        *string `json:"html_url,omitempty"`
-	Status         string  `json:"status"`
-
-	// Summary Compact, serializable summary of a parsed ``pr_review`` config.
-	//
-	// Used for the settings-page banner and the PR comment. Persisted into
-	// ``scm_review_configs.metadata`` via ``model_dump(mode="json")``.
-	Summary  *PrReviewConfigSummary `json:"summary,omitempty"`
-	SyncedAt *string                `json:"synced_at,omitempty"`
-}
-
-// ScmConfigResponse defines model for ScmConfigResponse.
-type ScmConfigResponse struct {
-	Actions      ScmActions               `json:"actions"`
-	BuildTargets []ScmBuildTargetResponse `json:"build_targets"`
-
-	// ConfigFileState Detection state of the committed ``.revyl/config.yaml`` for a repo.
-	//
-	// Attributes:
-	//     status: ``managed`` (file applied), ``error`` (file present but
-	//         unusable), or ``none`` (UI-managed; no usable file).
-	//     config_file_path: The detected file path, if any.
-	//     commit_sha: The detected file blob sha, if any.
-	//     html_url: A link to the file on the provider, if any.
-	//     error: An actionable error message, if any.
-	//     summary: Compact summary of the applied config, if managed.
-	//     synced_at: ISO timestamp of the last reconcile, if any.
-	ConfigFileState *ScmConfigFileStateResponse `json:"config_file_state,omitempty"`
-	Enabled         bool                        `json:"enabled"`
-
-	// GithubInstallationId Deprecated: use installation_id. Kept on the wire for released revyl-cli binaries; removal requires a CLI deprecation window.
-	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
-	GithubInstallationId *int                `json:"github_installation_id,omitempty"`
-	GithubRepositoryId   *openapi_types.UUID `json:"github_repository_id,omitempty"`
-	Id                   openapi_types.UUID  `json:"id"`
-
-	// InstallationId Provider-native installation id (neutral twin of the github_* fields).
-	InstallationId *string     `json:"installation_id,omitempty"`
-	LabelFilters   []string    `json:"label_filters"`
-	LastSyncedAt   *time.Time  `json:"last_synced_at,omitempty"`
-	Namespace      string      `json:"namespace"`
-	PathFilters    []string    `json:"path_filters"`
-	Preset         string      `json:"preset"`
-	Profiles       ScmProfiles `json:"profiles"`
-	Project        string      `json:"project"`
-
-	// ProofLaunch Whose authority an unattended proof launch acts under.
-	//
-	// Lives in ``metadata`` rather than ``actions`` for two reasons. ``actions``
-	// feeds ``config_policy_hash``, and proof runs are keyed on that hash, so an
-	// identity there would fork a fresh run every time a different admin saved
-	// settings. ``metadata`` is also written with a preserving ``||`` merge, so a
-	// config-as-code sync cannot silently drop the stored authority.
-	//
-	// Attributes:
-	//     user_id: The human principal stamped server-side from the authenticated
-	//         caller. A client-supplied value is always discarded, since a caller
-	//         must not be able to nominate somebody else's authority.
-	//     authorized_at: When the setting was saved, so an operator can tell a
-	//         stale authorization from a never-authorized repository.
-	ProofLaunch  *ScmProofLaunchAuthority `json:"proof_launch,omitempty"`
-	Provider     string                   `json:"provider"`
-	RepoFullName string                   `json:"repo_full_name"`
-	SkipDrafts   bool                     `json:"skip_drafts"`
-}
-
-// ScmConfigsResponse defines model for ScmConfigsResponse.
-type ScmConfigsResponse struct {
-	Configs []ScmConfigResponse `json:"configs"`
-
-	// GithubIntegrationEnabled Deprecated: use integration_enabled. Kept on the wire for released revyl-cli binaries; removal requires a CLI deprecation window.
-	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
-	GithubIntegrationEnabled bool `json:"github_integration_enabled"`
-	HasAccess                bool `json:"has_access"`
-
-	// IntegrationEnabled Whether the requested provider's integration is enabled.
-	IntegrationEnabled *bool `json:"integration_enabled,omitempty"`
-}
-
-// ScmPlatformProfile defines model for ScmPlatformProfile.
-type ScmPlatformProfile struct {
-	DeviceModel        *string               `json:"device_model,omitempty"`
-	Enabled            *bool                 `json:"enabled,omitempty"`
-	IdleTimeoutSeconds *int                  `json:"idle_timeout_seconds,omitempty"`
-	LaunchEnvVarIds    *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
-	OsVersion          *string               `json:"os_version,omitempty"`
-	WorkflowIds        *[]string             `json:"workflow_ids,omitempty"`
-}
-
-// ScmProfiles defines model for ScmProfiles.
-type ScmProfiles struct {
-	Android *ScmPlatformProfile `json:"android,omitempty"`
-	Ios     *ScmPlatformProfile `json:"ios,omitempty"`
-}
-
-// ScmProofLaunchAuthority Whose authority an unattended proof launch acts under.
-//
-// Lives in “metadata“ rather than “actions“ for two reasons. “actions“
-// feeds “config_policy_hash“, and proof runs are keyed on that hash, so an
-// identity there would fork a fresh run every time a different admin saved
-// settings. “metadata“ is also written with a preserving “||“ merge, so a
-// config-as-code sync cannot silently drop the stored authority.
-//
-// Attributes:
-//
-//	user_id: The human principal stamped server-side from the authenticated
-//	    caller. A client-supplied value is always discarded, since a caller
-//	    must not be able to nominate somebody else's authority.
-//	authorized_at: When the setting was saved, so an operator can tell a
-//	    stale authorization from a never-authorized repository.
-type ScmProofLaunchAuthority struct {
-	AuthorizedAt string             `json:"authorized_at"`
-	UserId       openapi_types.UUID `json:"user_id"`
 }
 
 // ScriptUsageModuleItem A module that uses a specific script as a step, and is itself used by
@@ -7193,6 +6956,7 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 
 // ListAtlasAnnotationFeedbackParams defines parameters for ListAtlasAnnotationFeedback.
 type ListAtlasAnnotationFeedbackParams struct {
+	Search           *string                                      `form:"search,omitempty" json:"search,omitempty"`
 	AppId            *string                                      `form:"app_id,omitempty" json:"app_id,omitempty"`
 	SessionId        *string                                      `form:"session_id,omitempty" json:"session_id,omitempty"`
 	ObservationId    *string                                      `form:"observation_id,omitempty" json:"observation_id,omitempty"`
@@ -10585,95 +10349,6 @@ func (t ReportContextResponse_Tldr) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ReportContextResponse_Tldr) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsRevylProofHarness returns the union data inside the ScmActions_ProofHarness as a RevylProofHarness
-func (t ScmActions_ProofHarness) AsRevylProofHarness() (RevylProofHarness, error) {
-	var body RevylProofHarness
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromRevylProofHarness overwrites any union data inside the ScmActions_ProofHarness as the provided RevylProofHarness
-func (t *ScmActions_ProofHarness) FromRevylProofHarness(v RevylProofHarness) error {
-	v.Kind = "revyl"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeRevylProofHarness performs a merge with any union data inside the ScmActions_ProofHarness, using the provided RevylProofHarness
-func (t *ScmActions_ProofHarness) MergeRevylProofHarness(v RevylProofHarness) error {
-	v.Kind = "revyl"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCursorProofHarness returns the union data inside the ScmActions_ProofHarness as a CursorProofHarness
-func (t ScmActions_ProofHarness) AsCursorProofHarness() (CursorProofHarness, error) {
-	var body CursorProofHarness
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCursorProofHarness overwrites any union data inside the ScmActions_ProofHarness as the provided CursorProofHarness
-func (t *ScmActions_ProofHarness) FromCursorProofHarness(v CursorProofHarness) error {
-	v.Kind = "cursor"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCursorProofHarness performs a merge with any union data inside the ScmActions_ProofHarness, using the provided CursorProofHarness
-func (t *ScmActions_ProofHarness) MergeCursorProofHarness(v CursorProofHarness) error {
-	v.Kind = "cursor"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t ScmActions_ProofHarness) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"kind"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t ScmActions_ProofHarness) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "cursor":
-		return t.AsCursorProofHarness()
-	case "revyl":
-		return t.AsRevylProofHarness()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t ScmActions_ProofHarness) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *ScmActions_ProofHarness) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

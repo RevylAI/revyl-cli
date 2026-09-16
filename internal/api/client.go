@@ -2755,94 +2755,6 @@ func (c *Client) RevokeCLIAPIKey(ctx context.Context, apiKeyID string) error {
 	return nil
 }
 
-// PushPRReviewConfigRequest is the body for POST /api/v1/scm/github/configs/push.
-// It uploads a local .revyl/config.yaml so Revyl applies the pr_review section
-// immediately, without requiring a commit to the repo's default branch.
-type PushPRReviewConfigRequest struct {
-	// Namespace is the repository owner/namespace (e.g. "revyl").
-	Namespace string `json:"namespace"`
-
-	// Project is the repository name (e.g. "my-app").
-	Project string `json:"project"`
-
-	// Content is the raw YAML contents of the config file.
-	Content string `json:"content"`
-
-	// ConfigFilePath is the repo-relative path of the file (display only).
-	ConfigFilePath string `json:"config_file_path,omitempty"`
-}
-
-// PRReviewConfigFileBuildSummary is one enabled preview build in a pushed config.
-type PRReviewConfigFileBuildSummary struct {
-	Platform      string `json:"platform"`
-	App           string `json:"app"`
-	Framework     string `json:"framework"`
-	UseExistingCI bool   `json:"use_existing_ci"`
-}
-
-// PRReviewConfigFileSummary summarizes the applied pr_review config.
-type PRReviewConfigFileSummary struct {
-	Enabled        bool                             `json:"enabled"`
-	Preset         string                           `json:"preset"`
-	PreviewLink    bool                             `json:"preview_link"`
-	ProofOfChanges bool                             `json:"proof_of_changes"`
-	Checks         []string                         `json:"checks"`
-	Workflows      []string                         `json:"workflows"`
-	Builds         []PRReviewConfigFileBuildSummary `json:"builds"`
-}
-
-// PRReviewConfigFileState mirrors the backend ScmConfigFileStateResponse.
-type PRReviewConfigFileState struct {
-	// Status is "managed", "error", or "none".
-	Status string `json:"status"`
-
-	// ConfigFilePath is the detected file path, if any.
-	ConfigFilePath string `json:"config_file_path"`
-
-	// Error is an actionable message when Status is "error".
-	Error string `json:"error"`
-
-	// Summary describes the applied config when managed.
-	Summary *PRReviewConfigFileSummary `json:"summary"`
-
-	// SyncedAt is the ISO timestamp of the reconcile, if any.
-	SyncedAt string `json:"synced_at"`
-}
-
-// PushPRReviewConfigResponse is the response from the push endpoint.
-type PushPRReviewConfigResponse struct {
-	// State is the post-reconcile detection state for the repo.
-	State PRReviewConfigFileState `json:"state"`
-}
-
-// PushPRReviewConfig uploads a local .revyl/config.yaml and applies its
-// pr_review section to the matching repo for the authenticated organization.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - req: The repo identity plus the raw config file contents.
-//
-// Returns:
-//   - *PushPRReviewConfigResponse: The post-reconcile state.
-//   - error: APIError (e.g. 400 for a malformed file, 403 when GitHub
-//     automation is disabled, 404 when no installation/config exists), or a
-//     transport error.
-func (c *Client) PushPRReviewConfig(
-	ctx context.Context,
-	req PushPRReviewConfigRequest,
-) (*PushPRReviewConfigResponse, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/scm/github/configs/push", &req)
-	if err != nil {
-		return nil, err
-	}
-
-	var result PushPRReviewConfigResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 // GithubInstallURLResponse is the response from GET
 // /api/v1/integrations/github/install-url. It carries the GitHub App
 // installation URL (with the CSRF state token already embedded) plus the bare
@@ -2958,42 +2870,6 @@ func (c *Client) GetGithubRepositories(ctx context.Context) (*GithubRepositories
 	}
 
 	var result GithubRepositoriesResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// IsAutomationEnabled reports whether PR automation is actively running for the
-// repo: the config is enabled and linked to a GitHub App installation. Mirrors
-// the dashboard's per-repo "enabled" indicator. The type itself is
-// OpenAPI-generated (see generated.go); this helper lives here so the CLI can
-// reason about per-repo automation state.
-//
-// Returns:
-//   - bool: true when the config is enabled and installation-linked.
-func (c *ScmConfigResponse) IsAutomationEnabled() bool {
-	return c != nil &&
-		c.Enabled &&
-		((c.InstallationId != nil && *c.InstallationId != "") || c.GithubInstallationId != nil)
-}
-
-// ListGithubScmConfigs fetches the per-repository PR-automation configs for the
-// authenticated organization. This is how PR automation is determined per repo.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//
-// Returns:
-//   - *ScmConfigsResponse: Per-repo configs plus installation state.
-//   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
-func (c *Client) ListGithubScmConfigs(ctx context.Context) (*ScmConfigsResponse, error) {
-	resp, err := c.doRequest(ctx, "GET", "/api/v1/scm/github/configs", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result ScmConfigsResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
