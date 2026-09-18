@@ -1,98 +1,32 @@
 package main
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
+	"github.com/revyl/cli/internal/commandanalytics"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/ui"
 )
 
 var analyticsInstallOnce sync.Once
 
 func installAnalytics(root *cobra.Command) {
 	analyticsInstallOnce.Do(func() {
-		wrapCommandAnalytics(root)
+		commandanalytics.Install(root, analytics.Config{Version: version, Commit: commit, Date: date})
 	})
 }
 
-func wrapCommandAnalytics(cmd *cobra.Command) {
-	if cmd == nil {
-		return
-	}
-
-	if cmd.RunE != nil {
-		original := cmd.RunE
-		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			return runWithAnalytics(cmd, args, func() error {
-				return original(cmd, args)
-			})
-		}
-	} else if cmd.Run != nil {
-		original := cmd.Run
-		cmd.Run = func(cmd *cobra.Command, args []string) {
-			_ = runWithAnalytics(cmd, args, func() error {
-				original(cmd, args)
-				return nil
-			})
-		}
-	}
-
-	for _, child := range cmd.Commands() {
-		wrapCommandAnalytics(child)
-	}
-}
-
-func runWithAnalytics(cmd *cobra.Command, args []string, run func() error) (err error) {
-	rec := analytics.NewFromEnv(analytics.Config{
+func runWithAnalytics(cmd *cobra.Command, args []string, run func() error) error {
+	return commandanalytics.Run(cmd, args, analytics.Config{
 		Version:    version,
 		Commit:     commit,
 		Date:       date,
 		BackendURL: config.GetBackendURL(commandDevMode(cmd)),
-	})
-
-	commandRun := rec.StartCommand(cmd, args)
-	if commandRun != nil {
-		originalContext := cmd.Context()
-		cmd.SetContext(analytics.ContextWithCommandRun(originalContext, commandRun))
-		ui.SetOutputObserver(commandRun.ObserveOutput)
-		defer func() {
-			ui.SetOutputObserver(nil)
-			cmd.SetContext(originalContext)
-		}()
-		defer func() {
-			panicValue := recover()
-			completeCommandAnalytics(commandRun, err, panicValue != nil)
-			if panicValue != nil {
-				panic(panicValue)
-			}
-		}()
-	}
-
-	return run()
-}
-
-func completeCommandAnalytics(commandRun *analytics.CommandRun, err error, panicked bool) {
-	if commandRun == nil {
-		return
-	}
-	if panicked {
-		// Never capture a raw panic value: it may contain customer input. The
-		// original panic is rethrown immediately after this best-effort fact.
-		commandRun.Complete(errors.New("command panicked"))
-	} else {
-		commandRun.Complete(err)
-	}
-	commandRun.Flush()
+	}, run)
 }
 
 func commandDevMode(cmd *cobra.Command) bool {
-	if cmd == nil {
-		return false
-	}
-	devFlag := cmd.Flag("dev")
-	return devFlag != nil && devFlag.Value.String() == "true"
+	return commandanalytics.DevMode(cmd)
 }

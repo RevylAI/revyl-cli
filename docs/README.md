@@ -11,3 +11,4 @@ See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the R
 - [Upload existing builds](build-uploads.md)
 - [Understand an app with Atlas](atlas.md)
 - [Update the CLI](upgrade.md)
+- [Access your organization's machine with Revyl Computer](computer.md)

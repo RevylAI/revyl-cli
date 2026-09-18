@@ -120,6 +120,8 @@ POST /api/v1/workflow-executions
 POST /api/v1/execution/device-proxy/{workflow_run_id}/{action}
 POST /api/v1/execution/device-sessions/{session_id}/artifacts/upload-url
 POST /api/v1/execution/device/status/cancel/{workflow_run_id}
+POST /api/v1/execution/mac/shell-sessions
+DELETE /api/v1/execution/mac/shell-sessions/{session_id}
 POST /api/v1/execution/ground
 POST /api/v1/execution/start_device
 POST /api/v1/execution/tests/status/cancel/{task_id}

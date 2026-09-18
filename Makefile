@@ -11,6 +11,7 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main
 
 # Binary name
 BINARY := revyl
+COMPUTER_BINARY := revyl-computer
 
 # Go commands
 GOCMD := go
@@ -22,10 +23,11 @@ GOFMT := gofmt
 
 # Directories
 CMD_DIR := ./cmd/revyl
+COMPUTER_CMD_DIR := ./cmd/revyl-computer
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build build-linux-amd64 clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android e2e e2e-quick e2e-device e2e-local
+.PHONY: all build build-all build-linux-amd64 clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android e2e e2e-quick e2e-device e2e-local
 
 ## help: Show this help message
 help:
@@ -36,13 +38,13 @@ help:
 	@echo "Targets:"
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
 
-## all: Build the CLI
+## all: Build both CLI binaries
 all: build
 
 ## check: Quick compile and vet check (used by pre-commit)
 check:
 	@echo "Checking Go code..."
-	@$(GOBUILD) ./cmd/revyl/...
+	@$(GOBUILD) $(CMD_DIR)/... $(COMPUTER_CMD_DIR)/...
 	@$(GOCMD) vet ./...
 	@echo "✅ Go checks passed"
 
@@ -55,12 +57,13 @@ vet-all:
 	done
 	@echo "✅ Cross-platform vet passed"
 
-## build: Build the CLI binary
+## build: Build the revyl and revyl-computer binaries
 build:
-	@echo "Building $(BINARY)..."
+	@echo "Building $(BINARY) and $(COMPUTER_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) $(CMD_DIR)
-	@echo "Built: $(BUILD_DIR)/$(BINARY)"
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(COMPUTER_BINARY) $(COMPUTER_CMD_DIR)
+	@echo "Built: $(BUILD_DIR)/$(BINARY) and $(BUILD_DIR)/$(COMPUTER_BINARY)"
 
 ## build-linux-amd64: Cross-compile linux/amd64 for proof-sandbox dogfood
 ## Use with PROOF_SANDBOX_CLI_BINARY=$(PWD)/build/revyl-linux-amd64 on the workflow worker.
@@ -72,22 +75,21 @@ build-linux-amd64:
 	@echo "Built: $(BUILD_DIR)/$(BINARY)-linux-amd64"
 	@echo "Dogfood: export PROOF_SANDBOX_CLI_BINARY=\"$$(cd $(BUILD_DIR) && pwd)/$(BINARY)-linux-amd64\""
 
-## build-all: Build for all platforms
+## build-all: Build both CLI binaries for all release platforms
 build-all:
 	@echo "Building for all platforms..."
-	@$(SCRIPTS_DIR)/build-all.sh
+	@VERSION="$(VERSION)" COMMIT="$(COMMIT)" DATE="$(DATE)" $(SCRIPTS_DIR)/build-all.sh
 
-## install: Install the CLI to $GOPATH/bin
+## install: Install both CLI binaries to $GOBIN or $GOPATH/bin
 install:
-	@echo "Installing $(BINARY)..."
-	$(GOBUILD) $(LDFLAGS) -o $(GOPATH)/bin/$(BINARY) $(CMD_DIR)
-	@echo "Installed to $(GOPATH)/bin/$(BINARY)"
+	@echo "Installing $(BINARY) and $(COMPUTER_BINARY)..."
+	$(GOCMD) install $(LDFLAGS) $(CMD_DIR) $(COMPUTER_CMD_DIR)
 
 ## clean: Remove build artifacts
 clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
-	@rm -f $(BINARY)
+	@rm -f $(BINARY) $(COMPUTER_BINARY)
 
 ## test: Run tests with summary
 test:

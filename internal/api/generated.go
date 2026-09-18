@@ -4368,6 +4368,15 @@ type LocationConfig struct {
 	Longitude float32 `json:"longitude"`
 }
 
+// MacShellSession Short-lived stream the CLI connects to for a shell on an org's machine.
+type MacShellSession struct {
+	InstanceId string `json:"instance_id"`
+	Region     string `json:"region"`
+	SessionId  string `json:"session_id"`
+	StreamUrl  string `json:"stream_url"`
+	TokenValue string `json:"token_value"`
+}
+
 // ManualConfigurationSource Accepted manual writer evidence.
 type ManualConfigurationSource struct {
 	Kind string `json:"kind"`
