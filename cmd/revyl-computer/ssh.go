@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -25,18 +26,31 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
+var computerInstanceIDPattern = regexp.MustCompile(`^mi-[0-9a-f]{17}$`)
+
 var sshCmd = &cobra.Command{
-	Use:   "ssh",
-	Args:  cobra.NoArgs,
+	Use: "ssh [instance-id]",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+			return err
+		}
+		if len(args) == 1 && !computerInstanceIDPattern.MatchString(args[0]) {
+			return errors.New("invalid computer instance ID; use an ID from 'revyl-computer list'")
+		}
+		return nil
+	},
 	Short: "Open a shell on your organization's machine",
 	Long: `Open an interactive shell on the machine assigned to your organization.
 
 The connection is brokered by Revyl, so no SSH client, AWS plugin, or cloud
 credentials are required. Use REVYL_API_KEY or sign in with 'revyl auth login'.
+Optionally pass an instance ID from 'revyl-computer list' to choose a computer.
+Without an ID, Revyl automatically selects an eligible assigned machine.
 Type 'exit' to end the session.
 
 EXAMPLES:
-  revyl-computer ssh`,
+  revyl-computer ssh
+  revyl-computer ssh mi-0123456789abcdef0`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		devMode, _ := cmd.Flags().GetBool("dev")
 
@@ -49,17 +63,26 @@ EXAMPLES:
 		}
 
 		client := api.NewClientWithDevMode(token, devMode)
-		return runBrokeredShellSession(cmd.Context(), client, startBrokeredShell)
+		if len(args) == 0 {
+			return runBrokeredShellSession(cmd.Context(), client, startBrokeredShell)
+		}
+		return runBrokeredShellSessionWithOpener(cmd.Context(), client, func(ctx context.Context) (*api.MacShellSession, error) {
+			return client.OpenComputerShellSession(ctx, args[0])
+		}, startBrokeredShell)
 	},
 }
 
-func runBrokeredShellSession(ctx context.Context, client *api.Client, startShell func(context.Context, *api.MacShellSession, func()) error) (err error) {
+func runBrokeredShellSession(ctx context.Context, client *api.Client, startShell func(context.Context, *api.MacShellSession, func()) error) error {
+	return runBrokeredShellSessionWithOpener(ctx, client, client.OpenMacShellSession, startShell)
+}
+
+func runBrokeredShellSessionWithOpener(ctx context.Context, client *api.Client, openSession func(context.Context) (*api.MacShellSession, error), startShell func(context.Context, *api.MacShellSession, func()) error) (err error) {
 	startupCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	startupCtx, cancelStartup := context.WithTimeout(startupCtx, 30*time.Second)
 	defer cancelStartup()
 
-	session, err := client.OpenMacShellSession(startupCtx)
+	session, err := openSession(startupCtx)
 	if err != nil {
 		return err
 	}

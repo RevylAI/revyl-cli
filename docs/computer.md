@@ -1,7 +1,8 @@
 # Revyl Computer
 
-`revyl-computer` is a separate CLI for accessing your organization's assigned
-machine. The mobile testing CLI remains `revyl`; machine shell access uses
+`revyl-computer` is a separate CLI for discovering and accessing your
+organization's assigned computers. The mobile testing CLI remains `revyl`;
+list computers with `revyl-computer list` and open a shell with
 `revyl-computer ssh`.
 
 ## Install
@@ -60,6 +61,39 @@ The existing `revyl` package-manager installs do not install this separate
 binary. To build both CLIs from a source checkout, run `make build`; the
 executables are written to `build/revyl` and `build/revyl-computer`.
 
+## List assigned computers
+
+Authenticate using `REVYL_API_KEY` from your environment, or reuse the saved
+credentials from `revyl auth login` if you already have the Revyl CLI installed:
+
+```bash
+revyl-computer list
+revyl-computer list --json
+```
+
+Lists the computers assigned to the organization in your current credentials,
+with each computer's instance ID and `online` or `offline` status. It takes no
+arguments or organization selector, and does not open a shell or change a
+computer. An online status does not guarantee shell access; the checks described
+below still apply.
+
+The human-readable table is written to stderr. `--json` writes only the typed
+response to stdout, with no banners:
+
+```json
+{
+  "computers": [
+    { "instance_id": "mi-0123456789abcdef0", "status": "online" },
+    { "instance_id": "mi-0123456789abcdef1", "status": "offline" }
+  ]
+}
+```
+
+When no computers are assigned, the command succeeds with an informative message,
+or `{"computers":[]}` in JSON mode. `--quiet` suppresses the human-readable output
+but leaves JSON output intact. Assigned computers are returned in stable instance
+ID order; an unavailable or incomplete inventory is an error, not an empty list.
+
 ## Open a shell
 
 Authenticate using `REVYL_API_KEY` from your environment, or reuse the saved
@@ -69,11 +103,20 @@ Then run:
 ```bash
 revyl-computer --version
 revyl-computer ssh
+revyl-computer ssh mi-0123456789abcdef0
 ```
 
 Revyl brokers the connection, so no SSH client, AWS Session Manager plugin,
 SSH key, or cloud credentials are required. The organization comes from your
-Revyl credentials; the command takes no machine identifier.
+Revyl credentials. Without an instance ID, Revyl automatically selects an
+eligible assigned machine. To select a specific computer, pass its instance ID
+from `revyl-computer list`. The optional ID must start with `mi-` followed by
+17 lowercase hexadecimal characters; invalid IDs are rejected before a request
+is made.
+
+The selected computer must belong to your organization and pass the same access
+and readiness checks as automatic selection. If it is unavailable, the command
+fails rather than connecting to a different computer.
 
 Shell access requires a human user with a current Owner, Admin, Member, or
 Internal role in that organization. Revyl verifies current membership when

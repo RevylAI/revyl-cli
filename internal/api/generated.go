@@ -822,6 +822,24 @@ func (e CursorConnectionType) Valid() bool {
 	}
 }
 
+// Defines values for CustomerComputerStatus.
+const (
+	CustomerComputerStatusOffline CustomerComputerStatus = "offline"
+	CustomerComputerStatusOnline  CustomerComputerStatus = "online"
+)
+
+// Valid indicates whether the value is a known member of the CustomerComputerStatus enum.
+func (e CustomerComputerStatus) Valid() bool {
+	switch e {
+	case CustomerComputerStatusOffline:
+		return true
+	case CustomerComputerStatusOnline:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DashboardMetricsDashboardState.
 const (
 	DashboardMetricsDashboardStateIntermediate DashboardMetricsDashboardState = "intermediate"
@@ -3441,6 +3459,20 @@ type CursorConnectionType string
 type CursorProofHarness struct {
 	Kind    string  `json:"kind"`
 	ModelId *string `json:"model_id,omitempty"`
+}
+
+// CustomerComputer defines model for CustomerComputer.
+type CustomerComputer struct {
+	InstanceId string                 `json:"instance_id"`
+	Status     CustomerComputerStatus `json:"status"`
+}
+
+// CustomerComputerStatus defines model for CustomerComputer.Status.
+type CustomerComputerStatus string
+
+// CustomerComputerList defines model for CustomerComputerList.
+type CustomerComputerList struct {
+	Computers []CustomerComputer `json:"computers"`
 }
 
 // DOMMetadata defines model for DOMMetadata.

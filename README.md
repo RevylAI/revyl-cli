@@ -19,10 +19,6 @@
 
 Revyl is an AI-powered testing platform for mobile apps. Define tests in natural language, run them on cloud devices, and catch bugs before your users do. It works with iOS and Android, supports Expo / React Native / Flutter / native builds, and integrates with your CI pipeline and AI coding tools.
 
-Machine shell access is available through the separate
-[`revyl-computer` CLI](docs/computer.md). The `revyl` CLI below continues to
-handle mobile development and testing.
-
 ## Install
 
 ### sh
