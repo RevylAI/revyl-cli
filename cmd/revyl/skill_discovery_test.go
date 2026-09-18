@@ -192,6 +192,10 @@ func TestSkillDiscoveryDeduplicatesRenamedPackageLinks(t *testing.T) {
 	if err := os.Symlink(renamed, filepath.Join(linkBase, "linked-workflow")); err != nil {
 		t.Fatal(err)
 	}
+	renamed, err = filepath.EvalSymlinks(renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	entries, err := installedSkillPaths(false)
 	if err != nil || len(entries) != 1 || entries[0].Name != skill.Name || entries[0].Path != renamed {
 		t.Fatalf("renamed linked packages = %#v, error = %v", entries, err)

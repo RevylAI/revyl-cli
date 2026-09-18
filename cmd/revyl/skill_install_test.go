@@ -88,7 +88,10 @@ func TestSharedInstallCreatesOneCompletePackageAndClaudeLink(t *testing.T) {
 	if err != nil || len(result.Skills) != 1 {
 		t.Fatalf("result=%v err=%v", result, err)
 	}
-	canonical := filepath.Join(workDir, ".agents", "skills", skill.Name)
+	canonical, err := filepath.EvalSymlinks(filepath.Join(workDir, ".agents", "skills", skill.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, relative := range []string{"SKILL.md", "agents/openai.yaml", "references/expo.md", skillInstallStateFile} {
 		if _, err := os.Stat(filepath.Join(canonical, relative)); err != nil {
 			t.Fatalf("missing package file %s: %v", relative, err)

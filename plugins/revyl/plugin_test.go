@@ -139,6 +139,10 @@ func TestCodexLauncherPreservesArgumentsAndExitStatus(t *testing.T) {
 		t.Skip("POSIX executable fixture")
 	}
 	fixture := newLauncherFixture(t)
+	appRoot, err := filepath.EvalSymlinks(fixture.appRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, exitCode := range []string{"0", "1"} {
 		command := fixture.command(t, "device", "validation", "The screen is visible", "--json")
 		command.Env = append(command.Env, "REVYL_BINARY="+fixture.binary, "REVYL_CLIENT_SOURCE=cursor_plugin", "CODEX_THREAD_ID=test-codex-thread", "FAKE_EXIT_CODE="+exitCode)
@@ -146,7 +150,7 @@ func TestCodexLauncherPreservesArgumentsAndExitStatus(t *testing.T) {
 		if (exitCode == "0") != (err == nil) {
 			t.Fatalf("exit %s: %v, %s", exitCode, err, output)
 		}
-		want := fixture.appRoot + "\n\ntest-codex-thread\ndevice\nvalidation\nThe screen is visible\n--json\n"
+		want := appRoot + "\n\ntest-codex-thread\ndevice\nvalidation\nThe screen is visible\n--json\n"
 		if string(output) != want {
 			t.Fatalf("launcher output = %q, want %q", output, want)
 		}
