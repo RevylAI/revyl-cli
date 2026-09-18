@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/revyl/cli/internal/api"
@@ -2817,70 +2818,90 @@ func TestLoadAnchorImageRejectsManagedDirectoryRedirect(t *testing.T) {
 	}
 }
 
+type cancelStepTestTransport struct {
+	handler http.Handler
+}
+
+func (transport cancelStepTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if err := request.Context().Err(); err != nil {
+		return nil, err
+	}
+	response := httptest.NewRecorder()
+	transport.handler.ServeHTTP(response, request)
+	return response.Result(), nil
+}
+
 func TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget(t *testing.T) {
 	t.Parallel()
 
-	const stepID = "step-stuck-002"
+	for _, cancelDelay := range []time.Duration{0, time.Second} {
+		t.Run(cancelDelay.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const stepID = "step-stuck-002"
 
-	previousBudget := stepCancelBudget
-	stepCancelBudget = 250 * time.Millisecond
-	t.Cleanup(func() { stepCancelBudget = previousBudget })
+				var (
+					statusCalls    int
+					cancelCalls    int
+					stepStatusPath = "/api/v1/execution/device-proxy/wf-stuck/step_status/" + stepID
+					stepCancelPath = "/api/v1/execution/device-proxy/wf-stuck/step_cancel/" + stepID
+				)
 
-	var (
-		statusCalls    int
-		cancelCalls    int
-		stepStatusPath = "/api/v1/execution/device-proxy/wf-stuck/step_status/" + stepID
-		stepCancelPath = "/api/v1/execution/device-proxy/wf-stuck/step_cancel/" + stepID
-	)
+				client := api.NewClientWithBaseURL("test-api-key", "https://api.example.test")
+				client.SetHTTPClient(&http.Client{
+					Transport: cancelStepTestTransport{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						switch r.URL.Path {
+						case stepCancelPath:
+							if r.Method != http.MethodPost {
+								t.Fatalf("step_cancel method = %s, want POST", r.Method)
+							}
+							cancelCalls++
+							time.Sleep(cancelDelay)
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusAccepted)
+							_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelling"}`))
+						case stepStatusPath:
+							if r.Method != http.MethodGet {
+								t.Fatalf("step_status method = %s, want GET", r.Method)
+							}
+							if cancelCalls != 1 {
+								t.Fatalf("step_status polled before cancellation: step_cancel calls = %d", cancelCalls)
+							}
+							statusCalls++
+							w.Header().Set("Content-Type", "application/json")
+							_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
+						default:
+							t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+						}
+					})},
+				})
 
-	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case stepCancelPath:
-			cancelCalls++
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelling"}`))
-		case stepStatusPath:
-			statusCalls++
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer apiServer.Close()
+				mgr := &DeviceSessionManager{
+					apiClient: client,
+					sessions: map[int]*DeviceSession{
+						0: {
+							Index:         0,
+							SessionID:     "sess-stuck",
+							WorkflowRunID: "wf-stuck",
+							Platform:      "android",
+						},
+					},
+					idleTimers:  make(map[int]*time.Timer),
+					activeIndex: 0,
+				}
 
-	mgr := &DeviceSessionManager{
-		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		sessions: map[int]*DeviceSession{
-			0: {
-				Index:         0,
-				SessionID:     "sess-stuck",
-				WorkflowRunID: "wf-stuck",
-				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
-				Platform:      "android",
-			},
-		},
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: 0,
-	}
-
-	start := time.Now()
-	mgr.cancelStepBestEffort(mgr.sessions[0], stepID)
-	elapsed := time.Since(start)
-
-	// Must not exceed budget (with small fudge for scheduling).
-	maxAllowed := stepCancelBudget + 750*time.Millisecond
-	if elapsed > maxAllowed {
-		t.Fatalf("cancelStepBestEffort took %v, want <= %v", elapsed, maxAllowed)
-	}
-	// Must have actually sent the cancel.
-	if cancelCalls != 1 {
-		t.Fatalf("step_cancel calls = %d, want 1", cancelCalls)
-	}
-	// Must have polled at least once for terminal status before giving up.
-	if statusCalls < 1 {
-		t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
+				start := time.Now()
+				mgr.cancelStepBestEffort(mgr.sessions[0], stepID)
+				if elapsed := time.Since(start); elapsed != stepCancelBudget {
+					t.Fatalf("cancelStepBestEffort took %v, want %v", elapsed, stepCancelBudget)
+				}
+				if cancelCalls != 1 {
+					t.Fatalf("step_cancel calls = %d, want 1", cancelCalls)
+				}
+				if statusCalls < 1 {
+					t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
+				}
+			})
+		})
 	}
 }
 
