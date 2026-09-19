@@ -33,7 +33,8 @@ framework recipes, see [Remote Builds](https://docs.revyl.ai/remote-builds/quick
 
 ## 2. Start a device with your app
 
-Use the matching `app_id` from your project's `.revyl/config.yaml`:
+Use the matching `app_id` from your app in Revyl or your project's
+`.revyl/config.yaml`:
 
 ```bash iOS
 revyl device start --platform ios --app-id YOUR_IOS_APP_ID
@@ -50,6 +51,21 @@ steps; use the viewer to watch the device.
 For a repeatable CI run, select a specific uploaded version with
 `--build-version-id` instead of `--app-id`. A build version ID is different from
 a remote build job ID.
+
+Device commands do not require a local config or a Git checkout. With no
+`.revyl/config.yaml`, `device start` uses its command defaults and explicit
+flags. In a Git checkout, it finds the nearest config within that worktree;
+outside Git, it checks only the current directory. Use `-C <project-dir>` to
+select a different directory.
+
+An existing legacy config does not need migration for device commands.
+`device start` reads canonical `session` settings or legacy `defaults.timeout`,
+`before_session`, and `auth_bypass` settings without rewriting the file or
+validating unrelated build and PR-review configuration. Explicit `--timeout`
+still overrides the config. Invalid session settings, malformed YAML, and
+unsafe config or script paths still fail before provisioning. Actions on an
+existing session do not parse the config. `revyl build`, `revyl config validate`,
+and `revyl config push` continue to require the canonical format.
 
 ## 3. Control the device and capture evidence
 

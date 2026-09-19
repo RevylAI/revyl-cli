@@ -51,13 +51,11 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	workDir, _ := os.Getwd()
-	project, projectErr := resolveOptionalProjectContext(workDir)
+	project, projectErr := config.ResolveDeviceConfigContext(workDir)
 	if projectErr != nil {
-		return nil, projectErr
+		return nil, actionableLocalConfigError(projectErr)
 	}
-	if project != nil {
-		workDir = project.ProjectRoot
-	}
+	workDir = project.ProjectRoot
 
 	client := api.NewClientWithDevMode(apiKey, devMode)
 	api.SetDefaultVersion(version)
@@ -772,19 +770,18 @@ var deviceStartCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
-		project, err := resolveOptionalProjectContext(cwd)
+		project, err := config.ResolveDeviceConfigContext(cwd)
 		if err != nil {
-			return err
+			return actionableLocalConfigError(err)
 		}
-		if project != nil {
-			session := project.Aggregate.Session
-			if !cmd.Flags().Changed("timeout") && session.IdleTimeoutSeconds != nil && *session.IdleTimeoutSeconds > 0 {
-				timeout = *session.IdleTimeoutSeconds
-			}
-			initDevSession(project.ProjectRoot, session)
-		} else {
-			initDevSession(cwd, config.AuthoredSession{})
+		sessionConfig, err := project.ReadSession()
+		if err != nil {
+			return actionableLocalConfigError(err)
 		}
+		if !cmd.Flags().Changed("timeout") && sessionConfig.IdleTimeoutSeconds != nil {
+			timeout = *sessionConfig.IdleTimeoutSeconds
+		}
+		initDevSession(project.ProjectRoot, sessionConfig)
 
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {

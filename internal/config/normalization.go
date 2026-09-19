@@ -137,22 +137,11 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 
 	session := AuthoredSession{}
 	if authored.Session != nil {
-		session = cloneAuthoredSession(*authored.Session)
+		session = *authored.Session
 	}
-	if session.BeforeScript != nil && session.BeforeScript.ScriptPath != nil {
-		authoredScript := *session.BeforeScript.ScriptPath
-		if authoredScript == "" || strings.TrimSpace(authoredScript) != authoredScript || strings.HasPrefix(authoredScript, "/") || strings.ContainsAny(authoredScript, "\\\x00") {
-			return nil, newConfigError("normalization", "invalid_before_script_path", []string{"session", "before_script", "script_path"}, "")
-		}
-		script := path.Clean(authoredScript)
-		if script == "." {
-			return nil, newConfigError("normalization", "invalid_before_script_path", []string{"session", "before_script", "script_path"}, "")
-		}
-		repositoryScript := path.Clean(path.Join(root, script))
-		if repositoryScript == ".." || strings.HasPrefix(repositoryScript, "../") {
-			return nil, newConfigError("normalization", "path_escapes_repository", []string{"session", "before_script", "script_path"}, "")
-		}
-		session.BeforeScript.ScriptPath = &script
+	session, err = normalizeSession(session, root)
+	if err != nil {
+		return nil, err
 	}
 
 	aggregate := &NormalizedProjectAggregate{

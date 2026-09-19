@@ -284,44 +284,8 @@ func validateContractKeys(root *yaml.Node) error {
 		return err
 	}
 
-	if session := mappingValue(root, "session"); session != nil && !nodeIsNull(session) {
-		if err := validateMappingNode(session, []string{"session"}, true); err != nil {
-			return err
-		}
-		if err := validateAllowedKeys(session, []string{"session"}, "idle_timeout_seconds", "before_script", "auth_bypass"); err != nil {
-			return err
-		}
-		if err := validateSecondsNode(mappingValue(session, "idle_timeout_seconds"), []string{"session", "idle_timeout_seconds"}); err != nil {
-			return err
-		}
-		if before := mappingValue(session, "before_script"); before != nil && !nodeIsNull(before) {
-			if err := validateMappingNode(before, []string{"session", "before_script"}, true); err != nil {
-				return err
-			}
-			if err := validateAllowedKeys(before, []string{"session", "before_script"}, "script_path", "timeout_seconds"); err != nil {
-				return err
-			}
-			if err := validateSecondsNode(mappingValue(before, "timeout_seconds"), []string{"session", "before_script", "timeout_seconds"}); err != nil {
-				return err
-			}
-			if err := validateStringNode(mappingValue(before, "script_path"), []string{"session", "before_script", "script_path"}, true); err != nil {
-				return err
-			}
-		}
-		if bypass := mappingValue(session, "auth_bypass"); bypass != nil && !nodeIsNull(bypass) {
-			if err := validateMappingNode(bypass, []string{"session", "auth_bypass"}, true); err != nil {
-				return err
-			}
-			if err := validateAllowedKeys(bypass, []string{"session", "auth_bypass"}, "launch_vars", "deep_link"); err != nil {
-				return err
-			}
-			if err := validateStringSequence(mappingValue(bypass, "launch_vars"), []string{"session", "auth_bypass", "launch_vars"}); err != nil {
-				return err
-			}
-			if err := validateStringNode(mappingValue(bypass, "deep_link"), []string{"session", "auth_bypass", "deep_link"}, true); err != nil {
-				return err
-			}
-		}
+	if err := validateSessionNode(mappingValue(root, "session")); err != nil {
+		return err
 	}
 
 	if build := mappingValue(root, "build"); build != nil && !nodeIsNull(build) {
