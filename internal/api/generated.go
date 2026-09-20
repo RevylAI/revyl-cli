@@ -3714,6 +3714,29 @@ type DeviceSessionDetailItem struct {
 	WorkflowRunId             *string                                   `json:"workflow_run_id,omitempty"`
 }
 
+// DeviceSessionStopResponse Separate durable stop acceptance from execution and resource completion.
+type DeviceSessionStopResponse struct {
+	DbUpdated        bool               `json:"db_updated"`
+	DeviceReleased   *bool              `json:"device_released,omitempty"`
+	EndedAt          *time.Time         `json:"ended_at,omitempty"`
+	HatchetCancelled bool               `json:"hatchet_cancelled"`
+	Message          string             `json:"message"`
+	RequestAccepted  bool               `json:"request_accepted"`
+	SessionId        openapi_types.UUID `json:"session_id"`
+	SessionSettled   bool               `json:"session_settled"`
+
+	// Status Device session status - the single source of truth for test execution state.
+	//
+	// Matches the session_status enum in the database.
+	// Note: Ordering matters - follows the typical lifecycle progression.
+	//
+	// Status flow:
+	//     QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
+	Status        SessionStatus `json:"status"`
+	Success       bool          `json:"success"`
+	WorkflowRunId *string       `json:"workflow_run_id,omitempty"`
+}
+
 // DiscountItem defines model for DiscountItem.
 type DiscountItem struct {
 	Code          *string `json:"code,omitempty"`
@@ -5590,8 +5613,6 @@ type SessionHistorySource string
 // Status flow:
 //
 //	QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
-//	                            ↘ VERIFYING → STOPPING
-//	                            ↘ VALIDATING → COMPLETED/FAILED
 type SessionStatus string
 
 // ShareableReportBySessionModel Request model for generating a shareable report link by session_id.
@@ -6266,8 +6287,6 @@ type TestStatusResponse struct {
 	//
 	// Status flow:
 	//     QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
-	//                                 ↘ VERIFYING → STOPPING
-	//                                 ↘ VALIDATING → COMPLETED/FAILED
 	Status             SessionStatus       `json:"status"`
 	StepsCompleted     *int                `json:"steps_completed,omitempty"`
 	Success            *bool               `json:"success,omitempty"`
