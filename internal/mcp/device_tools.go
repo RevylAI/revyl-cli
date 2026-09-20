@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -555,18 +556,31 @@ type StopDeviceSessionInput struct {
 
 // StopDeviceSessionOutput defines output for stop_device_session.
 type StopDeviceSessionOutput struct {
-	Success   bool       `json:"success"`
-	Error     string     `json:"error,omitempty"`
-	NextSteps []NextStep `json:"next_steps,omitempty"`
+	Success         bool                      `json:"success"`
+	Error           string                    `json:"error,omitempty"`
+	NextSteps       []NextStep                `json:"next_steps,omitempty"`
+	RequestAccepted bool                      `json:"request_accepted"`
+	SessionSettled  bool                      `json:"session_settled"`
+	DeviceReleased  bool                      `json:"device_released"`
+	Results         []DeviceSessionStopResult `json:"results,omitempty"`
 }
 
 func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StopDeviceSessionInput) (*mcp.CallToolResult, StopDeviceSessionOutput, error) {
 	if input.All {
 		s.syncSessionsBestEffort(ctx)
-		if err := s.sessionMgr.StopAllSessions(ctx); err != nil {
-			return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+		result, err := s.sessionMgr.StopAllSessions(ctx)
+		output := StopDeviceSessionOutput{
+			Success: result.RequestAccepted, RequestAccepted: result.RequestAccepted,
+			SessionSettled: result.SessionSettled, DeviceReleased: result.DeviceReleased,
+			Results: result.Results,
 		}
-		return nil, StopDeviceSessionOutput{Success: true}, nil
+		if err != nil {
+			output.Error = err.Error()
+		}
+		if !result.SessionSettled || !result.DeviceReleased {
+			output.NextSteps = []NextStep{{Tool: "list_device_sessions", Reason: "Check remaining sessions and retry Stop if needed"}}
+		}
+		return nil, output, nil
 	}
 
 	index := -1
@@ -578,10 +592,23 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 		return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 	if err := s.sessionMgr.StopSession(ctx, session.Index); err != nil {
+		var pending *api.DeviceSessionStopPendingError
+		if errors.As(err, &pending) {
+			return nil, StopDeviceSessionOutput{
+				Success:         true,
+				RequestAccepted: true,
+				SessionSettled:  pending.Response.SessionSettled != nil && *pending.Response.SessionSettled,
+				DeviceReleased:  pending.Response.DeviceReleased != nil && *pending.Response.DeviceReleased,
+				NextSteps:       []NextStep{{Tool: "list_device_sessions", Reason: "Stop requested; check the session while cleanup finishes"}},
+			}, nil
+		}
 		return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 	return nil, StopDeviceSessionOutput{
-		Success: true,
+		Success:         true,
+		RequestAccepted: true,
+		SessionSettled:  true,
+		DeviceReleased:  true,
 		NextSteps: []NextStep{
 			{Tool: "create_test", Reason: "Save the session as a reusable test"},
 		},

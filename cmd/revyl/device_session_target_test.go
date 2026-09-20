@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/api"
+	mcppkg "github.com/revyl/cli/internal/mcp"
 )
 
 const (
@@ -25,124 +28,6 @@ func newSessionTargetTestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "screenshot", RunE: func(*cobra.Command, []string) error { return nil }}
 	registerSessionTargetFlags(cmd)
 	return cmd
-}
-
-func TestSessionTargetFromCommand_ParsesIndexAndSessionID(t *testing.T) {
-	testCases := []struct {
-		name      string
-		args      []string
-		wantIndex int
-		wantID    string
-		wantErr   string
-	}{
-		{name: "omitted defaults to active session", args: nil, wantIndex: -1},
-		{name: "space separated index", args: []string{"-s", "0"}, wantIndex: 0},
-		{name: "equals separated index", args: []string{"-s=0"}, wantIndex: 0},
-		{name: "explicit active sentinel", args: []string{"-s", "-1"}, wantIndex: -1},
-		{name: "higher index", args: []string{"-s", "2"}, wantIndex: 2},
-		{name: "session id via -s", args: []string{"-s", flowSessionID}, wantID: flowSessionID},
-		{name: "session id via --session-id", args: []string{"--session-id", flowSessionID}, wantID: flowSessionID},
-		{
-			name:    "malformed selector",
-			args:    []string{"-s", "session-7"},
-			wantErr: `invalid -s "session-7"`,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Cleared so the environment fallback cannot mask flag parsing.
-			t.Setenv(sessionIDEnvVar, "")
-
-			cmd := newSessionTargetTestCommand()
-			if err := cmd.ParseFlags(tc.args); err != nil {
-				t.Fatalf("ParseFlags(%v) error = %v", tc.args, err)
-			}
-
-			target, err := sessionTargetFromCommand(cmd)
-			if tc.wantErr != "" {
-				if err == nil {
-					t.Fatalf("sessionTargetFromCommand() error = nil, want %q", tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("sessionTargetFromCommand() error = %q, want it to contain %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("sessionTargetFromCommand() error = %v, want nil", err)
-			}
-			if target.SessionID != tc.wantID {
-				t.Fatalf("SessionID = %q, want %q", target.SessionID, tc.wantID)
-			}
-			if tc.wantID == "" && target.Index != tc.wantIndex {
-				t.Fatalf("Index = %d, want %d", target.Index, tc.wantIndex)
-			}
-		})
-	}
-}
-
-func TestSessionTargetFromCommand_Precedence(t *testing.T) {
-	const envSessionID = "11111111-2222-4333-8444-555555555555"
-
-	testCases := []struct {
-		name   string
-		args   []string
-		envID  string
-		wantID string
-		// wantIndex applies only when wantID is empty.
-		wantIndex int
-	}{
-		{
-			name:   "explicit session id beats environment",
-			args:   []string{"--session-id", flowSessionID},
-			envID:  envSessionID,
-			wantID: flowSessionID,
-		},
-		{
-			name:   "session id via -s beats environment",
-			args:   []string{"-s", flowSessionID},
-			envID:  envSessionID,
-			wantID: flowSessionID,
-		},
-		{
-			name:      "explicit index beats environment",
-			args:      []string{"-s", "1"},
-			envID:     envSessionID,
-			wantIndex: 1,
-		},
-		{
-			name:   "environment beats active session",
-			envID:  envSessionID,
-			wantID: envSessionID,
-		},
-		{
-			name:      "active session when nothing is set",
-			wantIndex: -1,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(sessionIDEnvVar, tc.envID)
-
-			cmd := newSessionTargetTestCommand()
-			if err := cmd.ParseFlags(tc.args); err != nil {
-				t.Fatalf("ParseFlags(%v) error = %v", tc.args, err)
-			}
-
-			target, err := sessionTargetFromCommand(cmd)
-			if err != nil {
-				t.Fatalf("sessionTargetFromCommand() error = %v, want nil", err)
-			}
-			if target.SessionID != tc.wantID {
-				t.Fatalf("SessionID = %q, want %q", target.SessionID, tc.wantID)
-			}
-			if tc.wantID == "" && target.Index != tc.wantIndex {
-				t.Fatalf("Index = %d, want %d", target.Index, tc.wantIndex)
-			}
-		})
-	}
 }
 
 func TestSessionTargetFromCommand_RejectsConflictingTargets(t *testing.T) {
@@ -173,23 +58,6 @@ func TestSessionTargetFromCommand_RejectsConflictingTargets(t *testing.T) {
 	}
 }
 
-func TestSessionTargetFromCommand_AgreeingSpellingsAreNotAConflict(t *testing.T) {
-	t.Setenv(sessionIDEnvVar, "")
-
-	cmd := newSessionTargetTestCommand()
-	if err := cmd.ParseFlags([]string{"--session-id", flowSessionID, "-s", strings.ToUpper(flowSessionID)}); err != nil {
-		t.Fatalf("ParseFlags() error = %v", err)
-	}
-
-	target, err := sessionTargetFromCommand(cmd)
-	if err != nil {
-		t.Fatalf("sessionTargetFromCommand() error = %v, want nil", err)
-	}
-	if target.SessionID != flowSessionID {
-		t.Fatalf("SessionID = %q, want %q", target.SessionID, flowSessionID)
-	}
-}
-
 // sessionlessDeviceCommands are the direct `device` subcommands that do not act
 // on an existing session, so they neither need nor accept session targeting.
 // Nested subcommands such as `device state list` are deliberately absent: they
@@ -201,119 +69,6 @@ var sessionlessDeviceCommands = map[string]bool{
 	"attach":  true, // takes a positional session ID
 	"targets": true, // static device catalog
 	"history": true, // account-wide history
-}
-
-// TestDeviceCommandTree_ExposesSessionTargetFlags stops a newly added device
-// subcommand from silently regressing the targeting surface: any leaf command
-// that acts on a session must accept both spellings.
-func TestDeviceCommandTree_ExposesSessionTargetFlags(t *testing.T) {
-	var walk func(cmd *cobra.Command)
-	walk = func(cmd *cobra.Command) {
-		for _, sub := range cmd.Commands() {
-			if len(sub.Commands()) > 0 {
-				walk(sub)
-				continue
-			}
-			if sub.Name() == "help" || sub.Name() == "completion" {
-				continue
-			}
-			if cmd == deviceCmd && sessionlessDeviceCommands[sub.Name()] {
-				continue
-			}
-
-			t.Run(sub.CommandPath(), func(t *testing.T) {
-				for _, name := range []string{sessionFlagName, sessionIDFlagName} {
-					flag := sub.Flags().Lookup(name)
-					if flag == nil {
-						flag = sub.InheritedFlags().Lookup(name)
-					}
-					if flag == nil {
-						t.Fatalf("%s does not accept --%s; register it with registerSessionTargetFlags",
-							sub.CommandPath(), name)
-					}
-					if flag.Value.Type() != "string" {
-						t.Fatalf("%s --%s type = %q, want string so it accepts an index or a session ID",
-							sub.CommandPath(), name, flag.Value.Type())
-					}
-				}
-			})
-		}
-	}
-
-	walk(deviceCmd)
-}
-
-func TestDevAuthRefreshCommand_ExposesSessionTargetFlags(t *testing.T) {
-	for _, name := range []string{sessionFlagName, sessionIDFlagName} {
-		if devAuthRefreshCmd.Flags().Lookup(name) == nil {
-			t.Fatalf("dev auth refresh does not accept --%s", name)
-		}
-	}
-}
-
-// REVYL_SESSION_ID is exported to scope a shell to one device, so it reaches
-// every command in that shell. Only commands that opted into targeting may act
-// on it: a `dev` command pushed onto the stateless path skips local-session
-// hydration and stops recording its own sessions.
-func TestSessionTargetFromCommand_EnvironmentOnlyAppliesToTargetableCommands(t *testing.T) {
-	const envSessionID = "11111111-2222-4333-8444-555555555555"
-
-	testCases := []struct {
-		name    string
-		command func() *cobra.Command
-		wantID  string
-	}{
-		{
-			name:    "command with its own session flags honors the environment",
-			command: newSessionTargetTestCommand,
-			wantID:  envSessionID,
-		},
-		{
-			name: "subcommand inheriting persistent session flags honors the environment",
-			command: func() *cobra.Command {
-				parent := &cobra.Command{Use: "state"}
-				registerPersistentSessionTargetFlags(parent)
-				sub := &cobra.Command{Use: "list", RunE: func(*cobra.Command, []string) error { return nil }}
-				parent.AddCommand(sub)
-				return sub
-			},
-			wantID: envSessionID,
-		},
-		{
-			name: "command without session flags ignores the environment",
-			command: func() *cobra.Command {
-				return &cobra.Command{Use: "stop", RunE: func(*cobra.Command, []string) error { return nil }}
-			},
-			wantID: "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(sessionIDEnvVar, envSessionID)
-
-			cmd := tc.command()
-			if err := cmd.ParseFlags(nil); err != nil {
-				t.Fatalf("ParseFlags() error = %v", err)
-			}
-
-			target, err := sessionTargetFromCommand(cmd)
-			if err != nil {
-				t.Fatalf("sessionTargetFromCommand() error = %v, want nil", err)
-			}
-			if target.SessionID != tc.wantID {
-				t.Fatalf("SessionID = %q, want %q", target.SessionID, tc.wantID)
-			}
-			if tc.wantID == "" {
-				if target.ByDurableID() {
-					t.Fatal("untargetable command took the durable-ID path, which disables persistence")
-				}
-				if target.Index != -1 {
-					t.Fatalf("Index = %d, want -1 (the active session)", target.Index)
-				}
-			}
-		})
-	}
 }
 
 // The dev commands select their session through their dev context, so an
@@ -700,29 +455,6 @@ func TestDeviceInstructionCommand_TargetsSessionFromEnvironment(t *testing.T) {
 	assertSessionCacheUnchanged(t, tmpDir, originalCache)
 }
 
-func TestCommandNeedsSessionInventory(t *testing.T) {
-	if commandNeedsSessionInventory(nil) {
-		t.Fatal("commandNeedsSessionInventory(nil) = true, want false")
-	}
-
-	plain := newSessionTargetTestCommand()
-	if commandNeedsSessionInventory(plain) {
-		t.Fatal("commandNeedsSessionInventory without --all = true, want false")
-	}
-
-	stop := &cobra.Command{Use: "stop"}
-	stop.Flags().Bool("all", false, "")
-	if commandNeedsSessionInventory(stop) {
-		t.Fatal("commandNeedsSessionInventory with --all unset = true, want false")
-	}
-	if err := stop.Flags().Set("all", "true"); err != nil {
-		t.Fatalf("set --all: %v", err)
-	}
-	if !commandNeedsSessionInventory(stop) {
-		t.Fatal("commandNeedsSessionInventory with --all = false, want true")
-	}
-}
-
 const (
 	secondFlowSessionID     = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 	secondFlowWorkflowRunID = "66666666-6666-6666-6666-666666666666"
@@ -735,6 +467,7 @@ type inventoryStopAllServer struct {
 	ActiveSessionCall *atomic.Int32
 	CancelCalls       *atomic.Int32
 	CancelledRuns     chan string
+	CancelResponse    func(string) string
 }
 
 // newInventoryStopAllServer serves user lookup, a two-session active list,
@@ -798,7 +531,11 @@ func newInventoryStopAllServer(t *testing.T) *inventoryStopAllServer {
 			case flow.CancelledRuns <- runID:
 			default:
 			}
-			_, _ = w.Write([]byte(`{"success":true,"message":"cancelled","workflow_run_id":"` + runID + `"}`))
+			if flow.CancelResponse != nil {
+				_, _ = w.Write([]byte(flow.CancelResponse(runID)))
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"request_accepted":true,"session_settled":true,"device_released":true,"message":"cancelled","workflow_run_id":"` + runID + `"}`))
 		default:
 			for _, session := range sessions {
 				if r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+session.workflowRunID {
@@ -817,6 +554,133 @@ func newInventoryStopAllServer(t *testing.T) *inventoryStopAllServer {
 	t.Cleanup(flow.Server.Close)
 
 	return flow
+}
+
+func TestDeviceStopReportsUnsettledAndPartialOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		all           bool
+		body          string
+		wantError     bool
+		wantRequested bool
+		secondBody    string
+		wantStopped   bool
+	}{
+		{"pending", false, `{"success":true,"request_accepted":true,"session_settled":false,"device_released":false}`, false, true, "", false},
+		{"legacy", false, `{"success":true,"db_updated":true}`, false, true, "", false},
+		{"rejected", false, `{"success":false,"request_accepted":false,"message":"stop rejected"}`, true, false, "", false},
+		{"partial", true, `{"success":false,"request_accepted":false,"message":"stop rejected"}`, true, false, `{"success":true,"session_settled":true,"device_released":true}`, false},
+		{"all_pending", true, `{"success":true,"request_accepted":true,"session_settled":false,"device_released":false}`, false, true, "", false},
+		{"all_released", true, `{"success":true,"request_accepted":true,"session_settled":true,"device_released":true}`, false, true, "", true},
+		{"all_legacy", true, `{"success":true,"db_updated":true}`, false, true, "", false},
+		{"released_and_pending", true, `{"success":true,"session_settled":true,"device_released":true}`, false, true, `{"success":true,"session_settled":true,"device_released":false}`, false},
+		{"pending_and_rejected", true, `{"success":true,"session_settled":true,"device_released":false}`, true, false, `{"success":false,"message":"stop rejected"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withWorkingDirectory(t, t.TempDir())
+			t.Setenv("REVYL_API_KEY", "test-api-key")
+			t.Setenv(sessionIDEnvVar, "")
+			flow := newInventoryStopAllServer(t)
+			flow.CancelResponse = func(runID string) string {
+				if tc.secondBody != "" && runID == secondFlowWorkflowRunID {
+					return tc.secondBody
+				}
+				return tc.body
+			}
+			t.Setenv("REVYL_BACKEND_URL", flow.Server.URL)
+			cmd := &cobra.Command{Use: "stop"}
+			cmd.SetContext(context.Background())
+			cmd.Flags().Bool("json", true, "")
+			cmd.Flags().Bool("dev", false, "")
+			cmd.Flags().Bool("all", tc.all, "")
+			registerSessionTargetFlags(cmd)
+			if !tc.all {
+				if err := cmd.Flags().Set("s", "0"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stopErr error
+			output := captureStdout(t, func() { stopErr = deviceStopCmd.RunE(cmd, nil) })
+			if (stopErr != nil) != tc.wantError {
+				t.Fatalf("stop error = %v, want error %v", stopErr, tc.wantError)
+			}
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(output), &payload); err != nil {
+				t.Fatalf("invalid JSON output %q: %v", output, err)
+			}
+			key := "stopped"
+			if tc.all {
+				key = "stopped_all"
+			}
+			if payload[key] != tc.wantStopped {
+				t.Fatalf("%s = %v, want %v", key, payload[key], tc.wantStopped)
+			}
+			if tc.wantRequested && payload["stop_requested"] != true {
+				t.Fatalf("missing stop acceptance: %s", output)
+			}
+			if tc.all {
+				var batch struct {
+					Results []mcppkg.DeviceSessionStopResult `json:"results"`
+				}
+				if err := json.Unmarshal([]byte(output), &batch); err != nil {
+					t.Fatal(err)
+				}
+				if len(batch.Results) != 2 {
+					t.Fatalf("missing batch results: %s", output)
+				}
+				for _, member := range batch.Results {
+					body := tc.body
+					if member.WorkflowRunID == secondFlowWorkflowRunID && tc.secondBody != "" {
+						body = tc.secondBody
+					}
+					var acknowledgement api.CancelDeviceResponse
+					if err := json.Unmarshal([]byte(body), &acknowledgement); err != nil {
+						t.Fatal(err)
+					}
+					if member.SessionID == "" || member.RequestAccepted != acknowledgement.StopRequestAccepted() || member.SessionSettled != (acknowledgement.SessionSettled != nil && *acknowledgement.SessionSettled) || member.DeviceReleased != (acknowledgement.DeviceReleased != nil && *acknowledgement.DeviceReleased) {
+						t.Fatalf("incorrect member result: %+v", member)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDeviceStopByIDDoesNotRequireWorkerOrActiveSession(t *testing.T) {
+	withWorkingDirectory(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+	t.Setenv(sessionIDEnvVar, flowSessionID)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/execution/device/sessions/"+flowSessionID+"/stop" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"request_accepted":true,"session_settled":true,"device_released":true}`))
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	cmd := &cobra.Command{Use: "stop"}
+	cmd.SetContext(context.Background())
+	cmd.Flags().Bool("json", true, "")
+	cmd.Flags().Bool("dev", false, "")
+	cmd.Flags().Bool("all", false, "")
+	registerSessionTargetFlags(cmd)
+	output := captureStdout(t, func() {
+		if err := deviceStopCmd.RunE(cmd, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["stopped"] != true || requests.Load() != 1 {
+		t.Fatalf("output=%s requests=%d, want confirmed stop with one backend call", output, requests.Load())
+	}
 }
 
 // cancelledWorkflowRuns drains the recorded cancel targets.

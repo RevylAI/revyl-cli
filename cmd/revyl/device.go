@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -999,16 +1000,37 @@ var deviceStopCmd = &cobra.Command{
 
 		all, _ := cmd.Flags().GetBool("all")
 		if all {
-			if err := mgr.StopAllSessions(cmd.Context()); err != nil {
-				ui.PrintWarning("Some sessions had issues: %v", err)
+			result, stopErr := mgr.StopAllSessions(cmd.Context())
+			output := map[string]interface{}{
+				"stopped_all":     result.SessionSettled && result.DeviceReleased,
+				"stop_requested":  result.RequestAccepted,
+				"session_settled": result.SessionSettled,
+				"device_released": result.DeviceReleased,
+				"results":         result.Results,
 			}
-			jsonOrPrint(cmd, map[string]bool{"stopped_all": true}, "All sessions stopped.")
-			return nil
+			message := "All sessions stopped."
+			if stopErr != nil {
+				output["error"] = stopErr.Error()
+				message = "Some device stop requests failed; check results and retry the remaining sessions."
+			} else if !result.SessionSettled || !result.DeviceReleased {
+				message = "All device stops requested. Session cleanup is still pending."
+			}
+			jsonOrPrint(cmd, output, message)
+			return stopErr
 		}
 
-		session, err := resolveSessionTarget(cmd, mgr)
+		target, err := sessionTargetFromCommand(cmd)
 		if err != nil {
 			return err
+		}
+		var session *mcppkg.DeviceSession
+		if target.SessionID != "" {
+			session = &mcppkg.DeviceSession{SessionID: target.SessionID, Index: mcppkg.UnattachedSessionIndex}
+		} else {
+			session, err = resolveSessionTarget(cmd, mgr)
+			if err != nil {
+				return err
+			}
 		}
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 		if !jsonOutput {
@@ -1017,10 +1039,19 @@ var deviceStopCmd = &cobra.Command{
 
 		cancelErr := mgr.StopResolvedSession(cmd.Context(), session)
 		if cancelErr != nil {
-			jsonOrPrint(cmd, map[string]interface{}{"stopped": true, "warning": cancelErr.Error()},
-				"Device session stopped locally.")
-			ui.PrintWarning("%v", cancelErr)
-			return nil
+			var pending *api.DeviceSessionStopPendingError
+			if errors.As(cancelErr, &pending) {
+				jsonOrPrint(cmd, map[string]interface{}{
+					"stopped":         false,
+					"stop_requested":  true,
+					"session_settled": pending.Response.SessionSettled != nil && *pending.Response.SessionSettled,
+					"device_released": pending.Response.DeviceReleased != nil && *pending.Response.DeviceReleased,
+					"session_id":      session.SessionID,
+				}, "Device stop requested. Session cleanup is still pending.")
+				return nil
+			}
+			jsonOrPrint(cmd, map[string]interface{}{"stopped": false, "error": cancelErr.Error(), "session_id": session.SessionID}, "Device stop request failed; the session remains available for retry.")
+			return cancelErr
 		}
 		jsonOrPrint(cmd, map[string]bool{"stopped": true}, "Device session stopped.")
 		return nil

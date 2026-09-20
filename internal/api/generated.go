@@ -7264,6 +7264,12 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	AttributedToCloudAgentConversationId *openapi_types.UUID   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 }
 
+// StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPostParams defines parameters for StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPost.
+type StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+}
+
 // CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPostParams defines parameters for CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPost.
 type CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPostParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`

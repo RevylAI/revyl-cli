@@ -137,10 +137,21 @@ revyl device stop
 ```
 
 The remote build sends source to a Revyl cloud build runner, `device start`
-provisions a cloud session, and `device stop` releases it. Do not run them
+provisions a cloud session, and `device stop` requests its release. Do not run them
 merely because an agent can reach the control plane. This guide documents the
 intended compatibility workflow; it does not claim that a Claude Cloud
 end-to-end run has been performed.
+
+With `device stop --json`, `stopped: true` confirms both session settlement and
+device release. `stop_requested: true` with `stopped: false` means cleanup is
+still pending; keep the session ID and check or retry the stop. Older backends
+that only acknowledge the request also produce this pending result. Rejected
+requests return a nonzero exit status. With `--all`, accepted pending requests
+return exit zero with `stop_requested: true` and `stopped_all: false`. A nonzero
+exit means at least one request failed. Batch acceptance, settlement, and release
+fields describe every targeted session; `results` lists each session’s identity,
+acceptance, settlement, release, and any request error. Pending and rejected
+sessions remain available to check or retry.
 
 ## Evaluate the rollout
 

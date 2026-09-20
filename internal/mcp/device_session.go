@@ -669,7 +669,13 @@ func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session 
 	if m.apiClient == nil {
 		return fmt.Errorf("no API client configured")
 	}
-	resp, err := m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
+	var resp *api.CancelDeviceResponse
+	var err error
+	if session.WorkflowRunID == "" && session.SessionID != "" {
+		resp, err = m.apiClient.StopDeviceSession(ctx, session.SessionID)
+	} else {
+		resp, err = m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
+	}
 	if err != nil {
 		ui.PrintDebug("CancelDevice failed for %s: %v", session.WorkflowRunID, err)
 		return fmt.Errorf("backend cancel failed: %w", err)
@@ -682,28 +688,65 @@ func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session 
 	return nil
 }
 
-// StopAllSessions stops all active sessions.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//
-// Returns:
-//   - error: The first error encountered, if any.
-func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) error {
+type DeviceSessionStopResult struct {
+	SessionIndex    int    `json:"session_index"`
+	SessionID       string `json:"session_id"`
+	WorkflowRunID   string `json:"workflow_run_id"`
+	RequestAccepted bool   `json:"request_accepted"`
+	SessionSettled  bool   `json:"session_settled"`
+	DeviceReleased  bool   `json:"device_released"`
+	Error           string `json:"error,omitempty"`
+}
+
+type DeviceSessionStopBatchResult struct {
+	RequestAccepted bool                      `json:"request_accepted"`
+	SessionSettled  bool                      `json:"session_settled"`
+	DeviceReleased  bool                      `json:"device_released"`
+	Results         []DeviceSessionStopResult `json:"results"`
+}
+
+// StopAllSessions retains pending sessions and returns errors only for failed requests.
+func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessionStopBatchResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var firstErr error
+	result := DeviceSessionStopBatchResult{
+		RequestAccepted: true, SessionSettled: true, DeviceReleased: true,
+		Results: make([]DeviceSessionStopResult, 0, len(m.sessions)),
+	}
+	var stopErrors []error
 	removedSessions := make([]sessionCacheIdentity, 0, len(m.sessions))
-	for idx, session := range m.sessions {
+	indices := make([]int, 0, len(m.sessions))
+	for idx := range m.sessions {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+	for _, idx := range indices {
+		session := m.sessions[idx]
 		identity := sessionCacheIdentityFor(session)
+		outcome := DeviceSessionStopResult{
+			SessionIndex: idx, SessionID: session.SessionID, WorkflowRunID: session.WorkflowRunID,
+			RequestAccepted: true, SessionSettled: true, DeviceReleased: true,
+		}
 		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil {
-			if firstErr == nil {
-				firstErr = err
+			var pending *api.DeviceSessionStopPendingError
+			if errors.As(err, &pending) {
+				outcome.SessionSettled = pending.Response.SessionSettled != nil && *pending.Response.SessionSettled
+				outcome.DeviceReleased = pending.Response.DeviceReleased != nil && *pending.Response.DeviceReleased
+			} else {
+				outcome.RequestAccepted = false
+				outcome.SessionSettled = false
+				outcome.DeviceReleased = false
+				outcome.Error = err.Error()
+				stopErrors = append(stopErrors, err)
 			}
 		} else {
 			removedSessions = append(removedSessions, identity)
 		}
+		result.RequestAccepted = result.RequestAccepted && outcome.RequestAccepted
+		result.SessionSettled = result.SessionSettled && outcome.SessionSettled
+		result.DeviceReleased = result.DeviceReleased && outcome.DeviceReleased
+		result.Results = append(result.Results, outcome)
 	}
 	if len(m.sessions) == 0 {
 		m.nextIndex = 0
@@ -713,7 +756,7 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) error {
 		updateActive:    len(removedSessions) > 0,
 		resetNextIndex:  len(m.sessions) == 0,
 	})
-	return firstErr
+	return result, errors.Join(stopErrors...)
 }
 
 // StopOwnedSessions stops only sessions provisioned by this manager process.
@@ -3363,11 +3406,21 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		}
 	}
 	removedSessions := make([]sessionCacheIdentity, 0)
+	var settlementReadErrors []error
 	for idx, ls := range m.sessions {
 		if allBackendIDs[ls.SessionID] {
 			continue
 		}
-		// Session no longer exists on backend; clean up locally.
+		detail, err := m.apiClient.GetDeviceSessionByID(ctx, ls.SessionID)
+		if err != nil {
+			var apiError *api.APIError
+			if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
+				settlementReadErrors = append(settlementReadErrors, fmt.Errorf("could not confirm session %s cleanup: %w", ls.SessionID, err))
+				continue
+			}
+		} else if !detail.StopConfirmed() {
+			continue
+		}
 		if timer, ok := m.idleTimers[idx]; ok {
 			timer.Stop()
 			delete(m.idleTimers, idx)
@@ -3500,7 +3553,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		updateActive:    true,
 		resetNextIndex:  len(m.sessions) == 0,
 	})
-	return nil
+	return errors.Join(settlementReadErrors...)
 }
 
 // AttachBySessionID connects to an existing session by its ID, bypassing the

@@ -80,7 +80,12 @@ func runCancelTest(cmd *cobra.Command, args []string) error {
 
 	// Display result
 	if resp.Success {
-		ui.PrintSuccess("Test cancelled successfully")
+		if resp.Status != nil && *resp.Status == "cancelled" {
+			ui.PrintSuccess("Test cancelled successfully")
+		} else {
+			ui.PrintInfo("Test cancellation requested")
+			ui.PrintInfo("Check the test status to confirm the execution has ended")
+		}
 		if resp.Status != nil {
 			ui.PrintInfo("Status: %s", *resp.Status)
 		}
@@ -160,8 +165,8 @@ func runCancelWorkflow(cmd *cobra.Command, args []string) error {
 
 	// Display result
 	if resp.Success {
-		ui.PrintSuccess("Workflow cancelled successfully")
-		ui.PrintInfo("All child test executions have been cancelled")
+		ui.PrintInfo("Workflow cancellation requested")
+		ui.PrintInfo("Check child test statuses to confirm their executions have ended")
 		return nil
 	}
 

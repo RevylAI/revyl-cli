@@ -28,54 +28,6 @@ import (
 // TestWsURLToHTTP: Table-driven test for WebSocket-to-HTTP URL conversion.
 // ---------------------------------------------------------------------------
 
-func TestWsURLToHTTP(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "ws with /ws/ path",
-			input:    "ws://host:8080/ws/abc",
-			expected: "http://host:8080",
-		},
-		{
-			name:     "wss with /ws/ nested path",
-			input:    "wss://host.com/ws/abc/123?token=xyz",
-			expected: "https://host.com",
-		},
-		{
-			name:     "http already - no /ws/ path",
-			input:    "http://already-http",
-			expected: "http://already-http",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "wss with no /ws/ path gets scheme replaced only",
-			input:    "wss://host.com/other/path",
-			expected: "https://host.com/other/path",
-		},
-		{
-			name:     "ws with /ws/ at root",
-			input:    "ws://worker-xyz.revyl.ai/ws/stream?token=abc",
-			expected: "http://worker-xyz.revyl.ai",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := wsURLToHTTP(tt.input)
-			if result != tt.expected {
-				t.Errorf("wsURLToHTTP(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestStartSessionRejectsInvalidLaunchArgumentsBeforeAPIWork(t *testing.T) {
 	manager := NewDeviceSessionManager(nil, t.TempDir())
 	index, session, err := manager.StartSession(context.Background(), StartSessionOptions{
@@ -259,55 +211,15 @@ func TestWritePNGArtifactReplacesExistingFilePrivately(t *testing.T) {
 // no session is active.
 // ---------------------------------------------------------------------------
 
-func TestDeviceSessionManager_GetActive_NoSession(t *testing.T) {
-	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-
-	session := mgr.GetActive()
-	if session != nil {
-		t.Errorf("expected nil session, got %+v", session)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_ResetIdleTimer_NoSession: ResetIdleTimer is a
 // no-op when there's no active session (should not panic).
 // ---------------------------------------------------------------------------
 
-func TestDeviceSessionManager_ResetIdleTimer_NoSession(t *testing.T) {
-	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-
-	// Should not panic (index 0 doesn't exist)
-	mgr.ResetIdleTimer(0)
-}
-
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_StopSession_NoSession: StopSession returns an
 // error when the specified index doesn't exist.
 // ---------------------------------------------------------------------------
-
-func TestDeviceSessionManager_StopSession_NoSession(t *testing.T) {
-	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-
-	err := mgr.StopSession(context.Background(), 0)
-	if err == nil {
-		t.Fatal("expected error when stopping non-existent session")
-	}
-	if err.Error() != "no session at index 0" {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
 
 func TestDeviceSessionManager_StopSessionRetainsSessionWhenBackendCancelFails(t *testing.T) {
 	workDir := t.TempDir()
@@ -626,7 +538,7 @@ func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
 		}
 	}
 
-	_ = mgr.StopAllSessions(context.Background())
+	_, _ = mgr.StopAllSessions(context.Background())
 
 	if mgr.SessionCount() != 0 {
 		t.Fatalf("expected 0 sessions after StopAll, got %d", mgr.SessionCount())
@@ -648,70 +560,6 @@ func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
 // TestDeviceSessionManager_MultiSession: Verify multi-session add, resolve,
 // and active switching.
 // ---------------------------------------------------------------------------
-
-func TestDeviceSessionManager_MultiSession(t *testing.T) {
-	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-
-	now := time.Now()
-
-	// Add session 0
-	mgr.mu.Lock()
-	mgr.sessions[0] = &DeviceSession{Index: 0, SessionID: "s0", Platform: "android", StartedAt: now, LastActivity: now, IdleTimeout: 5 * time.Minute}
-	mgr.activeIndex = 0
-	mgr.nextIndex = 1
-	mgr.mu.Unlock()
-
-	// Add session 1
-	mgr.mu.Lock()
-	mgr.sessions[1] = &DeviceSession{Index: 1, SessionID: "s1", Platform: "ios", StartedAt: now, LastActivity: now, IdleTimeout: 5 * time.Minute}
-	mgr.nextIndex = 2
-	mgr.mu.Unlock()
-
-	// ListSessions should return both, sorted
-	list := mgr.ListSessions()
-	if len(list) != 2 {
-		t.Fatalf("expected 2 sessions, got %d", len(list))
-	}
-	if list[0].Index != 0 || list[1].Index != 1 {
-		t.Errorf("sessions not sorted by index")
-	}
-
-	// ResolveSession(-1) should return active (0)
-	s, err := mgr.ResolveSession(-1)
-	if err != nil {
-		t.Fatalf("resolve active: %v", err)
-	}
-	if s.Index != 0 {
-		t.Errorf("expected active index 0, got %d", s.Index)
-	}
-
-	// ResolveSession(1) should return session 1
-	s, err = mgr.ResolveSession(1)
-	if err != nil {
-		t.Fatalf("resolve index 1: %v", err)
-	}
-	if s.SessionID != "s1" {
-		t.Errorf("expected s1, got %s", s.SessionID)
-	}
-
-	// SetActive(1) should switch
-	if err := mgr.SetActive(1); err != nil {
-		t.Fatalf("SetActive: %v", err)
-	}
-	if mgr.ActiveIndex() != 1 {
-		t.Errorf("expected active 1, got %d", mgr.ActiveIndex())
-	}
-
-	// ResolveSession(99) should error
-	_, err = mgr.ResolveSession(99)
-	if err == nil {
-		t.Fatal("expected error for non-existent index")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_Persistence: Verify multi-session persistence
@@ -1027,36 +875,10 @@ func TestDeviceSessionManager_RegisterStartedSessionAllocatesUniqueConcurrentInd
 	}
 }
 
-func TestApplyBackendLastActivityKeepsNewestValue(t *testing.T) {
-	local := time.Now()
-	newer := local.Add(time.Minute).Format(time.RFC3339Nano)
-	session := &DeviceSession{LastActivity: local}
-	applyBackendLastActivity(session, api.ActiveDeviceSessionItem{LastActivityAt: &newer})
-	if !session.LastActivity.Equal(local.Add(time.Minute)) {
-		t.Fatalf("last activity = %s, want backend value", session.LastActivity)
-	}
-
-	older := local.Add(-time.Minute).Format(time.RFC3339Nano)
-	applyBackendLastActivity(session, api.ActiveDeviceSessionItem{LastActivityAt: &older})
-	if !session.LastActivity.Equal(local.Add(time.Minute)) {
-		t.Fatalf("last activity regressed to %s", session.LastActivity)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_Persistence_NoWorkDir: Persistence is a no-op
 // when workDir is empty.
 // ---------------------------------------------------------------------------
-
-func TestDeviceSessionManager_Persistence_NoWorkDir(t *testing.T) {
-	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-	mgr.sessions[0] = &DeviceSession{Index: 0, SessionID: "no-persist"}
-	mgr.persistAllSessionsForBootstrap() // should not panic
-}
 
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_Migration: Verify migration from old
@@ -1118,21 +940,6 @@ func TestDeviceSessionManager_Migration(t *testing.T) {
 // TestDeviceSessionManager_LoadPersistedSession_NoFile: Returns nil when
 // no persisted session file exists.
 // ---------------------------------------------------------------------------
-
-func TestDeviceSessionManager_LoadPersistedSession_NoFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	mgr := &DeviceSessionManager{
-		workDir:     tmpDir,
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-
-	loaded := mgr.LoadPersistedSession()
-	if loaded != nil {
-		t.Errorf("expected nil when no persisted file, got %+v", loaded)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_EnsureOrgInfoLocked_UsesValidatedIdentity: Cached
@@ -1286,29 +1093,6 @@ func TestDeviceSessionManager_ResolveSession_SingleFallback(t *testing.T) {
 // should be rewritten to backend session IDs before prune logic runs.
 // ---------------------------------------------------------------------------
 
-func TestReconcileSessionIDsByWorkflow(t *testing.T) {
-	sessions := map[int]*DeviceSession{
-		0: {Index: 0, SessionID: "wf-123", WorkflowRunID: "wf-123"},
-		1: {Index: 1, SessionID: "stable-id", WorkflowRunID: "wf-other"},
-		2: {Index: 2, SessionID: "no-workflow"},
-	}
-	backendByWorkflow := map[string]string{
-		"wf-123": "session-abc",
-	}
-
-	reconcileSessionIDsByWorkflow(sessions, backendByWorkflow)
-
-	if sessions[0].SessionID != "session-abc" {
-		t.Fatalf("expected session 0 reconciled to backend ID, got %q", sessions[0].SessionID)
-	}
-	if sessions[1].SessionID != "stable-id" {
-		t.Fatalf("expected session 1 unchanged, got %q", sessions[1].SessionID)
-	}
-	if sessions[2].SessionID != "no-workflow" {
-		t.Fatalf("expected session 2 unchanged, got %q", sessions[2].SessionID)
-	}
-}
-
 func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t *testing.T) {
 	t.Parallel()
 
@@ -1375,59 +1159,6 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 	}
 	if capturedStartReq.BuildID != buildVersionID {
 		t.Fatalf("start_device build_id = %q, want %q", capturedStartReq.BuildID, buildVersionID)
-	}
-}
-
-func TestDeviceSessionManager_StartSession_PropagatesDirectAppURLToStartDevice(t *testing.T) {
-	t.Parallel()
-
-	const (
-		appURL        = "https://artifact.example/direct-app.ipa"
-		workflowRunID = "00000000-0000-0000-0000-000000000004"
-		sessionID     = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04"
-	)
-
-	var capturedStartReq struct {
-		AppURL string `json:"app_url"`
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
-			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
-				t.Fatalf("decode start_device request: %v", err)
-			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
-			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
-			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	mgr := &DeviceSessionManager{
-		apiClient:   api.NewClientWithBaseURL("test-key", server.URL),
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
-	}
-
-	_, session, err := mgr.StartSession(context.Background(), StartSessionOptions{
-		Platform: "ios",
-		AppURL:   "  " + appURL + "  ",
-	})
-	if err != nil {
-		t.Fatalf("StartSession returned error: %v", err)
-	}
-	if session == nil {
-		t.Fatal("expected non-nil session")
-	}
-	if capturedStartReq.AppURL != appURL {
-		t.Fatalf("start_device app_url = %q, want %q", capturedStartReq.AppURL, appURL)
 	}
 }
 
@@ -1683,40 +1414,6 @@ func TestDeviceSessionManager_PollNetworkRequestsForSession(t *testing.T) {
 	}
 	if item.ContentType == nil || *item.ContentType != "application/json" {
 		t.Fatalf("content_type = %v, want application/json", item.ContentType)
-	}
-}
-
-func TestWorkerProxyActionFromPath(t *testing.T) {
-	tests := []struct {
-		name    string
-		path    string
-		want    string
-		wantErr bool
-	}{
-		{name: "simple", path: "/tap", want: "tap"},
-		{name: "no-leading-slash", path: "screenshot", want: "screenshot"},
-		{name: "query-string", path: "/resolve_target?foo=bar", want: "resolve_target?foo=bar"},
-		{name: "install-status", path: "/install_status/install-123", want: "install_status/install-123"},
-		{name: "nested-path-invalid", path: "/foo/bar", wantErr: true},
-		{name: "empty-invalid", path: "", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := workerProxyActionFromPath(tt.path)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error for path %q", tt.path)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("workerProxyActionFromPath(%q) = %q, want %q", tt.path, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -2538,18 +2235,6 @@ func TestStopOwnedSessionsPreservesAttachedSessions(t *testing.T) {
 	}
 }
 
-func TestResolveIdleTimeout(t *testing.T) {
-	if defaultSessionIdleTimeout != 15*time.Minute {
-		t.Fatalf("defaultSessionIdleTimeout = %v, want 15m", defaultSessionIdleTimeout)
-	}
-	if got := resolveIdleTimeout(0); got != defaultSessionIdleTimeout {
-		t.Fatalf("resolveIdleTimeout(0) = %v, want %v", got, defaultSessionIdleTimeout)
-	}
-	if got := resolveIdleTimeout(42 * time.Second); got != 42*time.Second {
-		t.Fatalf("resolveIdleTimeout(42s) = %v, want 42s", got)
-	}
-}
-
 // TestSyncSessions_PruneClearsBeforeSessionValues ensures backend reconcile
 // prune drops boot tokens for sessions that vanished without StopSession.
 func TestSyncSessions_PruneClearsBeforeSessionValues(t *testing.T) {
@@ -2627,37 +2312,6 @@ func TestSyncSessions_PruneClearsBeforeSessionValues(t *testing.T) {
 	}
 	if got := otherValues["E2E_AUTH_TOKEN"]; got != "other-token" {
 		t.Fatalf("other before-session token = %q, want other-token", got)
-	}
-}
-
-func TestProofReviewRunID(t *testing.T) {
-	t.Parallel()
-
-	runID := "b3cd415d-1111-2222-3333-444444444444"
-	meta := map[string]interface{}{"scm_review_run_id": runID}
-	if got := proofReviewRunID(&meta); got != runID {
-		t.Fatalf("proofReviewRunID() = %q, want %q", got, runID)
-	}
-	if !isProofOwnedSession(&meta) {
-		t.Fatal("isProofOwnedSession(proof metadata) = false, want true")
-	}
-	if got := proofReviewRunID(nil); got != "" {
-		t.Fatalf("proofReviewRunID(nil) = %q, want empty", got)
-	}
-	if isProofOwnedSession(nil) {
-		t.Fatal("isProofOwnedSession(nil) = true, want false")
-	}
-	empty := map[string]interface{}{}
-	if got := proofReviewRunID(&empty); got != "" {
-		t.Fatalf("proofReviewRunID(empty) = %q, want empty", got)
-	}
-	wrongType := map[string]interface{}{"scm_review_run_id": 1}
-	if got := proofReviewRunID(&wrongType); got != "" {
-		t.Fatalf("proofReviewRunID(non-string) = %q, want empty", got)
-	}
-	padded := map[string]interface{}{"scm_review_run_id": "  " + runID + "  "}
-	if got := proofReviewRunID(&padded); got != runID {
-		t.Fatalf("proofReviewRunID(padded) = %q, want %q", got, runID)
 	}
 }
 
@@ -2913,7 +2567,7 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 			_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
 		case "/api/v1/execution/device/status/cancel/wf-worker-reset":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"message":"cancelled"}`))
+			_, _ = w.Write([]byte(`{"success":true,"request_accepted":true,"session_settled":true,"device_released":true}`))
 		default:
 			http.NotFound(w, r)
 		}

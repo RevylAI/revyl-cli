@@ -4366,6 +4366,20 @@ type DeviceSessionDetail struct {
 	CanCancel       bool                   `json:"can_cancel"`
 }
 
+func (s DeviceSessionDetail) StopConfirmed() bool {
+	switch strings.ToLower(s.Status) {
+	case "completed", "cancelled", "failed", "timeout":
+		releasedAt, ok := s.SourceMetadata["device_released_at"].(string)
+		if !ok {
+			return false
+		}
+		_, err := time.Parse(time.RFC3339Nano, releasedAt)
+		return err == nil
+	default:
+		return false
+	}
+}
+
 // GetDeviceSessionByID retrieves a single device session by its ID.
 func (c *Client) GetDeviceSessionByID(ctx context.Context, sessionID string) (*DeviceSessionDetail, error) {
 	resp, err := c.doRequest(ctx, "GET",
@@ -4384,17 +4398,39 @@ func (c *Client) GetDeviceSessionByID(ctx context.Context, sessionID string) (*D
 
 // CancelDeviceResponse represents the response from cancelling a device session.
 type CancelDeviceResponse struct {
-	// Success indicates whether the cancellation was successful.
+	// Success acknowledges the request; settlement and release are separate facts.
 	Success bool `json:"success"`
 
 	// Message contains additional information about the cancellation.
 	Message string `json:"message,omitempty"`
 
-	// WorkflowRunID is the workflow run that was cancelled.
+	// WorkflowRunID identifies the workflow targeted by the stop request.
 	WorkflowRunID string `json:"workflow_run_id,omitempty"`
 
 	// DBUpdated indicates whether the database was updated.
-	DBUpdated bool `json:"db_updated,omitempty"`
+	DBUpdated        bool   `json:"db_updated,omitempty"`
+	RequestAccepted  *bool  `json:"request_accepted,omitempty"`
+	SessionSettled   *bool  `json:"session_settled,omitempty"`
+	DeviceReleased   *bool  `json:"device_released,omitempty"`
+	HatchetCancelled *bool  `json:"hatchet_cancelled,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
+}
+
+func (r CancelDeviceResponse) StopRequestAccepted() bool {
+	return r.Success && (r.RequestAccepted == nil || *r.RequestAccepted)
+}
+
+func (r CancelDeviceResponse) StopConfirmed() bool {
+	return r.SessionSettled != nil && *r.SessionSettled &&
+		r.DeviceReleased != nil && *r.DeviceReleased
+}
+
+type DeviceSessionStopPendingError struct {
+	Response CancelDeviceResponse
+}
+
+func (e *DeviceSessionStopPendingError) Error() string {
+	return "device stop request accepted; session cleanup is not yet confirmed. Check 'revyl device list --json' or retry 'revyl device stop'"
 }
 
 // CancelDevice cancels a running device session.
@@ -4407,8 +4443,15 @@ type CancelDeviceResponse struct {
 //   - *CancelDeviceResponse: The cancellation response
 //   - error: Any error that occurred
 func (c *Client) CancelDevice(ctx context.Context, workflowRunID string) (*CancelDeviceResponse, error) {
-	resp, err := c.doRequest(ctx, "POST",
-		fmt.Sprintf("/api/v1/execution/device/status/cancel/%s", workflowRunID), nil)
+	return c.requestDeviceSessionStop(ctx, fmt.Sprintf("/api/v1/execution/device/status/cancel/%s", workflowRunID))
+}
+
+func (c *Client) StopDeviceSession(ctx context.Context, sessionID string) (*CancelDeviceResponse, error) {
+	return c.requestDeviceSessionStop(ctx, fmt.Sprintf("/api/v1/execution/device/sessions/%s/stop", url.PathEscape(sessionID)))
+}
+
+func (c *Client) requestDeviceSessionStop(ctx context.Context, path string) (*CancelDeviceResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -4418,6 +4461,12 @@ func (c *Client) CancelDevice(ctx context.Context, workflowRunID string) (*Cance
 		return nil, err
 	}
 
+	if !result.StopRequestAccepted() {
+		return &result, fmt.Errorf("device stop request was rejected: %s", result.Message)
+	}
+	if !result.StopConfirmed() {
+		return &result, &DeviceSessionStopPendingError{Response: result}
+	}
 	return &result, nil
 }
 

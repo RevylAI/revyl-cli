@@ -119,6 +119,7 @@ POST /api/v1/execution/api/execute_test_id_async
 POST /api/v1/workflow-executions
 POST /api/v1/execution/device-proxy/{workflow_run_id}/{action}
 POST /api/v1/execution/device-sessions/{session_id}/artifacts/upload-url
+POST /api/v1/execution/device/sessions/{session_id}/stop
 POST /api/v1/execution/device/status/cancel/{workflow_run_id}
 POST /api/v1/execution/mac/shell-sessions
 GET /api/v1/execution/computers

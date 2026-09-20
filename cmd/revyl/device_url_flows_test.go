@@ -455,7 +455,7 @@ session:
 				_, _ = w.Write([]byte(`{"detail":"cancel unavailable"}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"success":true,"message":"cancelled","workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"success":true,"request_accepted":true,"session_settled":true,"device_released":true,"message":"cancelled","workflow_run_id":"` + workflowRunID + `"}`))
 		default:
 			http.NotFound(w, r)
 		}
