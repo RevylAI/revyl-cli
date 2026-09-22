@@ -585,9 +585,6 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 		status, err = client.GetRemoteBuildStatus(cmd.Context(), jobID)
 	}
 	if buildStatusJSON {
-		if !quiet && !buildStatusFollow && isOrganizationConcurrencyWait(status) {
-			fmt.Fprintln(cmd.ErrOrStderr(), api.ConcurrencyUpgradeHint)
-		}
 		if status != nil {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -636,10 +633,6 @@ func printRemoteBuildStatusSummary(ctx context.Context, client *api.Client, jobI
 		ui.PrintKeyValue("Version ID:", strings.TrimSpace(*status.VersionId))
 	}
 	ui.PrintKeyValue("Status:", status.Status)
-	if isOrganizationConcurrencyWait(status) {
-		ui.Println()
-		printRemoteBuildConcurrencyWait()
-	}
 }
 
 func printRemoteBuildPhaseTimings(timings *[]api.RemoteBuildPhaseTiming) {

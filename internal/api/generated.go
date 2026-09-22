@@ -72,6 +72,24 @@ func (e ActionBlockVariableScope) Valid() bool {
 	}
 }
 
+// Defines values for ActiveDeviceSessionsResponseConcurrencyMode.
+const (
+	ActiveDeviceSessionsResponseConcurrencyModePlatform ActiveDeviceSessionsResponseConcurrencyMode = "platform"
+	ActiveDeviceSessionsResponseConcurrencyModeShared   ActiveDeviceSessionsResponseConcurrencyMode = "shared"
+)
+
+// Valid indicates whether the value is a known member of the ActiveDeviceSessionsResponseConcurrencyMode enum.
+func (e ActiveDeviceSessionsResponseConcurrencyMode) Valid() bool {
+	switch e {
+	case ActiveDeviceSessionsResponseConcurrencyModePlatform:
+		return true
+	case ActiveDeviceSessionsResponseConcurrencyModeShared:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppPlatform.
 const (
 	AppPlatformAndroid AppPlatform = "Android"
@@ -1812,11 +1830,22 @@ type ActiveDeviceSessionItem struct {
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.
+//
+// “concurrency_mode“ says how the org's device budget is partitioned:
+// “shared“ is one pool of “concurrency_limit“ slots across platforms;
+// “platform“ means iOS and Android each have their own lane and queue,
+// with “concurrency_limit“ equal to the lane sum.
 type ActiveDeviceSessionsResponse struct {
-	ConcurrencyLimit *int                      `json:"concurrency_limit,omitempty"`
-	OrgId            string                    `json:"org_id"`
-	Sessions         []ActiveDeviceSessionItem `json:"sessions"`
+	AndroidConcurrencyLimit *int                                         `json:"android_concurrency_limit,omitempty"`
+	ConcurrencyLimit        *int                                         `json:"concurrency_limit,omitempty"`
+	ConcurrencyMode         *ActiveDeviceSessionsResponseConcurrencyMode `json:"concurrency_mode,omitempty"`
+	IosConcurrencyLimit     *int                                         `json:"ios_concurrency_limit,omitempty"`
+	OrgId                   string                                       `json:"org_id"`
+	Sessions                []ActiveDeviceSessionItem                    `json:"sessions"`
 }
+
+// ActiveDeviceSessionsResponseConcurrencyMode defines model for ActiveDeviceSessionsResponse.ConcurrencyMode.
+type ActiveDeviceSessionsResponseConcurrencyMode string
 
 // AllPlatformTargets Device target configs for every supported platform.
 type AllPlatformTargets struct {

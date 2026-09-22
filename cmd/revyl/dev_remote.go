@@ -1002,7 +1002,6 @@ func pollRemoteBuildStatusResultWithProgress(
 
 	lastDisplayKey := ""
 	lastProgressKey := ""
-	concurrencyHintShown := false
 	logCursor := "0-0"
 	logFormatter := &remoteBuildLogFormatter{}
 	startTime := time.Now()
@@ -1033,27 +1032,14 @@ func pollRemoteBuildStatusResultWithProgress(
 			}
 			displayKey := remoteBuildDisplayKey(status)
 			if displayKey != lastDisplayKey {
-				if !quiet && !concurrencyHintShown && isOrganizationConcurrencyWait(status) {
-					ui.StopSpinner()
-					if jsonMode {
-						fmt.Fprintln(os.Stderr, api.ConcurrencyUpgradeHint)
-					} else {
-						ui.PrintInfo("%s", api.ConcurrencyUpgradeHint)
-					}
-					concurrencyHintShown = true
-				}
 				if ui.IsDebugMode() {
 					elapsed := time.Since(startTime).Round(time.Second)
-					ui.PrintInfo("[%s] Remote build status: %s", elapsed, remoteBuildDisplayStatus(status))
+					ui.PrintInfo("[%s] Remote build status: %s", elapsed, status.Status)
 				} else {
 					ui.StopSpinner()
 					switch status.Status {
 					case "queued", "pending":
-						if isOrganizationConcurrencyWait(status) {
-							ui.StartSpinner(remoteBuildConcurrencyWaitMessage)
-						} else {
-							ui.StartSpinner("Build queued")
-						}
+						ui.StartSpinner("Build queued")
 					case "building", "running":
 						ui.StartSpinner("Build in progress")
 					case "success", "failed", "cancelled":
@@ -1119,37 +1105,7 @@ func remoteBuildDisplayKey(status *api.RemoteBuildStatusResponse) string {
 		return ""
 	}
 	state := strings.ToLower(strings.TrimSpace(status.Status))
-	if isOrganizationConcurrencyWait(status) {
-		return state + "\x00organization_concurrency"
-	}
 	return state
-}
-
-func remoteBuildDisplayStatus(status *api.RemoteBuildStatusResponse) string {
-	if status == nil {
-		return ""
-	}
-	state := strings.TrimSpace(status.Status)
-	if isOrganizationConcurrencyWait(status) {
-		return remoteBuildConcurrencyWaitMessage
-	}
-	return state
-}
-
-func isOrganizationConcurrencyWait(status *api.RemoteBuildStatusResponse) bool {
-	if status == nil || status.Phase == nil {
-		return false
-	}
-	state := strings.ToLower(strings.TrimSpace(status.Status))
-	phase := strings.ToLower(strings.TrimSpace(*status.Phase))
-	return (state == "pending" || state == "queued") && phase == "organization_concurrency"
-}
-
-const remoteBuildConcurrencyWaitMessage = "Waiting for available concurrency"
-
-func printRemoteBuildConcurrencyWait() {
-	ui.PrintInfo("%s", remoteBuildConcurrencyWaitMessage)
-	ui.PrintInfo("%s", api.ConcurrencyUpgradeHint)
 }
 
 // remoteBuildProgressFromStatus maps a backend build status to the stable dev lifecycle.
@@ -1175,9 +1131,6 @@ func remoteBuildProgressFromStatus(status *api.RemoteBuildStatusResponse) remote
 	switch strings.ToLower(strings.TrimSpace(status.Status)) {
 	case "pending", "queued":
 		progress.State = devloop.BuildStateQueued
-		if isOrganizationConcurrencyWait(status) {
-			progress.Message = remoteBuildConcurrencyWaitMessage + ". " + api.ConcurrencyUpgradeHint
-		}
 	case "success":
 		progress.State = devloop.BuildStateInstalling
 		progress.Message = "Remote build completed"

@@ -7066,7 +7066,7 @@ func (c *Client) doPresignedPostUpload(ctx context.Context, postURL string, fiel
 }
 
 // CancelRemoteBuild requests cancellation of a running remote build.
-// The backend releases the concurrency slot and marks the build as cancelled.
+// The backend marks the build as cancelled and stops its Hatchet run.
 //
 // Parameters:
 //   - ctx: cancellation context

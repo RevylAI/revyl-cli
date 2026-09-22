@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,8 +17,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/ui"
-	"github.com/spf13/cobra"
+	"github.com/revyl/cli/internal/devloop"
 )
 
 func withFastRemoteBuildPolling(t *testing.T) {
@@ -145,168 +142,22 @@ func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
 	}
 }
 
-func TestPrintRemoteBuildConcurrencyWaitIsConcise(t *testing.T) {
-	output := captureStdoutAndStderr(t, printRemoteBuildConcurrencyWait)
-
-	if !strings.Contains(output, remoteBuildConcurrencyWaitMessage) {
-		t.Fatalf("output missing concurrency wait message:\n%s", output)
-	}
-	if !strings.Contains(output, api.ConcurrencyUpgradeHint) {
-		t.Fatalf("output missing upgrade action:\n%s", output)
-	}
-	for _, unwanted := range []string{"another build"} {
-		if strings.Contains(output, unwanted) {
-			t.Fatalf("output contains obsolete text %q:\n%s", unwanted, output)
-		}
-	}
-}
-
-func TestOrganizationConcurrencyWaitRequiresQueuedStatusAndExactPhase(t *testing.T) {
-	phase := "organization_concurrency"
-	waiting := &api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase}
-	if !isOrganizationConcurrencyWait(waiting) {
-		t.Fatal("pending organization_concurrency build should be recognized as waiting for organization capacity")
-	}
-	if got := remoteBuildDisplayStatus(waiting); got != remoteBuildConcurrencyWaitMessage {
-		t.Fatalf("remoteBuildDisplayStatus() = %q, want %q", got, remoteBuildConcurrencyWaitMessage)
+func TestRemoteBuildProgressQueuedPreservesPhase(t *testing.T) {
+	status := &api.RemoteBuildStatusResponse{
+		Status: "pending",
+		Phase:  stringPtrOrNil("dispatch"),
 	}
 
-	dispatch := "dispatch"
-	if isOrganizationConcurrencyWait(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &dispatch}) {
-		t.Fatal("normal dispatch queue should not be presented as organization concurrency")
-	}
-	if isOrganizationConcurrencyWait(&api.RemoteBuildStatusResponse{Status: "building", Phase: &phase}) {
-		t.Fatal("building status should not be presented as waiting for organization concurrency")
-	}
-	if remoteBuildDisplayKey(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase}) ==
-		remoteBuildDisplayKey(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &dispatch}) {
-		t.Fatal("display state should change when a pending build enters organization concurrency")
-	}
-}
+	progress := remoteBuildProgressFromStatus(status)
 
-func TestRemoteBuildConcurrencyUpgradeHintStaysOffStdout(t *testing.T) {
-	if output := captureStdout(t, printRemoteBuildConcurrencyWait); output != "" {
-		t.Fatalf("upgrade guidance must not contaminate JSON stdout: %q", output)
+	if progress.State != devloop.BuildStateQueued {
+		t.Fatalf("state = %q, want %q", progress.State, devloop.BuildStateQueued)
 	}
-}
-
-func TestPollRemoteBuildConcurrencyOffersUpgradeOnce(t *testing.T) {
-	withFastRemoteBuildPolling(t)
-	for _, jsonMode := range []bool{false, true} {
-		for _, quiet := range []bool{false, true} {
-			for _, debug := range []bool{false, true} {
-				t.Run(fmt.Sprintf("json=%t/quiet=%t/debug=%t", jsonMode, quiet, debug), func(t *testing.T) {
-					previousQuiet, previousDebug := ui.IsQuietMode(), ui.IsDebugMode()
-					ui.SetQuietMode(jsonMode || quiet)
-					ui.SetDebugMode(debug)
-					t.Cleanup(func() { ui.SetQuietMode(previousQuiet); ui.SetDebugMode(previousDebug) })
-					phase := "organization_concurrency"
-					server := remoteBuildStatusSequenceServer(t,
-						api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
-						api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
-						api.RemoteBuildStatusResponse{Status: "queued", Phase: &phase},
-						api.RemoteBuildStatusResponse{Status: "pending", Phase: stringPtrOrNil("dispatch")},
-						api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
-						api.RemoteBuildStatusResponse{Status: "success", VersionId: stringPtrOrNil("version-1")},
-					)
-					defer server.Close()
-					client := api.NewClientWithBaseURL("test-key", server.URL)
-					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-					defer cancel()
-					var stdout string
-					output := captureStdoutAndStderr(t, func() {
-						stdout = captureStdout(t, func() {
-							if _, err := pollRemoteBuildStatusResult(ctx, client, "job-1", jsonMode, quiet); err != nil {
-								t.Fatal(err)
-							}
-						})
-					})
-					wantCount := 1
-					if quiet {
-						wantCount = 0
-					}
-					if count := strings.Count(output, api.ConcurrencyUpgradeHint); count != wantCount || stdout != "" {
-						t.Fatalf("hint count = %d, want %d; stdout=%q stderr=%q", count, wantCount, stdout, output)
-					}
-				})
-			}
-		}
+	if progress.Phase != "dispatch" {
+		t.Fatalf("phase = %q, want dispatch", progress.Phase)
 	}
-}
-
-func TestBuildStatusConcurrencyJSONPreservesContractAndOffersUpgrade(t *testing.T) {
-	withFastRemoteBuildPolling(t)
-	for _, jsonMode := range []bool{false, true} {
-		for _, quiet := range []bool{false, true} {
-			for _, follow := range []bool{false, true} {
-				for _, phase := range []string{"organization_concurrency", "dispatch"} {
-					t.Run(fmt.Sprintf("json=%t/quiet=%t/follow=%t/%s", jsonMode, quiet, follow, phase), func(t *testing.T) {
-						server := remoteBuildStatusSequenceServer(t,
-							api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase},
-							api.RemoteBuildStatusResponse{Status: "success", VersionId: stringPtrOrNil("version-1")},
-						)
-						defer server.Close()
-						t.Setenv("REVYL_API_KEY", "test-key")
-						t.Setenv("REVYL_BACKEND_URL", server.URL)
-						previousJSON, previousFollow, previousQuiet := buildStatusJSON, buildStatusFollow, ui.IsQuietMode()
-						buildStatusJSON, buildStatusFollow = jsonMode, follow
-						ui.SetQuietMode(quiet || jsonMode)
-						t.Cleanup(func() {
-							buildStatusJSON, buildStatusFollow = previousJSON, previousFollow
-							ui.SetQuietMode(previousQuiet)
-						})
-						cmd := &cobra.Command{}
-						cmd.Flags().Bool("quiet", quiet, "")
-						ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-						defer cancel()
-						cmd.SetContext(ctx)
-						var commandStderr bytes.Buffer
-						cmd.SetErr(&commandStderr)
-						var stdout string
-						stderr := captureStdoutAndStderr(t, func() {
-							stdout = captureStdout(t, func() {
-								if err := runBuildStatus(cmd, []string{"job-1"}); err != nil {
-									t.Fatal(err)
-								}
-							})
-						}) + commandStderr.String()
-						if jsonMode {
-							var decoded map[string]interface{}
-							if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
-								t.Fatalf("invalid JSON stdout: %v", err)
-							}
-							if len(decoded) != 2 || (!follow && (decoded["status"] != "pending" || decoded["phase"] != phase)) || (follow && (decoded["status"] != "success" || decoded["version_id"] != "version-1")) {
-								t.Fatalf("build status contract changed: %s", stdout)
-							}
-						} else if stdout != "" {
-							t.Fatalf("human status must stay on stderr: %q", stdout)
-						}
-						wantHint := !quiet && phase == "organization_concurrency"
-						if got := strings.Contains(stderr, api.ConcurrencyUpgradeHint); got != wantHint {
-							t.Fatalf("hint present = %t, want %t: %s", got, wantHint, stderr)
-						}
-					})
-				}
-			}
-		}
-	}
-}
-
-func TestRemoteBuildProgressOnlyOffersConcurrencyUpgradeForOrgQueue(t *testing.T) {
-	for _, state := range []string{"pending", "queued", "building", "running", "success", "failed", "cancelled"} {
-		for _, phase := range []string{"organization_concurrency", "dispatch", "capacity", "xcodebuild", ""} {
-			t.Run(state+"/"+phase, func(t *testing.T) {
-				status := &api.RemoteBuildStatusResponse{Status: state, Phase: stringPtrOrNil(phase)}
-				progress := remoteBuildProgressFromStatus(status)
-				wantHint := (state == "pending" || state == "queued") && phase == "organization_concurrency"
-				if strings.Contains(progress.Message, api.ConcurrencyUpgradeHint) != wantHint || isOrganizationConcurrencyWait(status) != wantHint {
-					t.Fatalf("unexpected upgrade guidance: %+v", progress)
-				}
-				if phase != "" && progress.Phase != phase {
-					t.Fatalf("phase changed: %+v", progress)
-				}
-			})
-		}
+	if progress.Message != "Remote build pending" {
+		t.Fatalf("message = %q, want generic queued status", progress.Message)
 	}
 }
 

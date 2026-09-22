@@ -193,7 +193,7 @@ func TestInstallRemoteDevBuild_ReturnsTerminalWorkerFailure(t *testing.T) {
 func TestDevStatusRemoteBuildProgressSinkPreservesRemoteMetadata(t *testing.T) {
 	for _, progress := range []remoteDevBuildProgress{
 		{State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device"},
-		remoteBuildProgressFromStatus(&api.RemoteBuildStatusResponse{Status: "pending", Phase: stringPtrOrNil("organization_concurrency")}),
+		remoteBuildProgressFromStatus(&api.RemoteBuildStatusResponse{Status: "pending", Phase: stringPtrOrNil("dispatch")}),
 	} {
 		t.Run(progress.Phase, func(t *testing.T) {
 			cwd := t.TempDir()
