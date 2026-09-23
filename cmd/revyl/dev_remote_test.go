@@ -274,6 +274,16 @@ func TestRemoteBuildProgressFromStatusMovesSuccessfulBuildToInstalling(t *testin
 	}
 }
 
+func TestRemoteBuildProgressFromStatusMapsTimeoutToFailure(t *testing.T) {
+	progress := remoteBuildProgressFromStatus(&api.RemoteBuildStatusResponse{
+		Status: "timeout",
+	})
+
+	if progress.State != devloop.BuildStateFailed || progress.Message != "Remote build timed out" {
+		t.Fatalf("remote progress = %+v", progress)
+	}
+}
+
 func TestInstallAndLaunchRemoteDevBuildPublishesDeviceProgress(t *testing.T) {
 	resolver := &fakeRemoteDevBuildDetailResolver{
 		detail: &api.BuildVersionDetail{

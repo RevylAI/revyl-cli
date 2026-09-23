@@ -104,6 +104,21 @@ func TestPollRemoteBuildStatusResultTreatsCancelledAsTerminalError(t *testing.T)
 	}
 }
 
+func TestPollRemoteBuildStatusResultTreatsTimeoutAsTerminalError(t *testing.T) {
+	withFastRemoteBuildPolling(t)
+	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
+		Status: "timeout",
+	})
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false, false)
+
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("pollRemoteBuildStatusResult() error = %v, want timeout", err)
+	}
+}
+
 func TestPollRemoteBuildStatusResultRejectsSuccessWithoutVersionID(t *testing.T) {
 	withFastRemoteBuildPolling(t)
 	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
@@ -328,6 +343,19 @@ func TestRemoteBuildFailureJSONIncludesDiscoveryGuidance(t *testing.T) {
 	}
 	if len(result.PhaseTimings) != 1 || result.PhaseTimings[0].Phase != "artifact" {
 		t.Fatalf("PhaseTimings = %#v, want artifact timing", result.PhaseTimings)
+	}
+}
+
+func TestRemoteBuildFailureJSONPreservesTimeoutStatus(t *testing.T) {
+	result := remoteBuildFailureJSON(
+		remoteBuildPlatformConfig{Platform: "ios", AppID: "app-ios"},
+		"job-1",
+		&api.RemoteBuildStatusResponse{Status: "timeout"},
+		context.DeadlineExceeded,
+	)
+
+	if result.Status != "timeout" {
+		t.Fatalf("status = %q, want timeout", result.Status)
 	}
 }
 

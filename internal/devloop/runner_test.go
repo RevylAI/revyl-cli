@@ -404,6 +404,12 @@ printf '%s\n' '{"running":true,"last_rebuild_status":"capacity_blocked","last_re
 	}
 }
 
+func TestClassifyBuildStateMapsTimeoutToFailure(t *testing.T) {
+	if got := classifyBuildState("timeout", "job-1", ""); got != BuildStateFailed {
+		t.Fatalf("classifyBuildState(timeout) = %q, want %q", got, BuildStateFailed)
+	}
+}
+
 func TestCommandRunnerResolvesEnvironmentBinaryPerInvocation(t *testing.T) {
 	binary := writeFakeRevyl(t, `#!/bin/sh
 printf '%s\n' '{"context":"default","viewer_url":"https://viewer"}'

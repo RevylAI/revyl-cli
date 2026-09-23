@@ -794,6 +794,8 @@ func classifyBuildState(status, remoteJobID, reason string) BuildState {
 		return BuildStateSuccess
 	case "cancelled", "canceled":
 		return BuildStateCancelled
+	case "timeout", "timed_out":
+		return BuildStateFailed
 	default:
 		if strings.Contains(normalized, "fail") || strings.Contains(normalized, "error") {
 			return BuildStateFailed

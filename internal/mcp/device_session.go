@@ -61,12 +61,17 @@ func pngDimensions(data []byte) (int, int, bool) {
 	return width, height, true
 }
 
+const (
+	// Agent-driven sessions routinely have multi-minute gaps between device
+	// actions, so the default absorbs those gaps without leaking devices.
+	defaultSessionIdleTimeout = 15 * time.Minute
+
+	// Interactive device tasks may wait in Hatchet for up to 30 minutes. Keep
+	// the client alive through that queue SLA plus terminal-state propagation.
+	deviceWorkerReadyTimeout = 35 * time.Minute
+)
+
 // DeviceSession represents an active device session with its connection info.
-// defaultSessionIdleTimeout is how long a session may sit idle before
-// auto-stop when no explicit timeout is provided. Agent-driven sessions
-// routinely have multi-minute gaps between device actions (builds, file
-// reading, reasoning); 15 minutes absorbs that without leaking devices.
-const defaultSessionIdleTimeout = 15 * time.Minute
 
 // resolveIdleTimeout applies the default idle timeout when none is set.
 func resolveIdleTimeout(d time.Duration) time.Duration {
@@ -498,8 +503,7 @@ func (m *DeviceSessionManager) StartSession(
 		traceID = strings.TrimSpace(*resp.TraceId)
 	}
 
-	// Poll for worker URL (up to 120 seconds)
-	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, 120*time.Second)
+	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, deviceWorkerReadyTimeout)
 	if err != nil {
 		// Cancel the device if we can't get the worker URL
 		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)

@@ -1042,7 +1042,7 @@ func pollRemoteBuildStatusResultWithProgress(
 						ui.StartSpinner("Build queued")
 					case "building", "running":
 						ui.StartSpinner("Build in progress")
-					case "success", "failed", "cancelled":
+					case "success", "failed", "cancelled", "timeout":
 					default:
 						ui.StartSpinner("Build " + status.Status)
 					}
@@ -1095,6 +1095,15 @@ func pollRemoteBuildStatusResultWithProgress(
 					return status, fmt.Errorf("remote build cancelled: %s", *status.Error)
 				}
 				return status, fmt.Errorf("remote build cancelled")
+			case "timeout":
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
+				printRemoteBuildLogTail(ctx, client, jobID)
+				if status.Error != nil && *status.Error != "" {
+					return status, fmt.Errorf("remote build timed out: %s", *status.Error)
+				}
+				return status, fmt.Errorf("remote build timed out")
 			}
 		}
 	}
@@ -1137,6 +1146,9 @@ func remoteBuildProgressFromStatus(status *api.RemoteBuildStatusResponse) remote
 	case "failed":
 		progress.State = devloop.BuildStateFailed
 		progress.Message = "Remote build failed"
+	case "timeout":
+		progress.State = devloop.BuildStateFailed
+		progress.Message = "Remote build timed out"
 	case "cancelled", "canceled":
 		progress.State = devloop.BuildStateCancelled
 		progress.Message = "Remote build cancelled"

@@ -2822,7 +2822,7 @@ type BuildCollectionBuildItem struct {
 	// Attributes:
 	//     build_job_id: Unique identifier of the build job (used to poll status).
 	//     status: Normalized public status (``pending`` / ``building`` /
-	//         ``success`` / ``failed`` / ``cancelled``).
+	//         ``success`` / ``failed`` / ``cancelled`` / ``timeout``).
 	//     version: Version string of the build.
 	//     platform: Build platform.
 	//     phase: Detailed status/failure phase when available.
@@ -2843,7 +2843,7 @@ type BuildCollectionJobItem struct {
 	// Attributes:
 	//     build_job_id: Unique identifier of the build job (used to poll status).
 	//     status: Normalized public status (``pending`` / ``building`` /
-	//         ``success`` / ``failed`` / ``cancelled``).
+	//         ``success`` / ``failed`` / ``cancelled`` / ``timeout``).
 	//     version: Version string of the build.
 	//     platform: Build platform.
 	//     phase: Detailed status/failure phase when available.
@@ -5342,7 +5342,7 @@ type RemoteBuildStatusResponse struct {
 //
 //	build_job_id: Unique identifier of the build job (used to poll status).
 //	status: Normalized public status (``pending`` / ``building`` /
-//	    ``success`` / ``failed`` / ``cancelled``).
+//	    ``success`` / ``failed`` / ``cancelled`` / ``timeout``).
 //	version: Version string of the build.
 //	platform: Build platform.
 //	phase: Detailed status/failure phase when available.
@@ -6989,7 +6989,7 @@ type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
 
-	// IncludeJobs Include queued, running, failed, and cancelled build jobs in the collection.
+	// IncludeJobs Include queued, running, failed, cancelled, and timed-out build jobs in the collection.
 	IncludeJobs *bool `form:"include_jobs,omitempty" json:"include_jobs,omitempty"`
 
 	// Page Page number (1-indexed)

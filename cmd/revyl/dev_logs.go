@@ -274,7 +274,7 @@ func streamRemoteBuildLogs(ctx context.Context, client *api.Client, jobID string
 				continue
 			}
 			switch status.Status {
-			case "success", "failed", "cancelled":
+			case "success", "failed", "cancelled", "timeout":
 				_ = printAvailable()
 				ui.PrintDim("Build %s (%s)", status.Status, jobID)
 				return nil

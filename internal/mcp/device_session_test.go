@@ -117,6 +117,19 @@ func TestWaitForWorkerURLReturnsTerminalStatus(t *testing.T) {
 	}
 }
 
+func TestDeviceWorkerReadyTimeoutCoversInteractiveQueueSLA(t *testing.T) {
+	t.Parallel()
+
+	const interactiveQueueSLA = 30 * time.Minute
+	if deviceWorkerReadyTimeout <= interactiveQueueSLA {
+		t.Fatalf(
+			"deviceWorkerReadyTimeout = %s, want longer than queue SLA %s",
+			deviceWorkerReadyTimeout,
+			interactiveQueueSLA,
+		)
+	}
+}
+
 func TestWritePNGArtifactUsesPrivatePermissions(t *testing.T) {
 	manager := &DeviceSessionManager{workDir: t.TempDir()}
 	path, err := manager.writePNGArtifact("screenshots/session-1", "screen.png", []byte("png"))

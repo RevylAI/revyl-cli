@@ -876,6 +876,8 @@ func remoteBuildFailureJSON(resolved remoteBuildPlatformConfig, jobID string, st
 	}
 	if status.Status == "cancelled" {
 		result.Status = "cancelled"
+	} else if status.Status == "timeout" {
+		result.Status = "timeout"
 	}
 	if status.Error != nil && strings.TrimSpace(*status.Error) != "" {
 		result.Error = strings.TrimSpace(*status.Error)
