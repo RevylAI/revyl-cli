@@ -1461,6 +1461,45 @@ func (e StepType) Valid() bool {
 	}
 }
 
+// Defines values for SupportContextSource.
+const (
+	SupportContextSourceCli SupportContextSource = "cli"
+	SupportContextSourceWeb SupportContextSource = "web"
+)
+
+// Valid indicates whether the value is a known member of the SupportContextSource enum.
+func (e SupportContextSource) Valid() bool {
+	switch e {
+	case SupportContextSourceCli:
+		return true
+	case SupportContextSourceWeb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SupportRequestType.
+const (
+	SupportRequestTypeBug     SupportRequestType = "bug"
+	SupportRequestTypeFeature SupportRequestType = "feature"
+	SupportRequestTypeOther   SupportRequestType = "other"
+)
+
+// Valid indicates whether the value is a known member of the SupportRequestType enum.
+func (e SupportRequestType) Valid() bool {
+	switch e {
+	case SupportRequestTypeBug:
+		return true
+	case SupportRequestTypeFeature:
+		return true
+	case SupportRequestTypeOther:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskIDSessionRuntime.
 const (
 	TaskIDSessionRuntimeNativeMac TaskIDSessionRuntime = "native_mac"
@@ -1656,6 +1695,27 @@ func (e ListAtlasAnnotationFeedbackParamsSeverity) Valid() bool {
 	case ListAtlasAnnotationFeedbackParamsSeverityNone:
 		return true
 	case ListAtlasAnnotationFeedbackParamsSeverityPolish:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSupportRequestMultipartBodyType.
+const (
+	CreateSupportRequestMultipartBodyTypeBug     CreateSupportRequestMultipartBodyType = "bug"
+	CreateSupportRequestMultipartBodyTypeFeature CreateSupportRequestMultipartBodyType = "feature"
+	CreateSupportRequestMultipartBodyTypeOther   CreateSupportRequestMultipartBodyType = "other"
+)
+
+// Valid indicates whether the value is a known member of the CreateSupportRequestMultipartBodyType enum.
+func (e CreateSupportRequestMultipartBodyType) Valid() bool {
+	switch e {
+	case CreateSupportRequestMultipartBodyTypeBug:
+		return true
+	case CreateSupportRequestMultipartBodyTypeFeature:
+		return true
+	case CreateSupportRequestMultipartBodyTypeOther:
 		return true
 	default:
 		return false
@@ -5784,6 +5844,52 @@ type StartDeviceResponse struct {
 // They map to TASK_TYPES for routing and ActionType for execution.
 type StepType string
 
+// SupportAttachment defines model for SupportAttachment.
+type SupportAttachment struct {
+	LastModified *int    `json:"last_modified,omitempty"`
+	Name         string  `json:"name"`
+	Size         int     `json:"size"`
+	Type         *string `json:"type,omitempty"`
+}
+
+// SupportContext defines model for SupportContext.
+type SupportContext struct {
+	Arch              *string               `json:"arch,omitempty"`
+	CliVersion        *string               `json:"cli_version,omitempty"`
+	Language          *string               `json:"language,omitempty"`
+	Os                *string               `json:"os,omitempty"`
+	PosthogDistinctId *string               `json:"posthog_distinct_id,omitempty"`
+	PosthogProjectId  *string               `json:"posthog_project_id,omitempty"`
+	PosthogReplayUrl  *string               `json:"posthog_replay_url,omitempty"`
+	PosthogSessionId  *string               `json:"posthog_session_id,omitempty"`
+	PosthogStatus     *string               `json:"posthog_status,omitempty"`
+	Source            *SupportContextSource `json:"source,omitempty"`
+	Timezone          *string               `json:"timezone,omitempty"`
+	UserAgent         *string               `json:"user_agent,omitempty"`
+	Viewport          *string               `json:"viewport,omitempty"`
+}
+
+// SupportContextSource defines model for SupportContext.Source.
+type SupportContextSource string
+
+// SupportRequest defines model for SupportRequest.
+type SupportRequest struct {
+	Attachments *[]SupportAttachment `json:"attachments,omitempty"`
+	Context     *SupportContext      `json:"context,omitempty"`
+	CurrentUrl  *string              `json:"current_url,omitempty"`
+	Message     string               `json:"message"`
+	Type        SupportRequestType   `json:"type"`
+}
+
+// SupportRequestType defines model for SupportRequest.Type.
+type SupportRequestType string
+
+// SupportRequestResponse defines model for SupportRequestResponse.
+type SupportRequestResponse struct {
+	AttachmentsUploaded *bool `json:"attachments_uploaded,omitempty"`
+	Sent                bool  `json:"sent"`
+}
+
 // SyncTagsRequest Request to sync tags for a test by name.
 type SyncTagsRequest struct {
 	TagNames []string `json:"tag_names"`
@@ -7365,6 +7471,25 @@ type GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams st
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
+// CreateSupportRequestMultipartBody defines parameters for CreateSupportRequest.
+type CreateSupportRequestMultipartBody struct {
+	Attachments *[]openapi_types.File `json:"attachments,omitempty"`
+
+	// Context JSON-encoded SupportContext
+	Context    *string                               `json:"context,omitempty"`
+	CurrentUrl *string                               `json:"current_url,omitempty"`
+	Message    string                                `json:"message"`
+	Type       CreateSupportRequestMultipartBodyType `json:"type"`
+}
+
+// CreateSupportRequestParams defines parameters for CreateSupportRequest.
+type CreateSupportRequestParams struct {
+	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+}
+
+// CreateSupportRequestMultipartBodyType defines parameters for CreateSupportRequest.
+type CreateSupportRequestMultipartBodyType string
+
 // CreateTestEndpointApiV1TestsCreatePostParams defines parameters for CreateTestEndpointApiV1TestsCreatePost.
 type CreateTestEndpointApiV1TestsCreatePostParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
@@ -7729,6 +7854,12 @@ type GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableRep
 
 // GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody defines body for GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPost for application/json ContentType.
 type GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody = ShareableReportByTaskModel
+
+// CreateSupportRequestJSONRequestBody defines body for CreateSupportRequest for application/json ContentType.
+type CreateSupportRequestJSONRequestBody = SupportRequest
+
+// CreateSupportRequestMultipartRequestBody defines body for CreateSupportRequest for multipart/form-data ContentType.
+type CreateSupportRequestMultipartRequestBody CreateSupportRequestMultipartBody
 
 // CreateTestEndpointApiV1TestsCreatePostJSONRequestBody defines body for CreateTestEndpointApiV1TestsCreatePost for application/json ContentType.
 type CreateTestEndpointApiV1TestsCreatePostJSONRequestBody = Test

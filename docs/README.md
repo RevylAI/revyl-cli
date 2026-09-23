@@ -12,4 +12,5 @@ See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the R
 - [Check GitHub connection status](github-status.md)
 - [Understand an app with Atlas](atlas.md)
 - [Update the CLI](upgrade.md)
+- [Send feedback to the Revyl team](feedback.md)
 - [Access your organization's machine with Revyl Computer](computer.md)

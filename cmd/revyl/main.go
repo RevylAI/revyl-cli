@@ -185,6 +185,7 @@ func init() {
 	rootCmd.AddCommand(schemaCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(pingCmd)
+	rootCmd.AddCommand(newFeedbackCommand())
 	rootCmd.AddCommand(upgradeCmd)
 
 	// Shell completion (built-in Cobra support for bash, zsh, fish, powershell)

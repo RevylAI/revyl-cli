@@ -33,11 +33,6 @@ const (
 	annotationDeleteWarning     = "WARNING: root comment deletion removes the entire thread; reply deletion removes only that reply."
 )
 
-type annotationBodyOptions struct {
-	body     string
-	bodyFile string
-}
-
 type annotationCreateOptions struct {
 	app             string
 	observation     string
@@ -598,51 +593,6 @@ func resolveAnnotationSeverity(cmd *cobra.Command, severity string, clear bool) 
 		return nil, fmt.Errorf("invalid --severity %q: use blocker, issue, or polish", severity)
 	}
 	return &value, nil
-}
-
-func addAnnotationBodyFlags(command *cobra.Command, options *annotationBodyOptions) {
-	command.Flags().StringVar(&options.body, "body", "", "Plain-text comment body")
-	command.Flags().StringVar(&options.bodyFile, "body-file", "", "Read body from a file, or - for stdin")
-}
-
-func readAnnotationBody(command *cobra.Command, options annotationBodyOptions) (string, error) {
-	providedBody := command.Flags().Changed("body")
-	providedFile := command.Flags().Changed("body-file")
-	if providedBody == providedFile {
-		return "", fmt.Errorf("exactly one of --body or --body-file is required")
-	}
-	if providedBody {
-		body := strings.TrimSpace(options.body)
-		if body == "" {
-			return "", fmt.Errorf("annotation body cannot be empty")
-		}
-		return body, nil
-	}
-	var reader io.Reader
-	var file *os.File
-	if options.bodyFile == "-" {
-		reader = command.InOrStdin()
-	} else {
-		var err error
-		file, err = os.Open(options.bodyFile)
-		if err != nil {
-			return "", err
-		}
-		defer file.Close()
-		reader = file
-	}
-	contents, err := io.ReadAll(io.LimitReader(reader, (64<<10)+1))
-	if err != nil {
-		return "", err
-	}
-	if len(contents) > 64<<10 {
-		return "", fmt.Errorf("annotation body exceeds 64 KiB")
-	}
-	body := strings.TrimSpace(string(contents))
-	if body == "" {
-		return "", fmt.Errorf("annotation body cannot be empty")
-	}
-	return body, nil
 }
 
 func resolveAnnotationRequestID(value string) (string, error) {

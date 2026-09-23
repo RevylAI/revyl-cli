@@ -140,6 +140,7 @@ POST /api/v1/projects/catalog
 POST /api/v1/projects/{project_id}/configuration/read
 POST /api/v1/projects/{project_id}/configuration/validate
 POST /api/v1/recordings/compile
+POST /api/v1/support/requests
 POST /api/v1/report/async-run/generate_shareable_report_link_by_session
 POST /api/v1/report/async-run/generate_shareable_report_link_by_task
 POST /api/v1/tests/create
