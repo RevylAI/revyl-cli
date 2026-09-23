@@ -171,6 +171,17 @@ func resolveConnectedProjectConfiguration(
 	if err != nil {
 		return nil, actionableGithubOriginError(local.WorktreeRoot)
 	}
+	return connectProjectConfiguration(local, namespace, repositoryName)
+}
+
+// connectProjectConfiguration binds a local project context to an already
+// resolved GitHub repository slug, so callers that resolved the origin for
+// their own reporting do not spawn a second git subprocess.
+func connectProjectConfiguration(
+	local *config.ProjectContext,
+	namespace string,
+	repositoryName string,
+) (*resolvedProjectConfiguration, error) {
 	authored, err := authoredConfigForAPI(*local.Authored)
 	if err != nil {
 		return nil, err

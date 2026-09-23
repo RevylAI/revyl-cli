@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -72,12 +74,21 @@ EXAMPLES:
 var githubStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show GitHub and current-project review status",
-	Long: `Show whether the Revyl GitHub App is connected for your organization
-and, when run under a project configuration, whether pull request
-automation is published for that exact repository-relative project root.
+	Long: `Show whether the Revyl GitHub App is connected for your organization,
+whether the current Git repository is granted to that installation, and, when
+run under a project configuration, whether pull request automation is
+published for that exact repository-relative project root.
+
+With --json, print one JSON object on stdout:
+  connected, repository_count, repository {full_name, access_granted},
+  project {root, status, authority}, project_error.
+repository is null outside a Git worktree with a GitHub origin; project is
+null when no .revyl/config.yaml applies or it could not be read.
 
 EXAMPLES:
-  revyl github status`,
+  revyl github status
+  revyl github status --json
+  revyl -C apps/mobile github status`,
 	Args: cobra.NoArgs,
 	RunE: runGithubStatus,
 }
@@ -125,6 +136,39 @@ func runGithubConnect(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// githubStatusRepository is the current Git repository's standing with the
+// organization's GitHub App installation.
+type githubStatusRepository struct {
+	FullName      string `json:"full_name"`
+	AccessGranted bool   `json:"access_granted"`
+}
+
+// githubStatusProject is the published pull-request automation state for the
+// project root selected by the nearest .revyl/config.yaml.
+type githubStatusProject struct {
+	Root      string `json:"root"`
+	Status    string `json:"status"`
+	Authority string `json:"authority,omitempty"`
+}
+
+// githubStatusReport is the stable `revyl github status --json` contract; the
+// human output renders the same facts.
+type githubStatusReport struct {
+	Connected       bool                    `json:"connected"`
+	RepositoryCount int                     `json:"repository_count"`
+	Repository      *githubStatusRepository `json:"repository"`
+	Project         *githubStatusProject    `json:"project"`
+	ProjectError    string                  `json:"project_error,omitempty"`
+}
+
+const (
+	githubProjectStatusNotPublished  = "not_published"
+	githubProjectStatusEnabled       = "enabled"
+	githubProjectStatusDisabled      = "disabled"
+	githubProjectStatusNotConfigured = "not_configured"
+	githubProjectStatusInvalid       = "invalid"
+)
+
 func runGithubStatus(cmd *cobra.Command, _ []string) error {
 	client, err := newGithubAPIClient(cmd)
 	if err != nil {
@@ -134,46 +178,142 @@ func runGithubStatus(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return actionableGithubStatusError(err, "revyl github status")
 	}
-	printGithubStatus(repos)
-	if !repos.IsConnected() {
-		return nil
+	report := collectGithubStatus(cmd, client, repos)
+	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(report)
+	}
+	printGithubStatusReport(repos, report)
+	return nil
+}
+
+// collectGithubStatus gathers the installation, repository, and project facts
+// behind `revyl github status`. The repository grant is resolved from the Git
+// worktree even before a .revyl/config.yaml exists, so a fresh checkout can
+// learn whether it must still be added to the installation.
+func collectGithubStatus(
+	cmd *cobra.Command,
+	client projectConfigurationClient,
+	repos *api.GithubRepositoriesResponse,
+) githubStatusReport {
+	report := githubStatusReport{Connected: repos.IsConnected()}
+	if repos != nil {
+		report.RepositoryCount = len(repos.Repositories)
+	}
+	if !report.Connected {
+		return report
 	}
 
-	local, err := resolveLocalProjectConfiguration()
-	if err != nil {
-		ui.PrintWarning("  Current project: %v", actionableLocalConfigError(err))
-		return nil
-	}
-	resolved, err := resolveConnectedProjectConfiguration(local)
-	if err != nil {
-		ui.PrintWarning("  Current project: %v", err)
-		return nil
-	}
-	fullName := resolved.locator.Namespace + "/" + resolved.locator.RepositoryName
-	if !githubRepositoryAvailable(repos, resolved.locator.Namespace, resolved.locator.RepositoryName) {
-		ui.PrintKeyValue("  Current project:", fullName+" — repository access not granted")
-		ui.PrintDim("  Grant this repository to the Revyl GitHub App, then retry.")
-		return nil
+	local, localErr := resolveLocalProjectConfiguration()
+	worktreeRoot := ""
+	if localErr == nil {
+		worktreeRoot = local.WorktreeRoot
+	} else {
+		report.ProjectError = actionableLocalConfigError(localErr).Error()
+		cwd, cwdErr := configWorkingDirectory()
+		if cwdErr != nil {
+			return report
+		}
+		_, root, rootErr := resolveConfigPullRoot(cwd, "")
+		if rootErr != nil {
+			return report
+		}
+		worktreeRoot = root
 	}
 
+	namespace, repositoryName, slugErr := resolveProjectRepoSlug(worktreeRoot, "")
+	if slugErr != nil {
+		if localErr == nil {
+			report.ProjectError = actionableGithubOriginError(worktreeRoot).Error()
+		}
+		return report
+	}
+	report.Repository = &githubStatusRepository{
+		FullName:      namespace + "/" + repositoryName,
+		AccessGranted: githubRepositoryAvailable(repos, namespace, repositoryName),
+	}
+	if localErr != nil || !report.Repository.AccessGranted {
+		return report
+	}
+
+	resolved, err := connectProjectConfiguration(local, namespace, repositoryName)
+	if err != nil {
+		report.ProjectError = err.Error()
+		return report
+	}
 	current, readErr := readRemoteProjectConfiguration(cmd, client, resolved)
 	if readErr != nil {
-		ui.PrintWarning(
-			"  Current project: %v",
-			actionableProjectConfigurationAPIError(
-				cmd.Context(),
-				client,
-				resolved.locator,
-				resolved.local.Authored.Project.ID,
-				readErr,
-				"revyl github status",
-				resolved.local,
-			),
-		)
-		return nil
+		report.ProjectError = actionableProjectConfigurationAPIError(
+			cmd.Context(),
+			client,
+			resolved.locator,
+			resolved.local.Authored.Project.ID,
+			readErr,
+			"revyl github status",
+			resolved.local,
+		).Error()
+		return report
 	}
-	printGithubProjectStatus(local, fullName, current)
-	return nil
+	report.Project = githubProjectStatusFromRead(local, current)
+	return report
+}
+
+func githubProjectStatusFromRead(
+	local *config.ProjectContext,
+	current *api.ProjectConfigurationReadResponse,
+) *githubStatusProject {
+	project := &githubStatusProject{Root: local.RepositoryRelativeProjectRoot}
+	switch {
+	case current == nil || current.State == api.ProjectConfigurationReadResponseStateAbsent:
+		project.Status = githubProjectStatusNotPublished
+	case current.State != api.ProjectConfigurationReadResponseStatePresent || current.Resource == nil:
+		project.Status = githubProjectStatusInvalid
+	default:
+		project.Status = githubProjectStatusNotConfigured
+		if review := current.Resource.Configuration.PrReview; review != nil {
+			if review.Enabled == nil || *review.Enabled {
+				project.Status = githubProjectStatusEnabled
+			} else {
+				project.Status = githubProjectStatusDisabled
+			}
+		}
+		project.Authority = string(current.Resource.Authority)
+	}
+	return project
+}
+
+func printGithubStatusReport(repos *api.GithubRepositoriesResponse, report githubStatusReport) {
+	printGithubStatus(repos)
+	if !report.Connected {
+		return
+	}
+	if report.Repository != nil {
+		if report.Repository.AccessGranted {
+			ui.PrintKeyValue("  Current repository:", report.Repository.FullName+" — access granted")
+		} else {
+			ui.PrintKeyValue("  Current repository:", report.Repository.FullName+" — access not granted")
+			ui.PrintDim("  Grant this repository to the Revyl GitHub App, then retry.")
+		}
+	}
+	if report.ProjectError != "" {
+		ui.PrintWarning("  Current project: %s", report.ProjectError)
+		return
+	}
+	if report.Project == nil {
+		return
+	}
+	projectLabel := report.Repository.FullName + " (" + report.Project.Root + ")"
+	switch report.Project.Status {
+	case githubProjectStatusNotPublished:
+		ui.PrintKeyValue("  Current project:", projectLabel+" — not published")
+		ui.PrintDim("  Run 'revyl github setup' to configure pull request automation.")
+	case githubProjectStatusInvalid:
+		ui.PrintKeyValue("  Current project:", projectLabel+" — invalid server state")
+	default:
+		ui.PrintKeyValue("  Current project:", projectLabel+" — "+strings.ReplaceAll(report.Project.Status, "_", " "))
+		ui.PrintKeyValue("  Authority:", report.Project.Authority)
+	}
 }
 
 func runGithubSetup(cmd *cobra.Command, _ []string) (returnErr error) {
@@ -500,33 +640,6 @@ func printGithubSetupBuildSummary(build config.AuthoredReviewBuild) {
 		}
 	}
 	ui.PrintKeyValue("Review builds:", "CI uploads for "+strings.Join(platforms, " and "))
-}
-
-func printGithubProjectStatus(
-	local *config.ProjectContext,
-	fullName string,
-	current *api.ProjectConfigurationReadResponse,
-) {
-	projectLabel := fullName + " (" + local.RepositoryRelativeProjectRoot + ")"
-	if current == nil || current.State == api.ProjectConfigurationReadResponseStateAbsent {
-		ui.PrintKeyValue("  Current project:", projectLabel+" — not published")
-		ui.PrintDim("  Run 'revyl github setup' to configure pull request automation.")
-		return
-	}
-	if current.State != api.ProjectConfigurationReadResponseStatePresent || current.Resource == nil {
-		ui.PrintKeyValue("  Current project:", projectLabel+" — invalid server state")
-		return
-	}
-	status := "not configured"
-	if review := current.Resource.Configuration.PrReview; review != nil {
-		if review.Enabled == nil || *review.Enabled {
-			status = "enabled"
-		} else {
-			status = "configured but disabled"
-		}
-	}
-	ui.PrintKeyValue("  Current project:", projectLabel+" — "+status)
-	ui.PrintKeyValue("  Authority:", string(current.Resource.Authority))
 }
 
 // ensureGithubConnected returns the current installation state, driving the
