@@ -30,6 +30,8 @@ const (
 	legacyMissingExecution = "33333333-3333-3333-3333-333333333333"
 	serverErrorExecution   = "44444444-4444-4444-4444-444444444444"
 	uuidLikeWorkflowTaskID = "55555555-5555-5555-5555-555555555555"
+	knownSessionID         = "d437c539-8e4d-45cb-aad9-5f88dca32cc7"
+	unknownSessionID       = "66666666-6666-6666-6666-666666666666"
 )
 
 // --- Test helpers ---
@@ -40,6 +42,40 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	mux := http.NewServeMux()
+
+	// GET /api/v1/tests/get_test_execution_task?task_id=
+	// Org-scoped execution lookup; only the fixture execution exists.
+	mux.HandleFunc("/api/v1/tests/get_test_execution_task", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		taskID := r.URL.Query().Get("task_id")
+		if taskID != "task-001" {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"detail": "Execution not found"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":      taskID,
+			"test_id": "test-uuid-001",
+			"status":  "completed",
+		})
+	})
+
+	// GET /api/v1/execution/device-sessions/{id}
+	// Org-scoped session lookup; only the fixture session exists.
+	mux.HandleFunc("/api/v1/execution/device-sessions/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/execution/device-sessions/")
+		if sessionID != knownSessionID {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"detail": "Session not found"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":     sessionID,
+			"org_id": "org-001",
+			"status": "completed",
+		})
+	})
 
 	// GET /api/v1/tests/get_test_enhanced_history
 	mux.HandleFunc("/api/v1/tests/get_test_enhanced_history", func(w http.ResponseWriter, r *http.Request) {

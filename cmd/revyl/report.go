@@ -24,6 +24,7 @@ var (
 	shareOutputJSON  bool
 	shareOpen        bool
 	shareExpires     string
+	sharePrivate     bool
 )
 
 var internalReportJSONKeys = map[string]struct{}{
@@ -47,6 +48,7 @@ func init() {
 	testShareCmd.Flags().BoolVar(&shareOutputJSON, "json", false, "Output results as JSON")
 	testShareCmd.Flags().BoolVar(&shareOpen, "open", false, "Open shareable link in browser")
 	testShareCmd.Flags().StringVar(&shareExpires, "expires", "", "Link expiry, e.g. 24h, 30d, 4w (default: never)")
+	testShareCmd.Flags().BoolVar(&sharePrivate, "private", false, "Organization-only link that requires signing in to Revyl; no public link is created")
 }
 
 // testReportCmd shows a detailed report for a test execution.
@@ -80,11 +82,17 @@ var testShareCmd = &cobra.Command{
 
 Accepts test names (uses latest execution), test UUIDs, or task/execution IDs.
 
+By default the link is public: anyone holding it can open the report without
+signing in. Pass --private for an organization-only link that requires the
+recipient to sign in to your Revyl organization; no public link is created.
+
 Examples:
   revyl test share login-flow
+  revyl test share login-flow --private
   revyl test share login-flow --json
   revyl test share <task-uuid> --open`,
 	Example: `  revyl test share login-flow
+  revyl test share login-flow --private
   revyl test share login-flow --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestShare,
@@ -471,6 +479,10 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 
 	nameOrID := args[0]
 
+	if err := validatePrivateShareFlags(sharePrivate, shareExpires); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 	expirationHours, err := parseExpirationFlag(shareExpires)
 	if err != nil {
 		ui.PrintError("%v", err)
@@ -493,6 +505,34 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve execution")
 	}
 
+	if sharePrivate {
+		// resolveToTaskID passes UUID-shaped input through untouched, so
+		// confirm the execution exists in the caller's org before handing
+		// back a link that would otherwise 404 for the recipient.
+		if _, statusErr := client.GetTestStatus(cmd.Context(), taskID); statusErr != nil {
+			if !jsonOutput {
+				ui.StopSpinner()
+			}
+			ui.PrintError("Could not find execution %s: %v", taskID, statusErr)
+			return fmt.Errorf("could not resolve execution")
+		}
+		if !jsonOutput {
+			ui.StopSpinner()
+		}
+		link := organizationTestReportLink(devMode, taskID)
+		if jsonOutput {
+			data, _ := marshalPrettyJSON(map[string]interface{}{
+				"task_id":        taskID,
+				"shareable_link": link,
+				"access":         shareAccessOrganization,
+			})
+			fmt.Println(string(data))
+			return nil
+		}
+		printOrganizationShareLink(link, shareOpen)
+		return nil
+	}
+
 	shareResp, err := client.GenerateShareableLink(cmd.Context(), taskID, config.GetAppURL(devMode), expirationHours)
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -507,6 +547,7 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 		output := map[string]interface{}{
 			"task_id":        taskID,
 			"shareable_link": shareResp.ShareableLink,
+			"access":         shareAccessPublic,
 		}
 		data, _ := marshalPrettyJSON(output)
 		fmt.Println(string(data))

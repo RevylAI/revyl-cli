@@ -16,6 +16,7 @@ var (
 	sessionShareOutputJSON bool
 	sessionShareOpen       bool
 	sessionShareExpires    string
+	sessionSharePrivate    bool
 
 	sessionPublishOutputJSON bool
 	sessionPublishSessionID  string
@@ -36,14 +37,16 @@ COMMANDS:
 var sessionShareCmd = &cobra.Command{
 	Use:   "share <sessionId>",
 	Short: "Generate shareable session report link",
-	Long: `Generate a public shareable link for a device session report.
+	Long: `Generate a shareable link for a device session report.
 
-The recipient sees the session recording, step breakdown, and results without
-logging in. This is the public report view, not the internal /sessions/<id>
-page (which requires being signed in to the same organization).
+By default the recipient sees the session recording, step breakdown, and
+results without logging in: this is the public report view. Pass --private
+for the internal /sessions/<id> page instead, which requires signing in to
+the same organization; no public link is created.
 
 Examples:
   revyl session share d437c539-8e4d-45cb-aad9-5f88dca32cc7
+  revyl session share <sessionId> --private
   revyl session share <sessionId> --expires 30d --open
   revyl session share <sessionId> --json`,
 	Args: cobra.ExactArgs(1),
@@ -77,6 +80,7 @@ func init() {
 	sessionShareCmd.Flags().BoolVar(&sessionShareOutputJSON, "json", false, "Output results as JSON")
 	sessionShareCmd.Flags().BoolVar(&sessionShareOpen, "open", false, "Open shareable link in browser")
 	sessionShareCmd.Flags().StringVar(&sessionShareExpires, "expires", "", "Link expiry, e.g. 24h, 30d, 4w (default: never)")
+	sessionShareCmd.Flags().BoolVar(&sessionSharePrivate, "private", false, "Organization-only link that requires signing in to Revyl; no public link is created")
 
 	sessionPublishCmd.Flags().BoolVar(&sessionPublishOutputJSON, "json", false, "Output results as JSON")
 	sessionPublishCmd.Flags().StringVar(&sessionPublishSessionID, "session", "", "Session id the media belongs to (required)")
@@ -99,6 +103,10 @@ func runSessionShare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid session id")
 	}
 
+	if err := validatePrivateShareFlags(sessionSharePrivate, sessionShareExpires); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 	expirationHours, err := parseExpirationFlag(sessionShareExpires)
 	if err != nil {
 		ui.PrintError("%v", err)
@@ -120,6 +128,31 @@ func runSessionShare(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Generating shareable link...")
 	}
 
+	if sessionSharePrivate {
+		// The org-scoped page needs no token, but the session must exist in
+		// the caller's org or the recipient gets a dead link.
+		_, lookupErr := client.GetDeviceSessionByID(cmd.Context(), sessionID)
+		if !jsonOutput {
+			ui.StopSpinner()
+		}
+		if lookupErr != nil {
+			ui.PrintError("Could not find session %s: %v", sessionID, lookupErr)
+			return lookupErr
+		}
+		link := organizationSessionLink(devMode, sessionID)
+		if jsonOutput {
+			data, _ := marshalPrettyJSON(map[string]interface{}{
+				"session_id":     sessionID,
+				"shareable_link": link,
+				"access":         shareAccessOrganization,
+			})
+			fmt.Println(string(data))
+			return nil
+		}
+		printOrganizationShareLink(link, sessionShareOpen)
+		return nil
+	}
+
 	shareResp, err := client.GenerateShareableSessionLink(cmd.Context(), sessionID, config.GetAppURL(devMode), expirationHours)
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -134,6 +167,7 @@ func runSessionShare(cmd *cobra.Command, args []string) error {
 		output := map[string]interface{}{
 			"session_id":     sessionID,
 			"shareable_link": shareResp.ShareableLink,
+			"access":         shareAccessPublic,
 		}
 		data, _ := marshalPrettyJSON(output)
 		fmt.Println(string(data))

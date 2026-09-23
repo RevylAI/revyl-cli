@@ -25,6 +25,7 @@ var (
 	wfShareOutputJSON   bool
 	wfShareOpen         bool
 	wfShareExpires      string
+	wfSharePrivate      bool
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	workflowShareCmd.Flags().BoolVar(&wfShareOutputJSON, "json", false, "Output results as JSON")
 	workflowShareCmd.Flags().BoolVar(&wfShareOpen, "open", false, "Open shareable link in browser")
 	workflowShareCmd.Flags().StringVar(&wfShareExpires, "expires", "", "Link expiry, e.g. 24h, 30d, 4w (default: never)")
+	workflowShareCmd.Flags().BoolVar(&wfSharePrivate, "private", false, "Organization-only link that requires signing in to Revyl; no public link is created")
 }
 
 // workflowStatusCmd shows the latest execution status for a workflow.
@@ -96,8 +98,13 @@ var workflowShareCmd = &cobra.Command{
 	Short: "Generate shareable workflow report link",
 	Long: `Generate a shareable link for a workflow execution report.
 
+By default the link is public: anyone holding it can open the report without
+signing in. Pass --private for an organization-only link that requires the
+recipient to sign in to your Revyl organization; no public link is created.
+
 Examples:
   revyl workflow share smoke-tests
+  revyl workflow share smoke-tests --private
   revyl workflow share <task-uuid> --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowShare,
@@ -824,6 +831,10 @@ func runWorkflowShare(cmd *cobra.Command, args []string) error {
 
 	nameOrID := args[0]
 
+	if err := validatePrivateShareFlags(wfSharePrivate, wfShareExpires); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 	expirationHours, err := parseExpirationFlag(wfShareExpires)
 	if err != nil {
 		ui.PrintError("%v", err)
@@ -846,6 +857,24 @@ func runWorkflowShare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve workflow execution")
 	}
 
+	if wfSharePrivate {
+		if !jsonOutput {
+			ui.StopSpinner()
+		}
+		link := organizationWorkflowReportLink(devMode, taskID)
+		if jsonOutput {
+			data, _ := json.MarshalIndent(map[string]interface{}{
+				"task_id":        taskID,
+				"shareable_link": link,
+				"access":         shareAccessOrganization,
+			}, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
+		printOrganizationShareLink(link, wfShareOpen)
+		return nil
+	}
+
 	shareResp, err := client.GenerateWorkflowShareableLink(cmd.Context(), taskID, config.GetAppURL(devMode), expirationHours)
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -860,6 +889,7 @@ func runWorkflowShare(cmd *cobra.Command, args []string) error {
 		output := map[string]interface{}{
 			"task_id":        taskID,
 			"shareable_link": shareResp.ShareableLink,
+			"access":         shareAccessPublic,
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))

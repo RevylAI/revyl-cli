@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -220,6 +221,54 @@ func parseExpirationFlag(s string) (*int, error) {
 
 	hours := n * perUnitHours
 	return &hours, nil
+}
+
+// Share link access levels reported in `share --json` output.
+const (
+	// shareAccessPublic is a token-bearing link anyone can open without signing in.
+	shareAccessPublic = "public"
+	// shareAccessOrganization is the in-app link; the recipient must sign in to
+	// the owning Revyl organization, and no public token is ever minted.
+	shareAccessOrganization = "organization"
+)
+
+// validatePrivateShareFlags rejects flag combinations that only make sense for
+// a public token link, so `--private` never silently ignores `--expires`.
+func validatePrivateShareFlags(private bool, expires string) error {
+	if private && strings.TrimSpace(expires) != "" {
+		return fmt.Errorf("--expires applies only to public links; drop it or omit --private")
+	}
+	return nil
+}
+
+// organizationTestReportLink is the signed-in test report page for an execution.
+func organizationTestReportLink(devMode bool, taskID string) string {
+	return fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), url.QueryEscape(taskID))
+}
+
+// organizationSessionLink is the signed-in session page for a device session.
+func organizationSessionLink(devMode bool, sessionID string) string {
+	return fmt.Sprintf("%s/sessions/%s", config.GetAppURL(devMode), url.PathEscape(sessionID))
+}
+
+// organizationWorkflowReportLink is the signed-in workflow report page for an execution.
+func organizationWorkflowReportLink(devMode bool, taskID string) string {
+	return fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), url.QueryEscape(taskID))
+}
+
+// printOrganizationShareLink renders a private share result for humans.
+func printOrganizationShareLink(link string, openInBrowser bool) {
+	ui.Println()
+	ui.PrintSuccess("Organization link ready")
+	ui.Println()
+	ui.PrintLink("Link", link)
+	ui.PrintInfo("Only members of your Revyl organization can open it; no public link was created.")
+	if !openInBrowser {
+		return
+	}
+	if err := ui.OpenBrowser(link); err != nil {
+		ui.PrintWarning("Could not open browser: %v", err)
+	}
 }
 
 // resolveTestID resolves a test name or ID to a test UUID and display name.
