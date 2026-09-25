@@ -104,7 +104,7 @@ func TestAuthoredConfigFromInitDraftMapsCanonicalBuildDirectly(t *testing.T) {
 	if !ok || profile.IOS == nil || profile.Android == nil {
 		t.Fatalf("development profile = %+v, want iOS and Android recipes", profile)
 	}
-	if profile.IOS.BuildCommands == nil || len(*profile.IOS.BuildCommands) != 1 || (*profile.IOS.BuildCommands)[0] != "npx eas build --platform ios" {
+	if profile.IOS.BuildCommands == nil || len(*profile.IOS.BuildCommands) != 1 || (*profile.IOS.BuildCommands)[0].Command != "npx eas build --platform ios" {
 		t.Fatalf("iOS build commands = %+v", profile.IOS.BuildCommands)
 	}
 	if profile.IOS.OutputPath == nil || *profile.IOS.OutputPath != "build/app.ipa" || profile.IOS.AppID == nil || *profile.IOS.AppID != "22222222-2222-4222-8222-222222222222" {
@@ -215,7 +215,7 @@ func TestWizardProjectSetupAuthorsStandaloneSwiftDetectionAsCanonicalIOSRecipe(t
 		t.Fatalf("ParseAuthoredConfig() error = %v", err)
 	}
 	ios := authored.Build.Profiles["development"].IOS
-	if authored.Build.Framework != "ios" || ios == nil || ios.BuildCommands == nil || !reflect.DeepEqual(*ios.BuildCommands, []string{"swift build"}) || ios.OutputPath == nil || *ios.OutputPath != ".build/debug/*" {
+	if authored.Build.Framework != "ios" || ios == nil || ios.BuildCommands == nil || !reflect.DeepEqual(*ios.BuildCommands, config.CommandStepItems([]string{"swift build"})) || ios.OutputPath == nil || *ios.OutputPath != ".build/debug/*" {
 		t.Fatalf("canonical Swift build = %+v", authored.Build)
 	}
 }
@@ -408,8 +408,8 @@ func TestRunInitDetectRefreshesDetectedFieldsAndPreservesUnrelatedCanonicalState
 	projectID := uuid.NewString()
 	iosAppID := uuid.NewString()
 	ciIOSAppID := uuid.NewString()
-	oldIOSCommands := []string{"old-ios-build"}
-	releaseCommands := []string{"release-build"}
+	oldIOSCommands := config.CommandStepItems([]string{"old-ios-build"})
+	releaseCommands := config.CommandStepItems([]string{"release-build"})
 	oldOutput := "old/app.ipa"
 	image := "macos-15"
 	buildTimeout := 1200
@@ -436,7 +436,7 @@ func TestRunInitDetectRefreshesDetectedFieldsAndPreservesUnrelatedCanonicalState
 				"development": {
 					IOS: &config.AuthoredBuildRecipe{
 						AppID:          &iosAppID,
-						SetupCommands:  []string{"npm ci"},
+						SetupCommands:  config.CommandStepItems([]string{"npm ci"}),
 						BuildCommands:  &oldIOSCommands,
 						OutputPath:     &oldOutput,
 						Image:          &image,
@@ -500,13 +500,13 @@ func TestRunInitDetectRefreshesDetectedFieldsAndPreservesUnrelatedCanonicalState
 		t.Fatalf("unrelated release profile changed:\n got: %+v\nwant: %+v", authored.Build.Profiles["release"], existing.Build.Profiles["release"])
 	}
 	ios := authored.Build.Profiles["development"].IOS
-	if ios == nil || ios.BuildCommands == nil || len(*ios.BuildCommands) != 1 || (*ios.BuildCommands)[0] == "old-ios-build" {
+	if ios == nil || ios.BuildCommands == nil || len(*ios.BuildCommands) != 1 || (*ios.BuildCommands)[0].Command == "old-ios-build" {
 		t.Fatalf("detected iOS build command was not refreshed: %+v", ios)
 	}
 	if ios.OutputPath == nil || *ios.OutputPath != "build/app.tar.gz" {
 		t.Fatalf("detected iOS output path = %+v, want build/app.tar.gz", ios.OutputPath)
 	}
-	if ios.AppID == nil || *ios.AppID != iosAppID || !reflect.DeepEqual(ios.SetupCommands, []string{"npm ci"}) || ios.Image == nil || *ios.Image != image || ios.TimeoutSeconds == nil || *ios.TimeoutSeconds != buildTimeout || !reflect.DeepEqual(ios.Env, map[string]string{"PLATFORM_ENV": "kept"}) || !reflect.DeepEqual(ios.Secrets, []string{"MATCH_PASSWORD"}) || !reflect.DeepEqual(ios.Caches, []config.BuildCache{{Key: "ios", Paths: []string{"ios/Pods"}}}) {
+	if ios.AppID == nil || *ios.AppID != iosAppID || !reflect.DeepEqual(ios.SetupCommands, config.CommandStepItems([]string{"npm ci"})) || ios.Image == nil || *ios.Image != image || ios.TimeoutSeconds == nil || *ios.TimeoutSeconds != buildTimeout || !reflect.DeepEqual(ios.Env, map[string]string{"PLATFORM_ENV": "kept"}) || !reflect.DeepEqual(ios.Secrets, []string{"MATCH_PASSWORD"}) || !reflect.DeepEqual(ios.Caches, []config.BuildCache{{Key: "ios", Paths: []string{"ios/Pods"}}}) {
 		t.Fatalf("unrelated iOS recipe state changed: %+v", ios)
 	}
 	if authored.Build.Profiles["development"].Android == nil {
@@ -550,11 +550,11 @@ func TestRunInitDetectIncompletePlaceholderPreservesCollidingBuildCommandsAndExa
 	}
 
 	projectID := uuid.NewString()
-	iosCommands := []string{
+	iosCommands := config.CommandStepItems([]string{
 		"ruby scripts/bootstrap-ios.rb",
 		"xcodebuild -workspace Existing.xcworkspace -scheme Existing",
-	}
-	androidCommands := []string{"old-android-build"}
+	})
+	androidCommands := config.CommandStepItems([]string{"old-android-build"})
 	iosOutput := "existing/Revyl.app"
 	androidOutput := "existing/app.apk"
 	existing := config.AuthoredConfig{
@@ -601,7 +601,7 @@ func TestRunInitDetectIncompletePlaceholderPreservesCollidingBuildCommandsAndExa
 	if development.IOS == nil || development.IOS.BuildCommands == nil || !reflect.DeepEqual(*development.IOS.BuildCommands, iosCommands) {
 		t.Fatalf("incomplete iOS detection changed build commands: %+v", development.IOS)
 	}
-	wantAndroidCommands := []string{"cd android && ./gradlew assembleDebug"}
+	wantAndroidCommands := config.CommandStepItems([]string{"cd android && ./gradlew assembleDebug"})
 	if development.Android == nil || development.Android.BuildCommands == nil || !reflect.DeepEqual(*development.Android.BuildCommands, wantAndroidCommands) {
 		t.Fatalf("complete Android detection did not replace build commands: %+v", development.Android)
 	}
@@ -654,7 +654,8 @@ func TestRunInitIncompletePlaceholderWritesEmptyBuildCommandsForNewProject(t *te
 }
 
 func TestBuildReviewPreservesIncompleteDetectorCommandsUntilExplicitSkip(t *testing.T) {
-	existingCommands := []string{"existing-build"}
+	existingCommandStrings := []string{"existing-build"}
+	existingCommands := config.CommandStepItems(existingCommandStrings)
 	existing := &config.AuthoredConfig{
 		Project: config.AuthoredProject{ID: uuid.NewString()},
 		Build: &config.AuthoredBuild{
@@ -680,7 +681,7 @@ func TestBuildReviewPreservesIncompleteDetectorCommandsUntilExplicitSkip(t *test
 					return current
 				})
 			},
-			wantCommands: existingCommands,
+			wantCommands: existingCommandStrings,
 		},
 		{
 			name: "explicit skip",
@@ -714,7 +715,7 @@ func TestBuildReviewPreservesIncompleteDetectorCommandsUntilExplicitSkip(t *test
 				t.Fatalf("mergeExistingCanonicalInitConfig() error = %v", err)
 			}
 			commands := authored.Build.Profiles["development"].IOS.BuildCommands
-			if commands == nil || len(*commands) != len(testCase.wantCommands) || (len(testCase.wantCommands) > 0 && !reflect.DeepEqual(*commands, testCase.wantCommands)) {
+			if commands == nil || len(*commands) != len(testCase.wantCommands) || (len(testCase.wantCommands) > 0 && !reflect.DeepEqual(*commands, config.CommandStepItems(testCase.wantCommands))) {
 				t.Fatalf("build commands = %v, want %v", commands, testCase.wantCommands)
 			}
 		})
@@ -722,7 +723,7 @@ func TestBuildReviewPreservesIncompleteDetectorCommandsUntilExplicitSkip(t *test
 }
 
 func TestPreserveManagedReviewProfileKeepsMissingReferencedProfile(t *testing.T) {
-	buildCommands := []string{"xcodebuild archive"}
+	buildCommands := config.CommandStepItems([]string{"xcodebuild archive"})
 	profileName := "pull-request"
 	authored := &config.AuthoredConfig{
 		Project: config.AuthoredProject{ID: uuid.NewString()},
@@ -758,7 +759,7 @@ func TestPreserveManagedReviewProfileKeepsMissingReferencedProfile(t *testing.T)
 }
 
 func TestPreserveManagedReviewProfileRejectsFrameworkChange(t *testing.T) {
-	buildCommands := []string{"xcodebuild archive"}
+	buildCommands := config.CommandStepItems([]string{"xcodebuild archive"})
 	profileName := "pull-request"
 	authored := &config.AuthoredConfig{
 		Build: &config.AuthoredBuild{

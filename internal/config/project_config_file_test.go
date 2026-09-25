@@ -161,7 +161,7 @@ func TestMarshalCanonicalConfigIsStableAndStrict(t *testing.T) {
 }
 
 func TestMarshalCanonicalConfigFallsBackToBoundedJSONCompatibleYAML(t *testing.T) {
-	commands := []string{strings.Repeat("x\n", 280_000)}
+	commands := CommandStepItems([]string{strings.Repeat("x\n", 280_000)})
 	authored := AuthoredConfig{
 		Project: AuthoredProject{ID: projectFileTestProjectID},
 		Build: &AuthoredBuild{
@@ -190,7 +190,7 @@ func TestMarshalCanonicalConfigFallsBackToBoundedJSONCompatibleYAML(t *testing.T
 }
 
 func TestMarshalCanonicalConfigCompactFallbackDoesNotEscapeHTML(t *testing.T) {
-	commands := []string{strings.Repeat("x\n", 200_000)}
+	commands := CommandStepItems([]string{strings.Repeat("x\n", 200_000)})
 	authored := AuthoredConfig{
 		Project: AuthoredProject{ID: projectFileTestProjectID},
 		Build: &AuthoredBuild{

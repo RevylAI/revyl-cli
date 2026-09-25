@@ -3042,10 +3042,16 @@ func runDevRecipeWithHooks(ctx context.Context, invocation projectDevInvocation,
 		}
 		return nil
 	}
-	if err := runCommands("setup", invocation.Recipe.SetupCommands); err != nil {
+	setupCommands, setupErr := config.CommandStrings(invocation.Recipe.SetupCommands)
+	buildCommands, buildErr := config.CommandStrings(invocation.Recipe.BuildCommands)
+	if setupErr != nil {
+		result.Err = setupErr
+	} else if buildErr != nil {
+		result.Err = buildErr
+	} else if err := runCommands("setup", setupCommands); err != nil {
 		result.Err = err
 	} else {
-		result.Err = runCommands("build", invocation.Recipe.BuildCommands)
+		result.Err = runCommands("build", buildCommands)
 	}
 	result.Duration = time.Since(started)
 	return result
@@ -3272,7 +3278,7 @@ func devBuildAndDeltaPush(
 	ui.PrintInfo("Uploading full artifact to cloud...")
 	pushStart := time.Now()
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Uploading full artifact to cloud")
-	metadata := build.CollectMetadata(invocation.ProjectRoot, strings.Join(invocation.Recipe.BuildCommands, " && "), invocation.Platform, result.buildDuration)
+	metadata := build.CollectMetadata(invocation.ProjectRoot, config.CommandSummary(invocation.Recipe.BuildCommands), invocation.Platform, result.buildDuration)
 	if expoMetadata, metadataErr := deriveExpoBuildMetadata(ctx, invocation.ProjectRoot, invocation.Recipe.Framework, invocation.Recipe.Env); metadataErr != nil {
 		result.pushErr = fmt.Errorf("resolve build artifact metadata: %w", metadataErr)
 		result.elapsed = time.Since(rebuildStart)
@@ -3409,7 +3415,7 @@ func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation p
 	}
 
 	versionStr := build.GenerateVersionStringForWorkDir(invocation.ProjectRoot)
-	metadata := build.CollectMetadata(invocation.ProjectRoot, strings.Join(invocation.Recipe.BuildCommands, " && "), invocation.Platform, 0)
+	metadata := build.CollectMetadata(invocation.ProjectRoot, config.CommandSummary(invocation.Recipe.BuildCommands), invocation.Platform, 0)
 	if expoMetadata, metadataErr := deriveExpoBuildMetadata(ctx, invocation.ProjectRoot, invocation.Recipe.Framework, invocation.Recipe.Env); metadataErr != nil {
 		ui.PrintDim("  ✗ Background upload failed: %v", metadataErr)
 		updateBgUploadStatus(statusPath, "failed")

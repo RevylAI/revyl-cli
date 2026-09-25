@@ -76,8 +76,8 @@ type AuthoredBuildProfile struct {
 // required field from an explicitly scaffolded empty command list.
 type AuthoredBuildRecipe struct {
 	AppID          *string           `json:"app_id,omitempty" yaml:"app_id,omitempty"`
-	SetupCommands  []string          `json:"setup_commands,omitempty" yaml:"setup_commands,omitempty"`
-	BuildCommands  *[]string         `json:"build_commands" yaml:"build_commands"`
+	SetupCommands  []BuildStepItem   `json:"setup_commands,omitempty" yaml:"setup_commands,omitempty"`
+	BuildCommands  *[]BuildStepItem  `json:"build_commands" yaml:"build_commands"`
 	OutputPath     *string           `json:"output_path,omitempty" yaml:"output_path,omitempty"`
 	Image          *string           `json:"image,omitempty" yaml:"image,omitempty"`
 	TimeoutSeconds *int              `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
@@ -140,8 +140,8 @@ type AuthoredStrictCICheck struct {
 // Selection and routing facts such as profile name, app, and platform stay outside it.
 type EffectiveBuildRecipe struct {
 	Framework           string            `json:"framework"`
-	SetupCommands       []string          `json:"setup_commands"`
-	BuildCommands       []string          `json:"build_commands"`
+	SetupCommands       []BuildStepItem   `json:"setup_commands"`
+	BuildCommands       []BuildStepItem   `json:"build_commands"`
 	SelectedProjectRoot string            `json:"selected_project_root"`
 	ExecutionDirectory  string            `json:"execution_directory"`
 	OutputPath          *string           `json:"output_path,omitempty"`
@@ -326,10 +326,11 @@ func (r EffectiveBuildRecipe) ValidateContract() error {
 	if len(r.BuildCommands) == 0 {
 		return fmt.Errorf("build_commands must contain at least one command")
 	}
-	for _, command := range r.BuildCommands {
-		if strings.TrimSpace(command) == "" {
-			return fmt.Errorf("build_commands must not contain blank commands")
-		}
+	if err := validateBuildStepItems(r.SetupCommands, []string{"setup_commands"}, ""); err != nil {
+		return err
+	}
+	if err := validateBuildStepItems(r.BuildCommands, []string{"build_commands"}, ""); err != nil {
+		return err
 	}
 	if strings.TrimSpace(r.SelectedProjectRoot) == "" {
 		return fmt.Errorf("selected_project_root must not be empty")
@@ -363,13 +364,11 @@ func validateAuthoredRecipe(profileName, platform string, recipe *AuthoredBuildR
 			fmt.Sprintf("%s.build_commands is required", fieldPath),
 		)
 	}
-	for index, command := range *recipe.BuildCommands {
-		if strings.TrimSpace(command) == "" {
-			return authoredContractError(
-				append(append([]string{}, configPath...), "build_commands", fmt.Sprintf("%d", index)),
-				fmt.Sprintf("%s.build_commands must not contain blank commands", fieldPath),
-			)
-		}
+	if err := validateBuildStepItems(recipe.SetupCommands, append(append([]string{}, configPath...), "setup_commands"), platform); err != nil {
+		return err
+	}
+	if err := validateBuildStepItems(*recipe.BuildCommands, append(append([]string{}, configPath...), "build_commands"), platform); err != nil {
+		return err
 	}
 	if recipe.AppID != nil {
 		if _, err := uuid.Parse(*recipe.AppID); err != nil {

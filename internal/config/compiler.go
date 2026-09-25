@@ -343,10 +343,10 @@ func validateContractKeys(root *yaml.Node) error {
 					if err := validateStringNode(mappingValue(recipe, "app_id"), append(recipePath, "app_id"), true); err != nil {
 						return err
 					}
-					if err := validateStringSequence(mappingValue(recipe, "setup_commands"), append(recipePath, "setup_commands")); err != nil {
+					if err := validateBuildStepSequence(mappingValue(recipe, "setup_commands"), append(recipePath, "setup_commands")); err != nil {
 						return err
 					}
-					if err := validateStringSequence(mappingValue(recipe, "build_commands"), append(recipePath, "build_commands")); err != nil {
+					if err := validateBuildStepSequence(mappingValue(recipe, "build_commands"), append(recipePath, "build_commands")); err != nil {
 						return err
 					}
 					for _, field := range []string{"output_path", "image"} {

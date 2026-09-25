@@ -347,7 +347,7 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 }
 
 func authoredBuildRecipeFileProjection(recipe AuthoredBuildRecipe) map[string]any {
-	buildCommands := []string{}
+	buildCommands := []BuildStepItem{}
 	if recipe.BuildCommands != nil {
 		buildCommands = nonNilSlice(*recipe.BuildCommands)
 	}
@@ -504,12 +504,12 @@ func normalizeBuildRecipe(build AuthoredBuild, recipe AuthoredBuildRecipe, root,
 			)
 		}
 	}
-	commands := []string{}
+	commands := []BuildStepItem{}
 	if recipe.BuildCommands != nil {
-		commands = cloneStrings(*recipe.BuildCommands)
+		commands = cloneBuildStepItems(*recipe.BuildCommands)
 	}
 	return EffectiveBuildRecipe{
-		Framework: build.Framework, SetupCommands: cloneStrings(recipe.SetupCommands), BuildCommands: commands,
+		Framework: build.Framework, SetupCommands: cloneBuildStepItems(recipe.SetupCommands), BuildCommands: commands,
 		SelectedProjectRoot: root, ExecutionDirectory: root, OutputPath: cloneStringPointer(recipe.OutputPath),
 		Image: cloneStringPointer(recipe.Image), TimeoutSeconds: cloneIntPointer(recipe.TimeoutSeconds), Env: env,
 		SecretRefs: secretRefs, Caches: mergeCaches(build.Caches, recipe.Caches),

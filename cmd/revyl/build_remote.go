@@ -65,9 +65,9 @@ type remoteBuildPlatformConfig struct {
 	Platform      string
 	PlatformKey   string
 	Command       string
-	Commands      []string
+	Commands      []config.BuildStepItem
 	Setup         string
-	SetupCommands []string
+	SetupCommands []config.BuildStepItem
 	Output        string
 	Image         string
 	Scheme        string
@@ -283,7 +283,10 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		return err
 	}
 	opts.markFailureStage("enqueue")
-	triggerReq := newRemoteBuildTriggerRequest(source, appID, resolved, opts)
+	triggerReq, err := newRemoteBuildTriggerRequest(source, appID, resolved, opts)
+	if err != nil {
+		return err
+	}
 	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, opts.TimeoutSeconds)
 	if !debugOutput && interactiveOutput {
 		ui.StopSpinner()
@@ -364,17 +367,21 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	return nil
 }
 
-func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uuid.UUID, resolved remoteBuildPlatformConfig, opts remoteBuildOptions) *api.RemoteBuildRequest {
+func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uuid.UUID, resolved remoteBuildPlatformConfig, opts remoteBuildOptions) (*api.RemoteBuildRequest, error) {
+	buildConfig, err := remoteBuildConfigFromResolved(appID, resolved)
+	if err != nil {
+		return nil, err
+	}
 	setCurrent := opts.SetCurrent
 	return &api.RemoteBuildRequest{
 		BuildDefinitionHash: stringPtrOrNil(opts.BuildDefinitionHash),
 		Source:              source,
-		Config:              remoteBuildConfigFromResolved(appID, resolved),
+		Config:              buildConfig,
 		CleanBuild:          boolPtrOrNil(opts.Clean),
 		Version:             stringPtrOrNil(opts.Version),
 		Image:               stringPtrOrNil(resolved.Image),
 		SetAsCurrent:        &setCurrent,
-	}
+	}, nil
 }
 
 // parseRemoteBuildEnvOverrides parses repeatable --env KEY=VALUE flags into a

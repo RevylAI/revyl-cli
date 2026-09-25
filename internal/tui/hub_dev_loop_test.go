@@ -247,7 +247,7 @@ func writeDevLoopConfig(t *testing.T, dir, framework string) {
 	t.Helper()
 	authored := canonicalSettingsConfig(300)
 	if framework != "" {
-		commands := []string{"build"}
+		commands := config.CommandStepItems([]string{"build"})
 		outputPath := "build/app"
 		authored.Build = &config.AuthoredBuild{
 			Framework: framework,

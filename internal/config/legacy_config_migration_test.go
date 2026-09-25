@@ -801,11 +801,11 @@ pr_review:
 	}
 	development := result.Authored.Build.Profiles["development"].IOS
 	if development == nil || development.AppID == nil || *development.AppID != "22222222-2222-4222-8222-222222222222" ||
-		development.BuildCommands == nil || !reflect.DeepEqual(*development.BuildCommands, []string{"xcodebuild development"}) {
+		development.BuildCommands == nil || !reflect.DeepEqual(*development.BuildCommands, CommandStepItems([]string{"xcodebuild development"})) {
 		t.Fatalf("development recipe = %#v", development)
 	}
 	review := result.Authored.Build.Profiles["pr-review"].IOS
-	if review == nil || review.BuildCommands == nil || !reflect.DeepEqual(*review.BuildCommands, []string{"xcodebuild review"}) {
+	if review == nil || review.BuildCommands == nil || !reflect.DeepEqual(*review.BuildCommands, CommandStepItems([]string{"xcodebuild review"})) {
 		t.Fatalf("review recipe = %#v", review)
 	}
 	if result.Authored.Session == nil || result.Authored.Session.IdleTimeoutSeconds == nil || *result.Authored.Session.IdleTimeoutSeconds != 300 {

@@ -321,8 +321,8 @@ func platformConfiguration(aggregate config.NormalizedProjectAggregate, profileN
 
 func cloneEffectiveBuildRecipe(recipe config.EffectiveBuildRecipe) config.EffectiveBuildRecipe {
 	cloned := recipe
-	cloned.SetupCommands = append([]string{}, recipe.SetupCommands...)
-	cloned.BuildCommands = append([]string{}, recipe.BuildCommands...)
+	cloned.SetupCommands = append([]config.BuildStepItem{}, recipe.SetupCommands...)
+	cloned.BuildCommands = append([]config.BuildStepItem{}, recipe.BuildCommands...)
 	cloned.SecretRefs = append([]string{}, recipe.SecretRefs...)
 	cloned.Env = make(map[string]string, len(recipe.Env))
 	for key, value := range recipe.Env {
@@ -538,10 +538,18 @@ func executeLocalRecipe(parentContext context.Context, invocation projectBuildIn
 		}
 		return nil
 	}
-	if err := run("setup", invocation.Recipe.SetupCommands); err != nil {
+	setupCommands, err := config.CommandStrings(invocation.Recipe.SetupCommands)
+	if err != nil {
 		return err
 	}
-	return run("build", invocation.Recipe.BuildCommands)
+	buildCommands, err := config.CommandStrings(invocation.Recipe.BuildCommands)
+	if err != nil {
+		return err
+	}
+	if err := run("setup", setupCommands); err != nil {
+		return err
+	}
+	return run("build", buildCommands)
 }
 
 func printBuildToolErrorGuidance(err error) {
@@ -597,7 +605,7 @@ func localArtifactMetadata(
 	duration time.Duration,
 	artifactProducedByRecipe bool,
 ) (map[string]interface{}, error) {
-	metadata := build.CollectMetadata(invocation.ProjectRoot, strings.Join(invocation.Recipe.BuildCommands, " && "), invocation.Platform, duration)
+	metadata := build.CollectMetadata(invocation.ProjectRoot, config.CommandSummary(invocation.Recipe.BuildCommands), invocation.Platform, duration)
 	if !artifactProducedByRecipe {
 		return metadata, nil
 	}
@@ -823,8 +831,8 @@ func remoteBuildPlatformConfigFromProject(invocation projectBuildInvocation) rem
 	}
 	return remoteBuildPlatformConfig{
 		Platform: invocation.Platform, PlatformKey: invocation.Platform,
-		Commands:      append([]string(nil), invocation.Recipe.BuildCommands...),
-		SetupCommands: append([]string(nil), invocation.Recipe.SetupCommands...),
+		Commands:      append([]config.BuildStepItem(nil), invocation.Recipe.BuildCommands...),
+		SetupCommands: append([]config.BuildStepItem(nil), invocation.Recipe.SetupCommands...),
 		Output:        output, Image: image, AppID: invocation.AppID,
 		Env:       cloneStringMapForBuild(invocation.Recipe.Env),
 		Secrets:   append([]string(nil), invocation.Recipe.SecretRefs...),

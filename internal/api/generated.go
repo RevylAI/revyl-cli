@@ -476,14 +476,26 @@ func (e BuildConfigPlatform) Valid() bool {
 
 // Defines values for BuildStepType.
 const (
-	BuildStepTypeCheckout BuildStepType = "checkout"
-	BuildStepTypeRun      BuildStepType = "run"
+	BuildStepTypeAndroidSigning        BuildStepType = "android-signing"
+	BuildStepTypeAppStoreConnectDeploy BuildStepType = "app-store-connect-deploy"
+	BuildStepTypeCheckout              BuildStepType = "checkout"
+	BuildStepTypeGooglePlayDeploy      BuildStepType = "google-play-deploy"
+	BuildStepTypeIosSigning            BuildStepType = "ios-signing"
+	BuildStepTypeRun                   BuildStepType = "run"
 )
 
 // Valid indicates whether the value is a known member of the BuildStepType enum.
 func (e BuildStepType) Valid() bool {
 	switch e {
+	case BuildStepTypeAndroidSigning:
+		return true
+	case BuildStepTypeAppStoreConnectDeploy:
+		return true
 	case BuildStepTypeCheckout:
+		return true
+	case BuildStepTypeGooglePlayDeploy:
+		return true
+	case BuildStepTypeIosSigning:
 		return true
 	case BuildStepTypeRun:
 		return true
@@ -897,6 +909,30 @@ func (e FallbackTrigger) Valid() bool {
 	}
 }
 
+// Defines values for GooglePlayDeployInputsReleaseStatus.
+const (
+	GooglePlayDeployInputsReleaseStatusCompleted  GooglePlayDeployInputsReleaseStatus = "completed"
+	GooglePlayDeployInputsReleaseStatusDraft      GooglePlayDeployInputsReleaseStatus = "draft"
+	GooglePlayDeployInputsReleaseStatusHalted     GooglePlayDeployInputsReleaseStatus = "halted"
+	GooglePlayDeployInputsReleaseStatusInProgress GooglePlayDeployInputsReleaseStatus = "inProgress"
+)
+
+// Valid indicates whether the value is a known member of the GooglePlayDeployInputsReleaseStatus enum.
+func (e GooglePlayDeployInputsReleaseStatus) Valid() bool {
+	switch e {
+	case GooglePlayDeployInputsReleaseStatusCompleted:
+		return true
+	case GooglePlayDeployInputsReleaseStatusDraft:
+		return true
+	case GooglePlayDeployInputsReleaseStatusHalted:
+		return true
+	case GooglePlayDeployInputsReleaseStatusInProgress:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GrounderType.
 const (
 	GrounderTypeAuto            GrounderType = "auto"
@@ -921,6 +957,30 @@ func (e GrounderType) Valid() bool {
 	case GrounderTypeMoondreamCustom:
 		return true
 	case GrounderTypeNull:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IosSigningInputsExportMethod.
+const (
+	IosSigningInputsExportMethodAdHoc           IosSigningInputsExportMethod = "ad-hoc"
+	IosSigningInputsExportMethodAppStoreConnect IosSigningInputsExportMethod = "app-store-connect"
+	IosSigningInputsExportMethodDevelopment     IosSigningInputsExportMethod = "development"
+	IosSigningInputsExportMethodEnterprise      IosSigningInputsExportMethod = "enterprise"
+)
+
+// Valid indicates whether the value is a known member of the IosSigningInputsExportMethod enum.
+func (e IosSigningInputsExportMethod) Valid() bool {
+	switch e {
+	case IosSigningInputsExportMethodAdHoc:
+		return true
+	case IosSigningInputsExportMethodAppStoreConnect:
+		return true
+	case IosSigningInputsExportMethodDevelopment:
+		return true
+	case IosSigningInputsExportMethodEnterprise:
 		return true
 	default:
 		return false
@@ -1916,6 +1976,20 @@ type AllPlatformTargets struct {
 	Platforms map[string]PlatformTargetConfig `json:"platforms"`
 }
 
+// AndroidSigningInputs Sign and verify the APK or AAB at output_path after the build command.
+type AndroidSigningInputs struct {
+	KeyAlias *string `json:"key_alias,omitempty"`
+
+	// KeyPassword Name of an encrypted build secret; never its value.
+	KeyPassword *string `json:"key_password,omitempty"`
+
+	// Keystore Name of an encrypted build secret; never its value.
+	Keystore string `json:"keystore"`
+
+	// KeystorePassword Name of an encrypted build secret; never its value.
+	KeystorePassword string `json:"keystore_password"`
+}
+
 // AppCreateRequest Request model for creating an app.
 type AppCreateRequest struct {
 	// Description Optional description
@@ -1969,6 +2043,16 @@ type AppResponse struct {
 	StaticUrl        *string             `json:"static_url,omitempty"`
 	SystemPrompt     *string             `json:"system_prompt,omitempty"`
 	VersionsCount    *int                `json:"versions_count,omitempty"`
+}
+
+// AppStoreConnectDeployInputs Upload the exported IPA to App Store Connect.
+type AppStoreConnectDeployInputs struct {
+	// ApiKey Name of an encrypted build secret; never its value.
+	ApiKey   string  `json:"api_key"`
+	AppleId  *string `json:"apple_id,omitempty"`
+	Ipa      *string `json:"ipa,omitempty"`
+	IssuerId string  `json:"issuer_id"`
+	KeyId    string  `json:"key_id"`
 }
 
 // AsyncStatus defines model for AsyncStatus.
@@ -2665,15 +2749,31 @@ type AuthoredBuildProfile struct {
 
 // AuthoredBuildRecipe One authored profile/platform recipe before inheritance or defaulting.
 type AuthoredBuildRecipe struct {
-	AppId          *openapi_types.UUID  `json:"app_id,omitempty"`
-	BuildCommands  []string             `json:"build_commands"`
-	Caches         *[]ProjectBuildCache `json:"caches,omitempty"`
-	Env            *map[string]string   `json:"env,omitempty"`
-	Image          *string              `json:"image,omitempty"`
-	OutputPath     *string              `json:"output_path,omitempty"`
-	Secrets        *[]string            `json:"secrets,omitempty"`
-	SetupCommands  *[]string            `json:"setup_commands,omitempty"`
-	TimeoutSeconds *int                 `json:"timeout_seconds,omitempty"`
+	AppId          *openapi_types.UUID                       `json:"app_id,omitempty"`
+	BuildCommands  []AuthoredBuildRecipe_BuildCommands_Item  `json:"build_commands"`
+	Caches         *[]ProjectBuildCache                      `json:"caches,omitempty"`
+	Env            *map[string]string                        `json:"env,omitempty"`
+	Image          *string                                   `json:"image,omitempty"`
+	OutputPath     *string                                   `json:"output_path,omitempty"`
+	Secrets        *[]string                                 `json:"secrets,omitempty"`
+	SetupCommands  *[]AuthoredBuildRecipe_SetupCommands_Item `json:"setup_commands,omitempty"`
+	TimeoutSeconds *int                                      `json:"timeout_seconds,omitempty"`
+}
+
+// AuthoredBuildRecipeBuildCommands0 defines model for .
+type AuthoredBuildRecipeBuildCommands0 = string
+
+// AuthoredBuildRecipe_BuildCommands_Item defines model for AuthoredBuildRecipe.build_commands.Item.
+type AuthoredBuildRecipe_BuildCommands_Item struct {
+	union json.RawMessage
+}
+
+// AuthoredBuildRecipeSetupCommands0 defines model for .
+type AuthoredBuildRecipeSetupCommands0 = string
+
+// AuthoredBuildRecipe_SetupCommands_Item defines model for AuthoredBuildRecipe.setup_commands.Item.
+type AuthoredBuildRecipe_SetupCommands_Item struct {
+	union json.RawMessage
 }
 
 // AuthoredExternalCIAppIds Platform-to-app expectations for customer CI uploads.
@@ -2775,6 +2875,32 @@ type AuthoredSession struct {
 // AuthoredStrictCICheck Authored strict build-check behavior.
 type AuthoredStrictCICheck struct {
 	Build bool `json:"build"`
+}
+
+// AuthoredTypedBuildStep One mapping item in a command list: a named run command or a typed step.
+//
+// Exactly one step key is set. Step keys use their authored hyphenated
+// spelling on the wire so the CLI's verbatim YAML projection and this model
+// hash identically.
+type AuthoredTypedBuildStep struct {
+	// AndroidSigning Sign and verify the APK or AAB at output_path after the build command.
+	AndroidSigning *AndroidSigningInputs `json:"android-signing,omitempty"`
+
+	// AppStoreConnectDeploy Upload the exported IPA to App Store Connect.
+	AppStoreConnectDeploy *AppStoreConnectDeployInputs `json:"app-store-connect-deploy,omitempty"`
+
+	// GooglePlayDeploy Upload the release bundle to a Google Play track.
+	GooglePlayDeploy *GooglePlayDeployInputs `json:"google-play-deploy,omitempty"`
+
+	// IosSigning Install the distribution certificate and make provisioning available.
+	//
+	// Provisioning comes from uploaded profiles, from Apple through an App Store
+	// Connect API key, or both. Xcode fetches profiles for targets on automatic
+	// signing when a key is present; uploaded profiles serve manually signed
+	// targets. At least one source is required.
+	IosSigning *IosSigningInputs `json:"ios-signing,omitempty"`
+	Name       *string           `json:"name,omitempty"`
+	Run        *string           `json:"run,omitempty"`
 }
 
 // BillingPlanTerms defines model for BillingPlanTerms.
@@ -3127,11 +3253,19 @@ type BuildRunnerStatus struct {
 // BuildStep One step executed by a sandbox build runner.
 type BuildStep struct {
 	Command *string `json:"command,omitempty"`
-	Name    *string `json:"name,omitempty"`
+
+	// Inputs Closed input contract of a typed step; absent for run and checkout.
+	Inputs *BuildStep_Inputs `json:"inputs,omitempty"`
+	Name   *string           `json:"name,omitempty"`
 
 	// SecretEnv Names of build secrets exported into this step's environment, in addition to the configuration-level secret_refs.
 	SecretEnv *[]string     `json:"secret_env,omitempty"`
 	Type      BuildStepType `json:"type"`
+}
+
+// BuildStep_Inputs Closed input contract of a typed step; absent for run and checkout.
+type BuildStep_Inputs struct {
+	union json.RawMessage
 }
 
 // BuildStepType defines model for BuildStep.Type.
@@ -4257,6 +4391,21 @@ type GlobalVariablesResponse struct {
 	Result []GlobalVariableRow `json:"result"`
 }
 
+// GooglePlayDeployInputs Upload the release bundle to a Google Play track.
+type GooglePlayDeployInputs struct {
+	Aab           *string                              `json:"aab,omitempty"`
+	MappingFile   *string                              `json:"mapping_file,omitempty"`
+	PackageName   string                               `json:"package_name"`
+	ReleaseStatus *GooglePlayDeployInputsReleaseStatus `json:"release_status,omitempty"`
+
+	// ServiceAccount Name of an encrypted build secret; never its value.
+	ServiceAccount string  `json:"service_account"`
+	Track          *string `json:"track,omitempty"`
+}
+
+// GooglePlayDeployInputsReleaseStatus defines model for GooglePlayDeployInputs.ReleaseStatus.
+type GooglePlayDeployInputsReleaseStatus string
+
 // GroundRequest defines model for GroundRequest.
 type GroundRequest struct {
 	// GrounderType Grounder model override
@@ -4381,6 +4530,42 @@ type IfBlock_ElseChildren_Item struct {
 
 // IfBlock_ThenChildren_Item defines model for IfBlock.thenChildren.Item.
 type IfBlock_ThenChildren_Item struct {
+	union json.RawMessage
+}
+
+// IosSigningInputs Install the distribution certificate and make provisioning available.
+//
+// Provisioning comes from uploaded profiles, from Apple through an App Store
+// Connect API key, or both. Xcode fetches profiles for targets on automatic
+// signing when a key is present; uploaded profiles serve manually signed
+// targets. At least one source is required.
+type IosSigningInputs struct {
+	// ApiKey Name of an encrypted build secret; never its value.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// Certificate Name of an encrypted build secret; never its value.
+	Certificate string `json:"certificate"`
+
+	// CertificatePassword Name of an encrypted build secret; never its value.
+	CertificatePassword  *string                                                         `json:"certificate_password,omitempty"`
+	ExportMethod         *IosSigningInputsExportMethod                                   `json:"export_method,omitempty"`
+	ExportOptions        *map[string]IosSigningInputs_ExportOptions_AdditionalProperties `json:"export_options,omitempty"`
+	IssuerId             *string                                                         `json:"issuer_id,omitempty"`
+	KeyId                *string                                                         `json:"key_id,omitempty"`
+	ProvisioningProfiles *[]string                                                       `json:"provisioning_profiles,omitempty"`
+}
+
+// IosSigningInputsExportMethod defines model for IosSigningInputs.ExportMethod.
+type IosSigningInputsExportMethod string
+
+// IosSigningInputsExportOptions0 defines model for .
+type IosSigningInputsExportOptions0 = string
+
+// IosSigningInputsExportOptions1 defines model for .
+type IosSigningInputsExportOptions1 = bool
+
+// IosSigningInputs_ExportOptions_AdditionalProperties defines model for IosSigningInputs.export_options.AdditionalProperties.
+type IosSigningInputs_ExportOptions_AdditionalProperties struct {
 	union json.RawMessage
 }
 
@@ -9749,6 +9934,130 @@ func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) UnmarshalJSON(b []b
 	return err
 }
 
+// AsAuthoredBuildRecipeBuildCommands0 returns the union data inside the AuthoredBuildRecipe_BuildCommands_Item as a AuthoredBuildRecipeBuildCommands0
+func (t AuthoredBuildRecipe_BuildCommands_Item) AsAuthoredBuildRecipeBuildCommands0() (AuthoredBuildRecipeBuildCommands0, error) {
+	var body AuthoredBuildRecipeBuildCommands0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredBuildRecipeBuildCommands0 overwrites any union data inside the AuthoredBuildRecipe_BuildCommands_Item as the provided AuthoredBuildRecipeBuildCommands0
+func (t *AuthoredBuildRecipe_BuildCommands_Item) FromAuthoredBuildRecipeBuildCommands0(v AuthoredBuildRecipeBuildCommands0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredBuildRecipeBuildCommands0 performs a merge with any union data inside the AuthoredBuildRecipe_BuildCommands_Item, using the provided AuthoredBuildRecipeBuildCommands0
+func (t *AuthoredBuildRecipe_BuildCommands_Item) MergeAuthoredBuildRecipeBuildCommands0(v AuthoredBuildRecipeBuildCommands0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthoredTypedBuildStep returns the union data inside the AuthoredBuildRecipe_BuildCommands_Item as a AuthoredTypedBuildStep
+func (t AuthoredBuildRecipe_BuildCommands_Item) AsAuthoredTypedBuildStep() (AuthoredTypedBuildStep, error) {
+	var body AuthoredTypedBuildStep
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredTypedBuildStep overwrites any union data inside the AuthoredBuildRecipe_BuildCommands_Item as the provided AuthoredTypedBuildStep
+func (t *AuthoredBuildRecipe_BuildCommands_Item) FromAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredTypedBuildStep performs a merge with any union data inside the AuthoredBuildRecipe_BuildCommands_Item, using the provided AuthoredTypedBuildStep
+func (t *AuthoredBuildRecipe_BuildCommands_Item) MergeAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthoredBuildRecipe_BuildCommands_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthoredBuildRecipe_BuildCommands_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAuthoredBuildRecipeSetupCommands0 returns the union data inside the AuthoredBuildRecipe_SetupCommands_Item as a AuthoredBuildRecipeSetupCommands0
+func (t AuthoredBuildRecipe_SetupCommands_Item) AsAuthoredBuildRecipeSetupCommands0() (AuthoredBuildRecipeSetupCommands0, error) {
+	var body AuthoredBuildRecipeSetupCommands0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredBuildRecipeSetupCommands0 overwrites any union data inside the AuthoredBuildRecipe_SetupCommands_Item as the provided AuthoredBuildRecipeSetupCommands0
+func (t *AuthoredBuildRecipe_SetupCommands_Item) FromAuthoredBuildRecipeSetupCommands0(v AuthoredBuildRecipeSetupCommands0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredBuildRecipeSetupCommands0 performs a merge with any union data inside the AuthoredBuildRecipe_SetupCommands_Item, using the provided AuthoredBuildRecipeSetupCommands0
+func (t *AuthoredBuildRecipe_SetupCommands_Item) MergeAuthoredBuildRecipeSetupCommands0(v AuthoredBuildRecipeSetupCommands0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthoredTypedBuildStep returns the union data inside the AuthoredBuildRecipe_SetupCommands_Item as a AuthoredTypedBuildStep
+func (t AuthoredBuildRecipe_SetupCommands_Item) AsAuthoredTypedBuildStep() (AuthoredTypedBuildStep, error) {
+	var body AuthoredTypedBuildStep
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredTypedBuildStep overwrites any union data inside the AuthoredBuildRecipe_SetupCommands_Item as the provided AuthoredTypedBuildStep
+func (t *AuthoredBuildRecipe_SetupCommands_Item) FromAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredTypedBuildStep performs a merge with any union data inside the AuthoredBuildRecipe_SetupCommands_Item, using the provided AuthoredTypedBuildStep
+func (t *AuthoredBuildRecipe_SetupCommands_Item) MergeAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthoredBuildRecipe_SetupCommands_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthoredBuildRecipe_SetupCommands_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsAuthoredManagedReviewBuild returns the union data inside the AuthoredPRReview_Build as a AuthoredManagedReviewBuild
 func (t AuthoredPRReview_Build) AsAuthoredManagedReviewBuild() (AuthoredManagedReviewBuild, error) {
 	var body AuthoredManagedReviewBuild
@@ -10015,6 +10324,120 @@ func (t *BlocksCreationRequest_Blocks_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsIosSigningInputs returns the union data inside the BuildStep_Inputs as a IosSigningInputs
+func (t BuildStep_Inputs) AsIosSigningInputs() (IosSigningInputs, error) {
+	var body IosSigningInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIosSigningInputs overwrites any union data inside the BuildStep_Inputs as the provided IosSigningInputs
+func (t *BuildStep_Inputs) FromIosSigningInputs(v IosSigningInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIosSigningInputs performs a merge with any union data inside the BuildStep_Inputs, using the provided IosSigningInputs
+func (t *BuildStep_Inputs) MergeIosSigningInputs(v IosSigningInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAndroidSigningInputs returns the union data inside the BuildStep_Inputs as a AndroidSigningInputs
+func (t BuildStep_Inputs) AsAndroidSigningInputs() (AndroidSigningInputs, error) {
+	var body AndroidSigningInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAndroidSigningInputs overwrites any union data inside the BuildStep_Inputs as the provided AndroidSigningInputs
+func (t *BuildStep_Inputs) FromAndroidSigningInputs(v AndroidSigningInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAndroidSigningInputs performs a merge with any union data inside the BuildStep_Inputs, using the provided AndroidSigningInputs
+func (t *BuildStep_Inputs) MergeAndroidSigningInputs(v AndroidSigningInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAppStoreConnectDeployInputs returns the union data inside the BuildStep_Inputs as a AppStoreConnectDeployInputs
+func (t BuildStep_Inputs) AsAppStoreConnectDeployInputs() (AppStoreConnectDeployInputs, error) {
+	var body AppStoreConnectDeployInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAppStoreConnectDeployInputs overwrites any union data inside the BuildStep_Inputs as the provided AppStoreConnectDeployInputs
+func (t *BuildStep_Inputs) FromAppStoreConnectDeployInputs(v AppStoreConnectDeployInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAppStoreConnectDeployInputs performs a merge with any union data inside the BuildStep_Inputs, using the provided AppStoreConnectDeployInputs
+func (t *BuildStep_Inputs) MergeAppStoreConnectDeployInputs(v AppStoreConnectDeployInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGooglePlayDeployInputs returns the union data inside the BuildStep_Inputs as a GooglePlayDeployInputs
+func (t BuildStep_Inputs) AsGooglePlayDeployInputs() (GooglePlayDeployInputs, error) {
+	var body GooglePlayDeployInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGooglePlayDeployInputs overwrites any union data inside the BuildStep_Inputs as the provided GooglePlayDeployInputs
+func (t *BuildStep_Inputs) FromGooglePlayDeployInputs(v GooglePlayDeployInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGooglePlayDeployInputs performs a merge with any union data inside the BuildStep_Inputs, using the provided GooglePlayDeployInputs
+func (t *BuildStep_Inputs) MergeGooglePlayDeployInputs(v GooglePlayDeployInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t BuildStep_Inputs) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *BuildStep_Inputs) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsActionBlock returns the union data inside the IfBlock_ElseChildren_Item as a ActionBlock
 func (t IfBlock_ElseChildren_Item) AsActionBlock() (ActionBlock, error) {
 	var body ActionBlock
@@ -10187,6 +10610,68 @@ func (t IfBlock_ThenChildren_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *IfBlock_ThenChildren_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsIosSigningInputsExportOptions0 returns the union data inside the IosSigningInputs_ExportOptions_AdditionalProperties as a IosSigningInputsExportOptions0
+func (t IosSigningInputs_ExportOptions_AdditionalProperties) AsIosSigningInputsExportOptions0() (IosSigningInputsExportOptions0, error) {
+	var body IosSigningInputsExportOptions0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIosSigningInputsExportOptions0 overwrites any union data inside the IosSigningInputs_ExportOptions_AdditionalProperties as the provided IosSigningInputsExportOptions0
+func (t *IosSigningInputs_ExportOptions_AdditionalProperties) FromIosSigningInputsExportOptions0(v IosSigningInputsExportOptions0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIosSigningInputsExportOptions0 performs a merge with any union data inside the IosSigningInputs_ExportOptions_AdditionalProperties, using the provided IosSigningInputsExportOptions0
+func (t *IosSigningInputs_ExportOptions_AdditionalProperties) MergeIosSigningInputsExportOptions0(v IosSigningInputsExportOptions0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsIosSigningInputsExportOptions1 returns the union data inside the IosSigningInputs_ExportOptions_AdditionalProperties as a IosSigningInputsExportOptions1
+func (t IosSigningInputs_ExportOptions_AdditionalProperties) AsIosSigningInputsExportOptions1() (IosSigningInputsExportOptions1, error) {
+	var body IosSigningInputsExportOptions1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIosSigningInputsExportOptions1 overwrites any union data inside the IosSigningInputs_ExportOptions_AdditionalProperties as the provided IosSigningInputsExportOptions1
+func (t *IosSigningInputs_ExportOptions_AdditionalProperties) FromIosSigningInputsExportOptions1(v IosSigningInputsExportOptions1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIosSigningInputsExportOptions1 performs a merge with any union data inside the IosSigningInputs_ExportOptions_AdditionalProperties, using the provided IosSigningInputsExportOptions1
+func (t *IosSigningInputs_ExportOptions_AdditionalProperties) MergeIosSigningInputsExportOptions1(v IosSigningInputsExportOptions1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t IosSigningInputs_ExportOptions_AdditionalProperties) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *IosSigningInputs_ExportOptions_AdditionalProperties) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

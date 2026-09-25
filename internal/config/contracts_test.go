@@ -82,7 +82,7 @@ func TestAuthoredReviewPathFiltersAreCanonicalRepositoryGlobs(t *testing.T) {
 
 func authoredConfigWithReviewPaths(pathFilter string) AuthoredConfig {
 	profile := "review"
-	commands := []string{"build"}
+	commands := CommandStepItems([]string{"build"})
 	return AuthoredConfig{
 		Project: AuthoredProject{ID: "11111111-1111-4111-8111-111111111111"},
 		Build: &AuthoredBuild{
@@ -193,7 +193,7 @@ func TestSharedInvalidContractFixturesAreRejected(t *testing.T) {
 }
 
 func TestAuthoredContractDistinguishesOmittedAndEmptyBuildCommands(t *testing.T) {
-	emptyCommands := []string{}
+	emptyCommands := []BuildStepItem{}
 	base := AuthoredConfig{
 		Project: AuthoredProject{ID: "10000000-0000-4000-8000-000000000001"},
 		Build: &AuthoredBuild{
@@ -292,5 +292,57 @@ func decodeStrictJSON(t *testing.T, data []byte, target any) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		t.Fatalf("strict JSON decode failed: %v", err)
+	}
+}
+
+func TestAuthoredContractRejectsTypedStepsFromTheOtherPlatform(t *testing.T) {
+	iosSteps := []BuildStepItem{{Step: map[string]any{"ios-signing": map[string]any{"certificate": "CERT"}}}}
+	contract := AuthoredConfig{
+		Project: AuthoredProject{ID: "10000000-0000-4000-8000-000000000001"},
+		Build: &AuthoredBuild{
+			Framework: "android",
+			Profiles: map[string]AuthoredBuildProfile{
+				"release": {Android: &AuthoredBuildRecipe{BuildCommands: &iosSteps}},
+			},
+		},
+	}
+	err := contract.ValidateContract()
+	if err == nil || !strings.Contains(err.Error(), "ios-signing is not valid in an android recipe") {
+		t.Fatalf("ValidateContract() error = %v, want platform rejection", err)
+	}
+
+	contract.Build.Framework = "ios"
+	contract.Build.Profiles["release"] = AuthoredBuildProfile{IOS: &AuthoredBuildRecipe{BuildCommands: &iosSteps}}
+	if err := contract.ValidateContract(); err != nil {
+		t.Fatalf("ios-signing in an ios recipe should validate: %v", err)
+	}
+}
+
+func TestIOSSigningRequiresCompleteProvisioningSource(t *testing.T) {
+	compile := func(inputs string) error {
+		yaml := "project: {id: 11111111-1111-4111-8111-111111111111}\nbuild:\n  framework: ios\n  profiles:\n    release:\n      ios:\n        build_commands:\n          - ios-signing: " + inputs + "\n"
+		_, err := CompileConfigBytes([]byte(yaml), CompilationContext{".", "."})
+		return err
+	}
+	for name, inputs := range map[string]string{
+		"no provisioning source": "{certificate: CERT}",
+		"empty profiles":         "{certificate: CERT, provisioning_profiles: []}",
+		"partial api key":        "{certificate: CERT, api_key: KEY, key_id: ABC}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := compile(inputs); err == nil {
+				t.Fatal("CompileConfigBytes() error = nil, want ios-signing rejection")
+			}
+		})
+	}
+	for name, inputs := range map[string]string{
+		"profiles": "{certificate: CERT, provisioning_profiles: [PROFILE]}",
+		"api key":  "{certificate: CERT, api_key: KEY, key_id: ABC, issuer_id: ISSUER}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := compile(inputs); err != nil {
+				t.Fatalf("CompileConfigBytes() error = %v", err)
+			}
+		})
 	}
 }

@@ -134,8 +134,8 @@ build:
 	if invocation.BuildDefinitionHash == "" {
 		t.Fatal("BuildDefinitionHash is empty")
 	}
-	if !reflect.DeepEqual(invocation.Recipe.SetupCommands, []string{"setup-dev"}) ||
-		!reflect.DeepEqual(invocation.Recipe.BuildCommands, []string{"build-dev"}) {
+	if !reflect.DeepEqual(invocation.Recipe.SetupCommands, config.CommandStepItems([]string{"setup-dev"})) ||
+		!reflect.DeepEqual(invocation.Recipe.BuildCommands, config.CommandStepItems([]string{"build-dev"})) {
 		t.Fatalf("Recipe = %+v", invocation.Recipe)
 	}
 	if invocation.Session.IdleTimeoutSeconds == nil || *invocation.Session.IdleTimeoutSeconds != 420 {
@@ -282,8 +282,8 @@ func TestRunDevRecipeWithHooksExecutesImmutableSetupAndBuild(t *testing.T) {
 		Profile:     "development",
 		Platform:    "ios",
 		Recipe: config.EffectiveBuildRecipe{
-			SetupCommands:  []string{devProjectTestHelperCommand(t, "write-environment")},
-			BuildCommands:  []string{devProjectTestHelperCommand(t, "verify-environment")},
+			SetupCommands:  config.CommandStepItems([]string{devProjectTestHelperCommand(t, "write-environment")}),
+			BuildCommands:  config.CommandStepItems([]string{devProjectTestHelperCommand(t, "verify-environment")}),
 			OutputPath:     &outputPath,
 			TimeoutSeconds: &timeout,
 			Env:            map[string]string{"RECIPE_VALUE": "original"},
@@ -361,8 +361,8 @@ func TestRunDevRecipeWithHooksValidatesSecretsBeforeExecutingCommands(t *testing
 		Profile:     "development",
 		Platform:    "ios",
 		Recipe: config.EffectiveBuildRecipe{
-			SetupCommands: []string{"touch executed"},
-			BuildCommands: []string{"touch built"},
+			SetupCommands: config.CommandStepItems([]string{"touch executed"}),
+			BuildCommands: config.CommandStepItems([]string{"touch built"}),
 			SecretRefs:    []string{missingSecret},
 		},
 	}
@@ -387,7 +387,7 @@ func TestRunDevRecipeWithHooksReportsQuietCommands(t *testing.T) {
 		Profile:     "development",
 		Platform:    "ios",
 		Recipe: config.EffectiveBuildRecipe{
-			BuildCommands: []string{"sleep 0.12"},
+			BuildCommands: config.CommandStepItems([]string{"sleep 0.12"}),
 		},
 	}, &BuildProgressHooks{
 		OnQuietPeriod: func(lineCount int, _ time.Duration, recentLines []string) {

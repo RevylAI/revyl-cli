@@ -788,7 +788,7 @@ func TestProjectConfigurationAppReferenceRecoveryNamesResourceAndCommands(t *tes
 }
 
 func TestProjectConfigurationMissingManagedAppRecoveryUsesLocalProfilePath(t *testing.T) {
-	commands := []string{"build"}
+	commands := config.CommandStepItems([]string{"build"})
 	profile := "pr-review"
 	authored := config.AuthoredConfig{
 		Project: config.AuthoredProject{ID: configRemoteProjectID},

@@ -165,8 +165,8 @@ func TestExecuteLocalRecipePreservesSetupBuildOrderAndEnvironment(t *testing.T) 
 		Profile:     "development",
 		Platform:    "android",
 		Recipe: config.EffectiveBuildRecipe{
-			SetupCommands:  []string{buildTestHelperCommand(t, "trace-setup")},
-			BuildCommands:  []string{buildTestHelperCommand(t, "trace-build-1"), buildTestHelperCommand(t, "trace-build-2")},
+			SetupCommands:  config.CommandStepItems([]string{buildTestHelperCommand(t, "trace-setup")}),
+			BuildCommands:  config.CommandStepItems([]string{buildTestHelperCommand(t, "trace-build-1"), buildTestHelperCommand(t, "trace-build-2")}),
 			Env:            map[string]string{"PLAIN": "configured"},
 			SecretRefs:     []string{"BUILD_SECRET"},
 			TimeoutSeconds: intPointerForBuildTest(30),
@@ -195,7 +195,7 @@ func TestExecuteLocalRecipePrintsBuildToolGuidanceOnlyToStderr(t *testing.T) {
 	invocation := projectBuildInvocation{
 		ProjectRoot: projectRoot,
 		Recipe: config.EffectiveBuildRecipe{
-			BuildCommands: []string{buildTestHelperCommand(t, "bazel-not-found")},
+			BuildCommands: config.CommandStepItems([]string{buildTestHelperCommand(t, "bazel-not-found")}),
 		},
 	}
 
@@ -244,7 +244,7 @@ func TestRunLocalBuildWithoutAppUsesExistingResolutionAfterBuild(t *testing.T) {
 		Profile:     "development",
 		Platform:    "android",
 		Recipe: config.EffectiveBuildRecipe{
-			BuildCommands: []string{buildTestHelperCommand(t, "build-and-mark")},
+			BuildCommands: config.CommandStepItems([]string{buildTestHelperCommand(t, "build-and-mark")}),
 			OutputPath:    &outputPath,
 		},
 	}
@@ -338,7 +338,7 @@ func TestRunLocalBuildWithoutAppFailsBeforeNonInteractiveExecution(t *testing.T)
 		Profile:     "development",
 		Platform:    "android",
 		Recipe: config.EffectiveBuildRecipe{
-			BuildCommands: []string{"touch built.txt"},
+			BuildCommands: config.CommandStepItems([]string{"touch built.txt"}),
 			OutputPath:    &outputPath,
 		},
 	}
@@ -536,8 +536,8 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 		Recipe: config.EffectiveBuildRecipe{
 			Framework:          "expo",
 			ExecutionDirectory: "apps/mobile",
-			SetupCommands:      []string{"bun install", "cd ios && pod install"},
-			BuildCommands:      []string{"bun generate", "xcodebuild"},
+			SetupCommands:      config.CommandStepItems([]string{"bun install", "cd ios && pod install"}),
+			BuildCommands:      config.CommandStepItems([]string{"bun generate", "xcodebuild"}),
 			OutputPath:         &output,
 			Image:              &image,
 			TimeoutSeconds:     &timeout,
@@ -547,7 +547,10 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 		},
 	}
 	resolved := remoteBuildPlatformConfigForWorktree(invocation)
-	apiConfig := remoteBuildConfigFromResolved(uuid.MustParse(invocation.AppID), resolved)
+	apiConfig, err := remoteBuildConfigFromResolved(uuid.MustParse(invocation.AppID), resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if apiConfig.Steps == nil {
 		t.Fatal("steps are nil")
 	}
@@ -573,7 +576,7 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 
 func TestRemoteOverridesRecomputeHashAndTriggerProvenance(t *testing.T) {
 	base := config.EffectiveBuildRecipe{
-		Framework: "expo", BuildCommands: []string{"build"}, Env: map[string]string{"BASE": "one"},
+		Framework: "expo", BuildCommands: config.CommandStepItems([]string{"build"}), Env: map[string]string{"BASE": "one"},
 		SecretRefs: []string{"BASE_SECRET"}, Caches: []config.BuildCache{{Key: "deps", Paths: []string{"node_modules"}}},
 	}
 	timeout := 1200
@@ -601,12 +604,15 @@ func TestRemoteOverridesRecomputeHashAndTriggerProvenance(t *testing.T) {
 	if err := source.FromRemoteBuildArchiveSource(api.RemoteBuildArchiveSource{Key: "archive-key"}); err != nil {
 		t.Fatal(err)
 	}
-	request := newRemoteBuildTriggerRequest(
+	request, err := newRemoteBuildTriggerRequest(
 		source,
 		uuid.MustParse("00000000-0000-4000-8000-000000000001"),
 		resolved,
 		remoteBuildOptions{BuildDefinitionHash: hash},
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if request.BuildDefinitionHash == nil || *request.BuildDefinitionHash != hash {
 		t.Fatalf("build_definition_hash = %#v, want %q", request.BuildDefinitionHash, hash)
 	}
@@ -638,7 +644,7 @@ func TestRemoteBuildWithoutOverridesPreservesResolvedDefinitionHash(t *testing.T
 
 func TestNoCacheChangesEffectiveHashWhenRecipeCachesAreAlreadyEmpty(t *testing.T) {
 	recipe := config.EffectiveBuildRecipe{
-		BuildCommands: []string{"true"},
+		BuildCommands: config.CommandStepItems([]string{"true"}),
 		Env:           map[string]string{"CUSTOM_ENV": "preserved"},
 		Caches:        []config.BuildCache{},
 	}

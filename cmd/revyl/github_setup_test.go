@@ -52,7 +52,7 @@ func withGithubSetupAppSelector(
 }
 
 func TestCompleteGithubSetupBindsOnlySelectedManagedProfile(t *testing.T) {
-	commands := []string{"build"}
+	commands := config.CommandStepItems([]string{"build"})
 	profileName := "preview"
 	authored := config.AuthoredConfig{
 		Project: config.AuthoredProject{ID: configRemoteProjectID},
@@ -123,7 +123,7 @@ func TestCompleteGithubSetupCreatesExplicitCIUploadBindings(t *testing.T) {
 }
 
 func TestCompleteGithubSetupLeavesCompletePolicyUnchanged(t *testing.T) {
-	commands := []string{"build"}
+	commands := config.CommandStepItems([]string{"build"})
 	profileName := "preview"
 	appID := githubSetupIOSAppID
 	authored := config.AuthoredConfig{
@@ -187,7 +187,7 @@ func TestGithubSetupRejectsNonInteractiveUseBeforeConnecting(t *testing.T) {
 }
 
 func TestGithubSetupPreparesGitManagedProposalWithoutPublishing(t *testing.T) {
-	commands := []string{"build"}
+	commands := config.CommandStepItems([]string{"build"})
 	outputPath := "dist/app.app"
 	authored := config.AuthoredConfig{
 		Project: config.AuthoredProject{ID: configRemoteProjectID},

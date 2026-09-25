@@ -773,7 +773,7 @@ func runRemoteDevBuild(
 		Platform:    devicePlatform,
 		AppID:       appID,
 		Recipe: config.EffectiveBuildRecipe{
-			BuildCommands: platCfg.BuildCommands(), SetupCommands: []string{strings.TrimSpace(platCfg.Setup)},
+			BuildCommands: config.CommandStepItems(platCfg.BuildCommands()), SetupCommands: config.CommandStepItems([]string{strings.TrimSpace(platCfg.Setup)}),
 			OutputPath: &platCfg.Output, Framework: framework, Caches: buildCaches,
 		},
 	}
@@ -796,8 +796,12 @@ func remoteDevTriggerRequestFromProject(
 		return nil, err
 	}
 	resolved := remoteBuildPlatformConfigFromProject(projectBuildInvocationFromDev(invocation))
+	buildConfig, err := remoteBuildConfigFromResolved(appID, resolved)
+	if err != nil {
+		return nil, err
+	}
 	request := &api.RemoteBuildRequest{
-		Source: source, Config: remoteBuildConfigFromResolved(appID, resolved),
+		Source: source, Config: buildConfig,
 		Version: stringPtrOrNil(version), SetAsCurrent: &setCurrent,
 		BuildDefinitionHash: stringPtrOrNil(invocation.BuildDefinitionHash),
 	}
@@ -959,16 +963,20 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 	resolved := remoteBuildPlatformConfig{
 		Platform: platform,
 		Setup:    strings.TrimSpace(platCfg.Setup),
-		Commands: platCfg.BuildCommands(),
+		Commands: config.CommandStepItems(platCfg.BuildCommands()),
 		Output:   strings.TrimSpace(platCfg.Output),
 		Image:    strings.TrimSpace(platCfg.Image),
 		Scheme:   strings.TrimSpace(platCfg.Scheme),
 		Env:      platCfg.Env,
 		Caches:   buildCaches,
 	}
+	buildConfig, err := remoteBuildConfigFromResolved(appID, resolved)
+	if err != nil {
+		return nil, err
+	}
 	return &api.RemoteBuildRequest{
 		Source:       source,
-		Config:       remoteBuildConfigFromResolved(appID, resolved),
+		Config:       buildConfig,
 		Version:      stringPtrOrNil(version),
 		SetAsCurrent: &setCurrent,
 	}, nil

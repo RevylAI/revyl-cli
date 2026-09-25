@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,9 +12,12 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatformConfig) api.BuildConfig {
+func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatformConfig) (api.BuildConfig, error) {
 	platform := api.BuildConfigPlatform(resolved.Platform)
-	steps := remoteBuildStepsFromCommands(remoteBuildSetupCommands(resolved), remoteBuildCommands(resolved))
+	steps, err := remoteBuildStepsFromCommands(remoteBuildSetupCommands(resolved), remoteBuildCommands(resolved))
+	if err != nil {
+		return api.BuildConfig{}, err
+	}
 	artifacts := remoteBuildArtifacts(defaultRemoteArtifactType(resolved.Platform), resolved.Output)
 
 	sourceSubdir := strings.Trim(strings.TrimSpace(resolved.SourceSubdir), "/")
@@ -35,81 +39,97 @@ func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatform
 		Env:          stringMapPtrOrNil(resolved.Env),
 		SecretRefs:   stringSlicePtrOrNil(resolved.Secrets),
 		Caches:       remoteBuildCachesPtrOrNil(resolved.Caches),
-	}
+	}, nil
 }
 
-func remoteBuildSetupCommands(resolved remoteBuildPlatformConfig) []string {
-	commands := append([]string(nil), resolved.SetupCommands...)
+func remoteBuildSetupCommands(resolved remoteBuildPlatformConfig) []config.BuildStepItem {
+	commands := append([]config.BuildStepItem(nil), resolved.SetupCommands...)
 	if len(commands) == 0 {
 		if command := strings.TrimSpace(resolved.Setup); command != "" {
-			commands = []string{command}
+			commands = config.CommandStepItems([]string{command})
 		}
 	}
 	return commands
 }
 
-func remoteBuildCommands(resolved remoteBuildPlatformConfig) []string {
-	commands := append([]string(nil), resolved.Commands...)
+func remoteBuildCommands(resolved remoteBuildPlatformConfig) []config.BuildStepItem {
+	commands := append([]config.BuildStepItem(nil), resolved.Commands...)
 	if len(commands) == 0 {
 		if command := strings.TrimSpace(resolved.Command); command != "" {
-			commands = []string{command}
+			commands = config.CommandStepItems([]string{command})
 		}
 	}
 
 	if scheme := strings.TrimSpace(resolved.Scheme); scheme != "" {
-		for index, command := range commands {
-			commands[index] = build.ApplySchemeToCommand(command, scheme)
+		for index, item := range commands {
+			if item.IsCommand() {
+				commands[index] = config.CommandStepItem(build.ApplySchemeToCommand(item.Command, scheme))
+			}
 		}
 	}
 	return commands
 }
 
-func remoteBuildSteps(setup string, commands []string) []api.BuildStep {
-	setupCommands := []string{}
-	if strings.TrimSpace(setup) != "" {
-		setupCommands = []string{setup}
-	}
-	return remoteBuildStepsFromCommands(setupCommands, commands)
-}
-
-func remoteBuildStepsFromCommands(setupCommands, commands []string) []api.BuildStep {
+func remoteBuildStepsFromCommands(setupCommands, commands []config.BuildStepItem) ([]api.BuildStep, error) {
 	checkoutName := "checkout"
 	steps := []api.BuildStep{
 		{Type: api.BuildStepTypeCheckout, Name: &checkoutName},
 	}
+	for _, phase := range []struct {
+		name  string
+		items []config.BuildStepItem
+	}{{"setup", setupCommands}, {"build", commands}} {
+		phaseSteps, err := remoteBuildStepsFromItems(phase.name, phase.items)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, phaseSteps...)
+	}
+	return steps, nil
+}
 
-	for index, setup := range setupCommands {
-		setup = strings.TrimSpace(setup)
-		if setup == "" {
+func remoteBuildStepsFromItems(phase string, items []config.BuildStepItem) ([]api.BuildStep, error) {
+	steps := []api.BuildStep{}
+	for index, item := range items {
+		positionalName := phase
+		if len(items) > 1 {
+			positionalName = fmt.Sprintf("%s-%d", phase, index+1)
+		}
+		if command, ok := item.RunCommand(); ok {
+			command = strings.TrimSpace(command)
+			if command == "" {
+				continue
+			}
+			name := positionalName
+			if authored := strings.TrimSpace(item.Name()); authored != "" {
+				name = authored
+			}
+			steps = append(steps, api.BuildStep{
+				Type:    api.BuildStepTypeRun,
+				Name:    &name,
+				Command: &command,
+			})
 			continue
 		}
-		setupName := "setup"
-		if len(setupCommands) > 1 {
-			setupName = fmt.Sprintf("setup-%d", index+1)
+		name := item.Type()
+		if authored := strings.TrimSpace(item.Name()); authored != "" {
+			name = authored
+		}
+		inputs := api.BuildStep_Inputs{}
+		encoded, err := json.Marshal(item.Inputs())
+		if err != nil {
+			return nil, fmt.Errorf("%s step %d: encode %s inputs: %w", phase, index+1, item.Type(), err)
+		}
+		if err := inputs.UnmarshalJSON(encoded); err != nil {
+			return nil, fmt.Errorf("%s step %d: decode %s inputs: %w", phase, index+1, item.Type(), err)
 		}
 		steps = append(steps, api.BuildStep{
-			Type:    api.BuildStepTypeRun,
-			Name:    &setupName,
-			Command: &setup,
+			Type:   api.BuildStepType(item.Type()),
+			Name:   &name,
+			Inputs: &inputs,
 		})
 	}
-
-	for index, command := range commands {
-		command = strings.TrimSpace(command)
-		if command == "" {
-			continue
-		}
-		name := "build"
-		if len(commands) > 1 {
-			name = fmt.Sprintf("build-%d", index+1)
-		}
-		steps = append(steps, api.BuildStep{
-			Type:    api.BuildStepTypeRun,
-			Name:    &name,
-			Command: &command,
-		})
-	}
-	return steps
+	return steps, nil
 }
 
 func remoteBuildArtifacts(artifactType, output string) []api.BuildArtifact {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -481,12 +482,15 @@ func TestCreateSourceArchivePreservesMonorepoLayout(t *testing.T) {
 
 func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	config := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	config, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
 		Platform: "ios",
 		Command:  "xcodebuild",
 		Output:   "build/App.app",
 		Secrets:  []string{"EXPO_TOKEN"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if config.SecretRefs == nil || len(*config.SecretRefs) != 1 || (*config.SecretRefs)[0] != "EXPO_TOKEN" {
 		t.Fatalf("SecretRefs = %#v, want EXPO_TOKEN", config.SecretRefs)
@@ -498,12 +502,15 @@ func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
 
 func TestRemoteBuildConfigIncludesResolvedSourceSubdir(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "ios",
 		Command:      "xcodebuild",
 		Output:       "build/App.app",
 		SourceSubdir: "apps/mobile",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if buildConfig.SourceSubdir == nil || *buildConfig.SourceSubdir != "apps/mobile" {
 		t.Fatalf("SourceSubdir = %#v, want apps/mobile", buildConfig.SourceSubdir)
@@ -512,12 +519,15 @@ func TestRemoteBuildConfigIncludesResolvedSourceSubdir(t *testing.T) {
 
 func TestRemoteBuildConfigOmitsRepositoryRootSourceSubdir(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "ios",
 		Command:      "xcodebuild",
 		Output:       "build/App.app",
 		SourceSubdir: ".",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if buildConfig.SourceSubdir != nil {
 		t.Fatalf("SourceSubdir = %#v, want nil for repository root", buildConfig.SourceSubdir)
@@ -526,7 +536,7 @@ func TestRemoteBuildConfigOmitsRepositoryRootSourceSubdir(t *testing.T) {
 
 func TestRemoteBuildConfigExplicitGitSubdirOverridesResolvedProject(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "android",
 		Command:      "./gradlew assembleRelease",
 		Output:       "build/app.apk",
@@ -537,6 +547,9 @@ func TestRemoteBuildConfigExplicitGitSubdirOverridesResolvedProject(t *testing.T
 			Subdir:  "clients/mobile",
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if buildConfig.SourceSubdir == nil || *buildConfig.SourceSubdir != "clients/mobile" {
 		t.Fatalf("SourceSubdir = %#v, want clients/mobile", buildConfig.SourceSubdir)
@@ -545,7 +558,7 @@ func TestRemoteBuildConfigExplicitGitSubdirOverridesResolvedProject(t *testing.T
 
 func TestRemoteBuildConfigPreservesEmptyExplicitGitSubdir(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "ios",
 		Command:      "xcodebuild",
 		Output:       "build/App.app",
@@ -555,8 +568,18 @@ func TestRemoteBuildConfigPreservesEmptyExplicitGitSubdir(t *testing.T) {
 			RepoURL: "https://example.com/example/repository.git",
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if buildConfig.SourceSubdir != nil {
 		t.Fatalf("SourceSubdir = %#v, want nil for an explicit root Git source", buildConfig.SourceSubdir)
+	}
+}
+
+func TestRemoteBuildStepsRejectUnencodableTypedStepInputs(t *testing.T) {
+	items := []config.BuildStepItem{{Step: map[string]any{"ios-signing": map[string]any{"certificate": math.NaN()}}}}
+	if _, err := remoteBuildStepsFromItems("build", items); err == nil || !strings.Contains(err.Error(), "build step 1: encode ios-signing inputs") {
+		t.Fatalf("remoteBuildStepsFromItems() error = %v, want encode failure", err)
 	}
 }

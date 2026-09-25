@@ -536,7 +536,7 @@ func TestCompileConfigBoundsProfileFanout(t *testing.T) {
 }
 
 func TestNormalizeConfigBoundsCompactUnicodeEncoding(t *testing.T) {
-	commands := []string{"build"}
+	commands := CommandStepItems([]string{"build"})
 	authored := AuthoredConfig{
 		Project: AuthoredProject{ID: projectFileTestProjectID},
 		Build: &AuthoredBuild{
@@ -558,7 +558,7 @@ func TestNormalizeConfigBoundsCompactUnicodeEncoding(t *testing.T) {
 }
 
 func TestNormalizeConfigUsesExpandedDefaultCompactBoundary(t *testing.T) {
-	commands := []string{"build"}
+	commands := CommandStepItems([]string{"build"})
 	authored := AuthoredConfig{
 		Project: AuthoredProject{ID: projectFileTestProjectID},
 		Build: &AuthoredBuild{

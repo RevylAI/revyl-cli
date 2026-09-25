@@ -774,14 +774,14 @@ func (draft *initConfigDraft) canonicalAuthoredConfig() (*config.AuthoredConfig,
 			profileName = initProfileName(platformKey, platform)
 		}
 		profile := profiles[profileName]
-		commands := append([]string(nil), platformDraft.BuildCommands...)
+		commands := config.CommandStepItems(platformDraft.BuildCommands)
 		recipe := &config.AuthoredBuildRecipe{
 			BuildCommands: &commands,
 			Env:           cloneInitStringMap(platformDraft.Env),
 			Secrets:       append([]string(nil), platformDraft.Secrets...),
 			Caches:        append([]config.BuildCache(nil), platformDraft.Caches...),
 		}
-		recipe.SetupCommands = append([]string(nil), platformDraft.SetupCommands...)
+		recipe.SetupCommands = config.CommandStepItems(platformDraft.SetupCommands)
 		if output := strings.TrimSpace(platformDraft.OutputPath); output != "" {
 			recipe.OutputPath = &output
 		}
