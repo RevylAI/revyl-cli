@@ -5490,7 +5490,10 @@ type RemoteBuildRequest struct {
 	Config BuildConfig `json:"config"`
 
 	// Image Optional sandbox build image key. Defaults to latest.
-	Image        *string                   `json:"image,omitempty"`
+	Image *string `json:"image,omitempty"`
+
+	// Runtime Optional iOS runtime the build targets, e.g. 26.5. Must be one the chosen image carries; see the runtimes on /remote/build-images.
+	Runtime      *string                   `json:"runtime,omitempty"`
 	SetAsCurrent *bool                     `json:"set_as_current,omitempty"`
 	Source       RemoteBuildRequest_Source `json:"source"`
 
