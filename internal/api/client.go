@@ -71,6 +71,9 @@ const (
 	// DefaultTimeout is the default HTTP request timeout.
 	DefaultTimeout = 30 * time.Second
 
+	// BuildFinalizationTimeout allows server-side validation after artifact transfer.
+	BuildFinalizationTimeout = 90 * time.Second
+
 	// UploadTimeout is the timeout for large file uploads (APKs, IPAs).
 	UploadTimeout = 10 * time.Minute
 
@@ -1069,14 +1072,16 @@ func (c *Client) createBuildFromStagedUpload(ctx context.Context, req *UploadBui
 		metadata[key] = value
 	}
 
-	createResp, err := c.doRequest(ctx, "POST",
+	finalizationClient := *c.httpClient
+	finalizationClient.Timeout = BuildFinalizationTimeout
+	createResp, err := c.doRequestWithRetryClient(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds", req.AppID),
 		map[string]interface{}{
 			"upload_id":      uploadID,
 			"version":        req.Version,
 			"metadata":       metadata,
 			"set_as_current": req.SetAsCurrent,
-		})
+		}, &finalizationClient)
 	if err != nil {
 		return nil, err
 	}

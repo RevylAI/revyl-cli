@@ -7,6 +7,11 @@ revyl build upload --file ./Clip.app.zip --platform ios --app <app-id>
 revyl build upload --url "https://example.com/build.gz" --platform ios --app <app-id>
 ```
 
+For staged local uploads, the CLI allows up to 90 seconds per request
+attempt for the server to validate and finalize the build. Ordinary API calls
+retain their 30-second timeout. Existing retry limits and cancellation still
+apply; a timeout does not prove that the server rejected the build.
+
 Simulator-built standalone App Clips are supported. Upload the Clip's `.app`
 bundle or an archive containing it; its `NSAppClip` metadata is preserved and
 the build is registered with the Clip's bundle identifier. An archive containing
