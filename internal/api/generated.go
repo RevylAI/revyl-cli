@@ -600,6 +600,7 @@ const (
 	CloudAgentConversationOriginRevylAtlasScreen              CloudAgentConversationOrigin = "revyl_atlas_screen"
 	CloudAgentConversationOriginRevylDeviceSession            CloudAgentConversationOrigin = "revyl_device_session"
 	CloudAgentConversationOriginRevylDeviceSessionAtlasScreen CloudAgentConversationOrigin = "revyl_device_session_atlas_screen"
+	CloudAgentConversationOriginRevylProofOfChanges           CloudAgentConversationOrigin = "revyl_proof_of_changes"
 	CloudAgentConversationOriginRevylTestReport               CloudAgentConversationOrigin = "revyl_test_report"
 	CloudAgentConversationOriginRevylTestReportAtlasScreen    CloudAgentConversationOrigin = "revyl_test_report_atlas_screen"
 )
@@ -614,6 +615,8 @@ func (e CloudAgentConversationOrigin) Valid() bool {
 	case CloudAgentConversationOriginRevylDeviceSession:
 		return true
 	case CloudAgentConversationOriginRevylDeviceSessionAtlasScreen:
+		return true
+	case CloudAgentConversationOriginRevylProofOfChanges:
 		return true
 	case CloudAgentConversationOriginRevylTestReport:
 		return true
