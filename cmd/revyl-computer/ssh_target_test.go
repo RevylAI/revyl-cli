@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,8 +19,8 @@ import (
 	"github.com/revyl/cli/internal/testutil"
 )
 
-func TestSSHAcceptsOptionalManagedInstanceID(t *testing.T) {
-	for _, args := range [][]string{nil, {"mi-0123456789abcdef0"}} {
+func TestSSHAcceptsOptionalComputerTarget(t *testing.T) {
+	for _, args := range [][]string{nil, {"mi-0123456789abcdef0"}, {"Revyl-Mac-Studio-T65T47F91M"}, {"T65T47F91M"}, {"some-machine"}, {"i-0123456789abcdef0"}, {"mi-build-host"}, {"mi-0123456789ABCDEF0"}, {"name:mi-0123456789abcdef0"}} {
 		if err := sshCmd.Args(sshCmd, args); err != nil {
 			t.Fatalf("valid shell arguments %v rejected: %v", args, err)
 		}
@@ -28,16 +29,12 @@ func TestSSHAcceptsOptionalManagedInstanceID(t *testing.T) {
 
 func TestSSHRejectsInvalidTargetBeforeHTTPRequest(t *testing.T) {
 	for _, args := range [][]string{
-		{"some-machine"},
-		{"i-0123456789abcdef0"},
-		{"mi-0123456789ABCDEF0"},
-		{"mi-0123456789abcdef"},
-		{"mi-0123456789abcdef00"},
-		{"mi-0123456789abcdefg"},
 		{"mi-0123456789abcdef0/other"},
 		{"mi-0123456789abcdef0?org=other"},
 		{" mi-0123456789abcdef0"},
 		{"mi-0123456789abcdef0\n"},
+		{"name:"},
+		{"name:mi-build-host/other"},
 		{"mi-0123456789abcdef0", "mi-0123456789abcdef1"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -109,6 +106,134 @@ func TestSSHTargetUsesSharedCredentialsWithoutFallback(t *testing.T) {
 	}
 }
 
+func TestSSHNameOrSerialResolvesOnceThenOpensByInstanceID(t *testing.T) {
+	for _, target := range []string{"Revyl-Mac-Studio-T65T47F91M", "T65T47F91M", "mi-build-host", "name:mi-0123456789abcdef1"} {
+		t.Run(target, func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			t.Setenv("REVYL_API_KEY", "test-api-key")
+			var requests []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				switch r.Method + " " + r.URL.Path {
+				case "GET /api/v1/execution/computers":
+					if r.URL.RawQuery != "" {
+						t.Errorf("resolution query = %q", r.URL.RawQuery)
+					}
+					_, _ = io.WriteString(w, `{"computers":[{"instance_id":"mi-0123456789abcdef0","last_seen_at":null,"name":"Revyl-Mac-Studio-T65T47F91M","status":"online"},{"instance_id":"mi-0123456789abcdef1","last_seen_at":null,"name":"mi-build-host","status":"online"},{"instance_id":"mi-0123456789abcdef2","last_seen_at":null,"name":"mi-0123456789abcdef1","status":"online"}]}`)
+				case "POST /api/v1/execution/computers/mi-0123456789abcdef0/shell-sessions":
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = io.WriteString(w, `{"detail":"Computer unavailable"}`)
+				case "POST /api/v1/execution/computers/mi-0123456789abcdef1/shell-sessions", "POST /api/v1/execution/computers/mi-0123456789abcdef2/shell-sessions":
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = io.WriteString(w, `{"detail":"Computer unavailable"}`)
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+			_, _, err := executeComputerCommand(t, context.Background(), "ssh", target)
+			var apiErr *api.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+				t.Fatalf("resolved shell error = %v", err)
+			}
+			instanceID := "mi-0123456789abcdef0"
+			if target == "mi-build-host" {
+				instanceID = "mi-0123456789abcdef1"
+			} else if target == "name:mi-0123456789abcdef1" {
+				instanceID = "mi-0123456789abcdef2"
+			}
+			want := []string{
+				"GET /api/v1/execution/computers",
+				"POST /api/v1/execution/computers/" + instanceID + "/shell-sessions",
+			}
+			if !reflect.DeepEqual(requests, want) {
+				t.Fatalf("requests = %v, want %v", requests, want)
+			}
+		})
+	}
+}
+
+func TestSSHInstanceIDSkipsInventory(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"detail":"Computer unavailable"}`)
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	_, _, err := executeComputerCommand(t, context.Background(), "ssh", "mi-0123456789abcdef1")
+	var apiErr *api.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("direct instance ID error = %v", err)
+	}
+	want := []string{"POST /api/v1/execution/computers/mi-0123456789abcdef1/shell-sessions"}
+	if !reflect.DeepEqual(requests, want) {
+		t.Fatalf("requests = %v, want %v", requests, want)
+	}
+}
+
+func TestResolveComputerTargetFetchesFullInventoryOnce(t *testing.T) {
+	const target = "T65T47F91M"
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/execution/computers" || r.URL.RawQuery != "" {
+			t.Errorf("unexpected resolution request: %s %s", r.Method, r.URL.String())
+		}
+		_, _ = io.WriteString(w, `{"computers":[{"instance_id":"mi-0123456789abcdef0","last_seen_at":null,"name":"Revyl-Mac-Studio-T65T47F91M","status":"online"}]}`)
+	}))
+	defer server.Close()
+
+	computer, err := resolveComputerTarget(
+		context.Background(), api.NewClientWithBaseURL("test-key", server.URL), target,
+	)
+	if err != nil || computer == nil || computer.InstanceId != "mi-0123456789abcdef0" || calls.Load() != 1 {
+		t.Fatalf("resolved computer = %#v, err=%v, calls=%d", computer, err, calls.Load())
+	}
+}
+
+func TestResolveMatchingComputerRejectsAmbiguousNameOrSerial(t *testing.T) {
+	for _, target := range []string{"Shared-Mac", "T65T47F91M"} {
+		computers := []api.CustomerComputer{
+			{InstanceId: "mi-0123456789abcdef0", Name: "Shared-Mac-T65T47F91M"},
+			{InstanceId: "mi-0123456789abcdef1", Name: "shared-mac-T65T47F91M"},
+		}
+		if target == "Shared-Mac" {
+			computers[0].Name = "Shared-Mac"
+			computers[1].Name = "shared-mac"
+		}
+
+		matched, err := resolveMatchingComputer(computers, target)
+		if matched != nil || err == nil || !strings.Contains(err.Error(), "ambiguous") {
+			t.Fatalf("ambiguous target %q = %#v, %v", target, matched, err)
+		}
+	}
+}
+
+func TestComputerSerialFromNameUsesOnlyValidFinalSegment(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		want string
+	}{
+		{"Revyl-Mac-Studio-T65T47F91M", "T65T47F91M"},
+		{"T65T47F91M", "T65T47F91M"},
+		{"Revyl-T65T47F91M-extra", ""},
+		{"Revyl-Mac-t65t47f91m", ""},
+		{"Revyl-Mac-TOO-SHORT", ""},
+	} {
+		if got := computerSerialFromName(testCase.name); got != testCase.want {
+			t.Fatalf("computerSerialFromName(%q) = %q, want %q", testCase.name, got, testCase.want)
+		}
+	}
+}
+
 func TestTargetedShellPreservesSessionLifecycle(t *testing.T) {
 	const instanceID = "mi-0123456789abcdef0"
 	for _, cancelParent := range []bool{false, true} {
@@ -136,13 +261,16 @@ func TestTargetedShellPreservesSessionLifecycle(t *testing.T) {
 			defer cancel()
 			err := runBrokeredShellSessionWithOpener(ctx, client, func(startupCtx context.Context) (*api.MacShellSession, error) {
 				return client.OpenComputerShellSession(startupCtx, instanceID)
-			}, func(startupCtx context.Context, session *api.MacShellSession, onReady func()) error {
+			}, "test-computer", func(startupCtx context.Context, session *api.MacShellSession, displayName string, onReady func()) error {
 				deadline, ok := startupCtx.Deadline()
 				if !ok || time.Until(deadline) > 30*time.Second {
 					t.Fatal("targeted shell has no bounded startup deadline")
 				}
 				if session.InstanceId != instanceID {
 					t.Fatal("targeted shell started on a different computer")
+				}
+				if displayName != "test-computer" {
+					t.Fatalf("display name = %q", displayName)
 				}
 				if cancelParent {
 					cancel()

@@ -68,31 +68,69 @@ credentials from `revyl auth login` if you already have the Revyl CLI installed:
 
 ```bash
 revyl-computer list
+revyl-computer list --status online
+revyl-computer list --name Revyl-Mac-Studio
 revyl-computer list --json
 ```
 
-Lists the computers assigned to the organization in your current credentials,
-with each computer's instance ID and `online` or `offline` status. It takes no
-arguments or organization selector, and does not open a shell or change a
-computer. An online status does not guarantee shell access; the checks described
-below still apply.
+Lists the computers assigned to the organization in your current credentials.
+The human table is sorted by name and shows NAME, STATUS, LAST SEEN, and
+INSTANCE ID. `LAST SEEN` is relative, such as `3m ago`, so offline or stale
+machines are visible without opening a shell. A summary shows total, online,
+and offline counts.
 
-The human-readable table is written to stderr. `--json` writes only the typed
-response to stdout, with no banners:
+Use `--status online|offline` to select a status and `--name <prefix>` for a
+case-insensitive name prefix. The CLI fetches the full organization inventory
+once and applies these filters locally; the filters can be combined. The
+command takes no organization selector and does not open a shell or change a
+computer. An online status does not guarantee shell access; the checks
+described below still apply.
+
+The human-readable table and summary are written to stderr. `--json` writes
+only the complete typed response to stdout, with no banners. Filters apply in
+JSON mode, but every matching computer retains all schema fields:
 
 ```json
 {
   "computers": [
-    { "instance_id": "mi-0123456789abcdef0", "status": "online" },
-    { "instance_id": "mi-0123456789abcdef1", "status": "offline" }
+    {
+      "instance_id": "mi-0123456789abcdef0",
+      "name": "Revyl-Mac-Studio-T65T47F91M",
+      "status": "online",
+      "last_seen_at": "2026-09-23T18:42:00Z"
+    }
   ]
 }
 ```
 
-When no computers are assigned, the command succeeds with an informative message,
-or `{"computers":[]}` in JSON mode. `--quiet` suppresses the human-readable output
-but leaves JSON output intact. Assigned computers are returned in stable instance
-ID order; an unavailable or incomplete inventory is an error, not an empty list.
+When no computers match, the command succeeds with an informative message, or
+`{"computers":[]}` in JSON mode. `--quiet` suppresses the human-readable output
+but leaves JSON output intact. The API returns computers in stable instance ID
+order; the CLI table sorts them by name. An unavailable or incomplete inventory
+is an error, not an empty list.
+
+## How access works
+
+```mermaid
+flowchart LR
+  CLI["revyl-computer CLI"] -->|"list or name/serial lookup"| LIST["GET /computers"]
+  CLI -->|"ssh without a target"| DEFAULT["POST /mac/shell-sessions"]
+  CLI -->|"ssh with an instance ID"| TARGET["POST /computers/{instance_id}/shell-sessions"]
+  LIST --> AUTH["Authenticate and check organization membership"]
+  DEFAULT --> AUTH
+  TARGET --> AUTH
+  AUTH -->|"list or default"| INVENTORY["Org-scoped SSM inventory + paged tagging API"]
+  INVENTORY -->|"name, status, last ping"| CLI
+  INVENTORY -->|"lowest eligible online ID"| RECHECK["Recheck ownership, provisioning, and online status"]
+  AUTH -->|"explicit ID"| RECHECK
+  RECHECK -->|"eligible"| SESSION["SSM StartSession"]
+  SESSION -->|"short-lived session details"| CLI
+```
+
+Name and serial targets resolve against the full organization inventory in the
+CLI and then use the same instance-ID endpoint as a direct target. The backend
+rechecks admission immediately before opening the shell; inventory status is
+only a hint, not a guarantee of access.
 
 ## Open a shell
 
@@ -103,20 +141,74 @@ Then run:
 ```bash
 revyl-computer --version
 revyl-computer ssh
+revyl-computer ssh Revyl-Mac-Studio-T65T47F91M
+revyl-computer ssh T65T47F91M
+revyl-computer ssh mi-build-host
+revyl-computer ssh name:mi-0123456789abcdef1
 revyl-computer ssh mi-0123456789abcdef0
 ```
 
 Revyl brokers the connection, so no SSH client, AWS Session Manager plugin,
-SSH key, or cloud credentials are required. The organization comes from your
-Revyl credentials. Without an instance ID, Revyl automatically selects an
-eligible assigned machine. To select a specific computer, pass its instance ID
-from `revyl-computer list`. The optional ID must start with `mi-` followed by
-17 lowercase hexadecimal characters; invalid IDs are rejected before a request
-is made.
+SSH key, or cloud credentials are required. The organization comes only from
+your Revyl credentials.
 
-The selected computer must belong to your organization and pass the same access
-and readiness checks as automatic selection. If it is unavailable, the command
-fails rather than connecting to a different computer.
+### Choosing a computer
+
+The command accepts no target, a name, a serial, or an instance ID. Pick by what
+you already know:
+
+```bash
+# No target: take the eligible online computer with the lowest instance ID.
+revyl-computer ssh
+```
+
+```bash
+# Name: copy the NAME column from 'revyl-computer list'. Matching ignores case,
+# so 'revyl-mac-studio-t65t47f91m' resolves the same computer.
+revyl-computer ssh Revyl-Mac-Studio-T65T47F91M
+```
+
+```bash
+# Serial: the trailing 10-12 character uppercase letter-or-digit segment of the
+# name. Use it when the short hardware serial is what you have written down.
+revyl-computer ssh T65T47F91M
+```
+
+```bash
+# Names beginning with 'mi-' work normally; use 'name:' if the entire name
+# looks like an instance ID, so the CLI resolves it as a name instead.
+revyl-computer ssh mi-build-host
+revyl-computer ssh name:mi-0123456789abcdef1
+```
+
+```bash
+# Instance ID: required when two computers share a name, and the only form that
+# skips the inventory fetch.
+revyl-computer ssh mi-0123456789abcdef0
+```
+
+Resolution fetches the full organization inventory once, then opens the resolved
+instance ID. A name matches the validated name exactly, without case
+sensitivity. A serial is accepted when it is that name's final hyphen segment
+and is 10-12 uppercase letters or digits. Managed-instance IDs must match `mi-`
+followed by 17 lowercase hexadecimal characters and go directly to the open
+request without an inventory fetch.
+Names that merely start with `mi-` are resolved from inventory. An exact
+instance-ID-shaped target is treated as an ID unless prefixed with `name:`;
+that prefix forces an exact name lookup, including when the name resembles an
+ID belonging to another computer.
+
+Each case fails loudly instead of connecting somewhere else:
+
+| Target                   | What happens                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| No target                | Fails if no eligible computer is online.                                       |
+| Unknown name or serial   | Reports that the computer was not found in your organization.                  |
+| Ambiguous name or serial | Reports the ambiguity and asks for the instance ID from `revyl-computer list`. |
+
+Automatic selection and a direct instance-ID target show the selected instance
+ID in the connection banner; a name or serial target also shows the locally
+resolved name.
 
 Shell access requires a human user with a current Owner, Admin, Member, or
 Internal role in that organization. Revyl verifies current membership when

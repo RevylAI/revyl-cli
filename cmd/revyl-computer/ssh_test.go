@@ -222,12 +222,12 @@ func TestShellWelcomeRequiresCompletedHandshake(t *testing.T) {
 					return io.EOF
 				},
 			}
-			err = runBrokeredShell(ctx, smlog.NewMockLog(), shell, func() {
+			err = runBrokeredShell(ctx, smlog.NewMockLog(), shell, "test-computer", "mi-0123456789abcdef0", func() {
 				notified = true
 				cancel()
 			})
 			if succeeds {
-				if err != nil || !running {
+				if err != nil || !running || !strings.Contains(readOutput(), "test-computer (mi-0123456789abcdef0)") {
 					t.Fatalf("ready shell = %v; startup cancellation must not interrupt the interactive shell", err)
 				}
 			} else if !errors.Is(err, context.DeadlineExceeded) || initialized || running || notified || strings.Contains(readOutput(), "You are on the machine") {
@@ -284,13 +284,16 @@ func TestBrokeredShellTerminatesAfterStartupFailureOrNormalReturn(t *testing.T) 
 			defer server.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			err := runBrokeredShellSession(ctx, api.NewClientWithBaseURL("test-api-key", server.URL), func(startupCtx context.Context, session *api.MacShellSession, onReady func()) error {
+			err := runBrokeredShellSession(ctx, api.NewClientWithBaseURL("test-api-key", server.URL), func(startupCtx context.Context, session *api.MacShellSession, displayName string, onReady func()) error {
 				deadline, ok := startupCtx.Deadline()
 				if !ok || time.Until(deadline) > 30*time.Second {
 					t.Fatal("startup context has no bounded deadline")
 				}
 				if session.SessionId != "test-session" {
 					t.Fatal("wrong session passed to shell")
+				}
+				if displayName != "" {
+					t.Fatalf("default session display name = %q", displayName)
 				}
 				if testCase.cancelParent {
 					cancel()
@@ -327,7 +330,7 @@ func TestBrokeredShellDoesNotTerminateWhenMintingFails(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer server.Close()
-	err := runBrokeredShellSession(context.Background(), api.NewClientWithBaseURL("test-api-key", server.URL), func(context.Context, *api.MacShellSession, func()) error {
+	err := runBrokeredShellSession(context.Background(), api.NewClientWithBaseURL("test-api-key", server.URL), func(context.Context, *api.MacShellSession, string, func()) error {
 		t.Fatal("shell started after failed minting")
 		return nil
 	})

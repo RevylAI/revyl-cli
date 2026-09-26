@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,15 +28,26 @@ import (
 )
 
 var computerInstanceIDPattern = regexp.MustCompile(`^mi-[0-9a-f]{17}$`)
+var computerNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+var computerSerialPattern = regexp.MustCompile(`^[A-Z0-9]{10,12}$`)
 
 var sshCmd = &cobra.Command{
-	Use: "ssh [instance-id]",
+	Use: "ssh [name|serial|instance-id]",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
 			return err
 		}
-		if len(args) == 1 && !computerInstanceIDPattern.MatchString(args[0]) {
-			return errors.New("invalid computer instance ID; use an ID from 'revyl-computer list'")
+		if len(args) == 0 {
+			return nil
+		}
+		target := args[0]
+		if strings.HasPrefix(target, "name:") {
+			target = strings.TrimPrefix(target, "name:")
+		} else if computerInstanceIDPattern.MatchString(target) {
+			return nil
+		}
+		if !computerNamePattern.MatchString(target) {
+			return errors.New("invalid computer name or serial; use a value from 'revyl-computer list'")
 		}
 		return nil
 	},
@@ -44,12 +56,17 @@ var sshCmd = &cobra.Command{
 
 The connection is brokered by Revyl, so no SSH client, AWS plugin, or cloud
 credentials are required. Use REVYL_API_KEY or sign in with 'revyl auth login'.
-Optionally pass an instance ID from 'revyl-computer list' to choose a computer.
-Without an ID, Revyl automatically selects an eligible assigned machine.
+Optionally pass a name, serial, or instance ID from 'revyl-computer list' to
+choose a computer. Without a target, Revyl automatically selects an eligible
+assigned machine. Prefix a name with 'name:' if it looks exactly like an instance ID.
 Type 'exit' to end the session.
 
 EXAMPLES:
   revyl-computer ssh
+  revyl-computer ssh Revyl-Mac-Studio-T65T47F91M
+  revyl-computer ssh T65T47F91M
+  revyl-computer ssh mi-build-host
+  revyl-computer ssh name:mi-0123456789abcdef0
   revyl-computer ssh mi-0123456789abcdef0`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		devMode, _ := cmd.Flags().GetBool("dev")
@@ -66,17 +83,81 @@ EXAMPLES:
 		if len(args) == 0 {
 			return runBrokeredShellSession(cmd.Context(), client, startBrokeredShell)
 		}
-		return runBrokeredShellSessionWithOpener(cmd.Context(), client, func(ctx context.Context) (*api.MacShellSession, error) {
-			return client.OpenComputerShellSession(ctx, args[0])
-		}, startBrokeredShell)
+		target := args[0]
+		instanceID := target
+		displayName := ""
+		forceName := strings.HasPrefix(target, "name:")
+		if forceName {
+			target = strings.TrimPrefix(target, "name:")
+		}
+		if forceName || !computerInstanceIDPattern.MatchString(target) {
+			computer, err := resolveComputerTarget(cmd.Context(), client, target)
+			if err != nil {
+				return err
+			}
+			instanceID = computer.InstanceId
+			displayName = computer.Name
+		}
+		return runBrokeredShellSessionWithOpener(
+			cmd.Context(),
+			client,
+			func(ctx context.Context) (*api.MacShellSession, error) {
+				return client.OpenComputerShellSession(ctx, instanceID)
+			},
+			displayName,
+			startBrokeredShell,
+		)
 	},
 }
 
-func runBrokeredShellSession(ctx context.Context, client *api.Client, startShell func(context.Context, *api.MacShellSession, func()) error) error {
-	return runBrokeredShellSessionWithOpener(ctx, client, client.OpenMacShellSession, startShell)
+func resolveComputerTarget(ctx context.Context, client *api.Client, target string) (*api.CustomerComputer, error) {
+	resolveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	computers, err := client.ListComputers(resolveCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list computers: %w", err)
+	}
+	matched, err := resolveMatchingComputer(computers.Computers, target)
+	if err != nil {
+		return nil, err
+	}
+	if matched == nil {
+		return nil, fmt.Errorf("computer %q was not found in your organization", target)
+	}
+	return matched, nil
 }
 
-func runBrokeredShellSessionWithOpener(ctx context.Context, client *api.Client, openSession func(context.Context) (*api.MacShellSession, error), startShell func(context.Context, *api.MacShellSession, func()) error) (err error) {
+func resolveMatchingComputer(computers []api.CustomerComputer, target string) (*api.CustomerComputer, error) {
+	var matched *api.CustomerComputer
+	for index := range computers {
+		computer := &computers[index]
+		if strings.EqualFold(computer.Name, target) ||
+			strings.EqualFold(computerSerialFromName(computer.Name), target) {
+			if matched != nil {
+				return nil, fmt.Errorf(
+					"computer target %q is ambiguous; use an instance ID from 'revyl-computer list'",
+					target,
+				)
+			}
+			matched = computer
+		}
+	}
+	return matched, nil
+}
+
+func computerSerialFromName(name string) string {
+	lastSegment := name[strings.LastIndex(name, "-")+1:]
+	if !computerSerialPattern.MatchString(lastSegment) {
+		return ""
+	}
+	return lastSegment
+}
+
+func runBrokeredShellSession(ctx context.Context, client *api.Client, startShell func(context.Context, *api.MacShellSession, string, func()) error) error {
+	return runBrokeredShellSessionWithOpener(ctx, client, client.OpenMacShellSession, "", startShell)
+}
+
+func runBrokeredShellSessionWithOpener(ctx context.Context, client *api.Client, openSession func(context.Context) (*api.MacShellSession, error), displayName string, startShell func(context.Context, *api.MacShellSession, string, func()) error) (err error) {
 	startupCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	startupCtx, cancelStartup := context.WithTimeout(startupCtx, 30*time.Second)
@@ -96,20 +177,26 @@ func runBrokeredShellSessionWithOpener(ctx context.Context, client *api.Client, 
 		err = errors.Join(err, errors.New("could not confirm remote shell termination; the session may remain until its idle timeout"))
 	}()
 
-	return startShell(startupCtx, session, func() {
+	return startShell(startupCtx, session, displayName, func() {
 		stopSignals()
 		cancelStartup()
 	})
 }
 
-func printShellWelcome() {
-	ui.PrintBox("Revyl Computer", `You are on the machine assigned to your organization. Anything you
-install or change here persists for your whole team.
+func printShellWelcome(computerName, instanceID string) {
+	selected := instanceID
+	if computerName != "" {
+		selected = fmt.Sprintf("%s (%s)", computerName, instanceID)
+	}
+	ui.PrintBox("Revyl Computer", fmt.Sprintf(`Connected to %s.
+
+You are on the machine assigned to your organization. Anything you install or
+change here persists for your whole team.
 
 Type 'exit' or press Ctrl-D to end the session.
 
 Docs      https://docs.revyl.ai
-Support   support@revyl.ai`)
+Support   support@revyl.ai`, selected))
 }
 
 // silenceSessionClosedBanner takes over the websocket handler the data channel
@@ -129,7 +216,7 @@ func silenceSessionClosedBanner(log smlog.T, shell *smsession.Session, handler s
 	})
 }
 
-func startBrokeredShell(ctx context.Context, session *api.MacShellSession, onReady func()) error {
+func startBrokeredShell(ctx context.Context, session *api.MacShellSession, displayName string, onReady func()) error {
 	log := smlog.Logger(true, "revyl-computer")
 	sdkutil.SetRegionAndProfile(session.Region, "")
 
@@ -144,10 +231,10 @@ func startBrokeredShell(ctx context.Context, session *api.MacShellSession, onRea
 		DataChannel: &datachannel.DataChannel{},
 		DisplayMode: sessionutil.NewDisplayMode(log),
 	}
-	return runBrokeredShell(ctx, log, shell, onReady)
+	return runBrokeredShell(ctx, log, shell, displayName, session.InstanceId, onReady)
 }
 
-func runBrokeredShell(ctx context.Context, log smlog.T, shell *smsession.Session, onReady func()) error {
+func runBrokeredShell(ctx context.Context, log smlog.T, shell *smsession.Session, computerName, instanceID string, onReady func()) error {
 	if err := awaitBrokeredShell(ctx, log, shell); err != nil {
 		return err
 	}
@@ -160,7 +247,7 @@ func runBrokeredShell(ctx context.Context, log smlog.T, shell *smsession.Session
 	handler.Initialize(log, shell)
 	silenceSessionClosedBanner(log, shell, handler)
 	onReady()
-	printShellWelcome()
+	printShellWelcome(computerName, instanceID)
 
 	// Ending the session by closing stdin (Ctrl-D) surfaces as io.EOF here,
 	// which is a normal exit rather than a failure.

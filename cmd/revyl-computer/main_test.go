@@ -49,9 +49,9 @@ func TestRootVersionOutput(t *testing.T) {
 	}
 }
 
-func TestSSHRejectsMachineArgument(t *testing.T) {
-	if err := sshCmd.Args(sshCmd, []string{"some-machine"}); err == nil {
-		t.Fatal("ssh accepted a caller-supplied machine")
+func TestSSHAcceptsMachineName(t *testing.T) {
+	if err := sshCmd.Args(sshCmd, []string{"some-machine"}); err != nil {
+		t.Fatalf("ssh rejected a valid computer name: %v", err)
 	}
 }
 

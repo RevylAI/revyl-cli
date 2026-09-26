@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
@@ -53,6 +54,8 @@ func executeComputerCommand(t *testing.T, ctx context.Context, command string, a
 		listCmd.SetContext(context.Background())
 		sshCmd.SetContext(context.Background())
 		_ = listCmd.Flags().Set("json", "false")
+		_ = listCmd.Flags().Set("status", "")
+		_ = listCmd.Flags().Set("name", "")
 		_ = rootCmd.PersistentFlags().Set("dev", "false")
 		_ = rootCmd.PersistentFlags().Set("quiet", "false")
 		ui.SetQuietMode(false)
@@ -103,7 +106,7 @@ func TestListRequiresAuthenticationAndRejectsArguments(t *testing.T) {
 }
 
 func TestListOutputAndSharedCredentials(t *testing.T) {
-	const assigned = `{"computers":[{"instance_id":"computer-a","status":"online"},{"instance_id":"computer-b","status":"offline"}]}`
+	const assigned = `{"computers":[{"instance_id":"computer-a","last_seen_at":null,"name":"Zeta-Mac-T65T47F91M","status":"online"},{"instance_id":"computer-b","last_seen_at":null,"name":"Alpha-Mac","status":"offline"}]}`
 	const empty = `{"computers":[]}`
 	for _, testCase := range []struct {
 		name  string
@@ -180,13 +183,13 @@ func TestListOutputAndSharedCredentials(t *testing.T) {
 				}
 				return
 			}
-			for _, text := range []string{"INSTANCE ID", "STATUS", "computer-a", "online", "computer-b", "offline"} {
+			for _, text := range []string{"NAME", "STATUS", "LAST SEEN", "INSTANCE ID", "Alpha-Mac", "Zeta-Mac-T65T47F91M", "unknown", "computer-a", "online", "computer-b", "offline", "2 computers: 1 online, 1 offline"} {
 				if !strings.Contains(stderr, text) {
 					t.Errorf("human output missing %q: %q", text, stderr)
 				}
 			}
-			if strings.Index(stderr, "computer-a") > strings.Index(stderr, "computer-b") {
-				t.Fatalf("backend ordering changed: %q", stderr)
+			if strings.Index(stderr, "Alpha-Mac") > strings.Index(stderr, "Zeta-Mac-T65T47F91M") {
+				t.Fatalf("table was not sorted by computer name: %q", stderr)
 			}
 		})
 	}
@@ -213,6 +216,92 @@ func TestListDevMode(t *testing.T) {
 	if err != nil || stdout != "{\"computers\":[]}\n" || stderr != "" {
 		t.Fatalf("development list: stdout=%q, stderr=%q, error=%v", stdout, stderr, err)
 	}
+}
+
+func TestListFilters(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("filters leaked to backend: %s", r.URL.RawQuery)
+		}
+		_, _ = io.WriteString(w, `{"computers":[`+
+			`{"instance_id":"mi-0123456789abcdef0","last_seen_at":null,"name":"Revyl-Mac-Studio-T65T47F91M","status":"online"},`+
+			`{"instance_id":"mi-0123456789abcdef1","last_seen_at":null,"name":"Other-Mac-AAAAAAAAAA","status":"online"}`+
+			`]}`)
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	stdout, stderr, err := executeComputerList(t, context.Background(), "--status", "online", "--name", "Revyl-Mac", "--json")
+	if err != nil || !strings.Contains(stdout, `"instance_id":"mi-0123456789abcdef0"`) || strings.Contains(stdout, "mi-0123456789abcdef1") || stderr != "" {
+		t.Fatalf("filtered list: stdout=%q, stderr=%q, err=%v", stdout, stderr, err)
+	}
+}
+
+func TestListEmptyFilteredResponseNamesFilters(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"computers":[]}`)
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	for _, args := range [][]string{
+		{"--status", "offline"},
+		{"--name", "Revyl-Mac"},
+	} {
+		stdout, stderr, err := executeComputerList(t, context.Background(), args...)
+		if err != nil || stdout != "" || !strings.Contains(stderr, "No computers match the selected filters.") || strings.Contains(stderr, "assigned") {
+			t.Fatalf("empty filtered list %v: stdout=%q, stderr=%q, err=%v", args, stdout, stderr, err)
+		}
+	}
+}
+
+func TestListRejectsInvalidFiltersBeforeHTTPRequest(t *testing.T) {
+	for _, args := range [][]string{{"--status", "sleeping"}, {"--name", "bad name"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			t.Setenv("REVYL_API_KEY", "test-api-key")
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			stdout, _, err := executeComputerList(t, context.Background(), args...)
+			if err == nil || stdout != "" || calls.Load() != 0 {
+				t.Fatalf("invalid filter: stdout=%q, err=%v, requests=%d", stdout, err, calls.Load())
+			}
+		})
+	}
+}
+
+func TestFormatComputerLastSeen(t *testing.T) {
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	for _, testCase := range []struct {
+		name string
+		at   *time.Time
+		want string
+	}{
+		{name: "unknown", want: "unknown"},
+		{name: "future", at: timePointer(now.Add(time.Minute)), want: "just now"},
+		{name: "seconds", at: timePointer(now.Add(-30 * time.Second)), want: "just now"},
+		{name: "minutes", at: timePointer(now.Add(-3 * time.Minute)), want: "3m ago"},
+		{name: "hours", at: timePointer(now.Add(-5 * time.Hour)), want: "5h ago"},
+		{name: "days", at: timePointer(now.Add(-49 * time.Hour)), want: "2d ago"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := formatComputerLastSeen(testCase.at, now); got != testCase.want {
+				t.Fatalf("formatComputerLastSeen = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
 }
 
 func TestListPropagatesCancellationAndAPIErrors(t *testing.T) {

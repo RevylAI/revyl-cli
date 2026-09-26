@@ -3689,8 +3689,14 @@ type CursorProofHarness struct {
 
 // CustomerComputer defines model for CustomerComputer.
 type CustomerComputer struct {
-	InstanceId string                 `json:"instance_id"`
-	Status     CustomerComputerStatus `json:"status"`
+	InstanceId string `json:"instance_id"`
+
+	// LastSeenAt Last agent ping reported by the fleet
+	LastSeenAt *time.Time `json:"last_seen_at"`
+
+	// Name Managed-instance computer name without a trailing '.local'
+	Name   string                 `json:"name"`
+	Status CustomerComputerStatus `json:"status"`
 }
 
 // CustomerComputerStatus defines model for CustomerComputer.Status.
