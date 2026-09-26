@@ -5566,6 +5566,7 @@ type RemoteBuildSourceUploadResponse struct {
 //	duration_ms: Build duration in milliseconds when known.
 //	phase_timings: Per-phase build timings when emitted by the worker.
 //	timeout_seconds: Server-enforced build timeout in seconds when known.
+//	steps: Configured build steps in runner order.
 type RemoteBuildStatusResponse struct {
 	AppId                  *string                                   `json:"app_id,omitempty"`
 	ArtifactType           *string                                   `json:"artifact_type,omitempty"`
@@ -5581,10 +5582,21 @@ type RemoteBuildStatusResponse struct {
 	Platform               *string                                   `json:"platform,omitempty"`
 	StartedAt              *time.Time                                `json:"started_at,omitempty"`
 	Status                 string                                    `json:"status"`
+	Steps                  *[]RemoteBuildStep                        `json:"steps,omitempty"`
 	SuggestedFix           *string                                   `json:"suggested_fix,omitempty"`
 	TimeoutSeconds         *int                                      `json:"timeout_seconds,omitempty"`
 	Version                *string                                   `json:"version,omitempty"`
 	VersionId              *string                                   `json:"version_id,omitempty"`
+}
+
+// RemoteBuildStep One configured step of a build job, in runner order.
+//
+// “index“ matches the “step_index“ on the job's log events.
+type RemoteBuildStep struct {
+	Command *string `json:"command,omitempty"`
+	Index   int     `json:"index"`
+	Name    string  `json:"name"`
+	Type    string  `json:"type"`
 }
 
 // RemoteBuildSummary Compact summary of a single remote build job for list views.
