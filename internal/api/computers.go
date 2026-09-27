@@ -8,7 +8,7 @@ import (
 )
 
 func (c *Client) ListComputers(ctx context.Context) (*CustomerComputerList, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/v1/execution/computers", nil)
+	resp, err := c.doRequestOnce(ctx, http.MethodGet, "/api/v1/execution/computers", nil)
 	if err != nil {
 		return nil, err
 	}

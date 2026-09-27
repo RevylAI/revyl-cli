@@ -111,9 +111,9 @@ EXAMPLES:
 }
 
 func resolveComputerTarget(ctx context.Context, client *api.Client, target string) (*api.CustomerComputer, error) {
-	resolveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	resolveCtx, cancel := context.WithTimeout(ctx, busyRetry.budget+api.DefaultTimeout)
 	defer cancel()
-	computers, err := client.ListComputers(resolveCtx)
+	computers, err := retryWhileBusy(resolveCtx, "listing computers", client.ListComputers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list computers: %w", err)
 	}
@@ -158,15 +158,15 @@ func runBrokeredShellSession(ctx context.Context, client *api.Client, startShell
 }
 
 func runBrokeredShellSessionWithOpener(ctx context.Context, client *api.Client, openSession func(context.Context) (*api.MacShellSession, error), displayName string, startShell func(context.Context, *api.MacShellSession, string, func()) error) (err error) {
-	startupCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	signalCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-	startupCtx, cancelStartup := context.WithTimeout(startupCtx, 30*time.Second)
-	defer cancelStartup()
 
-	session, err := openSession(startupCtx)
+	session, err := retryWhileBusy(signalCtx, "opening shells", openSession)
 	if err != nil {
 		return err
 	}
+	startupCtx, cancelStartup := context.WithTimeout(signalCtx, 30*time.Second)
+	defer cancelStartup()
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancelCleanup()

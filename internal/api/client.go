@@ -247,6 +247,30 @@ type APIError struct {
 	DetailObject map[string]interface{}
 	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
 	Hint string
+	// RetryAfter is the server's Retry-After delay, or zero when the response
+	// carried none or an unusable value.
+	RetryAfter time.Duration
+}
+
+// ParseRetryAfter converts an HTTP Retry-After value, either delay seconds or
+// an HTTP date, into a positive delay. It returns zero for an empty, invalid,
+// or already elapsed value.
+func ParseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return 0
+	}
+	return max(time.Until(retryAt), 0)
 }
 
 // APIValidationIssue preserves one structured validation failure returned by the API.
@@ -762,7 +786,9 @@ func parseResponse(resp *http.Response, target interface{}) error {
 			}
 		}
 
-		return parseAPIErrorBody(resp.StatusCode, body)
+		apiErr := parseAPIErrorBody(resp.StatusCode, body)
+		apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
+		return apiErr
 	}
 
 	if target != nil {

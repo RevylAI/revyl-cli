@@ -106,8 +106,11 @@ JSON mode, but every matching computer retains all schema fields:
 When no computers match, the command succeeds with an informative message, or
 `{"computers":[]}` in JSON mode. `--quiet` suppresses the human-readable output
 but leaves JSON output intact. The API returns computers in stable instance ID
-order; the CLI table sorts them by name. An unavailable or incomplete inventory
-is an error, not an empty list.
+order; the CLI table sorts them by name. An unavailable inventory is an error,
+not an empty list. A computer whose assignment Revyl is still updating can be
+missing from the list briefly and reappears once the update completes. The list
+can be up to about 30 seconds old; see
+[Using computers at scale](#using-computers-at-scale).
 
 ## How access works
 
@@ -218,9 +221,11 @@ and service identities cannot use these operations. If membership cannot be
 verified, the request fails rather than granting access. This check does not
 revoke a shell that is already connected.
 
-Connection setup has a 30-second deadline, including the shell handshake. The
-welcome message appears only after the shell is ready; an established shell is
-not limited to 30 seconds. If startup fails or you cancel it, the CLI closes the
+While Revyl is busy, the CLI retries opening the session automatically for up
+to about a minute; see [Pace shell openings](#pace-shell-openings). Once Revyl
+opens the session, connection setup has a 30-second deadline, including the
+shell handshake. The welcome message appears only after the shell is ready; an
+established shell is not limited to 30 seconds. If startup fails or you cancel it, the CLI closes the
 connection and asks Revyl to terminate that session, allowing up to 10 seconds
 for cleanup. If termination cannot be confirmed, the command reports that the
 session may remain until its idle timeout.
@@ -235,11 +240,81 @@ for later runs. Treat it like a shared build machine rather than a scratch
 container.
 
 End the session with `exit` or Ctrl-D. Sessions also close on their own after
-an hour of inactivity. Closing your terminal disconnects the client; the idle
-timeout remains the fallback when explicit termination cannot be confirmed.
+an hour of inactivity, and after 24 hours in any case. Closing your terminal
+disconnects the client; the idle timeout remains the fallback when explicit
+termination cannot be confirmed.
 
 An online machine is not sufficient for access: Revyl must also verify its
 customer assignment, approved configuration, and completed provisioning.
 If the command reports that no machine is available, the machine may be
 unassigned, offline, still being provisioned, or unable to pass these checks.
 Contact support for help.
+
+## Using computers at scale
+
+These practices keep automation reliable when your organization runs many
+computers and many shells at once.
+
+### Target computers by instance ID
+
+Fetch the inventory once with `revyl-computer list --json`, keep it in your
+automation, and pass instance IDs to `revyl-computer ssh`. An instance ID opens
+the shell directly, while a name or serial first fetches the whole inventory, so
+resolving names for every operation adds a list request to each one. Refresh
+your copy when computers are added or removed, or when opening a shell reports
+that a computer is unavailable.
+
+Don't use `revyl-computer ssh` without a target to spread work across
+computers. Every shell opened without a target lands on the same computer: the
+online one with the lowest instance ID.
+
+### Pace shell openings
+
+Opening shells is rate-limited across Revyl. Open shells at a steady pace with
+random jitter rather than starting many at the same moment.
+
+When Revyl is busy, it asks the client to retry after a short delay. The CLI
+handles this automatically for `list`, name or serial lookup, and `ssh`: it
+waits for the delay Revyl suggests plus up to one second of random jitter,
+prints one `Revyl is busy ..., retrying` line to stderr (suppressed by
+`--quiet`), and keeps retrying for up to about a minute. If Revyl is still
+busy after that, the command fails with an error saying so; retry later. Other
+failures, such as an unavailable computer or a denied request, are not retried.
+If you call the API directly, treat HTTP 429 the same way and wait for its
+`Retry-After` header before retrying.
+
+### Keep shells long-lived, but expect them to end
+
+Reusing a shell for many commands is cheaper than opening a new shell for each
+one, but every shell eventually ends:
+
+- A shell with no activity closes after 60 minutes, and every shell closes
+  after 24 hours.
+- A dropped network connection, a computer restart, or maintenance also ends
+  it.
+- Processes running in the foreground of a shell stop when the shell ends. Run
+  long jobs inside `tmux` or `screen`, or start them detached with `nohup`, so
+  they keep running and you can check on them from a new shell.
+- Reconnect with exponential backoff and random jitter when a shell ends, and
+  stagger when your sessions start, so they don't all reach the 24-hour limit
+  and reconnect at the same moment.
+
+### Check status before targeting a computer
+
+`list` includes offline computers. Check STATUS and LAST SEEN (`status` and
+`last_seen_at` in JSON) before targeting a computer. The list can be up to about
+30 seconds old, so a computer removed from your organization can still appear
+for that long, but it can't be opened: Revyl rechecks access every time a shell
+opens.
+
+### Expect brief maintenance
+
+A computer can briefly refuse new shells while Revyl maintains it. Opening a
+shell on it then reports that the computer is unavailable. Retry later with
+backoff, or use another computer.
+
+### Exit shells when you're done
+
+End each shell with `exit` or Ctrl-D so the session closes cleanly. Killing the
+client process instead can leave the session open on the computer until its
+60-minute idle timeout.

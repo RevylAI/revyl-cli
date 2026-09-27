@@ -52,8 +52,8 @@ func TestListComputers(t *testing.T) {
 	}
 }
 
-func TestListComputersPropagatesAPIErrors(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable} {
+func TestListComputersPropagatesAPIErrorsWithoutRetrying(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,25 +61,75 @@ func TestListComputersPropagatesAPIErrors(t *testing.T) {
 				if r.Method != http.MethodGet || r.URL.Path != "/api/v1/execution/computers" {
 					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 				}
+				if status == http.StatusTooManyRequests {
+					w.Header().Set("Retry-After", "4")
+				}
 				w.WriteHeader(status)
 				_, _ = io.WriteString(w, `{"detail":"Computer inventory unavailable"}`)
 			}))
 			defer server.Close()
-			client := NewClientWithBaseURL("test-key", server.URL)
-			client.retryBaseDelay = 0
-			result, err := client.ListComputers(context.Background())
+			result, err := NewClientWithBaseURL("test-key", server.URL).ListComputers(context.Background())
 			var apiErr *APIError
 			if result != nil || !errors.As(err, &apiErr) || apiErr.StatusCode != status {
 				t.Fatalf("list result = %#v, error = %v, want HTTP %d", result, err, status)
 			}
-			wantCalls := int32(1)
-			if status == http.StatusServiceUnavailable {
-				wantCalls = int32(DefaultMaxRetries + 1)
+			if calls.Load() != 1 {
+				t.Fatalf("requests = %d, want 1; revyl-computer owns retry policy", calls.Load())
 			}
-			if calls.Load() != wantCalls {
-				t.Fatalf("requests = %d, want %d", calls.Load(), wantCalls)
+			wantRetryAfter := time.Duration(0)
+			if status == http.StatusTooManyRequests {
+				wantRetryAfter = 4 * time.Second
+			}
+			if apiErr.RetryAfter != wantRetryAfter {
+				t.Fatalf("RetryAfter = %s, want %s", apiErr.RetryAfter, wantRetryAfter)
 			}
 		})
+	}
+}
+
+func TestOpenShellSessionsExposeRetryAfterOnThrottling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "3")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"detail":"Revyl is busy opening shells right now; retry shortly"}`)
+	}))
+	defer server.Close()
+	client := NewClientWithBaseURL("test-key", server.URL)
+	for name, open := range map[string]func() (*MacShellSession, error){
+		"default": func() (*MacShellSession, error) { return client.OpenMacShellSession(context.Background()) },
+		"targeted": func() (*MacShellSession, error) {
+			return client.OpenComputerShellSession(context.Background(), "mi-0123456789abcdef0")
+		},
+	} {
+		session, err := open()
+		var apiErr *APIError
+		if session != nil || !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTooManyRequests || apiErr.RetryAfter != 3*time.Second {
+			t.Fatalf("%s open = %#v, err = %v", name, session, err)
+		}
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	future := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
+	past := time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)
+	for _, testCase := range []struct {
+		value   string
+		atLeast time.Duration
+		atMost  time.Duration
+	}{
+		{"", 0, 0},
+		{"2", 2 * time.Second, 2 * time.Second},
+		{" 5 ", 5 * time.Second, 5 * time.Second},
+		{"0", 0, 0},
+		{"-3", 0, 0},
+		{"soon", 0, 0},
+		{past, 0, 0},
+		{future, 80 * time.Second, 90 * time.Second},
+	} {
+		got := ParseRetryAfter(testCase.value)
+		if got < testCase.atLeast || got > testCase.atMost {
+			t.Fatalf("ParseRetryAfter(%q) = %s, want between %s and %s", testCase.value, got, testCase.atLeast, testCase.atMost)
+		}
 	}
 }
 

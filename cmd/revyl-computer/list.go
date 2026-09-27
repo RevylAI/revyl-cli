@@ -55,10 +55,10 @@ EXAMPLES:
 
 		ctx, stopSignals := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stopSignals()
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, busyRetry.budget+api.DefaultTimeout)
 		defer cancel()
 
-		computers, err := api.NewClientWithDevMode(token, devMode).ListComputers(ctx)
+		computers, err := retryWhileBusy(ctx, "listing computers", api.NewClientWithDevMode(token, devMode).ListComputers)
 		if err != nil {
 			return fmt.Errorf("failed to list computers: %w", err)
 		}

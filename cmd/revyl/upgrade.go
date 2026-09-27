@@ -21,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/skillcatalog"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -453,7 +454,7 @@ func waitForGitHubRetry(ctx context.Context, resp *http.Response, attempt int) e
 
 func gitHubRetryDelay(resp *http.Response, attempt int) time.Duration {
 	if resp != nil {
-		if retryAfter := parseGitHubRetryAfter(resp.Header.Get("Retry-After")); retryAfter > 0 {
+		if retryAfter := api.ParseRetryAfter(resp.Header.Get("Retry-After")); retryAfter > 0 {
 			return retryAfter
 		}
 	}
@@ -462,32 +463,6 @@ func gitHubRetryDelay(resp *http.Response, attempt int) time.Duration {
 	if delay > gitHubRetryMaxDelay {
 		return gitHubRetryMaxDelay
 	}
-	return delay
-}
-
-func parseGitHubRetryAfter(value string) time.Duration {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0
-	}
-
-	if seconds, err := strconv.Atoi(value); err == nil {
-		if seconds <= 0 {
-			return 0
-		}
-		return time.Duration(seconds) * time.Second
-	}
-
-	retryAt, err := http.ParseTime(value)
-	if err != nil {
-		return 0
-	}
-
-	delay := time.Until(retryAt)
-	if delay <= 0 {
-		return 0
-	}
-
 	return delay
 }
 
