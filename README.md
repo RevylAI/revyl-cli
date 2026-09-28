@@ -261,6 +261,9 @@ replaces the selected package and discards local edits. Prefer
 your CLI version: it preserves local edits and unmanaged packages, reports conflicts,
 and never adds skills. `revyl upgrade` updates only the binary and may remind
 you to run `revyl skill update`; it does not install or refresh skills.
+A customized package is reported as `preserved` and makes `skill update` exit
+non-zero, so name only the skills you want refreshed. See
+[Agent skills](docs/upgrade.md#agent-skills) for the reminder and older CLIs.
 
 Use `revyl-cli-dev-loop` when you want the agent to start or attach to a generic
 Revyl dev loop, interact with the device, and verify with screenshots or
