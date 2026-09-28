@@ -147,9 +147,9 @@ func printBuildConceptsBox(cfg *initConfigDraft) {
 				Term: "Build stream",
 				Desc: []string{
 					"A named build configuration that produces an app",
-					"artifact. Dev streams (e.g. " + ui.InfoStyle.Render("ios-dev") + ui.DimStyle.Render(") are for local"),
-					"iteration; CI streams (e.g. " + ui.InfoStyle.Render("ios-ci") + ui.DimStyle.Render(") are for"),
-					"automated testing in pull requests and pipelines.",
+					"artifact. Development streams (e.g. " + ui.InfoStyle.Render("ios") + ui.DimStyle.Render(") build"),
+					"the Expo dev client; preview streams (e.g. " + ui.InfoStyle.Render("ios-preview") + ui.DimStyle.Render(")"),
+					"build standalone apps for builds and pull requests.",
 				},
 			},
 			{
@@ -256,10 +256,14 @@ func printProjectConfigReviewPromptContext(cfg *initConfigDraft) {
 				if describeRuntimeDefaultForBuildKey(mapping, key) != "-" {
 					streamLabel = key + " ✦"
 				}
+				purposeName := key
+				if platformCfg.Profile != "" {
+					purposeName = platformCfg.Profile
+				}
 				table.AddRow(
 					streamLabel,
 					mobile,
-					shortBuildPurpose(key),
+					shortBuildPurpose(purposeName),
 					buildCommand,
 				)
 			}

@@ -169,3 +169,15 @@ func TestCheckSyncStatusUsesCanonicalTestsDir(t *testing.T) {
 		t.Fatalf("check = %#v", check)
 	}
 }
+
+func TestCheckVersionShowsOneVPrefixForReleaseAndLocalBuilds(t *testing.T) {
+	originalVersion := version
+	t.Cleanup(func() { version = originalVersion })
+
+	for embedded, want := range map[string]string{"v0.1.121": "v0.1.121", "0.1.129": "v0.1.129"} {
+		version = embedded
+		if got := checkVersion().Message; got != want {
+			t.Errorf("checkVersion() with version %q = %q, want %q", embedded, got, want)
+		}
+	}
+}

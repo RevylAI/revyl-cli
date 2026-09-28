@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -280,7 +281,7 @@ func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *tes
 			if strings.Contains(output, "Hot reload configured during init") {
 				t.Fatalf("unexpected hot reload configured message in output:\n%s", output)
 			}
-			if strings.Contains(output, "revyl dev") {
+			if regexp.MustCompile(`\brevyl dev\b`).MatchString(output) {
 				t.Fatalf("unexpected revyl dev suggestion in output:\n%s", output)
 			}
 		})

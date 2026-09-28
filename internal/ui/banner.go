@@ -4,6 +4,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,6 +23,12 @@ const tagline = "Proactive Reliability for Mobile Apps"
 
 // DocsURL is the canonical public docs entrypoint for CLI users.
 const DocsURL = "https://docs.revyl.ai"
+
+// DisplayVersion renders a CLI version with exactly one leading "v". Release
+// builds embed the tag (v1.2.3) while local builds embed the bare VERSION file.
+func DisplayVersion(version string) string {
+	return "v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
+}
 
 // PrintBanner prints the Revyl banner with version info.
 //

@@ -411,7 +411,7 @@ func renderIntegrations(m hubModel) string {
 	}
 	innerW := min(w-4, 58)
 
-	bannerContent := titleStyle.Render("REVYL") + "  " + versionStyle.Render("v"+m.version)
+	bannerContent := titleStyle.Render("REVYL") + "  " + versionStyle.Render(ui.DisplayVersion(m.version))
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
 

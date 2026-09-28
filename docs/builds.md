@@ -12,6 +12,16 @@ ambiguous, specify it explicitly; no profile is stored as active or default.
 ## Before building
 
 Run `revyl auth login` and `revyl init`, then review the generated recipe.
+For Expo, `revyl init` writes a `preview` profile that runs `expo prebuild`
+(when the native directory is absent) and then Xcode or Gradle, producing a
+standalone iOS simulator `.app` or installable APK without Expo credentials.
+Use it for `revyl build --profile preview` and pull-request builds. It also
+writes a `development` profile of EAS dev-client builds, which `revyl dev`
+selects for hot reload. Check the generated Xcode scheme: without an existing
+`ios/` project, it is the name `expo prebuild` derives from an ASCII
+`expo.name`. For other names, run `npx expo prebuild --platform ios`, then
+`revyl init --detect` to read the generated scheme.
+
 Cloud builds require a Git worktree and an accessible, same-platform app UUID
 in the recipe's `app_id`. Use `revyl app list --platform ios` (or `android`)
 to find an app, or `revyl app create` to create one. Cloud builds consume

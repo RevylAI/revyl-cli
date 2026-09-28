@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +227,194 @@ func TestDetectReactNative_IncompleteIOSKeepsPlaceholderPlatform(t *testing.T) {
 	}
 	if !strings.Contains(iosPlatform.IncompleteReason, "no .xcodeproj or .xcworkspace") {
 		t.Fatalf("ios incomplete reason = %q, want placeholder guidance", iosPlatform.IncompleteReason)
+	}
+}
+
+func TestDetectExpo_PreviewRecipesBuildNativelyWithSchemeFromAppJSON(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Revyl Expo Minimal","slug":"revyl-playground"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"dependencies":{"expo":"~50.0.0"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "yarn.lock"), "")
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if detected.System != SystemExpo {
+		t.Fatalf("System = %v, want %v", detected.System, SystemExpo)
+	}
+
+	want := map[string]BuildPlatform{
+		"ios-preview": {
+			SetupCommands: []string{"yarn install", "if [ ! -d ios ]; then npx expo prebuild --platform ios; fi"},
+			Command:       "cd ios && if [ ! -d Pods ] || [ ! -d RevylExpoMinimal.xcworkspace ]; then pod install; fi && xcodebuild -workspace RevylExpoMinimal.xcworkspace -scheme 'RevylExpoMinimal' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build",
+			Output:        "ios/build/Build/Products/Release-iphonesimulator/*.app",
+			Note:          `Xcode scheme "RevylExpoMinimal" is the project name expo prebuild generates from app.json expo.name; ios/ does not exist yet`,
+		},
+		"android-preview": {
+			SetupCommands: []string{"yarn install", "if [ ! -d android ]; then npx expo prebuild --platform android; fi"},
+			Command:       "cd android && ./gradlew assembleRelease",
+			Output:        "android/app/build/outputs/apk/release/app-release.apk",
+		},
+		"ios": {
+			Command: "npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz",
+			Output:  "build/app.tar.gz",
+		},
+		"android": {
+			Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
+			Output:  "build/app.apk",
+		},
+	}
+	if !reflect.DeepEqual(detected.Platforms, want) {
+		t.Fatalf("Platforms =\n%#v\nwant\n%#v", detected.Platforms, want)
+	}
+	for key, platform := range detected.Platforms {
+		if strings.Contains(platform.Command, "-scheme *") || strings.Contains(strings.Join(platform.SetupCommands, " "), "EXPO_TOKEN") {
+			t.Fatalf("%s recipe must name a real scheme and need no Expo credentials: %+v", key, platform)
+		}
+	}
+	if detected.Command != want["ios-preview"].Command || detected.Output != want["ios-preview"].Output {
+		t.Fatalf("default build = %q -> %q, want the iOS preview recipe", detected.Command, detected.Output)
+	}
+}
+
+func TestDetectExpo_PreviewRecipeForCommittedIOSProject(t *testing.T) {
+	tests := []struct {
+		name        string
+		files       []string
+		wantCommand string
+		wantNote    string
+	}{
+		{
+			name: "installs gitignored pods and uses the shared scheme",
+			files: []string{
+				"ios/Podfile",
+				"ios/Shop.xcworkspace/contents.xcworkspacedata",
+				"ios/Shop.xcodeproj/xcshareddata/xcschemes/ShopApp.xcscheme",
+			},
+			wantCommand: "cd ios && if [ ! -d Pods ] || [ ! -d Shop.xcworkspace ]; then pod install; fi && xcodebuild -workspace Shop.xcworkspace -scheme 'ShopApp' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build",
+			wantNote:    `Xcode scheme "ShopApp" is the shared scheme in ios/Shop.xcodeproj`,
+		},
+		{
+			name:        "falls back to the project name without a shared scheme",
+			files:       []string{"ios/Podfile", "ios/Shop.xcodeproj/project.pbxproj"},
+			wantCommand: "cd ios && if [ ! -d Pods ] || [ ! -d Shop.xcworkspace ]; then pod install; fi && xcodebuild -workspace Shop.xcworkspace -scheme 'Shop' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build",
+			wantNote:    `No shared Xcode scheme in ios/Shop.xcodeproj; using the project name "Shop", which expo prebuild also gives the app scheme`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Renamed Later"}}`)
+			for _, file := range tt.files {
+				writeDetectTestFile(t, filepath.Join(dir, filepath.FromSlash(file)), "")
+			}
+
+			detected, err := Detect(dir)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			preview := detected.Platforms["ios-preview"]
+			if preview.Command != tt.wantCommand {
+				t.Fatalf("ios-preview command = %q, want %q", preview.Command, tt.wantCommand)
+			}
+			if preview.Note != tt.wantNote {
+				t.Fatalf("ios-preview note = %q, want %q", preview.Note, tt.wantNote)
+			}
+		})
+	}
+}
+
+func TestDetectExpo_PreviewIOSDirectoryWithoutProjectIsPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Shop"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "ios", ".gitkeep"), "")
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	preview := detected.Platforms["ios-preview"]
+	if preview.Command != "" || !strings.Contains(preview.IncompleteReason, "ios/ exists without an .xcodeproj") {
+		t.Fatalf("ios-preview = %+v, want placeholder explaining the unbuildable ios/ directory", preview)
+	}
+}
+
+func TestDetectExpo_PreviewIOSWithoutStaticNameIsPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "app.config.ts"), "export default { name: process.env.APP_NAME };\n")
+	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"dependencies":{"expo":"latest"}}`)
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	preview := detected.Platforms["ios-preview"]
+	if preview.Command != "" || len(preview.SetupCommands) != 0 || !strings.Contains(preview.IncompleteReason, "expo.name") {
+		t.Fatalf("ios-preview = %+v, want placeholder explaining the missing expo.name", preview)
+	}
+	if detected.Platforms["android-preview"].Command != "cd android && ./gradlew assembleRelease" {
+		t.Fatalf("android-preview = %+v, want Gradle release build", detected.Platforms["android-preview"])
+	}
+}
+
+func TestDetectExpo_DevelopmentIOSUsesEASDevSimulatorProfile(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "eas.json"), `{"build":{"development":{"developmentClient":true},"development-simulator":{"developmentClient":true,"ios":{"simulator":true}}}}`)
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	want := "npx --yes eas-cli build --platform ios --profile development-simulator --local --output build/app.tar.gz"
+	if got := detected.Platforms["ios"].Command; got != want {
+		t.Fatalf("ios command = %q, want %q", got, want)
+	}
+}
+
+func TestDetectExpo_PreviewIOSWithNonASCIINameIsPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Skráning"}}`)
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	preview := detected.Platforms["ios-preview"]
+	want := `app.json expo.name "Skráning" has non-ASCII characters, which Expo versions turn into different Xcode project names; run npx expo prebuild --platform ios, then revyl init --detect`
+	if preview.Command != "" || preview.IncompleteReason != want {
+		t.Fatalf("ios-preview = %+v, want placeholder %q", preview, want)
+	}
+}
+
+func TestSanitizeExpoIOSProjectNameMatchesExpoPrebuild(t *testing.T) {
+	for name, want := range map[string]string{
+		"Revyl Expo Minimal": "RevylExpoMinimal",
+		"my-app_2":           "myapp2",
+		"!!!":                "",
+	} {
+		if got := sanitizeExpoIOSProjectName(name); got != want {
+			t.Errorf("sanitizeExpoIOSProjectName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestJSInstallCommandFollowsLockfile(t *testing.T) {
+	for lockfile, want := range map[string]string{
+		"":                  "npm install",
+		"package-lock.json": "npm install",
+		"yarn.lock":         "yarn install",
+		"pnpm-lock.yaml":    "pnpm install",
+		"bun.lock":          "bun install",
+		"bun.lockb":         "bun install",
+	} {
+		dir := t.TempDir()
+		if lockfile != "" {
+			writeDetectTestFile(t, filepath.Join(dir, lockfile), "")
+		}
+		if got := JSInstallCommand(dir); got != want {
+			t.Errorf("JSInstallCommand(%q) = %q, want %q", lockfile, got, want)
+		}
 	}
 }
 

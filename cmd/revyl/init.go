@@ -66,9 +66,17 @@ var (
 	initNonInteractive       bool
 	initXcodeSchemeOverrides []string
 	initAuthenticationWizard = wizardAuth
+	initHasLocalCredentials  = hasLocalRevylCredentials
 	continueInitWithGithub   = runGithubSetupAfterInit
 	selectInitAgentTool      = ui.Select
 )
+
+// hasLocalRevylCredentials reports whether stored credentials or REVYL_API_KEY
+// are available, without contacting Revyl.
+func hasLocalRevylCredentials() bool {
+	creds, err := auth.NewManager().GetCredentials()
+	return err == nil && creds != nil && creds.HasValidAuth()
+}
 
 func init() {
 	initCmd.Flags().StringVar(&initProjectID, "project", "", "Link to existing Revyl project ID")
@@ -388,7 +396,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.PrintDim("You can edit settings anytime in .revyl/config.yaml")
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
-		printInitNextSteps(cfg)
+		printInitNextSteps(cfg, !initHasLocalCredentials())
 		return nil
 	}
 
@@ -453,7 +461,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		printInitSummary(cfg)
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
-		printInitNextSteps(cfg)
+		printInitNextSteps(cfg, !initHasLocalCredentials())
 		return nil
 	}
 
@@ -469,7 +477,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.Println()
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
-		printInitNextSteps(cfg)
+		printInitNextSteps(cfg, true)
 		return nil
 	}
 
@@ -1103,9 +1111,15 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 					ui.PrintDim("  %s note: %s", name, bp.IncompleteReason)
 					continue
 				}
+				for _, setupCommand := range bp.SetupCommands {
+					ui.PrintDim("  %s setup command: %s", name, setupCommand)
+				}
 				ui.PrintDim("  %s build command: %s", name, bp.Command)
 				if bp.Output != "" {
 					ui.PrintDim("  %s artifact path: %s", name, bp.Output)
+				}
+				if bp.Note != "" {
+					ui.PrintDim("  %s note: %s", name, bp.Note)
 				}
 			}
 		} else if detected.Command != "" {
@@ -1160,6 +1174,7 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 			cfg.Build.Recipes[name] = initBuildRecipeDraft{
 				Profile:                       initProfileName(name, runtimePlatform),
 				Platform:                      runtimePlatform,
+				SetupCommands:                 platform.SetupCommands,
 				BuildCommands:                 nonblankInitCommands(platform.Command),
 				IncompleteDetectorPlaceholder: incompleteDetection,
 				OutputPath:                    strings.TrimSpace(platform.Output),
@@ -1210,11 +1225,6 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 		}
 	}
 
-	// For Expo, default to explicit dev/ci streams to avoid cross-contaminating
-	// hot reload dev clients with CI/release uploads.
-	configureExpoBuildStreams(cfg, cwd)
-
-	// Validate EAS profiles for iOS simulator builds after configuring streams
 	validateAndFixEASProfiles(cfg, cwd)
 
 	if overrideOpts != nil {
@@ -1776,11 +1786,13 @@ func skipBuildSetupForNow(cfg *initConfigDraft) ([]string, bool) {
 	for key, platformCfg := range cfg.Build.Recipes {
 		placeholderKeys = append(placeholderKeys, key)
 		if strings.TrimSpace(platformCfg.primaryBuildCommand()) != "" ||
+			len(platformCfg.SetupCommands) > 0 ||
 			strings.TrimSpace(platformCfg.OutputPath) != "" ||
 			strings.TrimSpace(platformCfg.Scheme) != "" ||
 			strings.TrimSpace(platformCfg.AppID) != "" {
 			changed = true
 		}
+		platformCfg.SetupCommands = nil
 		platformCfg.BuildCommands = []string{}
 		platformCfg.IncompleteDetectorPlaceholder = false
 		platformCfg.OutputPath = ""
@@ -1837,62 +1849,6 @@ func normalizeExpoBuildCommand(system, command string) (string, bool) {
 	}
 	normalized := strings.ReplaceAll(trimmed, "eas build", "npx --yes eas-cli build")
 	return normalized, normalized != command
-}
-
-func defaultExpoBuildPlatforms(dir string) map[string]initBuildRecipeDraft {
-	iosProfile := "development"
-
-	easCfg, err := build.LoadEASConfig(dir)
-	if err == nil && easCfg != nil {
-		if p := easCfg.FindDevSimulatorProfile(); p != "" {
-			iosProfile = p
-		}
-	}
-
-	return map[string]initBuildRecipeDraft{
-		"ios": {
-			Profile:       "development",
-			Platform:      "ios",
-			BuildCommands: []string{fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/app.tar.gz", iosProfile)},
-			OutputPath:    "build/app.tar.gz",
-		},
-		"android": {
-			Profile:       "development",
-			Platform:      "android",
-			BuildCommands: []string{"npx --yes eas-cli build --platform android --profile development --local --output build/app.apk"},
-			OutputPath:    "build/app.apk",
-		},
-	}
-}
-
-// configureExpoBuildStreams sets up Expo build platforms using development profile.
-//
-// Uses 2 platform keys (ios, android) with the development EAS profile.
-// A single development build supports both hot reload and regular testing.
-// CI-optimized builds (preview profile) can be added later via
-// `revyl config add-ci-profile`.
-func configureExpoBuildStreams(cfg *initConfigDraft, cwd string) {
-	if cfg == nil || !isExpoBuildSystem(cfg.Build.DetectedSystem.String()) {
-		return
-	}
-
-	hasCustomPlatforms := false
-	for key := range cfg.Build.Recipes {
-		lower := strings.ToLower(strings.TrimSpace(key))
-		if lower != "ios" && lower != "android" {
-			hasCustomPlatforms = true
-			break
-		}
-	}
-	if hasCustomPlatforms {
-		return
-	}
-
-	cfg.Build.Recipes = defaultExpoBuildPlatforms(cwd)
-	if platformCfg, ok := cfg.Build.Recipes["ios"]; ok {
-		cfg.Build.DefaultCommand = platformCfg.primaryBuildCommand()
-		cfg.Build.DefaultOutput = platformCfg.OutputPath
-	}
 }
 
 // validateAndFixEASProfiles checks each iOS platform command for simulator profile
@@ -2241,13 +2197,10 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *initConfigDr
 	if isExpoBuildSystem(cfg.Build.DetectedSystem.String()) {
 		devPlatforms := make([]string, 0, len(platforms))
 		for _, key := range platforms {
-			if isDevBuildPlatformKey(key) {
+			if isDevBuildPlatformKey(key) || isDevBuildPlatformKey(cfg.Build.Recipes[key].Profile) {
 				devPlatforms = append(devPlatforms, key)
 			}
 		}
-		// With the simplified 2-key config (ios/android), there are no
-		// explicit dev stream suffixes. All platforms are dev-eligible
-		// since they use the development EAS profile.
 		if len(devPlatforms) == 0 {
 			devPlatforms = platforms
 		}
@@ -2814,17 +2767,9 @@ func detectRNPrerequisiteIssues(cwd, platform string) []rnPrerequisiteIssue {
 	var issues []rnPrerequisiteIssue
 
 	if !build.DirExists(filepath.Join(cwd, "node_modules")) {
-		cmd := "npm install"
-		if fileExists(filepath.Join(cwd, "yarn.lock")) {
-			cmd = "yarn install"
-		} else if fileExists(filepath.Join(cwd, "pnpm-lock.yaml")) {
-			cmd = "pnpm install"
-		} else if fileExists(filepath.Join(cwd, "bun.lockb")) || fileExists(filepath.Join(cwd, "bun.lock")) {
-			cmd = "bun install"
-		}
 		issues = append(issues, rnPrerequisiteIssue{
 			Problem:      "node_modules/ is missing — JavaScript dependencies are not installed",
-			BootstrapCmd: cmd,
+			BootstrapCmd: build.JSInstallCommand(cwd),
 		})
 	}
 
@@ -4465,12 +4410,12 @@ func printBuildSystemExplanation(system string) {
 	switch build.ParseBuildSystem(system) {
 	case build.SystemExpo:
 		ui.PrintDim("How it works:")
-		ui.PrintDim("  Your config uses the \"development\" EAS profile. This creates a build")
-		ui.PrintDim("  that includes the Expo dev client — enabling hot reload (revyl dev)")
-		ui.PrintDim("  where JS/TS changes reflect instantly on a cloud device.")
+		ui.PrintDim("  The \"preview\" profile runs expo prebuild, then Xcode or Gradle, to build")
+		ui.PrintDim("  a standalone simulator .app and APK for revyl build, test runs, and pull")
+		ui.PrintDim("  requests. It needs no Metro server or Expo credentials.")
 		ui.PrintDim("")
-		ui.PrintDim("  The same build also works for regular test runs (revyl test run).")
-		ui.PrintDim("  No separate CI build is needed to get started.")
+		ui.PrintDim("  The \"development\" profile builds the Expo dev client with EAS for hot")
+		ui.PrintDim("  reload (revyl dev), where JS/TS changes reflect instantly on a cloud device.")
 		ui.PrintDim("")
 		ui.PrintDim("  Dev loop:  revyl dev             JS changes hot reload instantly")
 		ui.PrintDim("             press [r]             rebuild native code + reinstall")
@@ -4525,25 +4470,88 @@ func printBuildSystemExplanation(system string) {
 	ui.Println()
 }
 
-// printInitNextSteps prints actionable next steps after init completes.
-func printInitNextSteps(cfg *initConfigDraft) {
-	ui.PrintInfo("Next steps:")
-	ui.PrintInfo("  1. revyl auth login              # Authenticate")
-
-	platforms := platformKeys(cfg)
-	if len(platforms) > 0 {
-		ui.PrintInfo("  2. revyl build                   # Build and upload")
-		ui.PrintInfo("  3. revyl test create smoke-test  # Create your first test")
-		ui.PrintInfo("  4. revyl test run smoke-test     # Run it")
-	} else {
-		ui.PrintInfo("  2. revyl build --platform <ios|android>")
-		ui.PrintInfo("  3. revyl test create <name> --platform <ios|android>")
-		ui.PrintInfo("  4. revyl test run <name>")
+// printInitNextSteps prints the setup flow that follows init: link apps to the
+// build profile, publish the configuration, build remotely, and launch the app.
+func printInitNextSteps(cfg *initConfigDraft, includeAuthLogin bool) {
+	profile, platforms := initNextStepsProfile(cfg)
+	platformArgument := "<ios|android>"
+	if len(platforms) == 1 {
+		platformArgument = platforms[0]
 	}
 
-	ui.Println()
-	ui.PrintDim("Re-run to continue setup:")
-	ui.PrintDim("  revyl init --force")
+	ui.PrintInfo("Next steps:")
+	step := 0
+	printStep := func(format string, args ...interface{}) {
+		step++
+		ui.PrintInfo("  %d. %s", step, fmt.Sprintf(format, args...))
+	}
+	if includeAuthLogin {
+		printStep("%s", cliRecoveryCommand("auth", "login"))
+	}
+	if len(platforms) == 0 {
+		printStep("Add build_commands and output_path to build.profiles.%s.<ios|android> in .revyl/config.yaml", profile)
+	}
+	printStep("Create an app per platform and put its ID in build.profiles.%s.<platform>.app_id:", profile)
+	if len(platforms) == 0 {
+		ui.PrintInfo("       %s", cliRecoveryCommand("app", "create", "--name", "\"<name> <platform>\"", "--platform", "<ios|android>"))
+	}
+	for _, platform := range platforms {
+		appName := cfg.Project.Name + " " + map[string]string{"ios": "iOS", "android": "Android"}[platform]
+		ui.PrintInfo("       %s", cliRecoveryCommand("app", "create", "--name", quoteCLIRecoveryArgument(appName), "--platform", platform))
+	}
+	printStep("%s", cliRecoveryCommand("config", "validate"))
+	printStep("%s   # if GitHub is not connected: %s", cliRecoveryCommand("github", "status"), cliRecoveryCommand("github", "connect"))
+	printStep("%s", cliRecoveryCommand("config", "push"))
+	printStep("%s", cliRecoveryCommand("build", "--profile", profile, "--platform", platformArgument, "--remote"))
+	printStep("%s", cliRecoveryCommand("device", "start", "--app-id", "<app-id>"))
+}
+
+// initNextStepsProfile selects the profile the setup flow builds and publishes:
+// preview when it has a runnable recipe, otherwise the first profile with one;
+// when nothing is runnable yet, preview if declared, otherwise the first
+// placeholder profile. It also returns that profile's runnable platforms, iOS
+// first.
+func initNextStepsProfile(cfg *initConfigDraft) (string, []string) {
+	declaredProfiles := map[string]bool{}
+	runnablePlatforms := map[string]map[string]bool{}
+	for key, recipe := range cfg.Build.Recipes {
+		platform := recipe.Platform
+		if platform == "" {
+			platform = initRuntimePlatform(key)
+		}
+		profile := recipe.Profile
+		if profile == "" {
+			profile = initProfileName(key, platform)
+		}
+		declaredProfiles[profile] = true
+		if !isRunnableInitBuildRecipe(recipe) {
+			continue
+		}
+		if runnablePlatforms[profile] == nil {
+			runnablePlatforms[profile] = map[string]bool{}
+		}
+		runnablePlatforms[profile][platform] = true
+	}
+
+	candidates := make([]string, 0, len(declaredProfiles))
+	for name := range declaredProfiles {
+		if len(runnablePlatforms) == 0 || runnablePlatforms[name] != nil {
+			candidates = append(candidates, name)
+		}
+	}
+	sort.Strings(candidates)
+	profile := "preview"
+	previewSelectable := runnablePlatforms[profile] != nil || (len(runnablePlatforms) == 0 && declaredProfiles[profile])
+	if !previewSelectable && len(candidates) > 0 {
+		profile = candidates[0]
+	}
+	platforms := []string{}
+	for _, platform := range []string{"ios", "android"} {
+		if runnablePlatforms[profile][platform] {
+			platforms = append(platforms, platform)
+		}
+	}
+	return profile, platforms
 }
 
 // syncTestYAML pulls a test definition from the server and saves it to .revyl/tests/<name>.yaml.

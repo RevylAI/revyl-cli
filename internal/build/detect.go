@@ -2,6 +2,7 @@
 package build
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const xcodeSimulatorDestination = "-destination 'generic/platform=iOS Simulator'"
@@ -89,6 +91,9 @@ type DetectedBuild struct {
 
 // BuildPlatform represents a platform-specific build configuration.
 type BuildPlatform struct {
+	// SetupCommands run in order before Command, from the project root.
+	SetupCommands []string
+
 	// Command is the build command for this platform.
 	Command string
 
@@ -97,6 +102,9 @@ type BuildPlatform struct {
 
 	// IncompleteReason explains why the platform was detected but is not yet buildable.
 	IncompleteReason string
+
+	// Note explains a detected value the user should verify.
+	Note string
 }
 
 // Detect attempts to detect the build system in the given directory.
@@ -159,13 +167,8 @@ func Detect(dir string) (*DetectedBuild, error) {
 // isExpoProject checks if the directory contains an Expo project.
 func isExpoProject(dir string) bool {
 	// Check for eas.json (definitive Expo indicator)
-	if fileExists(filepath.Join(dir, "eas.json")) {
+	if fileExists(filepath.Join(dir, "eas.json")) || hasExpoDynamicConfig(dir) {
 		return true
-	}
-	for _, filename := range []string{"app.config.js", "app.config.ts", "app.config.mjs", "app.config.cjs"} {
-		if fileExists(filepath.Join(dir, filename)) {
-			return true
-		}
 	}
 
 	// Check for app.json with expo configuration
@@ -233,27 +236,173 @@ func hasXcodeProject(dir string) bool {
 }
 
 // detectExpo returns build configuration for an Expo project.
+//
+// The "ios" and "android" platforms are EAS development-client builds for the
+// hot-reload dev loop, which needs expo-dev-client to open Metro. The
+// "ios-preview" and "android-preview" platforms are standalone native builds
+// (expo prebuild, then Xcode or Gradle) that need no Metro server or Expo
+// credentials, for regular builds and pull-request review.
 func detectExpo(dir string) (*DetectedBuild, error) {
+	devIOSProfile := "development"
+	if easCfg, err := LoadEASConfig(dir); err == nil && easCfg != nil {
+		if profile := easCfg.FindDevSimulatorProfile(); profile != "" {
+			devIOSProfile = profile
+		}
+	}
+
+	installCommand := JSInstallCommand(dir)
+	androidPreview := reactNativeAndroidBuildPlatform("Release")
+	androidPreview.SetupCommands = []string{installCommand, expoPrebuildCommand("android")}
+
 	detected := &DetectedBuild{
-		System:    SystemExpo,
-		Platforms: make(map[string]BuildPlatform),
+		System: SystemExpo,
+		Platforms: map[string]BuildPlatform{
+			"ios": {
+				Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/app.tar.gz", devIOSProfile),
+				Output:  "build/app.tar.gz",
+			},
+			"android": {
+				Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
+				Output:  "build/app.apk",
+			},
+			"ios-preview":     detectExpoIOSPreviewPlatform(dir, installCommand),
+			"android-preview": androidPreview,
+		},
 	}
-
-	// Default to EAS local build commands
-	detected.Platforms["ios"] = BuildPlatform{
-		Command: "npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz",
-		Output:  "build/app.tar.gz",
-	}
-	detected.Platforms["android"] = BuildPlatform{
-		Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
-		Output:  "build/app.apk",
-	}
-
-	// Set default command (iOS)
-	detected.Command = detected.Platforms["ios"].Command
-	detected.Output = detected.Platforms["ios"].Output
+	detected.Command = detected.Platforms["ios-preview"].Command
+	detected.Output = detected.Platforms["ios-preview"].Output
 
 	return detected, nil
+}
+
+// expoPrebuildCommand generates a platform's native project only when it is
+// absent, matching `expo run` and EAS Build: committed native directories are
+// never regenerated or overwritten.
+func expoPrebuildCommand(platform string) string {
+	return fmt.Sprintf("if [ ! -d %s ]; then npx expo prebuild --platform %s; fi", platform, platform)
+}
+
+// detectExpoIOSPreviewPlatform returns a Release iOS simulator build of the
+// prebuilt Expo project. For a committed ios/ project, the Xcode scheme is its
+// shared scheme or else the project name, and CocoaPods are installed when
+// missing. Without ios/, it is the project name expo prebuild generates from
+// app.json expo.name.
+func detectExpoIOSPreviewPlatform(dir, installCommand string) BuildPlatform {
+	iosDir := filepath.Join(dir, "ios")
+	var platform BuildPlatform
+	if projectFile := findXcodeProjectIn(iosDir); projectFile != "" {
+		projectRef := "ios/" + projectFile
+		platform = buildReactNativeIOSPlatform(projectRef, false, fileExists(filepath.Join(iosDir, "Podfile")), "Release")
+		scheme := sharedXcodeScheme(filepath.Join(dir, projectRef))
+		platform.Note = fmt.Sprintf("Xcode scheme %q is the shared scheme in %s", scheme, projectRef)
+		if scheme == "" {
+			scheme = strings.TrimSuffix(projectFile, ".xcodeproj")
+			platform.Note = fmt.Sprintf("No shared Xcode scheme in %s; using the project name %q, which expo prebuild also gives the app scheme", projectRef, scheme)
+		}
+		platform.Command = ApplySchemeToCommand(platform.Command, scheme)
+	} else if DirExists(iosDir) {
+		return BuildPlatform{
+			IncompleteReason: "ios/ exists without an .xcodeproj, so the preview recipe will not regenerate it; run npx expo prebuild --platform ios, then revyl init --detect",
+		}
+	} else {
+		appName := expoAppJSONName(dir)
+		projectName := sanitizeExpoIOSProjectName(appName)
+		incompleteReason := ""
+		switch {
+		case strings.IndexFunc(appName, func(r rune) bool { return r > unicode.MaxASCII }) >= 0:
+			incompleteReason = fmt.Sprintf("app.json expo.name %q has non-ASCII characters, which Expo versions turn into different Xcode project names", appName)
+		case projectName == "":
+			incompleteReason = "could not derive the Xcode project expo prebuild generates from a static app.json expo.name"
+		}
+		if incompleteReason != "" {
+			return BuildPlatform{
+				IncompleteReason: incompleteReason + "; run npx expo prebuild --platform ios, then revyl init --detect",
+			}
+		}
+		platform = buildReactNativeIOSPlatform("ios/"+projectName+".xcodeproj", false, true, "Release")
+		platform.Command = ApplySchemeToCommand(platform.Command, projectName)
+		platform.Note = fmt.Sprintf("Xcode scheme %q is the project name expo prebuild generates from app.json expo.name; ios/ does not exist yet", projectName)
+		if hasExpoDynamicConfig(dir) {
+			platform.Note += ". Update it if app.config.js/ts changes expo.name"
+		}
+	}
+	platform.SetupCommands = []string{installCommand, expoPrebuildCommand("ios")}
+	return platform
+}
+
+// expoAppJSONName returns the static app.json expo.name, or "" when absent.
+func expoAppJSONName(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "app.json")) // #nosec G304 -- the path uses the local project root and a fixed file name.
+	if err != nil {
+		return ""
+	}
+	var appJSON struct {
+		Expo struct {
+			Name string `json:"name"`
+		} `json:"expo"`
+	}
+	if err := json.Unmarshal(data, &appJSON); err != nil {
+		return ""
+	}
+	return appJSON.Expo.Name
+}
+
+// sanitizeExpoIOSProjectName returns the Xcode project name expo prebuild
+// generates from an ASCII expo.name: every character other than a letter or
+// digit is removed, which Expo's IOSConfig.XcodeUtils.sanitizedName does in
+// every version. Versions differ for non-ASCII names, so callers must not
+// derive those.
+func sanitizeExpoIOSProjectName(name string) string {
+	var sanitized strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			sanitized.WriteRune(r)
+		}
+	}
+	return sanitized.String()
+}
+
+func hasExpoDynamicConfig(dir string) bool {
+	for _, filename := range []string{"app.config.js", "app.config.ts", "app.config.mjs", "app.config.cjs"} {
+		if fileExists(filepath.Join(dir, filename)) {
+			return true
+		}
+	}
+	return false
+}
+
+// sharedXcodeScheme returns the shared scheme named after the Xcode project,
+// or the only shared scheme, or "" when neither exists.
+func sharedXcodeScheme(xcodeprojPath string) string {
+	schemePaths, err := filepath.Glob(filepath.Join(xcodeprojPath, "xcshareddata", "xcschemes", "*.xcscheme"))
+	if err != nil {
+		return ""
+	}
+	projectName := strings.TrimSuffix(filepath.Base(xcodeprojPath), ".xcodeproj")
+	for _, schemePath := range schemePaths {
+		if strings.TrimSuffix(filepath.Base(schemePath), ".xcscheme") == projectName {
+			return projectName
+		}
+	}
+	if len(schemePaths) == 1 {
+		return strings.TrimSuffix(filepath.Base(schemePaths[0]), ".xcscheme")
+	}
+	return ""
+}
+
+// JSInstallCommand returns the dependency install command for the package
+// manager whose lockfile is present, defaulting to npm.
+func JSInstallCommand(dir string) string {
+	switch {
+	case fileExists(filepath.Join(dir, "yarn.lock")):
+		return "yarn install"
+	case fileExists(filepath.Join(dir, "pnpm-lock.yaml")):
+		return "pnpm install"
+	case fileExists(filepath.Join(dir, "bun.lockb")), fileExists(filepath.Join(dir, "bun.lock")):
+		return "bun install"
+	default:
+		return "npm install"
+	}
 }
 
 // detectReactNative returns build configuration for a React Native project.
@@ -263,7 +412,7 @@ func detectReactNative(dir string) (*DetectedBuild, error) {
 		Platforms: make(map[string]BuildPlatform),
 	}
 
-	if iosPlatform, ok := detectReactNativeIOSBuildPlatform(dir); ok {
+	if iosPlatform, ok := detectReactNativeIOSBuildPlatform(dir, "Debug"); ok {
 		detected.Platforms["ios"] = iosPlatform
 	} else if placeholderPlatform, ok := detectReactNativeIOSPlaceholderPlatform(dir); ok {
 		detected.Platforms["ios"] = placeholderPlatform
@@ -288,20 +437,21 @@ func detectReactNative(dir string) (*DetectedBuild, error) {
 //
 // Parameters:
 //   - dir: The React Native project directory to inspect
+//   - configuration: The Xcode build configuration, such as Debug or Release
 //
 // Returns:
 //   - BuildPlatform: The resolved iOS build command and output path
 //   - bool: True when a concrete Xcode workspace or project was found
-func detectReactNativeIOSBuildPlatform(dir string) (BuildPlatform, bool) {
+func detectReactNativeIOSBuildPlatform(dir, configuration string) (BuildPlatform, bool) {
 	workspaceName := findXcodeWorkspace(dir)
 	if strings.TrimSpace(workspaceName) != "" {
-		return buildReactNativeIOSPlatform(workspaceName, true, false), true
+		return buildReactNativeIOSPlatform(workspaceName, true, false, configuration), true
 	}
 
 	projectName := findXcodeProject(dir)
 	if strings.TrimSpace(projectName) != "" {
 		podfilePath := filepath.Join(dir, "ios", "Podfile")
-		return buildReactNativeIOSPlatform(projectName, false, fileExists(podfilePath)), true
+		return buildReactNativeIOSPlatform(projectName, false, fileExists(podfilePath), configuration), true
 	}
 
 	return BuildPlatform{}, false
@@ -339,10 +489,23 @@ func detectReactNativeAndroidBuildPlatform(dir string) (BuildPlatform, bool) {
 		return BuildPlatform{}, false
 	}
 
+	return reactNativeAndroidBuildPlatform("Debug"), true
+}
+
+// reactNativeAndroidBuildPlatform builds the Gradle APK command/output pair for
+// the android/ project of a React Native or prebuilt Expo app.
+//
+// Parameters:
+//   - variant: The Gradle build variant, such as Debug or Release
+//
+// Returns:
+//   - BuildPlatform: A buildable Android platform configuration
+func reactNativeAndroidBuildPlatform(variant string) BuildPlatform {
+	variantDir := strings.ToLower(variant)
 	return BuildPlatform{
-		Command: "cd android && ./gradlew assembleDebug",
-		Output:  "android/app/build/outputs/apk/debug/app-debug.apk",
-	}, true
+		Command: "cd android && ./gradlew assemble" + variant,
+		Output:  "android/app/build/outputs/apk/" + variantDir + "/app-" + variantDir + ".apk",
+	}
 }
 
 // buildReactNativeIOSPlatform builds the iOS command/output pair for a React Native project.
@@ -351,34 +514,36 @@ func detectReactNativeAndroidBuildPlatform(dir string) (BuildPlatform, bool) {
 //   - projectRef: Relative path to the Xcode workspace or project
 //   - useWorkspace: True when projectRef points to an .xcworkspace, false for .xcodeproj
 //   - installPodsIfNeeded: True when the command should bootstrap CocoaPods before building
+//   - configuration: The Xcode build configuration, such as Debug or Release
 //
 // Returns:
 //   - BuildPlatform: A buildable iOS platform configuration
-func buildReactNativeIOSPlatform(projectRef string, useWorkspace bool, installPodsIfNeeded bool) BuildPlatform {
+func buildReactNativeIOSPlatform(projectRef string, useWorkspace bool, installPodsIfNeeded bool, configuration string) BuildPlatform {
 	buildFlag := "-workspace"
 	if !useWorkspace {
 		buildFlag = "-project"
 	}
 
 	ref := strings.TrimSpace(projectRef)
-	outputPath := "ios/build/Build/Products/Debug-iphonesimulator/*.app"
+	buildSettings := " -scheme * -configuration " + configuration + " -sdk iphonesimulator " + xcodeSimulatorDestination
+	outputPath := "ios/build/Build/Products/" + configuration + "-iphonesimulator/*.app"
 	if strings.HasPrefix(ref, "ios/") {
 		refBase := filepath.Base(ref)
 		if !useWorkspace && installPodsIfNeeded {
 			workspaceName := strings.TrimSuffix(refBase, filepath.Ext(refBase)) + ".xcworkspace"
 			return BuildPlatform{
-				Command: "cd ios && if [ ! -d Pods ] || [ ! -d " + workspaceName + " ]; then pod install; fi && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
+				Command: "cd ios && if [ ! -d Pods ] || [ ! -d " + workspaceName + " ]; then pod install; fi && xcodebuild -workspace " + workspaceName + buildSettings + " -derivedDataPath build",
 				Output:  outputPath,
 			}
 		}
 		return BuildPlatform{
-			Command: "cd ios && xcodebuild " + buildFlag + " " + refBase + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
+			Command: "cd ios && xcodebuild " + buildFlag + " " + refBase + buildSettings + " -derivedDataPath build",
 			Output:  outputPath,
 		}
 	}
 
 	return BuildPlatform{
-		Command: "xcodebuild " + buildFlag + " " + ref + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath ios/build",
+		Command: "xcodebuild " + buildFlag + " " + ref + buildSettings + " -derivedDataPath ios/build",
 		Output:  outputPath,
 	}
 }

@@ -24,3 +24,15 @@ func TestGetHelpTextUsesCanonicalDocsURL(t *testing.T) {
 		t.Fatal("expected help text to avoid legacy docs.revyl.com URL")
 	}
 }
+
+func TestDisplayVersionPrefixesExactlyOneV(t *testing.T) {
+	for version, want := range map[string]string{
+		"v0.1.121":        "v0.1.121",
+		"0.1.129":         "v0.1.129",
+		" v1.2.3-beta.1 ": "v1.2.3-beta.1",
+	} {
+		if got := DisplayVersion(version); got != want {
+			t.Errorf("DisplayVersion(%q) = %q, want %q", version, got, want)
+		}
+	}
+}

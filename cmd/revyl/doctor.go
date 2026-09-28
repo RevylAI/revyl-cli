@@ -232,7 +232,7 @@ func checkVersion() DoctorCheck {
 		check.Message = "Development build"
 		check.Details = "Running a development build, not a released version"
 	} else {
-		check.Message = fmt.Sprintf("v%s", version)
+		check.Message = ui.DisplayVersion(version)
 		check.Details = fmt.Sprintf("Commit: %s, Built: %s", commit, date)
 	}
 
