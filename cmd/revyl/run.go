@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -323,12 +324,15 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	validationClient := api.NewClientWithDevMode(apiKey, devMode)
 	testID, resolvedTestName, err := resolveTestID(cmd.Context(), testNameOrID, nil, validationClient)
 	if err != nil {
-		ui.PrintError("%v", err)
-		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
-		return fmt.Errorf("test not found")
+		return testLookupFailure(err)
 	}
 	if looksLikeUUID(testNameOrID) {
 		if _, err := validationClient.GetTest(cmd.Context(), testID); err != nil {
+			var apiErr *api.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+				ui.PrintError("could not look up test '%s': %v", testNameOrID, err)
+				return analytics.WithSafeDiagnostic(fmt.Errorf("look up test: %w", err), lookupFailureDiagnostic("test", err))
+			}
 			ui.PrintError("test '%s' not found: %v", testNameOrID, err)
 			fmt.Fprintln(os.Stderr, "  Run: revyl test list")
 			return fmt.Errorf("test not found")
@@ -866,6 +870,11 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	// Validate workflow exists before building (fail fast)
 	if runWorkflowBuild {
 		if _, err := client.GetWorkflow(cmd.Context(), workflowID); err != nil {
+			var apiErr *api.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+				ui.PrintError("could not look up workflow '%s': %v", workflowNameOrID, err)
+				return analytics.WithSafeDiagnostic(fmt.Errorf("look up workflow: %w", err), lookupFailureDiagnostic("workflow", err))
+			}
 			ui.PrintError("workflow '%s' not found: %v", workflowNameOrID, err)
 			return fmt.Errorf("workflow not found")
 		}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/orgguard"
@@ -334,7 +335,44 @@ func resolveTestID(ctx context.Context, nameOrID string, _ *config.ProjectConfig
 		errMsg += fmt.Sprintf(". Available tests: %v", availableTests)
 	}
 	errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests."
-	return "", "", fmt.Errorf("%s", errMsg)
+	return "", "", &testNameNotFoundError{message: errMsg}
+}
+
+// testNameNotFoundError marks a completed search that found no matching test,
+// so callers can tell a missing test apart from a lookup that failed.
+type testNameNotFoundError struct {
+	message string
+}
+
+func (e *testNameNotFoundError) Error() string {
+	return e.message
+}
+
+// testLookupFailure prints a resolveTestID failure and returns the command
+// error. Only a completed search without a match becomes "test not found";
+// configuration and API failures keep their own actionable error.
+func testLookupFailure(err error) error {
+	ui.PrintError("%v", err)
+	var notFound *testNameNotFoundError
+	if errors.As(err, &notFound) {
+		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
+		return errors.New("test not found")
+	}
+	var safeErr *analytics.SafeDiagnosticError
+	if errors.As(err, &safeErr) {
+		return err
+	}
+	return analytics.WithSafeDiagnostic(err, lookupFailureDiagnostic("test", err))
+}
+
+// lookupFailureDiagnostic names only the HTTP status because API error text can
+// carry server exception detail that analytics must not capture.
+func lookupFailureDiagnostic(resource string, err error) string {
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) {
+		return fmt.Sprintf("%s lookup failed (HTTP %d)", resource, apiErr.StatusCode)
+	}
+	return resource + " lookup failed"
 }
 
 // resolveLatestTaskID resolves the latest execution task ID for a test.

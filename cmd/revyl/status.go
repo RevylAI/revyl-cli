@@ -4,7 +4,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -91,9 +90,7 @@ func runTestStatus(cmd *cobra.Command, args []string) error {
 
 	testID, testName, err := resolveTestID(cmd.Context(), testNameOrID, cfg, client)
 	if err != nil {
-		ui.PrintError("%v", err)
-		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
-		return fmt.Errorf("test not found")
+		return testLookupFailure(err)
 	}
 
 	// Use the input name for display if resolveTestID didn't return one
@@ -255,9 +252,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 
 	testID, testName, err := resolveTestID(cmd.Context(), testNameOrID, cfg, client)
 	if err != nil {
-		ui.PrintError("%v", err)
-		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
-		return fmt.Errorf("test not found")
+		return testLookupFailure(err)
 	}
 
 	displayName := testName

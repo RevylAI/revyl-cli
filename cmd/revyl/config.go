@@ -102,10 +102,18 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 }
 
 func actionableLocalConfigError(err error) error {
-	return analytics.WithSafeDiagnostic(
-		actionableLocalConfigMessage(err),
-		"project configuration could not be used",
-	)
+	return analytics.WithSafeDiagnostic(actionableLocalConfigMessage(err), projectConfigurationDiagnostic(err))
+}
+
+// projectConfigurationDiagnostic keeps the bounded compiler code in analytics
+// so fleet failures stay classifiable; paths and messages can hold
+// customer-authored names and stay out.
+func projectConfigurationDiagnostic(err error) string {
+	var configError *config.ConfigError
+	if !errors.As(err, &configError) {
+		return "project configuration could not be used"
+	}
+	return fmt.Sprintf("project configuration could not be used (%s)", configError.Code)
 }
 
 func actionableLocalConfigMessage(err error) error {

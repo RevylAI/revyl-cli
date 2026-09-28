@@ -150,8 +150,7 @@ func resolveTestClientDefault(cmd *cobra.Command, testNameOrID string) (string, 
 
 	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, nil, client)
 	if err != nil {
-		ui.PrintError("%v", err)
-		return "", nil, fmt.Errorf("test not found")
+		return "", nil, testLookupFailure(err)
 	}
 
 	return testID, client, nil

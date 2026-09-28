@@ -157,7 +157,7 @@ func actionableBuildConfigError(err error) error {
 	if errors.As(err, &configError) && configError.Code == "config_not_found" {
 		return analytics.WithSafeDiagnostic(
 			errors.New("no .revyl/config.yaml applies to the current directory; run this command from the app root or pass '-C <app-root>'. To configure a new project, run 'revyl init'"),
-			"project configuration could not be used",
+			projectConfigurationDiagnostic(err),
 		)
 	}
 	return actionableLocalConfigError(err)
