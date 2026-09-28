@@ -239,6 +239,18 @@ sessions, so anything you install or change stays there for your teammates and
 for later runs. Treat it like a shared build machine rather than a scratch
 container.
 
+You have passwordless `sudo`. Homebrew lives under `/opt/homebrew`, owned by
+the `revyl-admin` account, and isn't on your `PATH`, so install packages such
+as `tmux` through that account:
+
+```bash
+sudo -u revyl-admin -H /opt/homebrew/bin/brew install <package>
+```
+
+You can also create your own admin user for your tools. Don't change the
+ownership of `/opt/homebrew`, and don't modify or delete the `revyl-admin`
+account: Revyl's maintenance of the computer depends on both.
+
 End the session with `exit` or Ctrl-D. Sessions also close on their own after
 an hour of inactivity, and after 24 hours in any case. Closing your terminal
 disconnects the client; the idle timeout remains the fallback when explicit
@@ -292,9 +304,11 @@ one, but every shell eventually ends:
   after 24 hours.
 - A dropped network connection, a computer restart, or maintenance also ends
   it.
-- Processes running in the foreground of a shell stop when the shell ends. Run
-  long jobs inside `tmux` or `screen`, or start them detached with `nohup`, so
-  they keep running and you can check on them from a new shell.
+- Processes started in a shell stop when the shell ends, including ones
+  backgrounded with a plain `&`, and `nohup` fails in these shells with "can't
+  detach from console". Run long jobs inside `screen`, which is preinstalled,
+  and reattach with `screen -r` from a new shell, or start them with
+  `your-command & disown`. Nothing keeps running across a computer restart.
 - Reconnect with exponential backoff and random jitter when a shell ends, and
   stagger when your sessions start, so they don't all reach the 24-hour limit
   and reconnect at the same moment.
