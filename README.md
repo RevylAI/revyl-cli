@@ -85,7 +85,7 @@ cd your-app
 revyl doctor                            # Check CLI, auth, connectivity
 revyl auth login                        # Approve in a browser (if not already authed)
 revyl init                              # Detect and write the local project config
-revyl skill install                     # Choose optional agent skills; none preselected
+revyl skill install                     # Install recommended agent skills (picker preselects them)
 revyl build --profile development --platform ios  # Build one recipe in the cloud
 revyl dev --profile development --platform ios    # Launch TUI: live-device development loop
 ```
@@ -211,14 +211,15 @@ See the [Revyl Docs](https://docs.revyl.com/) for the full authoring workflow, Y
 ## Agent Skills
 
 Interactive `revyl init` offers optional agent skill setup. Choose your tool
-and the skills you want; none are preselected, and an empty selection skips
-installation. The standalone `revyl skill install` command uses the same
-empty-by-default skill picker:
+and the skills you want; the recommended skills are preselected, and an empty
+selection skips installation. The standalone `revyl skill install` command uses
+the same preselected skill picker:
 
 ```bash
 revyl skill list                         # First-class workflows
 revyl skill list --all                   # Include optional and compatibility skills
 revyl skill install                     # Select skills interactively
+revyl skill install --cursor --yes       # Install the recommended skills without prompting
 revyl skill install --name revyl-cli-dev-loop --name revyl-cli-create --agent codex --yes
 revyl skill list --installed --json      # Inspect installed project and global skills
 revyl skill update                       # Update installed, unmodified project skills
@@ -227,21 +228,22 @@ revyl skill show --name revyl-cli-dev-loop
 revyl skill export --name revyl-cli-create -o SKILL.md
 ```
 
-Noninteractive installs, `--yes`, and `--json` require explicit skill selection,
-such as repeated `--name` flags. `--yes` skips confirmation; it does not select
-a bundle. Use `--all` only when you deliberately want the entire catalog.
+Without `--name`, noninteractive installs, `--yes`, and `--json` install the
+recommended skills from `revyl skill list` and name them on stderr; `--json`
+output adds `"selection": "default"`. Repeat `--name` to choose specific
+skills, and use `--all` only when you deliberately want the entire catalog.
 
 Packages live in `.agents/skills/`, which Cursor and Codex discover directly.
 Claude Code uses per-skill relative links under `.claude/skills/`. Other agents
 that read the shared directory can also discover these skills. `--global`
 selects the equivalent directories under your home directory; `--copy` keeps
 independent packages in each selected tool's legacy skill directory instead.
-If Claude compatibility links are unavailable, installation stops before
-writing packages; use `--copy` or choose **Claude Code (copy mode)** in `init`.
-Conflicting legacy packages in any agent directory block shared installation,
-even when you selected another agent. This includes retired auth-bypass
-platform aliases; Revyl preserves rather than prunes them. Move conflicting
-copies aside before switching to shared storage, or keep using `--copy`.
+Conflicting legacy packages in any agent directory block shared storage, even
+when you selected another agent. This includes retired auth-bypass platform
+aliases; Revyl preserves rather than prunes them. Noninteractive installs then
+continue as if `--copy` were given; move conflicting copies aside to switch to
+shared storage. In `init`, choose **Claude Code (copy mode)** when Claude
+compatibility links are unavailable.
 A symlinked shared directory must resolve inside the selected project or home
 directory. Installation does not modify
 `AGENTS.md` or inject Cursor rules. For client-specific setup and optional MCP,

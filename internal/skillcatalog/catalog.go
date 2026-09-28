@@ -109,7 +109,9 @@ func Public() []Skill {
 	return skillsByName(publicSkillNames)
 }
 
-// DefaultInstall returns the skills installed by the no-name install path.
+// DefaultInstall returns the recommended skill set that `skill install` uses
+// when no selector is given: non-interactive runs install it and the
+// interactive picker preselects it.
 func DefaultInstall() []Skill {
 	return Public()
 }

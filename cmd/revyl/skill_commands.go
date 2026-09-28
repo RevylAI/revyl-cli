@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -39,8 +40,13 @@ type skillInstallEntry struct {
 }
 
 type skillInstallResult struct {
-	Skills []skillInstallEntry `json:"skills"`
+	Skills    []skillInstallEntry `json:"skills"`
+	Selection string              `json:"selection,omitempty"`
 }
+
+const skillSelectionDefault = "default"
+
+var errSharedSkillStorageUnavailable = errors.New("shared skill storage is unavailable")
 
 var skillUpdateCmd = &cobra.Command{
 	Use:   "update [skill-name...]",
@@ -60,35 +66,39 @@ func init() {
 	skillCmd.AddCommand(skillUpdateCmd)
 }
 
-func chooseInstallSkills(names []string) ([]skillcatalog.Skill, error) {
+func chooseInstallSkills(names []string) (selected []skillcatalog.Skill, usedDefault bool, err error) {
 	if skillInstallAll {
 		if len(names) > 0 || skillInstallCLI || skillInstallMCP {
-			return nil, fmt.Errorf("--all cannot be combined with --name, --skill, --cli, or --mcp")
+			return nil, false, fmt.Errorf("--all cannot be combined with --name, --skill, --cli, or --mcp")
 		}
-		return skillcatalog.All(), nil
+		return skillcatalog.All(), false, nil
 	}
 	if len(names) > 0 || skillInstallCLI || skillInstallMCP {
-		return resolveInstallSkills(names)
+		selected, err = resolveInstallSkills(names)
+		return selected, false, err
 	}
 	if skillInstallYes || skillInstallJSON || !skillInputIsTTY() {
-		return nil, fmt.Errorf("choose skills explicitly with --name <skill> or --all; --yes does not select skills")
+		return skillcatalog.DefaultInstall(), true, nil
 	}
-	return promptSkillSelection()
+	selected, err = promptSkillSelection()
+	return selected, false, err
 }
 
 func promptSkillSelection() ([]skillcatalog.Skill, error) {
 	options := make([]ui.SelectOption, 0, len(skillcatalog.All()))
-	public := make(map[string]bool)
-	for _, skill := range skillcatalog.Public() {
-		public[skill.Name] = true
+	recommended := make(map[string]bool)
+	defaults := make([]string, 0, len(skillcatalog.DefaultInstall()))
+	for _, skill := range skillcatalog.DefaultInstall() {
+		recommended[skill.Name] = true
+		defaults = append(defaults, skill.Name)
 		options = append(options, ui.SelectOption{Label: skill.Name, Value: skill.Name, Description: skill.Description})
 	}
 	for _, skill := range skillcatalog.All() {
-		if !public[skill.Name] {
+		if !recommended[skill.Name] {
 			options = append(options, ui.SelectOption{Label: skill.Name + " (optional)", Value: skill.Name, Description: skill.Description})
 		}
 	}
-	selected, err := selectAgentSkills("Choose skills to install (none selected skips installation)", options, nil)
+	selected, err := selectAgentSkills("Choose skills to install (recommended skills are preselected; none selected skips installation)", options, defaults)
 	if err != nil || len(selected) == 0 {
 		return nil, err
 	}
@@ -127,7 +137,14 @@ func chooseSkillTargets() ([]skillInstallTarget, error) {
 		for _, target := range targets {
 			tools = append(tools, target.tool)
 		}
-		if skillInputIsTTY() && !skillInstallYes && !skillInstallJSON {
+		interactive := skillInputIsTTY() && !skillInstallYes && !skillInstallJSON
+		if len(tools) == 0 {
+			tools = []string{"codex", "cursor"}
+			if !interactive {
+				ui.PrintInfo("No agent directory detected; installing for Cursor and Codex. Pass --agent cursor, codex, or claude-code to choose.")
+			}
+		}
+		if interactive {
 			options := []ui.SelectOption{
 				{Label: "Cursor", Value: "cursor", Description: "Discovers the shared .agents/skills directory"},
 				{Label: "Claude Code", Value: "claude", Description: "Uses per-skill compatibility links in .claude/skills"},
@@ -162,7 +179,7 @@ func installSelectedSkills(cmd *cobra.Command, names []string) (returnErr error)
 			returnErr = analytics.CompletedWithExitCode(returnErr, completion)
 		}
 	}()
-	selected, err := chooseInstallSkills(names)
+	selected, usedDefault, err := chooseInstallSkills(names)
 	if err != nil {
 		return err
 	}
@@ -171,11 +188,19 @@ func installSelectedSkills(cmd *cobra.Command, names []string) (returnErr error)
 		ui.PrintInfo("No skills selected; nothing changed.")
 		return nil
 	}
+	if usedDefault {
+		selectedNames := make([]string, 0, len(selected))
+		for _, skill := range selected {
+			selectedNames = append(selectedNames, skill.Name)
+		}
+		ui.PrintInfo("No skills selected; installing the recommended set: %s. Use --name <skill> to choose specific skills or --all for every skill.", strings.Join(selectedNames, ", "))
+	}
 	targets, err := chooseSkillTargets()
 	if err != nil {
 		return err
 	}
-	if skillInputIsTTY() && !skillInstallYes && !skillInstallJSON {
+	confirmPlan := skillInputIsTTY() && !skillInstallYes && !skillInstallJSON
+	if confirmPlan {
 		for _, selectedSkill := range selected {
 			ui.PrintInfo("  %s", selectedSkill.Name)
 		}
@@ -201,6 +226,13 @@ func installSelectedSkills(cmd *cobra.Command, names []string) (returnErr error)
 		}
 	}
 	result, installErr := applySkillInstall(targets, selected, skillInstallForce, skillInstallCopy)
+	if errors.Is(installErr, errSharedSkillStorageUnavailable) && !confirmPlan && existingSkillLink(targets, selected) == "" {
+		ui.PrintWarning("%v; continuing with --copy", installErr)
+		result, installErr = applySkillInstall(targets, selected, skillInstallForce, true)
+	}
+	if usedDefault {
+		result.Selection = skillSelectionDefault
+	}
 	if skillInstallJSON {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 			return err
@@ -216,6 +248,31 @@ func installSelectedSkills(cmd *cobra.Command, names []string) (returnErr error)
 		analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "skill_install", DomainStatus: status})
 	}
 	return installErr
+}
+
+func existingSkillLink(targets []skillInstallTarget, selected []skillcatalog.Skill) string {
+	for _, target := range targets {
+		for _, skill := range selected {
+			path := filepath.Join(target.path, skill.Name)
+			if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+func legacySkillConflictError(conflicts []string, link string) error {
+	listed := strings.Join(conflicts, ", ")
+	if link == "" {
+		return fmt.Errorf("%w: existing installation at %s is preserved; move it aside before shared installation, or use --copy to keep its current location", errSharedSkillStorageUnavailable, listed)
+	}
+	moves := make([]string, 0, len(conflicts))
+	for _, conflict := range conflicts {
+		preserved := filepath.Join(filepath.Dir(filepath.Dir(conflict)), filepath.Base(conflict)+".backup")
+		moves = append(moves, "mv "+quoteCLIRecoveryArgument(conflict)+" "+quoteCLIRecoveryArgument(preserved))
+	}
+	return fmt.Errorf("%w: existing installation at %s is preserved, and --copy cannot replace the shared link at %s; move the preserved packages out of their skills directories (%s), then rerun this command", errSharedSkillStorageUnavailable, listed, link, strings.Join(moves, "; "))
 }
 
 func applySkillInstall(targets []skillInstallTarget, selected []skillcatalog.Skill, force, copyMode bool) (skillInstallResult, error) {
@@ -234,7 +291,13 @@ func applySkillInstall(targets []skillInstallTarget, selected []skillcatalog.Ski
 			}
 		}
 	}
-	if !copyMode {
+	if copyMode {
+		if link := existingSkillLink(targets, selected); link != "" {
+			return result, fmt.Errorf("%s links to shared skill storage, which --copy cannot replace; rerun without --copy to update the shared packages", link)
+		}
+	} else {
+		var conflicts []string
+		seenConflicts := make(map[string]bool)
 		for _, target := range targets {
 			for _, skill := range selected {
 				legacyNames := []string{skill.Name}
@@ -251,12 +314,16 @@ func applySkillInstall(targets []skillInstallTarget, selected []skillcatalog.Ski
 						}
 						actual, actualErr := filepath.EvalSymlinks(legacy)
 						canonical, canonicalErr := filepath.EvalSymlinks(filepath.Join(skillCanonicalBase(target), skill.Name))
-						if actualErr != nil || canonicalErr != nil || actual != canonical {
-							return result, fmt.Errorf("existing installation at %s is preserved; move it aside before shared installation, or use --copy to keep its current location", legacy)
+						if (actualErr != nil || canonicalErr != nil || actual != canonical) && !seenConflicts[legacy] {
+							seenConflicts[legacy] = true
+							conflicts = append(conflicts, legacy)
 						}
 					}
 				}
 			}
+		}
+		if len(conflicts) > 0 {
+			return result, legacySkillConflictError(conflicts, existingSkillLink(targets, selected))
 		}
 		for _, target := range targets {
 			if err := validateSkillLinkSupport(target, selected); err != nil {
@@ -480,6 +547,6 @@ func printSkillCatalog(cmd *cobra.Command) error {
 	for _, entry := range entries {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s — %s\n", entry.Name, entry.Description)
 	}
-	ui.PrintDim("Choose skills with revyl skill install, or pass --name <skill>. Use list --all for optional skills.")
+	ui.PrintDim("revyl skill install installs these recommended skills unless you pass --name <skill> or --all. Use list --all for optional skills.")
 	return nil
 }

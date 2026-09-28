@@ -338,7 +338,7 @@ func validateSkillLinkSupport(target skillInstallTarget, selected []skillcatalog
 		}
 		defer os.RemoveAll(probe)
 		if err := createSkillSymlink(".", filepath.Join(probe, "link")); err != nil {
-			return fmt.Errorf("Claude compatibility links are unavailable: %w; use --copy or choose Claude Code (copy mode) during init", err)
+			return fmt.Errorf("%w: Claude compatibility links are unavailable: %w; use --copy or choose Claude Code (copy mode) during init", errSharedSkillStorageUnavailable, err)
 		}
 		return nil
 	}

@@ -69,6 +69,7 @@ Additional optional and compatibility skills remain available by exact name.
 EXAMPLES:
   revyl skill list
   revyl skill install
+  revyl skill install --cursor --global --yes
   revyl skill install --name revyl-cli-dev-loop --cursor
   revyl skill install --name revyl-cli-create --codex
   revyl skill install --name revyl-cli-auth-bypass --claude
@@ -137,20 +138,25 @@ var skillInstallCmd = &cobra.Command{
 	Short: "Install Revyl agent skills for your AI coding tool",
 	Long: `Choose and install Revyl agent skill packages.
 
-Without skill selectors, opens an interactive picker with no skills selected.
-In scripts, specify --name (or --skill), --cli, --mcp, or --all explicitly.
---yes skips confirmation, but never selects the entire catalog implicitly.
+Without skill selectors, installs the recommended skills listed by
+revyl skill list. An interactive terminal opens a picker with them preselected;
+--yes, --json, and non-interactive runs install them and name them on stderr.
+Choose specific skills with --name (or --skill), a family with --cli or --mcp,
+or every skill with --all. With no agent flag or detected agent directory,
+installs for Cursor and Codex.
 
 Packages are shared in .agents/skills, with per-skill Claude compatibility links.
 Cursor and Codex discover the shared directory directly. --copy keeps independent
 packages in each selected agent's directory instead. Use --global for user scope.
-Existing legacy installations are preserved; move them aside before switching to
-shared storage, or use --copy to keep their existing locations.
+Existing legacy installations are preserved. When they, or missing symlink
+support, block shared storage, non-interactive runs continue as with --copy;
+move them aside to switch to shared storage.
 Cursor Marketplace plugin users do not need this command because the plugin
 already bundles its CLI-first skills and routing rule.
 
 EXAMPLES:
   revyl skill install
+  revyl skill install --cursor --global --yes
   revyl skill install --name revyl-cli-dev-loop --cursor
   revyl skill install --skill revyl-cli-create --agent codex --yes
   revyl skill install --name revyl-cli-auth-bypass --claude --global
@@ -312,7 +318,7 @@ func addInstallTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&skillInstallGlobal, "global", false, "Install to user-level (global) directory instead of project-level")
 	cmd.Flags().BoolVar(&skillInstallForce, "force", false, "Overwrite existing skill installations")
 	cmd.Flags().BoolVar(&skillInstallAll, "all", false, "Explicitly select every CLI and MCP skill")
-	cmd.Flags().BoolVarP(&skillInstallYes, "yes", "y", false, "Skip confirmation without selecting additional skills")
+	cmd.Flags().BoolVarP(&skillInstallYes, "yes", "y", false, "Skip confirmation; without selectors, install the recommended skills")
 	cmd.Flags().BoolVar(&skillInstallCopy, "copy", false, "Copy to agent directories instead of using shared storage and links")
 	cmd.Flags().BoolVar(&skillInstallJSON, "json", false, "Output structured JSON without interactive prompts")
 	cmd.Flags().StringSliceVarP(&skillInstallAgents, "agent", "a", nil, "Agent integration(s): cursor, codex, claude-code")
