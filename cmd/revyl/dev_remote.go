@@ -666,7 +666,7 @@ func triggerRemoteDevBuild(
 		State: devloop.BuildStatePreparing, Phase: "packaging", Message: "Packaging current working tree",
 	})
 
-	archivePath, err := createSourceArchiveIncludingWorkingTree(invocation.ProjectRoot)
+	archivePath, err := createSourceArchiveIncludingWorkingTree(invocation.ProjectRoot, invocation.ProjectRoot, false)
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("failed to package current working tree: %w", err)
 	}

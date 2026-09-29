@@ -571,7 +571,7 @@ func TestCreateSourceArchiveIncludingWorkingTree(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "build", "ignored.o"), "generated\n")
 	writeFile(t, filepath.Join(dir, "ignored.txt"), "ignored\n")
 
-	archivePath, err := createSourceArchiveIncludingWorkingTree(dir)
+	archivePath, err := createSourceArchiveIncludingWorkingTree(dir, dir, false)
 	if err != nil {
 		t.Fatalf("createSourceArchiveIncludingWorkingTree() error = %v", err)
 	}
@@ -614,7 +614,7 @@ func TestCreateSourceArchiveIncludingWorkingTree_FallsBackForIgnoredSandbox(t *t
 	writeFile(t, filepath.Join(sandbox, "SwiftMinimal", "ContentView.swift"), "standalone source\n")
 	writeFile(t, filepath.Join(sandbox, "build", "generated.o"), "generated\n")
 
-	archivePath, err := createSourceArchiveIncludingWorkingTree(sandbox)
+	archivePath, err := createSourceArchiveIncludingWorkingTree(sandbox, sandbox, false)
 	if err != nil {
 		t.Fatalf("createSourceArchiveIncludingWorkingTree() error = %v", err)
 	}

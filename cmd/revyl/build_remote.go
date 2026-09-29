@@ -30,6 +30,8 @@ import (
 
 var remoteBuildPollInterval = 3 * time.Second
 
+const sourceArchiveGitTimeout = 15 * time.Minute
+
 type remoteBuildOptions struct {
 	Profile             string
 	ProjectRoot         string
@@ -212,9 +214,9 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		var archivePath string
 		compressStart := time.Now()
 		if opts.IncludeDirty && !opts.CommittedOnly {
-			archivePath, err = createSourceArchiveIncludingWorkingTree(worktreeRoot)
+			archivePath, err = createSourceArchiveIncludingWorkingTree(worktreeRoot, projectRoot, true)
 		} else {
-			archivePath, err = createSourceArchive(worktreeRoot)
+			archivePath, err = createSourceArchive(worktreeRoot, projectRoot)
 		}
 		if !debugOutput && interactiveOutput {
 			ui.StopSpinner()
@@ -224,7 +226,10 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		}
 		defer os.Remove(archivePath)
 
-		archiveInfo, _ := os.Stat(archivePath)
+		archiveInfo, err := os.Stat(archivePath)
+		if err != nil {
+			return fmt.Errorf("failed to inspect source archive: %w", err)
+		}
 		sizeMB := float64(archiveInfo.Size()) / (1024 * 1024)
 		if debugOutput {
 			ui.PrintInfo("Source archive: %.1f MB", sizeMB)
@@ -992,30 +997,33 @@ func printRemoteBuildJSON(result remoteBuildJSONResult) {
 	_ = enc.Encode(result)
 }
 
-// createSourceArchive runs git archive to create a tar.gz of the worktree at HEAD.
-//
-// Parameters:
-//   - worktreeRoot: Git worktree root to archive.
-//
-// Returns:
-//   - archivePath: Path to the created tar.gz file.
-//   - error: If git archive fails.
-func createSourceArchive(worktreeRoot string) (string, error) {
+func createSourceArchive(worktreeRoot, projectRoot string) (string, error) {
+	ignoredFiles, err := listRevylIgnoredFiles(worktreeRoot, projectRoot, true)
+	if err != nil {
+		return "", err
+	}
 	tmpFile, err := os.CreateTemp("", "revyl-source-*.tar.gz")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	tmpFile.Close()
-
-	cmd := exec.Command("git", "archive", "--format=tar.gz", "-o", tmpFile.Name(), "HEAD")
-	cmd.Dir = worktreeRoot
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
+	if len(ignoredFiles) > 0 {
+		err = writeFilteredGitArchive(worktreeRoot, tmpFile, ignoredFiles)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), sourceArchiveGitTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar.gz", "HEAD")
+		cmd.Dir = worktreeRoot
+		cmd.Stdout = tmpFile
+		err = cmd.Run()
+	}
+	closeErr := tmpFile.Close()
+	if err != nil {
 		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("git archive failed: %w\n%s", err, stderr.String())
+		return "", fmt.Errorf("git archive failed: %w", err)
+	}
+	if closeErr != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to close source archive: %w", closeErr)
 	}
 
 	info, err := os.Stat(tmpFile.Name())
@@ -1029,6 +1037,151 @@ func createSourceArchive(worktreeRoot string) (string, error) {
 	}
 
 	return tmpFile.Name(), nil
+}
+
+func writeFilteredGitArchive(worktreeRoot string, output *os.File, ignoredFiles map[string]bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), sourceArchiveGitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "HEAD")
+	cmd.Dir = worktreeRoot
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	}()
+
+	archive := tar.NewReader(stdout)
+	compressed := gzip.NewWriter(output)
+	filtered := tar.NewWriter(compressed)
+	for {
+		header, err := archive.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if header.Typeflag == tar.TypeDir {
+			continue
+		}
+		if ignoredFiles[strings.TrimSuffix(header.Name, "/")] {
+			continue
+		}
+		if err := filtered.WriteHeader(header); err != nil {
+			return err
+		}
+		// #nosec G110 -- this is an uncompressed stream from local git archive, copied incrementally.
+		if _, err := io.Copy(filtered, archive); err != nil {
+			return err
+		}
+	}
+	if _, err := io.Copy(io.Discard, stdout); err != nil {
+		return err
+	}
+	if err := cmd.Wait(); err != nil {
+		return err
+	}
+	if err := filtered.Close(); err != nil {
+		return err
+	}
+	return compressed.Close()
+}
+
+func listRevylIgnoredFiles(worktreeRoot, projectRoot string, committed bool) (map[string]bool, error) {
+	projectRelativePath, err := filepath.Rel(worktreeRoot, projectRoot)
+	if err != nil || projectRelativePath == ".." || strings.HasPrefix(projectRelativePath, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("project root must be inside the Git worktree")
+	}
+	ignorePaths := []string{filepath.ToSlash(filepath.Join(projectRelativePath, ".revylignore"))}
+	if projectRelativePath != "." {
+		ignorePaths = append(ignorePaths, ".revylignore")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sourceArchiveGitTimeout)
+	defer cancel()
+
+	var selectedPath string
+	for _, path := range ignorePaths {
+		if committed {
+			// #nosec G204 -- Git receives a fixed command and a worktree-relative path as argv, without a shell.
+			check := exec.CommandContext(ctx, "git", "ls-tree", "--name-only", "HEAD", "--", path)
+			check.Dir = worktreeRoot
+			found, err := check.Output()
+			if err != nil {
+				return nil, fmt.Errorf("failed to inspect committed .revylignore: %w", err)
+			}
+			if len(found) > 0 {
+				selectedPath = path
+				break
+			}
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(worktreeRoot, filepath.FromSlash(path))); err == nil {
+			selectedPath = path
+			break
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to inspect .revylignore: %w", err)
+		}
+	}
+	if selectedPath == "" {
+		return nil, nil
+	}
+	ignorePath := filepath.Join(worktreeRoot, filepath.FromSlash(selectedPath))
+	var indexPath string
+	if committed {
+		indexDir, err := os.MkdirTemp("", "revyl-source-index-*")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temporary Git index: %w", err)
+		}
+		defer os.RemoveAll(indexDir)
+		// #nosec G204 -- Git receives a fixed command and a worktree-relative path as argv, without a shell.
+		show := exec.CommandContext(ctx, "git", "show", "HEAD:"+selectedPath)
+		show.Dir = worktreeRoot
+		rules, err := show.Output()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read committed .revylignore: %w", err)
+		}
+		ignorePath = filepath.Join(indexDir, ".revylignore")
+		if err := os.WriteFile(ignorePath, rules, 0o600); err != nil {
+			return nil, fmt.Errorf("failed to prepare committed .revylignore: %w", err)
+		}
+		indexPath = filepath.Join(indexDir, "index")
+		cmd := exec.CommandContext(ctx, "git", "read-tree", "HEAD")
+		cmd.Dir = worktreeRoot
+		cmd.Env = append(cmd.Environ(), "GIT_INDEX_FILE="+indexPath)
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to read committed source tree for .revylignore: %w", err)
+		}
+	}
+
+	args := []string{"ls-files", "-z", "--cached", "--ignored", "--exclude-from=" + ignorePath}
+	if !committed {
+		args = append(args, "--others")
+	}
+	// #nosec G204 -- Git receives a fixed flag set and a single ignore-file path, without a shell.
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = worktreeRoot
+	if committed {
+		cmd.Env = append(cmd.Environ(), "GIT_INDEX_FILE="+indexPath)
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to match .revylignore against source files: %w", err)
+	}
+	ignoredFiles := make(map[string]bool)
+	for _, raw := range bytes.Split(out, []byte{0}) {
+		if len(raw) > 0 {
+			ignoredFiles[string(raw)] = true
+		}
+	}
+	return ignoredFiles, nil
 }
 
 func createRepoBackedSourcePatch(cwd string) (string, bool, error) {
@@ -1077,10 +1230,25 @@ func uploadRemoteBuildSourceFile(ctx context.Context, client *api.Client, appID 
 // working tree instead of HEAD. It includes tracked files with dirty edits plus
 // untracked files that are not ignored by git. Deleted tracked files are omitted
 // so the archive reflects the filesystem the developer is actually editing.
-func createSourceArchiveIncludingWorkingTree(cwd string) (string, error) {
+func createSourceArchiveIncludingWorkingTree(cwd, projectRoot string, applyRevylIgnore bool) (string, error) {
 	files, err := listWorkingTreeSnapshotFiles(cwd)
 	if err != nil {
 		return "", err
+	}
+	if applyRevylIgnore {
+		ignoredFiles, err := listRevylIgnoredFiles(cwd, projectRoot, false)
+		if err != nil {
+			return "", err
+		}
+		if len(ignoredFiles) > 0 {
+			includedFiles := files[:0]
+			for _, file := range files {
+				if !ignoredFiles[filepath.ToSlash(file)] {
+					includedFiles = append(includedFiles, file)
+				}
+			}
+			files = includedFiles
+		}
 	}
 	if len(files) == 0 {
 		return "", fmt.Errorf("no source files found to archive")

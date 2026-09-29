@@ -126,6 +126,7 @@ func TestDefaultBuildAuthenticationErrorExplainsNextSteps(t *testing.T) {
 }
 
 func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "false")
 	for _, test := range []struct {
 		name, platform, status string
 		args                   []string
@@ -275,6 +276,7 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 }
 
 func TestRemoteBuildRejectsInvalidAppBeforeSourceUpload(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "false")
 	for _, test := range []struct {
 		name       string
 		statusCode int

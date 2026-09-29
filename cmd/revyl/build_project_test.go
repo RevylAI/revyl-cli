@@ -87,6 +87,62 @@ func TestPublicBuildResolutionStartsFromAlreadyChangedDirectory(t *testing.T) {
 	}
 }
 
+func TestSiblingAppBuildsArchiveTheirOwnConfigAndSource(t *testing.T) {
+	repository := t.TempDir()
+	gitInitBuildRepository(t, repository)
+	for _, app := range []struct {
+		name, platform, output, sibling string
+	}{
+		{"ios", "ios", "build/App.app", "android"},
+		{"android", "android", "build/app.apk", "ios"},
+	} {
+		root := filepath.Join(repository, "apps", app.name)
+		writeProjectBuildConfig(t, root, projectBuildConfigYAML("development", app.platform, app.output, true))
+		writeFile(t, filepath.Join(root, ".revylignore"), "/apps/"+app.sibling+"/\n")
+		writeFile(t, filepath.Join(root, "main.txt"), app.name)
+	}
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+
+	for _, app := range []struct{ name, platform, sibling string }{
+		{"ios", "ios", "android"},
+		{"android", "android", "ios"},
+	} {
+		t.Run(app.name, func(t *testing.T) {
+			root := filepath.Join(repository, "apps", app.name)
+			invocation, err := resolveBuildInvocation(root, "", "", "", false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolvedRoot, err := filepath.EvalSymlinks(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if invocation.ProjectRoot != resolvedRoot || invocation.Platform != app.platform {
+				t.Fatalf("invocation selected %q/%q, want %q/%q", invocation.ProjectRoot, invocation.Platform, resolvedRoot, app.platform)
+			}
+			archivePath, err := createSourceArchiveIncludingWorkingTree(invocation.WorktreeRoot, invocation.ProjectRoot, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(archivePath)
+			files := readTarGz(t, archivePath)
+			if files["apps/"+app.name+"/main.txt"] != app.name {
+				t.Fatalf("archive omitted %s source", app.name)
+			}
+			if _, ok := files["apps/"+app.name+"/.revyl/config.yaml"]; !ok {
+				t.Fatalf("archive omitted %s config", app.name)
+			}
+			if _, ok := files["apps/"+app.sibling+"/main.txt"]; ok {
+				t.Fatalf("archive included %s source", app.sibling)
+			}
+			if _, ok := files["apps/"+app.sibling+"/.revyl/config.yaml"]; ok {
+				t.Fatalf("archive included %s config", app.sibling)
+			}
+		})
+	}
+}
+
 func TestActionableBuildConfigErrorPointsToAppRoot(t *testing.T) {
 	err := actionableBuildConfigError(&config.ConfigError{Code: "config_not_found"})
 	message := err.Error()

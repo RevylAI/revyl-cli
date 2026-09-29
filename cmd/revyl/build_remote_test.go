@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devloop"
 )
@@ -441,7 +442,7 @@ func TestValidateBuildEnvSecretCollisions(t *testing.T) {
 	}
 }
 
-func TestCreateSourceArchivePreservesMonorepoLayout(t *testing.T) {
+func TestSourceArchivesPreserveMonorepoLayoutWithoutRevylignore(t *testing.T) {
 	repoRoot := t.TempDir()
 	runGit(t, repoRoot, "init")
 	projectRoot := filepath.Join(repoRoot, "apps", "mobile")
@@ -458,25 +459,280 @@ func TestCreateSourceArchivePreservesMonorepoLayout(t *testing.T) {
 	runGit(t, repoRoot, "add", ".")
 	runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
 
-	archivePath, err := createSourceArchive(repoRoot)
-	if err != nil {
-		t.Fatalf("createSourceArchive(): %v", err)
-	}
-	defer os.Remove(archivePath)
-
-	files := readTarGz(t, archivePath)
-	for _, path := range []string{
-		"package.json",
-		"apps/mobile/.revyl/config.yaml",
-		"apps/mobile/app.json",
-		"packages/shared/package.json",
+	for _, archive := range []struct {
+		name string
+		make func(string, string) (string, error)
+	}{
+		{"committed", createSourceArchive},
+		{"working tree", func(worktreeRoot, projectRoot string) (string, error) {
+			return createSourceArchiveIncludingWorkingTree(worktreeRoot, projectRoot, true)
+		}},
 	} {
-		if _, ok := files[path]; !ok {
-			t.Fatalf("archive missing %q; files = %v", path, files)
+		t.Run(archive.name, func(t *testing.T) {
+			archivePath, err := archive.make(repoRoot, projectRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(archivePath)
+			files := readTarGz(t, archivePath)
+			for _, path := range []string{
+				"package.json",
+				"apps/mobile/.revyl/config.yaml",
+				"apps/mobile/app.json",
+				"packages/shared/package.json",
+			} {
+				if _, ok := files[path]; !ok {
+					t.Fatalf("archive missing %q; files = %v", path, files)
+				}
+			}
+			if _, ok := files["app.json"]; ok {
+				t.Fatal("archive flattened the app subtree into the source root")
+			}
+		})
+	}
+}
+
+func TestSourceArchivesApplyRevylignore(t *testing.T) {
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	for _, dir := range []string{"app", "web", "docs"} {
+		if err := os.MkdirAll(filepath.Join(repoRoot, dir), 0o755); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if _, ok := files["app.json"]; ok {
-		t.Fatal("archive flattened the app subtree into the source root")
+	writeFile(t, filepath.Join(repoRoot, ".revylignore"), "/web/\n/docs/*\n!/docs/keep.md\n")
+	writeFile(t, filepath.Join(repoRoot, ".gitignore"), "/app/main.txt\n")
+	writeFile(t, filepath.Join(repoRoot, "app", "main.txt"), "app")
+	writeFile(t, filepath.Join(repoRoot, "web", "old.txt"), "web")
+	writeFile(t, filepath.Join(repoRoot, "docs", "drop.md"), "drop")
+	writeFile(t, filepath.Join(repoRoot, "docs", "keep.md"), "keep")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "add", "-f", "app/main.txt")
+	runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+
+	runGit(t, repoRoot, "rm", "web/old.txt")
+	if err := os.MkdirAll(filepath.Join(repoRoot, "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repoRoot, "web", "new.txt"), "new")
+	writeFile(t, filepath.Join(repoRoot, "docs", "staged.md"), "staged")
+	runGit(t, repoRoot, "add", "docs/staged.md")
+
+	for name, archive := range map[string]func(string) (string, error){
+		"committed": func(root string) (string, error) {
+			return createSourceArchive(root, root)
+		},
+		"working tree": func(root string) (string, error) {
+			return createSourceArchiveIncludingWorkingTree(root, root, true)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			archivePath, err := archive(repoRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(archivePath)
+			files := readTarGz(t, archivePath)
+			for _, path := range []string{"app/main.txt", "docs/keep.md"} {
+				if _, ok := files[path]; !ok {
+					t.Errorf("archive missing %q", path)
+				}
+			}
+			for _, path := range []string{"web/old.txt", "web/new.txt", "docs/drop.md", "docs/staged.md"} {
+				if _, ok := files[path]; ok {
+					t.Errorf("archive included ignored file %q", path)
+				}
+			}
+		})
+	}
+}
+
+func TestSourceArchivesUseEachProjectRevylignore(t *testing.T) {
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	iosRoot := filepath.Join(repoRoot, "apps", "ios")
+	androidRoot := filepath.Join(repoRoot, "apps", "android")
+	fallbackRoot := filepath.Join(repoRoot, "apps", "other")
+	for _, root := range []string{iosRoot, androidRoot, fallbackRoot} {
+		if err := os.MkdirAll(filepath.Join(root, ".revyl"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(root, ".revyl", "config.yaml"), "project:\n  name: mobile\n")
+	}
+	writeFile(t, filepath.Join(repoRoot, ".revylignore"), "/apps/ios/\n")
+	writeFile(t, filepath.Join(iosRoot, ".revylignore"), "/apps/android/\n")
+	writeFile(t, filepath.Join(androidRoot, ".revylignore"), "/apps/ios/\n")
+	writeFile(t, filepath.Join(iosRoot, "main.txt"), "ios")
+	writeFile(t, filepath.Join(androidRoot, "main.txt"), "android")
+	writeFile(t, filepath.Join(fallbackRoot, "main.txt"), "other")
+	writeFile(t, filepath.Join(repoRoot, "shared.txt"), "shared")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+
+	for _, project := range []struct {
+		name, root, included, excluded string
+	}{
+		{"ios", iosRoot, "apps/ios/main.txt", "apps/android/main.txt"},
+		{"android", androidRoot, "apps/android/main.txt", "apps/ios/main.txt"},
+		{"root fallback", fallbackRoot, "apps/other/main.txt", "apps/ios/main.txt"},
+	} {
+		for _, archive := range []struct {
+			name string
+			make func(string, string) (string, error)
+		}{
+			{"committed", createSourceArchive},
+			{"working tree", func(worktreeRoot, projectRoot string) (string, error) {
+				return createSourceArchiveIncludingWorkingTree(worktreeRoot, projectRoot, true)
+			}},
+		} {
+			t.Run(project.name+"/"+archive.name, func(t *testing.T) {
+				archivePath, err := archive.make(repoRoot, project.root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer os.Remove(archivePath)
+				files := readTarGz(t, archivePath)
+				for _, path := range []string{project.included, "shared.txt"} {
+					if _, ok := files[path]; !ok {
+						t.Errorf("archive missing %q", path)
+					}
+				}
+				if _, ok := files[project.excluded]; ok {
+					t.Errorf("archive included sibling app %q", project.excluded)
+				}
+			})
+		}
+	}
+}
+
+func TestCommittedSourceArchiveUsesCommittedRevylignore(t *testing.T) {
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	for _, dir := range []string{"app", "web"} {
+		if err := os.MkdirAll(filepath.Join(repoRoot, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(repoRoot, ".revylignore"), "/web/\n")
+	writeFile(t, filepath.Join(repoRoot, "app", "main.txt"), "app")
+	writeFile(t, filepath.Join(repoRoot, "web", "main.txt"), "web")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+
+	for name, changeRules := range map[string]func(){
+		"edited": func() { writeFile(t, filepath.Join(repoRoot, ".revylignore"), "/app/\n") },
+		"deleted": func() {
+			if err := os.Remove(filepath.Join(repoRoot, ".revylignore")); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			changeRules()
+			archivePath, err := createSourceArchive(repoRoot, repoRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(archivePath)
+			files := readTarGz(t, archivePath)
+			if _, ok := files["app/main.txt"]; !ok {
+				t.Error("committed app file missing from archive")
+			}
+			if _, ok := files["web/main.txt"]; ok {
+				t.Error("committed ignore rule did not exclude web file")
+			}
+		})
+	}
+}
+
+func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
+	const appID = "00000000-0000-4000-8000-000000000001"
+	prHeadSHA := strings.Repeat("a", 40)
+	for _, test := range []struct {
+		name   string
+		source config.BuildSource
+	}{
+		{name: "working tree archive"},
+		{name: "git commit", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: prHeadSHA}},
+		{name: "git branch", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: "main"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			runGit(t, repoRoot, "init")
+			writeFile(t, filepath.Join(repoRoot, "main.txt"), "committed")
+			runGit(t, repoRoot, "add", ".")
+			runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+			writeFile(t, filepath.Join(repoRoot, "main.txt"), "generated modification")
+			writeFile(t, filepath.Join(repoRoot, "build-info.json"), "{}")
+			eventPath := filepath.Join(t.TempDir(), "event.json")
+			writeFile(t, eventPath, `{"pull_request":{"number":42,"head":{"sha":"`+prHeadSHA+`"}}}`)
+			t.Setenv("GITHUB_ACTIONS", "true")
+			t.Setenv("GITHUB_EVENT_PATH", eventPath)
+			t.Setenv("GITHUB_REPOSITORY", "acme/mobile")
+			t.Setenv("GITHUB_SHA", strings.Repeat("b", 40))
+			uploadMetadata := build.CollectMetadata(repoRoot, "", "android", 0)
+			var submitted *api.RemoteBuildRequest
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/apps/" + appID:
+					_ = json.NewEncoder(w).Encode(api.App{ID: appID, Platform: "Android", LatestVersion: "1.0", VersionsCount: 1})
+				case "/api/v1/apps/remote/upload-url":
+					_ = json.NewEncoder(w).Encode(api.RemoteBuildSourceUploadResponse{UploadUrl: server.URL + "/source", SourceKey: "source-key"})
+				case "/source":
+					if r.Header.Get("X-CI-System") != "" {
+						t.Error("CI identity leaked to source storage")
+					}
+				case "/api/v1/apps/remote":
+					for header, metadataKey := range map[string]string{
+						"X-CI-Commit-SHA": "scm_head_sha",
+						"X-CI-Repository": "scm_repo",
+						"X-CI-System":     "ci_system",
+					} {
+						if r.Header.Get(header) != uploadMetadata[metadataKey] {
+							t.Errorf("%s = %q, upload metadata = %v", header, r.Header.Get(header), uploadMetadata[metadataKey])
+						}
+					}
+					if r.Header.Get("X-CI-PR-Number") != "42" || r.Header.Get("X-CI-Commit-SHA") != prHeadSHA {
+						t.Error("remote build lost the PR identity")
+					}
+					if err := json.NewDecoder(r.Body).Decode(&submitted); err != nil {
+						t.Error(err)
+					}
+					_, _ = w.Write([]byte(`{"build_job_id":"job-1"}`))
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			output := captureStdout(t, func() {
+				err := runRemoteBuildWithOptions(newBuildTestCommand(), "test-key", remoteBuildOptions{
+					ProjectRoot: repoRoot, WorktreeRoot: repoRoot, JSON: true, IncludeDirty: true,
+					Resolved: &remoteBuildPlatformConfig{AppID: appID, Platform: "android", Command: "true", Output: "app.apk", Source: test.source},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+			assertJSONString(t, parseJSON(t, output), "build_job_id", "job-1")
+			if submitted == nil {
+				t.Fatal("remote build was not submitted")
+			}
+			if test.source.Type == "git" {
+				source, err := submitted.Source.AsRemoteBuildGitSource()
+				if err != nil || source.Ref == nil || *source.Ref != test.source.Ref || source.PatchKey == nil {
+					t.Fatalf("Git source ref or working tree patch was lost: %+v, %v", source, err)
+				}
+			} else {
+				source, err := submitted.Source.AsRemoteBuildArchiveSource()
+				if err != nil || source.Key != "source-key" {
+					t.Fatalf("source archive was lost: %+v, %v", source, err)
+				}
+			}
+		})
 	}
 }
 
