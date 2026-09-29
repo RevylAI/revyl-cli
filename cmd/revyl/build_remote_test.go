@@ -736,9 +736,9 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 	}
 }
 
-func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
+func TestRemoteBuildRecipeIncludesSecretReferences(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	config, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	config, err := remoteBuildRecipeFromResolved(appID, remoteBuildPlatformConfig{
 		Platform: "ios",
 		Command:  "xcodebuild",
 		Output:   "build/App.app",
@@ -756,9 +756,9 @@ func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
 	}
 }
 
-func TestRemoteBuildConfigIncludesResolvedSourceSubdir(t *testing.T) {
+func TestRemoteBuildRecipeIncludesResolvedSourceSubdir(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildRecipeFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "ios",
 		Command:      "xcodebuild",
 		Output:       "build/App.app",
@@ -773,9 +773,9 @@ func TestRemoteBuildConfigIncludesResolvedSourceSubdir(t *testing.T) {
 	}
 }
 
-func TestRemoteBuildConfigOmitsRepositoryRootSourceSubdir(t *testing.T) {
+func TestRemoteBuildRecipeOmitsRepositoryRootSourceSubdir(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildRecipeFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "ios",
 		Command:      "xcodebuild",
 		Output:       "build/App.app",
@@ -790,9 +790,9 @@ func TestRemoteBuildConfigOmitsRepositoryRootSourceSubdir(t *testing.T) {
 	}
 }
 
-func TestRemoteBuildConfigExplicitGitSubdirOverridesResolvedProject(t *testing.T) {
+func TestRemoteBuildRecipeExplicitGitSubdirOverridesResolvedProject(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildRecipeFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "android",
 		Command:      "./gradlew assembleRelease",
 		Output:       "build/app.apk",
@@ -812,9 +812,9 @@ func TestRemoteBuildConfigExplicitGitSubdirOverridesResolvedProject(t *testing.T
 	}
 }
 
-func TestRemoteBuildConfigPreservesEmptyExplicitGitSubdir(t *testing.T) {
+func TestRemoteBuildRecipePreservesEmptyExplicitGitSubdir(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
-	buildConfig, err := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+	buildConfig, err := remoteBuildRecipeFromResolved(appID, remoteBuildPlatformConfig{
 		Platform:     "ios",
 		Command:      "xcodebuild",
 		Output:       "build/App.app",
@@ -833,9 +833,44 @@ func TestRemoteBuildConfigPreservesEmptyExplicitGitSubdir(t *testing.T) {
 	}
 }
 
-func TestRemoteBuildStepsRejectUnencodableTypedStepInputs(t *testing.T) {
+func TestRemoteRecipeStepsRejectUnencodableTypedStepInputs(t *testing.T) {
 	items := []config.BuildStepItem{{Step: map[string]any{"ios-signing": map[string]any{"certificate": math.NaN()}}}}
-	if _, err := remoteBuildStepsFromItems("build", items); err == nil || !strings.Contains(err.Error(), "build step 1: encode ios-signing inputs") {
-		t.Fatalf("remoteBuildStepsFromItems() error = %v, want encode failure", err)
+	if _, err := remoteRecipeSteps("build", items); err == nil || !strings.Contains(err.Error(), "build step 1: encode ios-signing inputs") {
+		t.Fatalf("remoteRecipeSteps() error = %v, want encode failure", err)
+	}
+}
+
+func TestRemoteBuildLogFormatterLabelsRevylStepsAndSkippedCommands(t *testing.T) {
+	_, stderr := captureStdoutAndStderrSeparate(t, func() {
+		formatter := &remoteBuildLogFormatter{}
+		for _, message := range []string{
+			"step:start fingerprint",
+			"running npx --yes @expo/fingerprint fingerprint:generate",
+			"fingerprint:match reused_build_id=00000000-0000-0000-0000-000000000789",
+			"step:end fingerprint exit_code=0 duration_ms=13000",
+			"step:skipped run reason=fingerprint_reused",
+			"step:start upload_artifact",
+			"step:end upload_artifact exit_code=0 duration_ms=2000",
+			"step:start run",
+			"running xcodebuild -scheme Demo",
+			"step:end run exit_code=0 duration_ms=1000",
+		} {
+			formatter.Print(api.RemoteBuildLogEvent{Message: message})
+		}
+	})
+
+	for _, want := range []string{
+		"Fingerprint matches an earlier build; reusing its native app",
+		"Fingerprint completed in 13.0s",
+		"Build command skipped: reusing the fingerprint-matched build",
+		"Upload completed in 2.0s",
+		"xcodebuild completed in 1.0s",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "@expo/fingerprint") {
+		t.Fatalf("stderr shows the internal fingerprint command:\n%s", stderr)
 	}
 }

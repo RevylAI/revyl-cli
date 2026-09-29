@@ -587,6 +587,7 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 	image := "ios-macos"
 	timeout := 900
 	invocation := projectBuildInvocation{
+		Profile:  "development",
 		Platform: "ios",
 		AppID:    "00000000-0000-4000-8000-000000000001",
 		Recipe: config.EffectiveBuildRecipe{
@@ -603,15 +604,15 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 		},
 	}
 	resolved := remoteBuildPlatformConfigForWorktree(invocation)
-	apiConfig, err := remoteBuildConfigFromResolved(uuid.MustParse(invocation.AppID), resolved)
+	recipe, err := remoteBuildRecipeFromResolved(uuid.MustParse(invocation.AppID), resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if apiConfig.Steps == nil {
-		t.Fatal("steps are nil")
+	if recipe.SetupSteps == nil {
+		t.Fatal("setup steps are nil")
 	}
 	var commands []string
-	for _, step := range *apiConfig.Steps {
+	for _, step := range append(append([]api.RecipeStep{}, *recipe.SetupSteps...), recipe.BuildSteps...) {
 		if step.Command != nil {
 			commands = append(commands, *step.Command)
 		}
@@ -619,14 +620,14 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 	if want := []string{"bun install", "cd ios && pod install", "bun generate", "xcodebuild"}; !reflect.DeepEqual(commands, want) {
 		t.Fatalf("commands = %#v, want %#v", commands, want)
 	}
-	if apiConfig.SourceSubdir == nil || *apiConfig.SourceSubdir != "apps/mobile" {
-		t.Fatalf("source subdir = %#v, want apps/mobile", apiConfig.SourceSubdir)
+	if recipe.SourceSubdir == nil || *recipe.SourceSubdir != "apps/mobile" {
+		t.Fatalf("source subdir = %#v, want apps/mobile", recipe.SourceSubdir)
 	}
-	if apiConfig.Id != nil || apiConfig.Name != nil {
-		t.Fatalf("remote config leaked saved identity: %+v", apiConfig)
+	if recipe.Profile == nil || *recipe.Profile != invocation.Profile {
+		t.Fatalf("profile = %#v, want %q", recipe.Profile, invocation.Profile)
 	}
-	if apiConfig.Artifacts == nil || len(*apiConfig.Artifacts) != 1 || (*apiConfig.Artifacts)[0].Path != output {
-		t.Fatalf("artifacts = %#v", apiConfig.Artifacts)
+	if recipe.Artifacts == nil || len(*recipe.Artifacts) != 1 || (*recipe.Artifacts)[0].Path != output {
+		t.Fatalf("artifacts = %#v", recipe.Artifacts)
 	}
 }
 
@@ -672,8 +673,8 @@ func TestRemoteOverridesRecomputeHashAndTriggerProvenance(t *testing.T) {
 	if request.BuildDefinitionHash == nil || *request.BuildDefinitionHash != hash {
 		t.Fatalf("build_definition_hash = %#v, want %q", request.BuildDefinitionHash, hash)
 	}
-	if request.Config.Id != nil || request.Config.Name != nil || request.Config.SourceSubdir != nil {
-		t.Fatalf("request leaked saved/source identity: %+v", request.Config)
+	if request.Config != nil || request.Recipe == nil || request.Recipe.SourceSubdir != nil {
+		t.Fatalf("request should carry only a recipe without a source subdir: %+v", request)
 	}
 }
 

@@ -474,14 +474,34 @@ func (e BuildConfigPlatform) Valid() bool {
 	}
 }
 
+// Defines values for BuildRecipePlatform.
+const (
+	BuildRecipePlatformAndroid BuildRecipePlatform = "android"
+	BuildRecipePlatformIos     BuildRecipePlatform = "ios"
+)
+
+// Valid indicates whether the value is a known member of the BuildRecipePlatform enum.
+func (e BuildRecipePlatform) Valid() bool {
+	switch e {
+	case BuildRecipePlatformAndroid:
+		return true
+	case BuildRecipePlatformIos:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildStepType.
 const (
 	BuildStepTypeAndroidSigning        BuildStepType = "android-signing"
 	BuildStepTypeAppStoreConnectDeploy BuildStepType = "app-store-connect-deploy"
 	BuildStepTypeCheckout              BuildStepType = "checkout"
+	BuildStepTypeFingerprint           BuildStepType = "fingerprint"
 	BuildStepTypeGooglePlayDeploy      BuildStepType = "google-play-deploy"
 	BuildStepTypeIosSigning            BuildStepType = "ios-signing"
 	BuildStepTypeRun                   BuildStepType = "run"
+	BuildStepTypeUploadArtifact        BuildStepType = "upload_artifact"
 )
 
 // Valid indicates whether the value is a known member of the BuildStepType enum.
@@ -493,11 +513,15 @@ func (e BuildStepType) Valid() bool {
 		return true
 	case BuildStepTypeCheckout:
 		return true
+	case BuildStepTypeFingerprint:
+		return true
 	case BuildStepTypeGooglePlayDeploy:
 		return true
 	case BuildStepTypeIosSigning:
 		return true
 	case BuildStepTypeRun:
+		return true
+	case BuildStepTypeUploadArtifact:
 		return true
 	default:
 		return false
@@ -1299,6 +1323,96 @@ func (e ProjectConfigurationReplaceResponseOutcome) Valid() bool {
 	case ProjectConfigurationReplaceResponseOutcomeApplied:
 		return true
 	case ProjectConfigurationReplaceResponseOutcomeUnchanged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecipeStepType.
+const (
+	RecipeStepTypeAndroidSigning        RecipeStepType = "android-signing"
+	RecipeStepTypeAppStoreConnectDeploy RecipeStepType = "app-store-connect-deploy"
+	RecipeStepTypeGooglePlayDeploy      RecipeStepType = "google-play-deploy"
+	RecipeStepTypeIosSigning            RecipeStepType = "ios-signing"
+	RecipeStepTypeRun                   RecipeStepType = "run"
+)
+
+// Valid indicates whether the value is a known member of the RecipeStepType enum.
+func (e RecipeStepType) Valid() bool {
+	switch e {
+	case RecipeStepTypeAndroidSigning:
+		return true
+	case RecipeStepTypeAppStoreConnectDeploy:
+		return true
+	case RecipeStepTypeGooglePlayDeploy:
+		return true
+	case RecipeStepTypeIosSigning:
+		return true
+	case RecipeStepTypeRun:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemoteBuildStatusResponsePostBuildStatus.
+const (
+	RemoteBuildStatusResponsePostBuildStatusFailed  RemoteBuildStatusResponsePostBuildStatus = "failed"
+	RemoteBuildStatusResponsePostBuildStatusRunning RemoteBuildStatusResponsePostBuildStatus = "running"
+	RemoteBuildStatusResponsePostBuildStatusSuccess RemoteBuildStatusResponsePostBuildStatus = "success"
+)
+
+// Valid indicates whether the value is a known member of the RemoteBuildStatusResponsePostBuildStatus enum.
+func (e RemoteBuildStatusResponsePostBuildStatus) Valid() bool {
+	switch e {
+	case RemoteBuildStatusResponsePostBuildStatusFailed:
+		return true
+	case RemoteBuildStatusResponsePostBuildStatusRunning:
+		return true
+	case RemoteBuildStatusResponsePostBuildStatusSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemoteBuildStepFingerprint.
+const (
+	RemoteBuildStepFingerprintMatch RemoteBuildStepFingerprint = "match"
+	RemoteBuildStepFingerprintNew   RemoteBuildStepFingerprint = "new"
+)
+
+// Valid indicates whether the value is a known member of the RemoteBuildStepFingerprint enum.
+func (e RemoteBuildStepFingerprint) Valid() bool {
+	switch e {
+	case RemoteBuildStepFingerprintMatch:
+		return true
+	case RemoteBuildStepFingerprintNew:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RemoteBuildStepStatus.
+const (
+	RemoteBuildStepStatusFailed  RemoteBuildStepStatus = "failed"
+	RemoteBuildStepStatusRunning RemoteBuildStepStatus = "running"
+	RemoteBuildStepStatusSkipped RemoteBuildStepStatus = "skipped"
+	RemoteBuildStepStatusSuccess RemoteBuildStepStatus = "success"
+)
+
+// Valid indicates whether the value is a known member of the RemoteBuildStepStatus enum.
+func (e RemoteBuildStepStatus) Valid() bool {
+	switch e {
+	case RemoteBuildStepStatusFailed:
+		return true
+	case RemoteBuildStepStatusRunning:
+		return true
+	case RemoteBuildStepStatusSkipped:
+		return true
+	case RemoteBuildStepStatusSuccess:
 		return true
 	default:
 		return false
@@ -3220,6 +3334,31 @@ type BuildMultipartUploadStartResponse struct {
 	// UploadId Staging upload session id, passed to POST /{app_id}/builds
 	UploadId openapi_types.UUID `json:"upload_id"`
 }
+
+// BuildRecipe One platform recipe as the customer wrote it, with setup and build steps kept apart.
+//
+// Revyl adds checkout, fingerprinting, and the artifact upload around these steps.
+type BuildRecipe struct {
+	AppId      openapi_types.UUID `json:"app_id"`
+	Artifacts  *[]BuildArtifact   `json:"artifacts,omitempty"`
+	BuildSteps []RecipeStep       `json:"build_steps"`
+	Caches     *[]BuildCache      `json:"caches,omitempty"`
+	Env        *map[string]string `json:"env,omitempty"`
+	Framework  *string            `json:"framework,omitempty"`
+
+	// Image Optional sandbox build image key.
+	Image    *string             `json:"image,omitempty"`
+	Platform BuildRecipePlatform `json:"platform"`
+
+	// Profile Name of the build profile this recipe came from, such as development.
+	Profile      *string       `json:"profile,omitempty"`
+	SecretRefs   *[]string     `json:"secret_refs,omitempty"`
+	SetupSteps   *[]RecipeStep `json:"setup_steps,omitempty"`
+	SourceSubdir *string       `json:"source_subdir,omitempty"`
+}
+
+// BuildRecipePlatform defines model for BuildRecipe.Platform.
+type BuildRecipePlatform string
 
 // BuildResponse Response model for a build (specific artifact/version of an app).
 type BuildResponse struct {
@@ -5414,6 +5553,27 @@ type ProjectCursorProofRepository struct {
 	RepositoryRelativeProjectRoot string `json:"repository_relative_project_root"`
 }
 
+// RecipeStep A setup or build step the customer wrote.
+type RecipeStep struct {
+	Command *string `json:"command,omitempty"`
+
+	// Inputs Closed input contract of a typed step; absent for run and checkout.
+	Inputs *RecipeStep_Inputs `json:"inputs,omitempty"`
+	Name   *string            `json:"name,omitempty"`
+
+	// SecretEnv Names of build secrets exported into this step's environment, in addition to the configuration-level secret_refs.
+	SecretEnv *[]string      `json:"secret_env,omitempty"`
+	Type      RecipeStepType `json:"type"`
+}
+
+// RecipeStep_Inputs Closed input contract of a typed step; absent for run and checkout.
+type RecipeStep_Inputs struct {
+	union json.RawMessage
+}
+
+// RecipeStepType defines model for RecipeStep.Type.
+type RecipeStepType string
+
 // RedeemCLIDeviceCredentialRequest Poll from the CLI holding the device code.
 type RedeemCLIDeviceCredentialRequest struct {
 	// DeviceCode Secret issued when the authorization was created.
@@ -5475,6 +5635,9 @@ type RemoteBuildLogsResponse struct {
 	HasMoreBefore  *bool                  `json:"has_more_before,omitempty"`
 	NextCursor     *string                `json:"next_cursor,omitempty"`
 	PreviousCursor *string                `json:"previous_cursor,omitempty"`
+
+	// StepTotalCount Total available log events for a step on its latest page.
+	StepTotalCount *int `json:"step_total_count,omitempty"`
 }
 
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
@@ -5493,10 +5656,15 @@ type RemoteBuildRequest struct {
 	CleanBuild          *bool   `json:"clean_build,omitempty"`
 
 	// Config Sandbox build configuration stored by the API and used by build jobs.
-	Config BuildConfig `json:"config"`
+	Config *BuildConfig `json:"config,omitempty"`
 
 	// Image Optional sandbox build image key. Defaults to latest.
 	Image *string `json:"image,omitempty"`
+
+	// Recipe One platform recipe as the customer wrote it, with setup and build steps kept apart.
+	//
+	// Revyl adds checkout, fingerprinting, and the artifact upload around these steps.
+	Recipe *BuildRecipe `json:"recipe,omitempty"`
 
 	// Runtime Optional iOS runtime the build targets, e.g. 26.5. Must be one the chosen image carries; see the runtimes on /remote/build-images.
 	Runtime      *string                   `json:"runtime,omitempty"`
@@ -5573,6 +5741,10 @@ type RemoteBuildSourceUploadResponse struct {
 //	phase_timings: Per-phase build timings when emitted by the worker.
 //	timeout_seconds: Server-enforced build timeout in seconds when known.
 //	steps: Configured build steps in runner order.
+//	has_legacy_logs: Whether an archived build still needs the combined-log view.
+//	has_post_build_logs: Whether the runner reported after-build work,
+//	    whose logs use step ``len(steps)``.
+//	post_build_status: Runner-reported state of the after-build tail.
 type RemoteBuildStatusResponse struct {
 	AppId                  *string                                   `json:"app_id,omitempty"`
 	ArtifactType           *string                                   `json:"artifact_type,omitempty"`
@@ -5582,10 +5754,13 @@ type RemoteBuildStatusResponse struct {
 	CreatedAt              *time.Time                                `json:"created_at,omitempty"`
 	DurationMs             *int                                      `json:"duration_ms,omitempty"`
 	Error                  *string                                   `json:"error,omitempty"`
+	HasLegacyLogs          *bool                                     `json:"has_legacy_logs,omitempty"`
+	HasPostBuildLogs       *bool                                     `json:"has_post_build_logs,omitempty"`
 	PackageId              *string                                   `json:"package_id,omitempty"`
 	Phase                  *string                                   `json:"phase,omitempty"`
 	PhaseTimings           *[]RemoteBuildPhaseTiming                 `json:"phase_timings,omitempty"`
 	Platform               *string                                   `json:"platform,omitempty"`
+	PostBuildStatus        *RemoteBuildStatusResponsePostBuildStatus `json:"post_build_status,omitempty"`
 	StartedAt              *time.Time                                `json:"started_at,omitempty"`
 	Status                 string                                    `json:"status"`
 	Steps                  *[]RemoteBuildStep                        `json:"steps,omitempty"`
@@ -5595,15 +5770,28 @@ type RemoteBuildStatusResponse struct {
 	VersionId              *string                                   `json:"version_id,omitempty"`
 }
 
+// RemoteBuildStatusResponsePostBuildStatus defines model for RemoteBuildStatusResponse.PostBuildStatus.
+type RemoteBuildStatusResponsePostBuildStatus string
+
 // RemoteBuildStep One configured step of a build job, in runner order.
 //
-// “index“ matches the “step_index“ on the job's log events.
+// “index“ matches the “step_index“ on the job's log events. “status“ is
+// the runner-recorded outcome and stays “None“ until its first typed update.
 type RemoteBuildStep struct {
-	Command *string `json:"command,omitempty"`
-	Index   int     `json:"index"`
-	Name    string  `json:"name"`
-	Type    string  `json:"type"`
+	Command     *string                     `json:"command,omitempty"`
+	DurationMs  *int                        `json:"duration_ms,omitempty"`
+	Fingerprint *RemoteBuildStepFingerprint `json:"fingerprint,omitempty"`
+	Index       int                         `json:"index"`
+	Name        string                      `json:"name"`
+	Status      *RemoteBuildStepStatus      `json:"status,omitempty"`
+	Type        string                      `json:"type"`
 }
+
+// RemoteBuildStepFingerprint defines model for RemoteBuildStep.Fingerprint.
+type RemoteBuildStepFingerprint string
+
+// RemoteBuildStepStatus defines model for RemoteBuildStep.Status.
+type RemoteBuildStepStatus string
 
 // RemoteBuildSummary Compact summary of a single remote build job for list views.
 //
@@ -7297,6 +7485,10 @@ type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
 	// BeforeId Redis stream cursor. Fetch events older than this id.
 	BeforeId *string `form:"before_id,omitempty" json:"before_id,omitempty"`
 	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// StepIndex Only this step's events, matching the event step_index; len(steps) holds the runner's work after the last step. Unmigrated archives answer 409; an unreadable step answers 503.
+	StepIndex *int    `form:"step_index,omitempty" json:"step_index,omitempty"`
+	Accept    *string `json:"accept,omitempty"`
 }
 
 // ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
@@ -10933,6 +11125,120 @@ func (t ProjectConfigurationResource_Source) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ProjectConfigurationResource_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsIosSigningInputs returns the union data inside the RecipeStep_Inputs as a IosSigningInputs
+func (t RecipeStep_Inputs) AsIosSigningInputs() (IosSigningInputs, error) {
+	var body IosSigningInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIosSigningInputs overwrites any union data inside the RecipeStep_Inputs as the provided IosSigningInputs
+func (t *RecipeStep_Inputs) FromIosSigningInputs(v IosSigningInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIosSigningInputs performs a merge with any union data inside the RecipeStep_Inputs, using the provided IosSigningInputs
+func (t *RecipeStep_Inputs) MergeIosSigningInputs(v IosSigningInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAndroidSigningInputs returns the union data inside the RecipeStep_Inputs as a AndroidSigningInputs
+func (t RecipeStep_Inputs) AsAndroidSigningInputs() (AndroidSigningInputs, error) {
+	var body AndroidSigningInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAndroidSigningInputs overwrites any union data inside the RecipeStep_Inputs as the provided AndroidSigningInputs
+func (t *RecipeStep_Inputs) FromAndroidSigningInputs(v AndroidSigningInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAndroidSigningInputs performs a merge with any union data inside the RecipeStep_Inputs, using the provided AndroidSigningInputs
+func (t *RecipeStep_Inputs) MergeAndroidSigningInputs(v AndroidSigningInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAppStoreConnectDeployInputs returns the union data inside the RecipeStep_Inputs as a AppStoreConnectDeployInputs
+func (t RecipeStep_Inputs) AsAppStoreConnectDeployInputs() (AppStoreConnectDeployInputs, error) {
+	var body AppStoreConnectDeployInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAppStoreConnectDeployInputs overwrites any union data inside the RecipeStep_Inputs as the provided AppStoreConnectDeployInputs
+func (t *RecipeStep_Inputs) FromAppStoreConnectDeployInputs(v AppStoreConnectDeployInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAppStoreConnectDeployInputs performs a merge with any union data inside the RecipeStep_Inputs, using the provided AppStoreConnectDeployInputs
+func (t *RecipeStep_Inputs) MergeAppStoreConnectDeployInputs(v AppStoreConnectDeployInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGooglePlayDeployInputs returns the union data inside the RecipeStep_Inputs as a GooglePlayDeployInputs
+func (t RecipeStep_Inputs) AsGooglePlayDeployInputs() (GooglePlayDeployInputs, error) {
+	var body GooglePlayDeployInputs
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGooglePlayDeployInputs overwrites any union data inside the RecipeStep_Inputs as the provided GooglePlayDeployInputs
+func (t *RecipeStep_Inputs) FromGooglePlayDeployInputs(v GooglePlayDeployInputs) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGooglePlayDeployInputs performs a merge with any union data inside the RecipeStep_Inputs, using the provided GooglePlayDeployInputs
+func (t *RecipeStep_Inputs) MergeGooglePlayDeployInputs(v GooglePlayDeployInputs) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RecipeStep_Inputs) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RecipeStep_Inputs) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

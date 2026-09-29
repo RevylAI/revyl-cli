@@ -508,14 +508,15 @@ func TestRemoteDevTriggerRequestAllowsFastlane(t *testing.T) {
 		t.Fatalf("remoteDevTriggerRequest(): %v", err)
 	}
 
-	if len(*req.Config.Steps) != 3 || *(*req.Config.Steps)[2].Command != "bundle exec fastlane build_simulator_debug" {
-		t.Fatalf("Config.Steps = %#v", *req.Config.Steps)
+	recipe := req.Recipe
+	if len(recipe.BuildSteps) != 1 || *recipe.BuildSteps[0].Command != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("Recipe.BuildSteps = %#v", recipe.BuildSteps)
 	}
-	if len(*req.Config.Artifacts) != 1 || (*req.Config.Artifacts)[0].Path != "build/Example.app.zip" {
-		t.Fatalf("Config.Artifacts = %#v", *req.Config.Artifacts)
+	if len(*recipe.Artifacts) != 1 || (*recipe.Artifacts)[0].Path != "build/Example.app.zip" {
+		t.Fatalf("Recipe.Artifacts = %#v", *recipe.Artifacts)
 	}
-	if *(*req.Config.Steps)[1].Command != "bash .revyl/setup-ios-remote.sh" {
-		t.Fatalf("setup step = %#v", (*req.Config.Steps)[1])
+	if recipe.SetupSteps == nil || len(*recipe.SetupSteps) != 1 || *(*recipe.SetupSteps)[0].Command != "bash .revyl/setup-ios-remote.sh" {
+		t.Fatalf("Recipe.SetupSteps = %#v", recipe.SetupSteps)
 	}
 }
 
@@ -540,14 +541,15 @@ func TestRemoteDevTriggerRequestCarriesMultipleBuildCommands(t *testing.T) {
 		t.Fatalf("remoteDevTriggerRequest(): %v", err)
 	}
 
-	if len(*req.Config.Steps) != 3 {
-		t.Fatalf("Config.Steps = %#v", *req.Config.Steps)
+	steps := req.Recipe.BuildSteps
+	if len(steps) != 2 {
+		t.Fatalf("Recipe.BuildSteps = %#v", steps)
 	}
-	if *(*req.Config.Steps)[1].Command != "npm ci" {
-		t.Fatalf("first build step = %#v", (*req.Config.Steps)[1])
+	if *steps[0].Command != "npm ci" || steps[0].Name != nil {
+		t.Fatalf("first build step = %#v", steps[0])
 	}
-	if *(*req.Config.Steps)[2].Command != "bundle exec fastlane build_simulator_debug" {
-		t.Fatalf("second build step = %#v", (*req.Config.Steps)[2])
+	if *steps[1].Command != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("second build step = %#v", steps[1])
 	}
 }
 

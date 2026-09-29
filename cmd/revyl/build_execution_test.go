@@ -235,8 +235,8 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 			if appLookups != 1 || submissions != 1 || (statusCalls > 0) != (test.status == "success") {
 				t.Fatalf("app lookups = %d, submissions = %d, status calls = %d", appLookups, submissions, statusCalls)
 			}
-			if request.Config.Platform == nil || string(*request.Config.Platform) != test.platform || request.Config.Steps == nil || len(*request.Config.Steps) != 2 || (*request.Config.Steps)[1].Command == nil || *(*request.Config.Steps)[1].Command != "touch local-build-ran" {
-				t.Fatalf("recipe not preserved: %+v", request.Config)
+			if request.Recipe == nil || string(request.Recipe.Platform) != test.platform || len(request.Recipe.BuildSteps) != 1 || request.Recipe.BuildSteps[0].Command == nil || *request.Recipe.BuildSteps[0].Command != "touch local-build-ran" {
+				t.Fatalf("recipe not preserved: %+v", request.Recipe)
 			}
 			if test.bare {
 				if request.Image != nil || request.TimeoutSeconds != nil || request.Version != nil || request.SetAsCurrent == nil || !*request.SetAsCurrent {
@@ -246,8 +246,8 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 				if request.Image == nil || *request.Image != "test-image" || request.TimeoutSeconds == nil || *request.TimeoutSeconds != 90 || request.SetAsCurrent == nil || *request.SetAsCurrent || request.CleanBuild == nil || !*request.CleanBuild {
 					t.Fatalf("remote options not preserved: %+v", request)
 				}
-				if request.Config.Env == nil || (*request.Config.Env)["PLAIN"] != "value" || request.Config.SecretRefs == nil || !reflect.DeepEqual(*request.Config.SecretRefs, []string{"BUILD_TOKEN"}) {
-					t.Fatalf("environment and secret references not preserved: %+v", request.Config)
+				if request.Recipe.Env == nil || (*request.Recipe.Env)["PLAIN"] != "value" || request.Recipe.SecretRefs == nil || !reflect.DeepEqual(*request.Recipe.SecretRefs, []string{"BUILD_TOKEN"}) {
+					t.Fatalf("environment and secret references not preserved: %+v", request.Recipe)
 				}
 				if request.Version == nil || *request.Version != "1.2.3" {
 					t.Fatalf("version not preserved: %+v", request)

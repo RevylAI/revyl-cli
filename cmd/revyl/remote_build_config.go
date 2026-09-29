@@ -12,11 +12,14 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatformConfig) (api.BuildConfig, error) {
-	platform := api.BuildConfigPlatform(resolved.Platform)
-	steps, err := remoteBuildStepsFromCommands(remoteBuildSetupCommands(resolved), remoteBuildCommands(resolved))
+func remoteBuildRecipeFromResolved(appID uuid.UUID, resolved remoteBuildPlatformConfig) (api.BuildRecipe, error) {
+	setupSteps, err := remoteRecipeSteps("setup", remoteBuildSetupCommands(resolved))
 	if err != nil {
-		return api.BuildConfig{}, err
+		return api.BuildRecipe{}, err
+	}
+	buildSteps, err := remoteRecipeSteps("build", remoteBuildCommands(resolved))
+	if err != nil {
+		return api.BuildRecipe{}, err
 	}
 	artifacts := remoteBuildArtifacts(defaultRemoteArtifactType(resolved.Platform), resolved.Output)
 
@@ -28,13 +31,19 @@ func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatform
 		sourceSubdir = normalizeRemoteGitSource(resolved.Source).Subdir
 	}
 
-	return api.BuildConfig{
+	var setupStepsPtr *[]api.RecipeStep
+	if len(setupSteps) > 0 {
+		setupStepsPtr = &setupSteps
+	}
+	return api.BuildRecipe{
 		AppId:        appID,
-		Platform:     &platform,
+		Platform:     api.BuildRecipePlatform(resolved.Platform),
+		Profile:      stringPtrOrNil(resolved.Profile),
 		Framework:    stringPtrOrNil(resolved.Framework),
 		Image:        stringPtrOrNil(resolved.Image),
 		SourceSubdir: stringPtrOrNil(sourceSubdir),
-		Steps:        &steps,
+		SetupSteps:   setupStepsPtr,
+		BuildSteps:   buildSteps,
 		Artifacts:    &artifacts,
 		Env:          stringMapPtrOrNil(resolved.Env),
 		SecretRefs:   stringSlicePtrOrNil(resolved.Secrets),
@@ -70,52 +79,26 @@ func remoteBuildCommands(resolved remoteBuildPlatformConfig) []config.BuildStepI
 	return commands
 }
 
-func remoteBuildStepsFromCommands(setupCommands, commands []config.BuildStepItem) ([]api.BuildStep, error) {
-	checkoutName := "checkout"
-	steps := []api.BuildStep{
-		{Type: api.BuildStepTypeCheckout, Name: &checkoutName},
-	}
-	for _, phase := range []struct {
-		name  string
-		items []config.BuildStepItem
-	}{{"setup", setupCommands}, {"build", commands}} {
-		phaseSteps, err := remoteBuildStepsFromItems(phase.name, phase.items)
-		if err != nil {
-			return nil, err
-		}
-		steps = append(steps, phaseSteps...)
-	}
-	return steps, nil
-}
-
-func remoteBuildStepsFromItems(phase string, items []config.BuildStepItem) ([]api.BuildStep, error) {
-	steps := []api.BuildStep{}
+// remoteRecipeSteps converts one authored command list into recipe steps.
+// Revyl adds checkout, fingerprinting, and the artifact upload itself, so only
+// the customer's own steps are sent, named only when the customer named them.
+func remoteRecipeSteps(phase string, items []config.BuildStepItem) ([]api.RecipeStep, error) {
+	steps := []api.RecipeStep{}
 	for index, item := range items {
-		positionalName := phase
-		if len(items) > 1 {
-			positionalName = fmt.Sprintf("%s-%d", phase, index+1)
-		}
+		name := stringPtrOrNil(strings.TrimSpace(item.Name()))
 		if command, ok := item.RunCommand(); ok {
 			command = strings.TrimSpace(command)
 			if command == "" {
 				continue
 			}
-			name := positionalName
-			if authored := strings.TrimSpace(item.Name()); authored != "" {
-				name = authored
-			}
-			steps = append(steps, api.BuildStep{
-				Type:    api.BuildStepTypeRun,
-				Name:    &name,
+			steps = append(steps, api.RecipeStep{
+				Type:    api.RecipeStepTypeRun,
+				Name:    name,
 				Command: &command,
 			})
 			continue
 		}
-		name := item.Type()
-		if authored := strings.TrimSpace(item.Name()); authored != "" {
-			name = authored
-		}
-		inputs := api.BuildStep_Inputs{}
+		inputs := api.RecipeStep_Inputs{}
 		encoded, err := json.Marshal(item.Inputs())
 		if err != nil {
 			return nil, fmt.Errorf("%s step %d: encode %s inputs: %w", phase, index+1, item.Type(), err)
@@ -123,9 +106,9 @@ func remoteBuildStepsFromItems(phase string, items []config.BuildStepItem) ([]ap
 		if err := inputs.UnmarshalJSON(encoded); err != nil {
 			return nil, fmt.Errorf("%s step %d: decode %s inputs: %w", phase, index+1, item.Type(), err)
 		}
-		steps = append(steps, api.BuildStep{
-			Type:   api.BuildStepType(item.Type()),
-			Name:   &name,
+		steps = append(steps, api.RecipeStep{
+			Type:   api.RecipeStepType(item.Type()),
+			Name:   name,
 			Inputs: &inputs,
 		})
 	}

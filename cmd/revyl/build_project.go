@@ -830,6 +830,7 @@ func remoteBuildPlatformConfigFromProject(invocation projectBuildInvocation) rem
 		image = *invocation.Recipe.Image
 	}
 	return remoteBuildPlatformConfig{
+		Profile:  invocation.Profile,
 		Platform: invocation.Platform, PlatformKey: invocation.Platform,
 		Commands:      append([]config.BuildStepItem(nil), invocation.Recipe.BuildCommands...),
 		SetupCommands: append([]config.BuildStepItem(nil), invocation.Recipe.SetupCommands...),

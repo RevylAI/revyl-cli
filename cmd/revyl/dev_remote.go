@@ -796,12 +796,12 @@ func remoteDevTriggerRequestFromProject(
 		return nil, err
 	}
 	resolved := remoteBuildPlatformConfigFromProject(projectBuildInvocationFromDev(invocation))
-	buildConfig, err := remoteBuildConfigFromResolved(appID, resolved)
+	recipe, err := remoteBuildRecipeFromResolved(appID, resolved)
 	if err != nil {
 		return nil, err
 	}
 	request := &api.RemoteBuildRequest{
-		Source: source, Config: buildConfig,
+		Source: source, Recipe: &recipe,
 		Version: stringPtrOrNil(version), SetAsCurrent: &setCurrent,
 		BuildDefinitionHash: stringPtrOrNil(invocation.BuildDefinitionHash),
 	}
@@ -970,13 +970,13 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 		Env:      platCfg.Env,
 		Caches:   buildCaches,
 	}
-	buildConfig, err := remoteBuildConfigFromResolved(appID, resolved)
+	recipe, err := remoteBuildRecipeFromResolved(appID, resolved)
 	if err != nil {
 		return nil, err
 	}
 	return &api.RemoteBuildRequest{
 		Source:       source,
-		Config:       buildConfig,
+		Recipe:       &recipe,
 		Version:      stringPtrOrNil(version),
 		SetAsCurrent: &setCurrent,
 	}, nil

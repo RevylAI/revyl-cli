@@ -64,6 +64,7 @@ func (opts remoteBuildOptions) markFailureStage(stage string) {
 }
 
 type remoteBuildPlatformConfig struct {
+	Profile       string
 	Platform      string
 	PlatformKey   string
 	Command       string
@@ -373,7 +374,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 }
 
 func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uuid.UUID, resolved remoteBuildPlatformConfig, opts remoteBuildOptions) (*api.RemoteBuildRequest, error) {
-	buildConfig, err := remoteBuildConfigFromResolved(appID, resolved)
+	recipe, err := remoteBuildRecipeFromResolved(appID, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +382,7 @@ func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uu
 	return &api.RemoteBuildRequest{
 		BuildDefinitionHash: stringPtrOrNil(opts.BuildDefinitionHash),
 		Source:              source,
-		Config:              buildConfig,
+		Recipe:              &recipe,
 		CleanBuild:          boolPtrOrNil(opts.Clean),
 		Version:             stringPtrOrNil(opts.Version),
 		Image:               stringPtrOrNil(resolved.Image),
@@ -689,9 +690,10 @@ func (f *remoteBuildLogFormatter) Print(event api.RemoteBuildLogEvent) {
 	case message == "source:extract":
 		f.printPlain("Extracting source")
 		return
-	case strings.HasPrefix(message, "command "):
-		command := strings.TrimSpace(strings.TrimPrefix(message, "command "))
-		if f.currentStep == "checkout" {
+	case strings.HasPrefix(message, "command "), strings.HasPrefix(message, "running "):
+		_, command, _ := strings.Cut(message, " ")
+		command = strings.TrimSpace(command)
+		if _, revylStep := revylBuildStepLabels[f.currentStep]; revylStep {
 			return
 		}
 		f.currentCommand = command
@@ -705,6 +707,15 @@ func (f *remoteBuildLogFormatter) Print(event api.RemoteBuildLogEvent) {
 		fmt.Fprintf(os.Stderr, "%s\n", ui.SuccessStyle.Render("✓ "+label+" completed"+durationSuffix(message)))
 		f.currentCommand = ""
 		f.printedAny = true
+		return
+	case strings.HasPrefix(message, "step:skipped "):
+		fmt.Fprintf(os.Stderr, "%s\n", ui.DimStyle.Render("- Build command skipped: reusing the fingerprint-matched build"))
+		f.printedAny = true
+		return
+	case strings.HasPrefix(message, "fingerprint:match "):
+		f.printPlain("Fingerprint matches an earlier build; reusing its native app")
+		return
+	case message == "fingerprint:new":
 		return
 	case strings.HasPrefix(message, "step:failed "):
 		label := f.completionLabel(message)
@@ -738,9 +749,16 @@ func (f *remoteBuildLogFormatter) printPlain(message string) {
 	f.printedAny = true
 }
 
+// revylBuildStepLabels names the steps Revyl adds around a recipe's commands.
+var revylBuildStepLabels = map[string]string{
+	"checkout":        "Checkout",
+	"fingerprint":     "Fingerprint",
+	"upload_artifact": "Upload",
+}
+
 func (f *remoteBuildLogFormatter) completionLabel(message string) string {
-	if f.currentStep == "checkout" {
-		return "Checkout"
+	if label, ok := revylBuildStepLabels[f.currentStep]; ok {
+		return label
 	}
 	if f.currentCommand != "" {
 		return commandCompletionLabel(f.currentCommand)
