@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.134-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.135-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -209,6 +209,13 @@ See the [Revyl Docs](https://docs.revyl.com/) for the full authoring workflow, Y
 > default.
 
 ## Agent Skills
+
+For guided comparisons of Figma frames or components with Atlas screenshots,
+see the [Figma review handoff](docs/figma-review.md), including a shareable setup
+prompt and private report or annotation options.
+For iOS/Android comparisons without Figma, use the
+[cross-platform review handoff](docs/cross-platform-review.md). It compares
+confirmed matching states without treating unmatched screens as missing features.
 
 Interactive `revyl init` offers optional agent skill setup. Choose your tool
 and the skills you want; the recommended skills are preselected, and an empty

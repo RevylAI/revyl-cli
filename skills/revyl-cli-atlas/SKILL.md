@@ -137,8 +137,8 @@ Apply these rules throughout the task:
    question-specific node:
 
    ```bash
-   revyl atlas graph --app <app-id> --json
-   revyl atlas search "<capability or UI concept>" --app <app-id> --json
+   revyl atlas graph --app <app-id> --include-variants --json
+   revyl atlas search "<capability or UI concept>" --app <app-id> --include-variants --json
    ```
 
    The graph contains flat `nodes`, `edges`, and `starting_anchors`. Do not turn
@@ -149,10 +149,21 @@ Apply these rules throughout the task:
 5. Pick the most relevant anchor or search result, inspect it, then traverse:
 
    ```bash
-   revyl atlas screen <screen-id> --app <app-id> --screenshots --screenshot-dir "$ATLAS_SCREEN_DIR" --json
-   revyl atlas observations <screen-id> --app <app-id> --screenshots --screenshot-dir "$ATLAS_SCREEN_DIR" --json
+   revyl atlas screen <screen-id> --app <app-id> --include-variants --screenshots --screenshot-dir "$ATLAS_SCREEN_DIR" --json
+   revyl atlas observations <screen-id> --app <app-id> --include-variants --screenshots --screenshot-dir "$ATLAS_SCREEN_DIR" --json
    revyl atlas neighbors <screen-id> --app <app-id> --json
    ```
+
+   Expand variants for every screen in the review scope, not only when the
+   representative seems wrong. Inspect the returned variant nodes and grouped
+   observations, opening screenshots for each distinct question-relevant state
+   (such as errors, empty states, sheets, or keyboard-visible forms). A search
+   miss or the brief's sample is not a complete state inventory; inspect the
+   canonical screen's variants directly. Check returned truncation/pagination
+   and disclose any inspection limit. Keep the selected app/build scope fixed.
+   Deduplicate identical captures, not distinct states; record the exact
+   observation ID for each finding. Unobserved states do not prove missing app
+   functionality, and cross-platform reviews must omit unmatched-state findings.
 
    Open the representative and question-relevant grouped screenshots. Follow
    both incoming and outgoing edges when either could explain the capability.

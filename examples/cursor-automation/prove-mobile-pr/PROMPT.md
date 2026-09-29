@@ -107,6 +107,16 @@ Do not paste short-lived S3 `video_url` values or `X-Amz-*` URLs. Do not invent 
 
 ## Findings (structured threads, separate from the write-up)
 
+Make each finding readable at a glance. Start with `<Type>: <short summary>`,
+ideally 3–8 words after the colon, using `Blocker`, `Issue`, or `Polish` to match
+the supported severity. The headline must stand alone, for example
+`Issue: Save button does nothing`. Add at most two short sentences describing
+the essential behavior and impact; aim for 40 words or fewer in total. Omit
+preambles, IDs, repeated screen descriptions, test narration, and speculation.
+Put deeper analysis in an attachment or linked report, with a useful comparison
+or clip when needed. The pin already supplies the app screenshot. Replies lead
+with the new result or decision and contain only new context.
+
 When you confirm a real, reproducible, user-visible problem, preview its pin before publishing it. Replace `finding-slug` with a unique short name:
 
 ```bash

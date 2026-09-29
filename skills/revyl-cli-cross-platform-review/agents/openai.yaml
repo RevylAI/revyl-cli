@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Cross-Platform Review"
+  short_description: "Find drift in matched iOS and Android app screens"
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Figma Review"
+  short_description: "Compare Figma designs with observed app evidence"
+policy:
+  allow_implicit_invocation: true

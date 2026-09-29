@@ -15,18 +15,20 @@ import (
 )
 
 var shippedContents = map[string]string{
-	RevylCLIName:            RevylCLIContent,
-	RevylCLICreateName:      RevylCLICreateContent,
-	RevylCLIAnalyzeName:     RevylCLIAnalyzeContent,
-	RevylCLIOptimizeName:    RevylCLIOptimizeContent,
-	RevylCLIDevLoopName:     RevylCLIDevLoopContent,
-	RevylCLIAtlasName:       RevylCLIAtlasContent,
-	RevylCLIAtlasReviewName: RevylCLIAtlasReviewContent,
-	RevylCLIAuthBypassName:  RevylCLIAuthBypassContent,
-	RevylMCPName:            RevylMCPContent,
-	RevylMCPCreateName:      RevylMCPCreateContent,
-	RevylMCPAnalyzeName:     RevylMCPAnalyzeContent,
-	RevylMCPDevLoopName:     RevylMCPDevLoopContent,
+	RevylCLIName:                    RevylCLIContent,
+	RevylCLICreateName:              RevylCLICreateContent,
+	RevylCLIAnalyzeName:             RevylCLIAnalyzeContent,
+	RevylCLIOptimizeName:            RevylCLIOptimizeContent,
+	RevylCLIDevLoopName:             RevylCLIDevLoopContent,
+	RevylCLIAtlasName:               RevylCLIAtlasContent,
+	RevylCLIAtlasReviewName:         RevylCLIAtlasReviewContent,
+	RevylCLIFigmaReviewName:         RevylCLIFigmaReviewContent,
+	RevylCLICrossPlatformReviewName: RevylCLICrossPlatformReviewContent,
+	RevylCLIAuthBypassName:          RevylCLIAuthBypassContent,
+	RevylMCPName:                    RevylMCPContent,
+	RevylMCPCreateName:              RevylMCPCreateContent,
+	RevylMCPAnalyzeName:             RevylMCPAnalyzeContent,
+	RevylMCPDevLoopName:             RevylMCPDevLoopContent,
 }
 
 func TestFilesMatchCompleteSourcePackages(t *testing.T) {

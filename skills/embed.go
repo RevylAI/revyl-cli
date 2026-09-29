@@ -11,18 +11,20 @@ import (
 const SkillFileName = "SKILL.md"
 
 const (
-	RevylCLIName            = "revyl-cli"
-	RevylCLICreateName      = "revyl-cli-create"
-	RevylCLIAnalyzeName     = "revyl-cli-analyze"
-	RevylCLIOptimizeName    = "revyl-cli-optimize-tests"
-	RevylCLIDevLoopName     = "revyl-cli-dev-loop"
-	RevylCLIAtlasName       = "revyl-cli-atlas"
-	RevylCLIAtlasReviewName = "revyl-cli-atlas-review"
-	RevylCLIAuthBypassName  = "revyl-cli-auth-bypass"
-	RevylMCPName            = "revyl-mcp"
-	RevylMCPCreateName      = "revyl-mcp-create"
-	RevylMCPAnalyzeName     = "revyl-mcp-analyze"
-	RevylMCPDevLoopName     = "revyl-mcp-dev-loop"
+	RevylCLIName                    = "revyl-cli"
+	RevylCLICreateName              = "revyl-cli-create"
+	RevylCLIAnalyzeName             = "revyl-cli-analyze"
+	RevylCLIOptimizeName            = "revyl-cli-optimize-tests"
+	RevylCLIDevLoopName             = "revyl-cli-dev-loop"
+	RevylCLIAtlasName               = "revyl-cli-atlas"
+	RevylCLIAtlasReviewName         = "revyl-cli-atlas-review"
+	RevylCLIFigmaReviewName         = "revyl-cli-figma-review"
+	RevylCLICrossPlatformReviewName = "revyl-cli-cross-platform-review"
+	RevylCLIAuthBypassName          = "revyl-cli-auth-bypass"
+	RevylMCPName                    = "revyl-mcp"
+	RevylMCPCreateName              = "revyl-mcp-create"
+	RevylMCPAnalyzeName             = "revyl-mcp-analyze"
+	RevylMCPDevLoopName             = "revyl-mcp-dev-loop"
 )
 
 type File struct {
@@ -38,6 +40,7 @@ func Files(name string) ([]File, error) {
 	switch name {
 	case RevylCLIName, RevylCLICreateName, RevylCLIAnalyzeName, RevylCLIOptimizeName,
 		RevylCLIDevLoopName, RevylCLIAtlasName, RevylCLIAtlasReviewName, RevylCLIAuthBypassName,
+		RevylCLIFigmaReviewName, RevylCLICrossPlatformReviewName,
 		RevylMCPName, RevylMCPCreateName, RevylMCPAnalyzeName, RevylMCPDevLoopName:
 	default:
 		return nil, fmt.Errorf("unknown skill package %q", name)
@@ -93,6 +96,12 @@ var RevylCLIAtlasContent string
 
 //go:embed revyl-cli-atlas-review/SKILL.md
 var RevylCLIAtlasReviewContent string
+
+//go:embed revyl-cli-figma-review/SKILL.md
+var RevylCLIFigmaReviewContent string
+
+//go:embed revyl-cli-cross-platform-review/SKILL.md
+var RevylCLICrossPlatformReviewContent string
 
 //go:embed revyl-cli-auth-bypass/SKILL.md
 var RevylCLIAuthBypassContent string

@@ -56,6 +56,16 @@ var catalog = []Skill{
 		Content:     skills.RevylCLIAtlasReviewContent,
 	},
 	{
+		Name:        skills.RevylCLIFigmaReviewName,
+		Description: "Review Figma frames or components against Atlas evidence, with chat, local reports, or requested annotations.",
+		Content:     skills.RevylCLIFigmaReviewContent,
+	},
+	{
+		Name:        skills.RevylCLICrossPlatformReviewName,
+		Description: "Find actionable differences within confidently matched iOS and Android Atlas states, without missing-screen claims.",
+		Content:     skills.RevylCLICrossPlatformReviewContent,
+	},
+	{
 		Name:        skills.RevylCLIAuthBypassName,
 		Description: "Set up test-only auth bypass across mobile app stacks using Revyl launch variables and device verification.",
 		Content:     skills.RevylCLIAuthBypassContent,

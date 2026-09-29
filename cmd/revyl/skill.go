@@ -59,6 +59,8 @@ Revyl ships embedded skills:
 - revyl-cli-dev-loop: agents run or attach to revyl dev, observe the app, and act through device commands
 - revyl-cli-atlas: agents inspect Atlas screenshots, transition clips or frames, and originating reports
 - revyl-cli-atlas-review: agents manage grounded Atlas feedback after an explicit user request
+- revyl-cli-figma-review: agents guide Figma-to-Atlas visual reviews with reports or requested comments
+- revyl-cli-cross-platform-review: agents find drift within confirmed iOS/Android screen matches
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
 - revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
 - auth-bypass references: platform recipes loaded only after stack detection
