@@ -109,7 +109,7 @@ func detectGitHubActions() CIContext {
 	context := CIContext{
 		System:       "github-actions",
 		CommitSHA:    firstNonEmpty(event.PullRequest.Head.SHA, os.Getenv("REVYL_PR_HEAD_SHA"), os.Getenv("GITHUB_SHA")),
-		Branch:       strings.TrimSpace(os.Getenv("GITHUB_REF_NAME")),
+		Branch:       firstNonEmpty(os.Getenv("GITHUB_HEAD_REF"), os.Getenv("GITHUB_REF_NAME")),
 		RunID:        runID,
 		Repository:   repository,
 		Actor:        actor,

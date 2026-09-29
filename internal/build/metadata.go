@@ -142,6 +142,9 @@ func attachCIMetadata(ctx context.Context, metadata map[string]interface{}, plat
 	if context.SCMProject != "" {
 		metadata["scm_project"] = context.SCMProject
 	}
+	if context.Branch != "" {
+		metadata["scm_branch"] = context.Branch
+	}
 	if context.ReviewNumber > 0 {
 		metadata["scm_review_number"] = context.ReviewNumber
 		metadata["pr_number"] = context.ReviewNumber

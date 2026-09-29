@@ -20,7 +20,8 @@ func TestDetectGitHubActionsPullRequest(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "acme/mobile")
 	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
 	t.Setenv("GITHUB_RUN_ID", "12345")
-	t.Setenv("GITHUB_REF_NAME", "feature/checkout")
+	t.Setenv("GITHUB_REF_NAME", "42/merge")
+	t.Setenv("GITHUB_HEAD_REF", "feature/checkout")
 	t.Setenv("GITHUB_ACTOR", "janedoe")
 
 	context, ok := DetectCIContext()

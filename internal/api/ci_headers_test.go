@@ -65,7 +65,8 @@ func TestSetCIHeaders_PullRequest(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "acme/web")
 	t.Setenv("GITHUB_ACTOR", "janedoe")
 	t.Setenv("GITHUB_SHA", "9f2c1ab0")
-	t.Setenv("GITHUB_REF_NAME", "feat/cool")
+	t.Setenv("GITHUB_REF_NAME", "482/merge")
+	t.Setenv("GITHUB_HEAD_REF", "feat/cool")
 	t.Setenv("GITHUB_RUN_ID", "12345")
 	t.Setenv("GITHUB_EVENT_PATH", eventPath)
 
@@ -104,6 +105,7 @@ func TestSetCIHeaders_PushEvent_NoPR(t *testing.T) {
 	t.Setenv("GITHUB_ACTOR", "janedoe")
 	t.Setenv("GITHUB_SHA", "9f2c1ab0")
 	t.Setenv("GITHUB_REF_NAME", "main")
+	t.Setenv("GITHUB_HEAD_REF", "")
 	t.Setenv("GITHUB_RUN_ID", "12345")
 	t.Setenv("GITHUB_EVENT_PATH", eventPath)
 
@@ -128,6 +130,7 @@ func TestSetCIHeaders_MissingEventPath(t *testing.T) {
 	t.Setenv("GITHUB_ACTOR", "")
 	t.Setenv("GITHUB_SHA", "")
 	t.Setenv("GITHUB_REF_NAME", "")
+	t.Setenv("GITHUB_HEAD_REF", "")
 	t.Setenv("GITHUB_RUN_ID", "")
 	t.Setenv("GITHUB_EVENT_PATH", "")
 

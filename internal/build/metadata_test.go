@@ -70,6 +70,8 @@ func TestCollectMetadataGitHubActionsPullRequest(t *testing.T) {
 	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
 	t.Setenv("GITHUB_RUN_ID", "12345")
 	t.Setenv("GITHUB_SHA", "merge-sha")
+	t.Setenv("GITHUB_REF_NAME", "42/merge")
+	t.Setenv("GITHUB_HEAD_REF", "feature/checkout")
 	t.Setenv("GITHUB_ACTOR", "janedoe")
 	t.Setenv("REVYL_PR_HEAD_SHA", "env-head-sha")
 
@@ -85,6 +87,7 @@ func TestCollectMetadataGitHubActionsPullRequest(t *testing.T) {
 		"scm_repo":          "acme/mobile",
 		"scm_namespace":     "acme",
 		"scm_project":       "mobile",
+		"scm_branch":        "feature/checkout",
 		"scm_review_number": 42,
 		"pr_number":         42,
 		"scm_head_sha":      "true-head-sha",
@@ -155,6 +158,7 @@ func TestCollectMetadataBuildkitePullRequest(t *testing.T) {
 		"scm_repo":          "acme/mobile",
 		"scm_namespace":     "acme",
 		"scm_project":       "mobile",
+		"scm_branch":        "feature/checkout",
 		"scm_review_number": 42,
 		"pr_number":         42,
 		"scm_head_sha":      "head-sha",
