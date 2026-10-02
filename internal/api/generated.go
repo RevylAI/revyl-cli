@@ -6474,8 +6474,11 @@ type Test struct {
 	Tasks *Test_Tasks `json:"tasks,omitempty"`
 
 	// TestTimeoutSeconds Per-test execution timeout in seconds. Null disables the override.
-	TestTimeoutSeconds *int                `json:"test_timeout_seconds,omitempty"`
-	UserId             *openapi_types.UUID `json:"user_id,omitempty"`
+	TestTimeoutSeconds *int `json:"test_timeout_seconds,omitempty"`
+
+	// TestVersionId Revision record matching the loaded version and tasks, if one exists.
+	TestVersionId *openapi_types.UUID `json:"test_version_id,omitempty"`
+	UserId        *openapi_types.UUID `json:"user_id,omitempty"`
 
 	// Version Current version number for optimistic locking. Increments on each save.
 	Version              *int                    `json:"version,omitempty"`
@@ -6697,8 +6700,11 @@ type TestResourceResponse struct {
 	Tasks *TestResourceResponse_Tasks `json:"tasks,omitempty"`
 
 	// TestTimeoutSeconds Per-test execution timeout in seconds. Null disables the override.
-	TestTimeoutSeconds *int                `json:"test_timeout_seconds,omitempty"`
-	UserId             *openapi_types.UUID `json:"user_id,omitempty"`
+	TestTimeoutSeconds *int `json:"test_timeout_seconds,omitempty"`
+
+	// TestVersionId Revision record matching the loaded version and tasks, if one exists.
+	TestVersionId *openapi_types.UUID `json:"test_version_id,omitempty"`
+	UserId        *openapi_types.UUID `json:"user_id,omitempty"`
 
 	// Version Current version number for optimistic locking. Increments on each save.
 	Version              *int                    `json:"version,omitempty"`
@@ -8808,6 +8814,14 @@ func (a *Test) UnmarshalJSON(b []byte) error {
 		delete(object, "test_timeout_seconds")
 	}
 
+	if raw, found := object["test_version_id"]; found {
+		err = json.Unmarshal(raw, &a.TestVersionId)
+		if err != nil {
+			return fmt.Errorf("error reading 'test_version_id': %w", err)
+		}
+		delete(object, "test_version_id")
+	}
+
 	if raw, found := object["user_id"]; found {
 		err = json.Unmarshal(raw, &a.UserId)
 		if err != nil {
@@ -9058,6 +9072,13 @@ func (a Test) MarshalJSON() ([]byte, error) {
 		object["test_timeout_seconds"], err = json.Marshal(a.TestTimeoutSeconds)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'test_timeout_seconds': %w", err)
+		}
+	}
+
+	if a.TestVersionId != nil {
+		object["test_version_id"], err = json.Marshal(a.TestVersionId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'test_version_id': %w", err)
 		}
 	}
 
@@ -9372,6 +9393,14 @@ func (a *TestResourceResponse) UnmarshalJSON(b []byte) error {
 		delete(object, "test_timeout_seconds")
 	}
 
+	if raw, found := object["test_version_id"]; found {
+		err = json.Unmarshal(raw, &a.TestVersionId)
+		if err != nil {
+			return fmt.Errorf("error reading 'test_version_id': %w", err)
+		}
+		delete(object, "test_version_id")
+	}
+
 	if raw, found := object["user_id"]; found {
 		err = json.Unmarshal(raw, &a.UserId)
 		if err != nil {
@@ -9636,6 +9665,13 @@ func (a TestResourceResponse) MarshalJSON() ([]byte, error) {
 		object["test_timeout_seconds"], err = json.Marshal(a.TestTimeoutSeconds)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'test_timeout_seconds': %w", err)
+		}
+	}
+
+	if a.TestVersionId != nil {
+		object["test_version_id"], err = json.Marshal(a.TestVersionId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'test_version_id': %w", err)
 		}
 	}
 
