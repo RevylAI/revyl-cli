@@ -1971,6 +1971,72 @@ func (e QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir) Valid() bool {
 	}
 }
 
+// Defines values for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus.
+const (
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusActive  GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus = "active"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusAll     GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus = "all"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusFailing GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus = "failing"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusNotRun  GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus = "notRun"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusPassing GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus = "passing"
+)
+
+// Valid indicates whether the value is a known member of the GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus enum.
+func (e GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus) Valid() bool {
+	switch e {
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusActive:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusAll:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusFailing:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusNotRun:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatusPassing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy.
+const (
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortByCreated GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy = "created"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortByLastRun GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy = "lastRun"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortByName    GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy = "name"
+)
+
+// Valid indicates whether the value is a known member of the GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy enum.
+func (e GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy) Valid() bool {
+	switch e {
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortByCreated:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortByLastRun:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortByName:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir.
+const (
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDirAsc  GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir = "asc"
+	GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDirDesc GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir = "desc"
+)
+
+// Valid indicates whether the value is a known member of the GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir enum.
+func (e GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir) Valid() bool {
+	switch e {
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDirAsc:
+		return true
+	case GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDirDesc:
+		return true
+	default:
+		return false
+	}
+}
+
 // ActionBlock Block for actions (instructions, extraction, manual, validation, code_execution, module_import).
 type ActionBlock struct {
 	// File Canonical org file name for download_file / play_audio blocks in authored YAML/product payloads
@@ -4436,7 +4502,10 @@ type GetWorkflowsWithLastStatusResponse struct {
 	// PassingWorkflowsWow Week-over-week percentage change in passing workflows (positive = increase)
 	PassingWorkflowsWow *float32 `json:"passing_workflows_wow,omitempty"`
 
-	// TotalCount Total number of workflows across all pages
+	// StatusCounts Workflow counts by latest-execution status across the organization, or across the requested cloud-agent conversation when attributed_to_cloud_agent_conversation_id is given; unaffected by search, status, sort and pagination.
+	StatusCounts *WorkflowStatusCounts `json:"status_counts,omitempty"`
+
+	// TotalCount Number of workflows matching the requested filters, before pagination
 	TotalCount *int `json:"total_count,omitempty"`
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
@@ -6610,7 +6679,7 @@ type TestListResponse struct {
 	// Count Number of tests in this page
 	Count int `json:"count"`
 
-	// FailingTestsWow Week-over-week percentage change in failing tests as % of total (positive = increase)
+	// FailingTestsWow Org-wide week-over-week percentage change in failing tests as % of total (positive = increase); null when app_id is given
 	FailingTestsWow *float32 `json:"failing_tests_wow,omitempty"`
 
 	// HasMore Whether more tests exist beyond this page
@@ -6619,13 +6688,13 @@ type TestListResponse struct {
 	// Limit Limit used for this page
 	Limit *int `json:"limit,omitempty"`
 
-	// NotRunTestsWow Week-over-week percentage change in not run tests as % of total (positive = increase)
+	// NotRunTestsWow Org-wide week-over-week percentage change in not run tests as % of total (positive = increase); null when app_id is given
 	NotRunTestsWow *float32 `json:"not_run_tests_wow,omitempty"`
 
 	// Offset Offset used for this page
 	Offset *int `json:"offset,omitempty"`
 
-	// PassingTestsWow Week-over-week percentage change in passing tests as % of total (positive = increase)
+	// PassingTestsWow Org-wide week-over-week percentage change in passing tests as % of total (positive = increase); null when app_id is given
 	PassingTestsWow *float32 `json:"passing_tests_wow,omitempty"`
 
 	// StatusCounts Server-side test counts by status, computed across all tests (not just the current page).
@@ -6637,7 +6706,7 @@ type TestListResponse struct {
 	// TotalCount Total number of tests across all pages
 	TotalCount *int `json:"total_count,omitempty"`
 
-	// TotalTestsWow Week-over-week percentage change in total tests (positive = increase)
+	// TotalTestsWow Org-wide week-over-week percentage change in total tests (positive = increase); null when app_id is given
 	TotalTestsWow *float32 `json:"total_tests_wow,omitempty"`
 }
 
@@ -7207,6 +7276,24 @@ type WorkflowLastExecutionStatus string
 
 // WorkflowStatus Workflow execution status.
 type WorkflowStatus string
+
+// WorkflowStatusCounts Workflow counts by latest-execution status across the organization, or across the requested cloud-agent conversation when attributed_to_cloud_agent_conversation_id is given; unaffected by search, status, sort and pagination.
+type WorkflowStatusCounts struct {
+	// Failing Workflows whose latest execution ended in ('failure', 'timeout', 'cancelled')
+	Failing int `json:"failing"`
+
+	// NotRun Workflows that have never run
+	NotRun int `json:"not_run"`
+
+	// Passing Workflows whose latest execution succeeded
+	Passing int `json:"passing"`
+
+	// Running Workflows whose latest execution is still running
+	Running int `json:"running"`
+
+	// Total Number of workflows counted
+	Total int `json:"total"`
+}
 
 // WorkflowStatusResponse Response model for workflow status polling that matches frontend expectations.
 type WorkflowStatusResponse struct {
@@ -7804,6 +7891,7 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	Search                               *string               `form:"search,omitempty" json:"search,omitempty"`
 	UserId                               *string               `form:"user_id,omitempty" json:"user_id,omitempty"`
 	AttributedToCloudAgentConversationId *openapi_types.UUID   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+	AppId                                *openapi_types.UUID   `form:"app_id,omitempty" json:"app_id,omitempty"`
 }
 
 // StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPostParams defines parameters for StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPost.
@@ -8077,11 +8165,32 @@ type DeleteWorkflowEndpointApiV1WorkflowsDeleteWorkflowIdDeleteParams struct {
 
 // GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParams defines parameters for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGet.
 type GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParams struct {
-	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset                               *int                `form:"offset,omitempty" json:"offset,omitempty"`
-	HistoryLimit                         *int                `form:"history_limit,omitempty" json:"history_limit,omitempty"`
-	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+	Limit        *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset       *int `form:"offset,omitempty" json:"offset,omitempty"`
+	HistoryLimit *int `form:"history_limit,omitempty" json:"history_limit,omitempty"`
+
+	// Search Case-insensitive search over workflow name
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// Status Status filter applied before pagination
+	Status *GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// SortBy Sort column applied before pagination
+	SortBy *GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+
+	// SortDir Sort direction
+	SortDir                              *GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir `form:"sort_dir,omitempty" json:"sort_dir,omitempty"`
+	AttributedToCloudAgentConversationId *openapi_types.UUID                                                        `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 }
+
+// GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus defines parameters for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGet.
+type GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsStatus string
+
+// GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy defines parameters for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGet.
+type GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortBy string
+
+// GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir defines parameters for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGet.
+type GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParamsSortDir string
 
 // GetWorkflowInfoEndpointApiV1WorkflowsGetWorkflowInfoGetParams defines parameters for GetWorkflowInfoEndpointApiV1WorkflowsGetWorkflowInfoGet.
 type GetWorkflowInfoEndpointApiV1WorkflowsGetWorkflowInfoGetParams struct {
