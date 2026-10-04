@@ -14,6 +14,7 @@ Use this skill when the user wants the generic Revyl CLI dev loop instead of MCP
 - When Revyl prints a viewer or local app URL, open it in the native browser/tool surface when available: Codex Browser/in-app browser for local URLs, Revyl viewer URLs, screenshots, and page checks; Claude Code `.claude/skills` compatibility links plus WebFetch/WebSearch or configured MCP/browser tools; Cursor `.cursor/skills` when using `--copy`, otherwise shared `.agents/skills`, plus available MCP/browser tools. Codex also discovers shared `.agents/skills` directly.
 - If no browser tool is exposed, report the URL and verify through `revyl device screenshot` or `revyl device report` instead of claiming browser access.
 - Confirm before entering sensitive data, submitting forms, uploading files, accepting browser permissions, changing sharing/access, or deleting data.
+- When a `revyl` command prints that a newer Revyl CLI is available or that this version will soon stop working, run the upgrade command it names once before continuing, unless the CLI version is deliberately pinned (for example in CI); if the upgrade fails, report it and keep working on the current version.
 
 ## Detect and Start
 

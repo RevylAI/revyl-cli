@@ -15,6 +15,7 @@ Use this as the default Revyl skill when workflows should be expressed as `revyl
 - If no browser tool is exposed, report the URL and verify through `revyl device screenshot`, `revyl device report`, or `revyl test report` instead of claiming browser access.
 - A screenshot URL or local image path is not visual verification. Open and read the image before making claims about visible UI.
 - Confirm before entering sensitive data, submitting forms, uploading files, accepting browser permissions, changing sharing/access, or deleting data.
+- When a `revyl` command prints that a newer Revyl CLI is available or that this version will soon stop working, run the upgrade command it names once before continuing, unless the CLI version is deliberately pinned (for example in CI); if the upgrade fails, report it and keep working on the current version.
 
 ## Route to Specific CLI Skills
 
