@@ -7,7 +7,11 @@
 package devicetargets
 
 import (
+	"cmp"
 	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -195,6 +199,82 @@ func (c *Catalog) ValidateDevicePair(platform, model, runtime string) error {
 			platform, model, runtime, model, compatible)
 	}
 	return nil
+}
+
+// NewestRuntime returns the newest OS runtime the catalog supports for a
+// device model. A stable release outranks a prerelease of the same version,
+// so "iOS 27.0" is newer than "iOS 27-beta-4".
+func (c *Catalog) NewestRuntime(platform, model string) (string, error) {
+	cfg, err := c.GetPlatformTargets(platform)
+	if err != nil {
+		return "", err
+	}
+	if !contains(cfg.AvailableModels, model) {
+		return "", fmt.Errorf("unsupported %s device model %q; available: %v", platform, model, cfg.AvailableModels)
+	}
+	runtimes := cfg.CompatibleRuntimes[model]
+	if len(runtimes) == 0 {
+		runtimes = cfg.AvailableRuntimes
+	}
+	newest := ""
+	for _, runtime := range runtimes {
+		if newest == "" || compareRuntimeVersions(runtime, newest) > 0 {
+			newest = runtime
+		}
+	}
+	if newest == "" {
+		return "", fmt.Errorf("no %s runtimes are available for device model %q", platform, model)
+	}
+	return newest, nil
+}
+
+var runtimeVersionPattern = regexp.MustCompile(`(\d+(?:\.\d+)*)(.*)$`)
+
+// compareRuntimeVersions orders runtime labels such as "iOS 26.5" and
+// "iOS 27-beta-4" by version number, ranking a stable release above a
+// prerelease of the same version. Prerelease stages with the same build
+// number fall back to name order, which ranks alpha < beta < rc.
+func compareRuntimeVersions(left, right string) int {
+	leftParts, leftPrerelease := parseRuntimeVersion(left)
+	rightParts, rightPrerelease := parseRuntimeVersion(right)
+	for i := 0; i < max(len(leftParts), len(rightParts)); i++ {
+		var l, r int
+		if i < len(leftParts) {
+			l = leftParts[i]
+		}
+		if i < len(rightParts) {
+			r = rightParts[i]
+		}
+		if l != r {
+			return cmp.Compare(l, r)
+		}
+	}
+	switch {
+	case leftPrerelease == rightPrerelease:
+		return 0
+	case leftPrerelease == "":
+		return 1
+	case rightPrerelease == "":
+		return -1
+	}
+	leftBuild, _ := parseRuntimeVersion(leftPrerelease)
+	rightBuild, _ := parseRuntimeVersion(rightPrerelease)
+	if order := slices.Compare(leftBuild, rightBuild); order != 0 {
+		return order
+	}
+	return strings.Compare(strings.ToLower(leftPrerelease), strings.ToLower(rightPrerelease))
+}
+
+func parseRuntimeVersion(runtime string) (parts []int, prerelease string) {
+	match := runtimeVersionPattern.FindStringSubmatch(runtime)
+	if match == nil {
+		return nil, runtime
+	}
+	for _, part := range strings.Split(match[1], ".") {
+		number, _ := strconv.Atoi(part)
+		parts = append(parts, number)
+	}
+	return parts, strings.TrimSpace(match[2])
 }
 
 // FormatPairLabel produces a human-readable label like "iPhone 16 · iOS 18.5".

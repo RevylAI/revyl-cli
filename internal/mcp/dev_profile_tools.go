@@ -17,6 +17,7 @@ type InteractInput struct {
 	Strategy        string  `json:"strategy,omitempty" jsonschema:"Interaction strategy: auto semantic instruction. Default auto."`
 	InteractionType string  `json:"interaction_type,omitempty" jsonschema:"Interaction type: tap type swipe clear_text double_tap long_press drag pinch shake key."`
 	SessionIndex    *int    `json:"session_index,omitempty" jsonschema:"Session index. Omit for active session."`
+	SessionID       string  `json:"session_id,omitempty" jsonschema:"Server-issued session ID from device_session start or list. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 	Target          string  `json:"target,omitempty" jsonschema:"Optional visible target; defaults to task."`
 	StartTarget     string  `json:"start_target,omitempty" jsonschema:"Visible drag start target."`
 	EndTarget       string  `json:"end_target,omitempty" jsonschema:"Visible drag end target."`
@@ -80,7 +81,8 @@ type DeviceSessionInput struct {
 	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Idle timeout in seconds."`
-	SessionIndex               *int     `json:"session_index,omitempty" jsonschema:"Session index for stop switch or info."`
+	SessionIndex               *int     `json:"session_index,omitempty" jsonschema:"Session index for stop, switch, info, or doctor."`
+	SessionID                  string   `json:"session_id,omitempty" jsonschema:"Server-issued session ID for stop, info, or doctor. Wins over session_index; pass it whenever several sessions are live."`
 	All                        bool     `json:"all,omitempty" jsonschema:"Stop every session."`
 }
 
@@ -114,7 +116,7 @@ func (s *Server) registerInteractTool() {
 func (s *Server) registerDeviceSessionTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_session",
-		Description: "Start, stop, list, switch, inspect, or diagnose Revyl device sessions.",
+		Description: "Start, stop, list, switch, inspect, or diagnose Revyl device sessions. start and list return session_id; pass it to device tools when more than one session may be live.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Manage Device Session",
 			OpenWorldHint: boolPtr(true),
@@ -230,6 +232,7 @@ func (s *Server) handleDevValidation(
 
 	screenshotResult, screenshot, screenshotErr := s.handleScreenshot(ctx, req, ScreenshotInput{
 		SessionIndex: input.SessionIndex,
+		SessionID:    input.SessionID,
 	})
 	if screenshotErr == nil && screenshot.Success {
 		output.Screenshot = &DevScreenshotEvidence{Captured: true, LatencyMs: screenshot.LatencyMs}
@@ -256,20 +259,17 @@ func (s *Server) handleInteract(
 	if strings.TrimSpace(input.Task) == "" {
 		return &mcp.CallToolResult{IsError: true}, devProfileInputError("interact", "task is required"), nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, devProfileInputError(input.InteractionType, err.Error()), nil
 	}
-	input.SessionIndex = &session.Index
+	input.SessionIndex, input.SessionID = pinnedSessionTarget(session)
+	ctx = withPinnedSession(ctx)
 
 	preResult, preScreenshot, preErr := s.handleScreenshot(
 		ctx,
 		req,
-		ScreenshotInput{SessionIndex: &session.Index},
+		ScreenshotInput{SessionIndex: input.SessionIndex, SessionID: input.SessionID},
 	)
 	if preErr != nil || !preScreenshot.Success {
 		reason := preScreenshot.Error
@@ -304,7 +304,7 @@ func (s *Server) handleInteract(
 	screenshotResult, screenshot, screenshotErr := s.handleScreenshot(
 		ctx,
 		req,
-		ScreenshotInput{SessionIndex: &session.Index},
+		ScreenshotInput{SessionIndex: input.SessionIndex, SessionID: input.SessionID},
 	)
 	if screenshotErr != nil || !screenshot.Success {
 		reason := screenshot.Error
@@ -330,7 +330,7 @@ func (s *Server) dispatchInteract(
 	if strategy == "instruction" {
 		return dispatchDevProfileAction(ctx, req, "instruction", DeviceInstructionInput{
 			Description:  input.Task,
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceInstruction)
 	}
 	if action == "" {
@@ -340,45 +340,45 @@ func (s *Server) dispatchInteract(
 	switch action {
 	case "tap":
 		return dispatchDevProfileAction(ctx, req, action, DeviceTapInput{
-			Target: target, SessionIndex: input.SessionIndex,
+			Target: target, SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceTap)
 	case "type":
 		return dispatchDevProfileAction(ctx, req, action, DeviceTypeInput{
 			Target: target, Text: input.Text, ClearFirst: input.ClearFirst,
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceType)
 	case "swipe":
 		return dispatchDevProfileAction(ctx, req, action, DeviceSwipeInput{
 			Target: target, Direction: input.Direction, DurationMs: input.DurationMs,
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceSwipe)
 	case "clear_text":
 		return dispatchDevProfileAction(ctx, req, action, DeviceClearTextInput{
-			Target: target, SessionIndex: input.SessionIndex,
+			Target: target, SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceClearText)
 	case "double_tap":
 		return dispatchDevProfileAction(ctx, req, action, DeviceDoubleTapInput{
-			Target: target, SessionIndex: input.SessionIndex,
+			Target: target, SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceDoubleTap)
 	case "long_press":
 		return dispatchDevProfileAction(ctx, req, action, DeviceLongPressInput{
 			Target: target, DurationMs: input.DurationMs,
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceLongPress)
 	case "drag":
 		return s.dispatchGroundedDrag(ctx, req, input, screenToken)
 	case "pinch":
 		return dispatchDevProfileAction(ctx, req, action, DevicePinchInput{
 			Target: target, Scale: input.Scale, DurationMs: input.DurationMs,
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDevicePinch)
 	case "shake":
 		return dispatchDevProfileAction(ctx, req, action, DeviceShakeInput{
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceShake)
 	case "key":
 		return dispatchDevProfileAction(ctx, req, action, DeviceKeyInput{
-			Key: input.Key, SessionIndex: input.SessionIndex,
+			Key: input.Key, SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceKey)
 	default:
 		return nil, DevProfileActionOutput{Action: action, Result: map[string]any{
@@ -423,24 +423,21 @@ func (s *Server) dispatchGroundedDrag(
 	if strings.TrimSpace(input.StartTarget) == "" || strings.TrimSpace(input.EndTarget) == "" {
 		return nil, devProfileInputError("drag", "start_target and end_target are required for drag"), nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	start, err := s.resolveCoordsFromAnchor(ctx, input.StartTarget, screenToken, sidx)
+	start, err := s.resolveCoordsFromAnchor(ctx, input.StartTarget, screenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
 		output := devProfileInputError("drag", err.Error())
 		output.Outcome = outcome.Failed("grounding_failed", err.Error(), true)
 		return &mcp.CallToolResult{IsError: true}, output, nil
 	}
-	end, err := s.resolveCoordsFromAnchor(ctx, input.EndTarget, screenToken, sidx)
+	end, err := s.resolveCoordsFromAnchor(ctx, input.EndTarget, screenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
 		output := devProfileInputError("drag", err.Error())
 		output.Outcome = outcome.Failed("grounding_failed", err.Error(), true)
 		return &mcp.CallToolResult{IsError: true}, output, nil
 	}
 	toolResult, output, handlerErr := dispatchDevProfileAction(ctx, req, "drag", DeviceDragInput{
-		StartX: start.X, StartY: start.Y, EndX: end.X, EndY: end.Y, SessionIndex: input.SessionIndex,
+		StartX: start.X, StartY: start.Y, EndX: end.X, EndY: end.Y,
+		SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 	}, s.handleDeviceDrag)
 	if output.Result == nil {
 		output.Result = make(map[string]any)
@@ -508,7 +505,7 @@ func (s *Server) handleDeviceSession(
 		}, s.handleStartDeviceSession)
 	case "stop":
 		return dispatchDevProfileAction(ctx, req, action, StopDeviceSessionInput{
-			SessionIndex: input.SessionIndex, All: input.All,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID, All: input.All,
 		}, s.handleStopDeviceSession)
 	case "list":
 		return dispatchDevProfileAction(ctx, req, action, ListDeviceSessionsInput{}, s.handleListDeviceSessions)
@@ -521,10 +518,12 @@ func (s *Server) handleDeviceSession(
 		}, s.handleSwitchDeviceSession)
 	case "info":
 		return dispatchDevProfileAction(ctx, req, action, GetSessionInfoInput{
-			SessionIndex: input.SessionIndex,
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleGetSessionInfo)
 	case "doctor":
-		return dispatchDevProfileAction(ctx, req, action, DeviceDoctorInput{}, s.handleDeviceDoctor)
+		return dispatchDevProfileAction(ctx, req, action, DeviceDoctorInput{
+			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
+		}, s.handleDeviceDoctor)
 	default:
 		return nil, devProfileInputError(action, "action must be start, stop, list, switch, info, or doctor"), nil
 	}
@@ -562,8 +561,9 @@ func wrapDevProfileAction[O any](
 	}
 	sanitizeDevStructuredResult(result)
 	envelope := outcome.Completed()
-	if success, present := result["success"].(bool); present && !success {
-		reason, _ := result["error"].(string)
+	success, hasSuccess := result["success"].(bool)
+	reason, _ := result["error"].(string)
+	if (hasSuccess && !success) || (!hasSuccess && reason != "") {
 		envelope = outcome.Failed("operation_failed", reason, false)
 	}
 	return toolResult, DevProfileActionOutput{Action: action, Result: result, Outcome: envelope}, nil

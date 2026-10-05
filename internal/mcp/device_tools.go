@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
@@ -61,6 +62,120 @@ func (s *Server) resolveSessionWithHydration(ctx context.Context, index int) (*D
 	return s.sessionMgr.ResolveSession(index)
 }
 
+// resolveToolSession resolves the session a session-scoped tool acts on.
+//
+// session_id wins and never falls back to the active session, so parallel
+// agents sharing this server each keep their own device. A session this server
+// already tracks is used as-is, keeping its screenshot anchors and idle timer;
+// any other ID goes through ResolveSessionByID, the stateless path behind the
+// CLI's --session-id. A session_index that names a different session is an
+// error rather than a silent override. Without session_id, session_index and
+// the active-session fallback resolve exactly as before.
+func (s *Server) resolveToolSession(ctx context.Context, sessionIndex *int, sessionID string) (*DeviceSession, error) {
+	s.recordSessionTargetMode(ctx, sessionIndex, sessionID)
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		index := -1
+		if sessionIndex != nil {
+			index = *sessionIndex
+		}
+		return s.resolveSessionWithHydration(ctx, index)
+	}
+	if sessionIndex != nil {
+		indexed, err := s.resolveSessionWithHydration(ctx, *sessionIndex)
+		if err != nil || !strings.EqualFold(indexed.SessionID, id) {
+			atIndex := "no live session"
+			if err == nil {
+				atIndex = fmt.Sprintf("session %q", indexed.SessionID)
+			}
+			return nil, fmt.Errorf(
+				"conflicting session targets: session_id %s and session_index %d name different sessions (session_index %d is %s). Pass session_id alone",
+				id, *sessionIndex, *sessionIndex, atIndex,
+			)
+		}
+		return indexed, nil
+	}
+	if tracked := s.trackedSessionByID(id); tracked != nil {
+		return tracked, nil
+	}
+	session, err := s.sessionMgr.ResolveSessionByID(ctx, id)
+	if err != nil {
+		return nil, explainSessionIDResolveError(err)
+	}
+	return session, nil
+}
+
+func (s *Server) trackedSessionByID(sessionID string) *DeviceSession {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return nil
+	}
+	for _, session := range s.sessionMgr.ListSessions() {
+		if strings.EqualFold(session.SessionID, id) {
+			return session
+		}
+	}
+	return nil
+}
+
+func explainSessionIDResolveError(err error) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "session not found or not accessible"):
+		return fmt.Errorf("%s. Check the session_id, or call list_device_sessions() to see live sessions and their IDs", msg)
+	case strings.Contains(msg, "is in terminal state"):
+		return fmt.Errorf("%s. Start a new one with start_device_session(), or read its results with get_session_report(session_id=...)", msg)
+	case strings.Contains(msg, "has no workflow run ID"):
+		return fmt.Errorf("%s. Wait a few seconds for the device to finish provisioning, then retry", msg)
+	}
+	return err
+}
+
+// pinnedSessionTarget returns the session_index and session_id inputs that
+// select exactly this session again, for tools that call other tools. It pins
+// by server-issued ID whenever the session has one: a local index can be
+// reused by a different device if the session is stopped and another starts
+// mid-call, and an ID that no longer names a live session fails instead.
+func pinnedSessionTarget(session *DeviceSession) (*int, string) {
+	if session.SessionID != "" {
+		return nil, session.SessionID
+	}
+	index := session.Index
+	return &index, ""
+}
+
+type pinnedSessionContextKey struct{}
+
+// withPinnedSession marks tool calls a tool makes on its own behalf, so they
+// do not count as the caller choosing session_id targeting.
+func withPinnedSession(ctx context.Context) context.Context {
+	return context.WithValue(ctx, pinnedSessionContextKey{}, true)
+}
+
+// recordSessionTargetMode records how the caller chose the device session on
+// the serve command's terminal analytics event: session_id, session_index, or
+// active when it named none. Only the most explicit mode used during this
+// server's lifetime is kept, and no session identifier is recorded.
+func (s *Server) recordSessionTargetMode(ctx context.Context, sessionIndex *int, sessionID string) {
+	if pinned, _ := ctx.Value(pinnedSessionContextKey{}).(bool); pinned {
+		return
+	}
+	mode, rank := "active", 1
+	switch {
+	case strings.TrimSpace(sessionID) != "":
+		mode, rank = "session_id", 3
+	case sessionIndex != nil:
+		mode, rank = "session_index", 2
+	}
+	s.sessionTargetMu.Lock()
+	defer s.sessionTargetMu.Unlock()
+	if rank <= s.sessionTargetRank {
+		return
+	}
+	s.sessionTargetRank = rank
+	analytics.SetCommandCompletion(ctx, analytics.CommandCompletion{Domain: "mcp_session_target", DomainStatus: mode})
+}
+
 // registerScreenshotTool registers the standalone native screenshot tool.
 func (s *Server) registerScreenshotTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -92,7 +207,7 @@ func (s *Server) registerDeviceTools() {
 	// Session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "start_device_session",
-		Description: "Provision a cloud-hosted Android or iOS device. Only platform is required; optionally provide app_id, build_version_id, app_url, or app_link. Returns a viewer_url to watch the device live in a browser.",
+		Description: "Provision a cloud-hosted Android or iOS device. Only platform is required; optionally provide app_id, build_version_id, app_url, or app_link. Returns session_id and a viewer_url to watch the device live in a browser. Pass that session_id to every later device tool call when more than one session may be live, for example when agents run in parallel.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Start Device Session",
 			DestructiveHint: boolPtr(false),
@@ -102,7 +217,7 @@ func (s *Server) registerDeviceTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "stop_device_session",
-		Description: "Release the current device session and stop billing.",
+		Description: "Release a device session and stop billing. Pass session_id to stop that exact session; without it the active session is stopped.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Stop Device Session",
 			DestructiveHint: boolPtr(true),
@@ -378,7 +493,7 @@ func (s *Server) registerDeviceTools() {
 	// Multi-session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_device_sessions",
-		Description: "List all active device sessions with their index, platform, status, and uptime.",
+		Description: "List all active device sessions with their session_id, index, platform, status, and uptime. Pass a session_id to other device tools to target that session.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "List Device Sessions",
 			ReadOnlyHint: true,
@@ -387,7 +502,7 @@ func (s *Server) registerDeviceTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "switch_device_session",
-		Description: "Switch the active session to the given index. Subsequent commands will target this session by default.",
+		Description: "Switch the active session to the given index. Subsequent commands that name no session will target it by default. In parallel work, pass session_id to each tool instead of switching.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Switch Active Session",
 			DestructiveHint: boolPtr(false),
@@ -542,16 +657,24 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		WhepURL:            stringValue(session.WhepURL),
 		IdleTimeoutSeconds: timeout.Seconds(),
 		NextSteps: []NextStep{
-			{Tool: "screenshot", Reason: "See the current device screen"},
-			{Tool: "install_app", Reason: "Install an app on the device"},
+			{Tool: "screenshot", Params: sessionIDParam(session.SessionID), Reason: "See the current device screen"},
+			{Tool: "install_app", Params: sessionIDParam(session.SessionID), Reason: "Install an app on the device"},
 		},
 	}, nil
 }
 
+func sessionIDParam(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("session_id=%q", sessionID)
+}
+
 // StopDeviceSessionInput defines input for stop_device_session.
 type StopDeviceSessionInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to stop. Omit to stop the active session."`
-	All          bool `json:"all,omitempty" jsonschema:"Stop all sessions."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to stop. Omit to stop the active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
+	All          bool   `json:"all,omitempty" jsonschema:"Stop all sessions."`
 }
 
 // StopDeviceSessionOutput defines output for stop_device_session.
@@ -583,15 +706,24 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 		return nil, output, nil
 	}
 
-	index := -1
-	if input.SessionIndex != nil {
-		index = *input.SessionIndex
+	var session *DeviceSession
+	if id := strings.TrimSpace(input.SessionID); id != "" && input.SessionIndex == nil {
+		s.recordSessionTargetMode(ctx, nil, id)
+		// Like the CLI's stop --session-id, an ID this server does not track
+		// is stopped by ID without resolving it first, so a session that is
+		// still provisioning can be stopped too.
+		session = s.trackedSessionByID(id)
+		if session == nil {
+			session = &DeviceSession{Index: UnattachedSessionIndex, SessionID: id}
+		}
+	} else {
+		resolved, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
+		if err != nil {
+			return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+		}
+		session = resolved
 	}
-	session, err := s.resolveSessionWithHydration(ctx, index)
-	if err != nil {
-		return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
-	}
-	if err := s.sessionMgr.StopSession(ctx, session.Index); err != nil {
+	if err := s.sessionMgr.StopResolvedSession(ctx, session); err != nil {
 		var pending *api.DeviceSessionStopPendingError
 		if errors.As(err, &pending) {
 			return nil, StopDeviceSessionOutput{
@@ -618,29 +750,29 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 // --- Dual-param validation helper ---
 
 // resolveCoordsResult holds the output of resolveCoords, including the concrete
-// session index so callers can reuse it for the subsequent worker request without
+// session so callers can reuse it for the subsequent worker request without
 // re-resolving (which would be a TOCTOU race if the active session changed).
 type resolveCoordsResult struct {
-	X            int
-	Y            int
-	SessionIndex int
+	X       int
+	Y       int
+	Session *DeviceSession
 }
 
 // resolveCoords resolves target OR x/y to concrete coordinates for a given session.
-// Returns the resolved coordinates AND the concrete session index that was used.
-// Callers must use result.SessionIndex for any follow-up WorkerRequestForSession
+// Returns the resolved coordinates AND the concrete session that was used.
+// Callers must use result.Session for any follow-up WorkerRequestOnSession
 // call to guarantee grounding and action target the same device.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
 //   - target: Natural language element description (mutually exclusive with x+y).
 //   - x, y: Raw pixel coordinates (mutually exclusive with target).
-//   - sessionIndex: Session index to use (-1 for active/auto).
+//   - sessionIndex, sessionID: The tool's session targeting inputs (see resolveToolSession).
 //
 // Returns:
-//   - *resolveCoordsResult: Resolved coordinates and the concrete session index.
+//   - *resolveCoordsResult: Resolved coordinates and the concrete session.
 //   - error: Validation or resolution error.
-func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, sessionIndex int) (*resolveCoordsResult, error) {
+func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, sessionIndex *int, sessionID string) (*resolveCoordsResult, error) {
 	hasTarget := target != ""
 	hasCoords := x != nil && y != nil
 
@@ -654,24 +786,24 @@ func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, se
 		return nil, fmt.Errorf("both x and y are required when using coordinates")
 	}
 
-	session, err := s.resolveSessionWithHydration(ctx, sessionIndex)
+	session, err := s.resolveToolSession(ctx, sessionIndex, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	if hasCoords {
-		return &resolveCoordsResult{X: *x, Y: *y, SessionIndex: session.Index}, nil
+		return &resolveCoordsResult{X: *x, Y: *y, Session: session}, nil
 	}
 
-	resolved, err := s.sessionMgr.ResolveTargetForSession(ctx, session.Index, target)
+	resolved, err := s.sessionMgr.ResolveTargetOnSession(ctx, session, target)
 	if err != nil {
 		return nil, err
 	}
 	return &resolveCoordsResult{
-		X:            resolved.X,
-		Y:            resolved.Y,
-		SessionIndex: session.Index,
+		X:       resolved.X,
+		Y:       resolved.Y,
+		Session: session,
 	}, nil
 }
 
@@ -681,16 +813,17 @@ func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, se
 //   - ctx: Context for cancellation.
 //   - target: Natural-language element description.
 //   - screenToken: Token for the screenshot that must be used for grounding.
-//   - sessionIndex: Session index that owns the screenshot anchor.
+//   - sessionIndex, sessionID: The tool's session targeting inputs (see resolveToolSession).
 //
 // Returns:
-//   - *resolveCoordsResult: Grounded coordinates and the concrete session index.
+//   - *resolveCoordsResult: Grounded coordinates and the concrete session.
 //   - error: Validation, session, anchor, or grounding failure.
 func (s *Server) resolveCoordsFromAnchor(
 	ctx context.Context,
 	target string,
 	screenToken string,
-	sessionIndex int,
+	sessionIndex *int,
+	sessionID string,
 ) (*resolveCoordsResult, error) {
 	if strings.TrimSpace(target) == "" {
 		return nil, fmt.Errorf("target is required for anchored grounding")
@@ -699,9 +832,15 @@ func (s *Server) resolveCoordsFromAnchor(
 		return nil, fmt.Errorf("screen_token is required for anchored grounding")
 	}
 
-	session, err := s.resolveSessionWithHydration(ctx, sessionIndex)
+	session, err := s.resolveToolSession(ctx, sessionIndex, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if session.Index == UnattachedSessionIndex {
+		return nil, fmt.Errorf(
+			"session %s was not started or listed by this MCP server, so this server keeps no screenshots of it and cannot ground a drag between two targets. Describe the drag as an instruction instead: interact(strategy=\"instruction\", task=\"<the drag>\", session_id=\"%s\")",
+			session.SessionID, session.SessionID,
+		)
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
@@ -710,9 +849,9 @@ func (s *Server) resolveCoordsFromAnchor(
 		return nil, err
 	}
 	return &resolveCoordsResult{
-		X:            resolved.X,
-		Y:            resolved.Y,
-		SessionIndex: session.Index,
+		X:       resolved.X,
+		Y:       resolved.Y,
+		Session: session,
 	}, nil
 }
 
@@ -722,6 +861,16 @@ func errorNextSteps(err error) []NextStep {
 	switch {
 	case strings.Contains(msg, "no active device session"):
 		return []NextStep{{Tool: "start_device_session", Params: "platform=\"android\"", Reason: "Start a session first"}}
+	case strings.Contains(msg, "is in terminal state"):
+		return []NextStep{
+			{Tool: "get_session_report", Reason: "The session has ended; read its results by passing the same session_id"},
+			{Tool: "start_device_session", Reason: "Start a new session to keep testing"},
+		}
+	case strings.Contains(msg, "conflicting session targets") ||
+		strings.Contains(msg, "session not found or not accessible") ||
+		strings.Contains(msg, "multiple sessions active") ||
+		strings.Contains(msg, "no session at index"):
+		return []NextStep{{Tool: "list_device_sessions", Reason: "See live sessions and their session_id"}}
 	case strings.Contains(msg, "screenshot required") ||
 		strings.Contains(msg, "screen_token") ||
 		strings.Contains(msg, "action limit reached") ||
@@ -860,11 +1009,12 @@ func liveStepErrorFromResponse(response *LiveStepResponse) string {
 
 func (s *Server) executeLiveStep(
 	ctx context.Context,
-	sessionIndex int,
+	sessionIndex *int,
+	sessionID string,
 	request LiveStepRequest,
 	successReason string,
 ) (*DeviceLiveStepOutput, error) {
-	session, err := s.resolveSessionWithHydration(ctx, sessionIndex)
+	session, err := s.resolveToolSession(ctx, sessionIndex, sessionID)
 	if err != nil {
 		return &DeviceLiveStepOutput{
 			Success:   false,
@@ -874,7 +1024,7 @@ func (s *Server) executeLiveStep(
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	response, err := s.sessionMgr.ExecuteLiveStepForSession(ctx, session.Index, request)
+	response, err := s.sessionMgr.ExecuteLiveStepOnSession(ctx, session, request)
 	if err != nil {
 		return &DeviceLiveStepOutput{
 			Success:   false,
@@ -921,35 +1071,36 @@ func (s *Server) executeLiveStep(
 type DeviceInstructionInput struct {
 	Description  string `json:"description" jsonschema:"Natural-language instruction to run on the active device session (REQUIRED)."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceValidationInput struct {
 	Description  string `json:"description" jsonschema:"Natural-language validation to run on the active device session (REQUIRED)."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceExtractInput struct {
 	Description  string `json:"description" jsonschema:"Natural-language extract step to run on the active device session (REQUIRED)."`
 	VariableName string `json:"variable_name,omitempty" jsonschema:"Optional variable name for storing the extracted value."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceCodeExecutionInput struct {
 	ScriptID     string `json:"script_id" jsonschema:"Script ID for the code_execution step (REQUIRED)."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 func (s *Server) handleDeviceInstruction(ctx context.Context, req *mcp.CallToolRequest, input DeviceInstructionInput) (*mcp.CallToolResult, DeviceLiveStepOutput, error) {
 	if strings.TrimSpace(input.Description) == "" {
 		return nil, DeviceLiveStepOutput{Success: false, Error: "description is required"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
 	output, err := s.executeLiveStep(
 		ctx,
-		sidx,
+		input.SessionIndex,
+		input.SessionID,
 		LiveStepRequest{
 			StepType:        "instruction",
 			StepDescription: strings.TrimSpace(input.Description),
@@ -969,13 +1120,10 @@ func (s *Server) handleDeviceValidation(ctx context.Context, req *mcp.CallToolRe
 	if strings.TrimSpace(input.Description) == "" {
 		return nil, DeviceLiveStepOutput{Success: false, Error: "description is required"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
 	output, err := s.executeLiveStep(
 		ctx,
-		sidx,
+		input.SessionIndex,
+		input.SessionID,
 		LiveStepRequest{
 			StepType:        "validation",
 			StepDescription: strings.TrimSpace(input.Description),
@@ -995,10 +1143,6 @@ func (s *Server) handleDeviceExtract(ctx context.Context, req *mcp.CallToolReque
 	if strings.TrimSpace(input.Description) == "" {
 		return nil, DeviceLiveStepOutput{Success: false, Error: "description is required"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
 
 	request := LiveStepRequest{
 		StepType:        "extract",
@@ -1012,7 +1156,8 @@ func (s *Server) handleDeviceExtract(ctx context.Context, req *mcp.CallToolReque
 
 	output, err := s.executeLiveStep(
 		ctx,
-		sidx,
+		input.SessionIndex,
+		input.SessionID,
 		request,
 		"Review the screen after the extract step",
 	)
@@ -1026,13 +1171,10 @@ func (s *Server) handleDeviceCodeExecution(ctx context.Context, req *mcp.CallToo
 	if strings.TrimSpace(input.ScriptID) == "" {
 		return nil, DeviceLiveStepOutput{Success: false, Error: "script_id is required"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
 	output, err := s.executeLiveStep(
 		ctx,
-		sidx,
+		input.SessionIndex,
+		input.SessionID,
 		LiveStepRequest{
 			StepType:        "code_execution",
 			StepDescription: strings.TrimSpace(input.ScriptID),
@@ -1054,6 +1196,7 @@ type DeviceTapInput struct {
 	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 // DeviceTapOutput defines output for device_tap.
@@ -1077,10 +1220,6 @@ type workerTapTargetResponse struct {
 
 func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, input DeviceTapInput) (*mcp.CallToolResult, DeviceTapOutput, error) {
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
 	hasTarget := input.Target != ""
 	hasCoords := input.X != nil && input.Y != nil
 	if hasTarget && hasCoords {
@@ -1097,11 +1236,11 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	if hasTarget {
-		session, err := s.resolveSessionWithHydration(ctx, sidx)
+		session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 		if err != nil {
 			return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 		}
-		respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/tap_target", map[string]string{
+		respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/tap_target", map[string]string{
 			"target":     input.Target,
 			"session_id": session.SessionID,
 		})
@@ -1128,13 +1267,13 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 		}, nil
 	}
 
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	body := map[string]int{"x": rc.X, "y": rc.Y}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/tap", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/tap", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceTapOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1153,23 +1292,20 @@ type DeviceDoubleTapInput struct {
 	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceDoubleTapOutput = DeviceTapOutput
 
 func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolRequest, input DeviceDoubleTapInput) (*mcp.CallToolResult, DeviceDoubleTapOutput, error) {
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceDoubleTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	body := map[string]int{"x": rc.X, "y": rc.Y}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/double_tap", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/double_tap", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceDoubleTapOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1189,17 +1325,14 @@ type DeviceLongPressInput struct {
 	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Press duration in ms (default 1500)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceLongPressOutput = DeviceTapOutput
 
 func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolRequest, input DeviceLongPressInput) (*mcp.CallToolResult, DeviceLongPressOutput, error) {
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceLongPressOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1209,7 +1342,7 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 		dur = 1500
 	}
 	body := map[string]int{"x": rc.X, "y": rc.Y, "duration_ms": dur}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/longpress", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/longpress", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceLongPressOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1230,6 +1363,7 @@ type DeviceTypeInput struct {
 	ClearFirst   bool   `json:"clear_first,omitempty" jsonschema:"Clear field before typing (default true)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceTypeOutput = DeviceTapOutput
@@ -1239,11 +1373,7 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, DeviceTypeOutput{Success: false, Error: "text is required -- provide the text to type into the field"}, nil
 	}
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceTypeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1259,7 +1389,7 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 		}
 	}
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "text": input.Text, "clear_first": clearFirst}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/input", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/input", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceTypeOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1280,6 +1410,7 @@ type DeviceSwipeInput struct {
 	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Swipe duration in ms (default 500)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceSwipeOutput = DeviceTapOutput
@@ -1299,11 +1430,7 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 	}
 	input.Direction = strings.ToLower(input.Direction)
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceSwipeOutput{Success: false, Error: err.Error(),
 			NextSteps: errorNextSteps(err),
@@ -1315,7 +1442,7 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 		dur = 500
 	}
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "direction": input.Direction, "duration_ms": dur}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/swipe", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/swipe", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceSwipeOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1335,6 +1462,7 @@ type DeviceDragInput struct {
 	EndY         int    `json:"end_y" jsonschema:"Ending Y coordinate"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceDragOutput struct {
@@ -1345,18 +1473,14 @@ type DeviceDragOutput struct {
 }
 
 func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest, input DeviceDragInput) (*mcp.CallToolResult, DeviceDragOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceDragOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 	start := time.Now()
 	body := map[string]int{"start_x": input.StartX, "start_y": input.StartY, "end_x": input.EndX, "end_y": input.EndY}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/drag", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/drag", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceDragOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1377,17 +1501,14 @@ type DevicePinchInput struct {
 	DurationMs   int     `json:"duration_ms,omitempty" jsonschema:"Pinch duration in ms (default 300)"`
 	ScreenToken  string  `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int    `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string  `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DevicePinchOutput = DeviceTapOutput
 
 func (s *Server) handleDevicePinch(ctx context.Context, req *mcp.CallToolRequest, input DevicePinchInput) (*mcp.CallToolResult, DevicePinchOutput, error) {
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DevicePinchOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1401,7 +1522,7 @@ func (s *Server) handleDevicePinch(ctx context.Context, req *mcp.CallToolRequest
 		durationMs = 300
 	}
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "scale": scale, "duration_ms": durationMs}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/pinch", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/pinch", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DevicePinchOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1420,23 +1541,20 @@ type DeviceClearTextInput struct {
 	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate (bypasses grounding)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceClearTextOutput = DeviceTapOutput
 
 func (s *Server) handleDeviceClearText(ctx context.Context, req *mcp.CallToolRequest, input DeviceClearTextInput) (*mcp.CallToolResult, DeviceClearTextOutput, error) {
 	start := time.Now()
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceClearTextOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	body := map[string]int{"x": rc.X, "y": rc.Y}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/clear_text", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, rc.Session, "/clear_text", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceClearTextOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1450,8 +1568,9 @@ func (s *Server) handleDeviceClearText(ctx context.Context, req *mcp.CallToolReq
 // --- Device Wait ---
 
 type DeviceWaitInput struct {
-	DurationMs   int  `json:"duration_ms,omitempty" jsonschema:"Wait duration in milliseconds (default 1000)"`
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Wait duration in milliseconds (default 1000)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceWaitOutput struct {
@@ -1463,11 +1582,7 @@ type DeviceWaitOutput struct {
 }
 
 func (s *Server) handleDeviceWait(ctx context.Context, req *mcp.CallToolRequest, input DeviceWaitInput) (*mcp.CallToolResult, DeviceWaitOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceWaitOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1483,7 +1598,7 @@ func (s *Server) handleDeviceWait(ctx context.Context, req *mcp.CallToolRequest,
 
 	start := time.Now()
 	body := map[string]int{"duration_ms": durationMs}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/wait", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/wait", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceWaitOutput{Success: false, DurationMs: durationMs, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1502,7 +1617,8 @@ func (s *Server) handleDeviceWait(ctx context.Context, req *mcp.CallToolRequest,
 // --- Device Back ---
 
 type DeviceBackInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceBackOutput struct {
@@ -1513,18 +1629,14 @@ type DeviceBackOutput struct {
 }
 
 func (s *Server) handleDeviceBack(ctx context.Context, req *mcp.CallToolRequest, input DeviceBackInput) (*mcp.CallToolResult, DeviceBackOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceBackOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	start := time.Now()
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/back", nil)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/back", nil)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceBackOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1544,6 +1656,7 @@ func (s *Server) handleDeviceBack(ctx context.Context, req *mcp.CallToolRequest,
 type DeviceKeyInput struct {
 	Key          string `json:"key" jsonschema:"Key to send: ENTER or BACKSPACE (REQUIRED)"`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceKeyOutput struct {
@@ -1569,11 +1682,7 @@ func (s *Server) handleDeviceKey(ctx context.Context, req *mcp.CallToolRequest, 
 		return nil, DeviceKeyOutput{Success: false, Error: "key must be ENTER or BACKSPACE"}, nil
 	}
 
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceKeyOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1581,7 +1690,7 @@ func (s *Server) handleDeviceKey(ctx context.Context, req *mcp.CallToolRequest, 
 
 	start := time.Now()
 	body := map[string]string{"key": normalized}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/key", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/key", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceKeyOutput{Success: false, Key: normalized, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1597,7 +1706,8 @@ func (s *Server) handleDeviceKey(ctx context.Context, req *mcp.CallToolRequest, 
 // --- Device Shake ---
 
 type DeviceShakeInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceShakeOutput struct {
@@ -1608,18 +1718,14 @@ type DeviceShakeOutput struct {
 }
 
 func (s *Server) handleDeviceShake(ctx context.Context, req *mcp.CallToolRequest, input DeviceShakeInput) (*mcp.CallToolResult, DeviceShakeOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceShakeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	start := time.Now()
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/shake", nil)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/shake", nil)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceShakeOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -1637,7 +1743,8 @@ func (s *Server) handleDeviceShake(ctx context.Context, req *mcp.CallToolRequest
 // --- Screenshot ---
 
 type ScreenshotInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to screenshot. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to screenshot. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type ScreenshotOutput struct {
@@ -1658,17 +1765,13 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 			Error:     failure.Message,
 		}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, ScreenshotOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 	start := time.Now()
-	imgBytes, err := s.sessionMgr.ScreenshotForSession(ctx, session.Index)
+	imgBytes, err := s.sessionMgr.ScreenshotOnSession(ctx, session)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, ScreenshotOutput{Success: false, LatencyMs: latency, Error: err.Error(),
@@ -1677,6 +1780,9 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	result := nativeImageResult(imgBytes)
+	if session.Index == UnattachedSessionIndex {
+		return result, ScreenshotOutput{Success: true, LatencyMs: latency}, nil
+	}
 	screenToken := s.sessionMgr.MarkScreenshotAnchorWithImage(session.Index, imgBytes)
 	imagePath, err := s.sessionMgr.PersistAnchorImage(session.Index, screenToken, imgBytes)
 	if err != nil {
@@ -1703,6 +1809,7 @@ type InstallAppInput struct {
 	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Build version ID from a previous upload_build. The download URL is resolved automatically. Provide this OR app_url."`
 	BundleID       string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
 	SessionIndex   *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID      string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type InstallAppOutput struct {
@@ -1760,11 +1867,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		}
 	}
 
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1774,7 +1877,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	if bundleID != "" {
 		body["bundle_id"] = bundleID
 	}
-	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/install", body)
+	respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/install", body)
 	if err != nil {
 		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1829,6 +1932,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 type LaunchAppInput struct {
 	BundleID     string `json:"bundle_id,omitempty" jsonschema:"App bundle ID to launch. Omit to launch the app this session installed — prefer omitting it over guessing an ID."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type LaunchAppOutput struct {
@@ -1845,11 +1949,7 @@ type LaunchAppOutput struct {
 // device. Omitted, the worker launches the app it installed; supplied, the
 // worker rejects it immediately when the device says it is not installed.
 func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, input LaunchAppInput) (*mcp.CallToolResult, LaunchAppOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1859,7 +1959,7 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 	if bundleID := strings.TrimSpace(input.BundleID); bundleID != "" {
 		body["bundle_id"] = bundleID
 	}
-	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
+	respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/launch", body)
 	if err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1882,13 +1982,16 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 // --- Get Session Info ---
 
 type GetSessionInfoInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type GetSessionInfoOutput struct {
-	Active        bool    `json:"active"`
-	SessionID     string  `json:"session_id,omitempty"`
-	SessionIndex  int     `json:"session_index"`
+	Active    bool   `json:"active"`
+	SessionID string `json:"session_id,omitempty"`
+	// SessionIndex is omitted when this server does not track the session,
+	// because no local index selects it.
+	SessionIndex  *int    `json:"session_index,omitempty"`
 	Platform      string  `json:"platform,omitempty"`
 	ViewerURL     string  `json:"viewer_url,omitempty"`
 	WhepURL       string  `json:"whep_url,omitempty"`
@@ -1905,26 +2008,25 @@ type GetSessionInfoOutput struct {
 
 func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequest, input GetSessionInfoInput) (*mcp.CallToolResult, GetSessionInfoOutput, error) {
 	s.syncSessionsBestEffort(ctx)
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, GetSessionInfoOutput{
 			Active:        false,
 			TotalSessions: s.sessionMgr.SessionCount(),
-			NextSteps: []NextStep{
-				{Tool: "start_device_session", Params: "platform=\"android\"", Reason: "Start a device session"},
-			},
+			Error:         err.Error(),
+			NextSteps:     errorNextSteps(err),
 		}, nil
 	}
 
+	var sessionIndex *int
+	if session.Index != UnattachedSessionIndex {
+		sessionIndex = &session.Index
+	}
 	now := time.Now()
 	return nil, GetSessionInfoOutput{
 		Active:             true,
 		SessionID:          session.SessionID,
-		SessionIndex:       session.Index,
+		SessionIndex:       sessionIndex,
 		Platform:           session.Platform,
 		ViewerURL:          session.ViewerURL,
 		WhepURL:            stringValue(session.WhepURL),
@@ -1941,7 +2043,10 @@ func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequ
 
 // --- Device Doctor ---
 
-type DeviceDoctorInput struct{}
+type DeviceDoctorInput struct {
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to diagnose. Omit to diagnose the active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID to diagnose. Wins over session_index; omit both to diagnose the active session."`
+}
 
 type DiagnosticCheck struct {
 	Name   string `json:"name"`
@@ -1954,6 +2059,7 @@ type DeviceDoctorOutput struct {
 	Checks           []DiagnosticCheck `json:"checks"`
 	AllPassed        bool              `json:"all_passed"`
 	TroubleshootTips []string          `json:"troubleshoot_tips,omitempty"`
+	Error            string            `json:"error,omitempty"`
 	NextSteps        []NextStep        `json:"next_steps,omitempty"`
 }
 
@@ -1970,15 +2076,23 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		checks = append(checks, DiagnosticCheck{Name: "auth", Status: "pass"})
 	}
 
-	// Check 2: Active session
+	// Check 2: The requested session, or the active one
 	session := s.sessionMgr.GetActive()
-	if session == nil {
+	var sessionErr error
+	if input.SessionIndex != nil || strings.TrimSpace(input.SessionID) != "" {
+		session, sessionErr = s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
+	}
+	switch {
+	case sessionErr != nil:
+		checks = append(checks, DiagnosticCheck{Name: "session", Status: "fail", Detail: sessionErr.Error(), Fix: "Call list_device_sessions() to see live sessions and their IDs"})
+		allPassed = false
+	case session == nil:
 		checks = append(checks, DiagnosticCheck{Name: "session", Status: "none", Detail: "No active session", Fix: "Call start_device_session(platform='android')"})
-	} else {
+	default:
 		checks = append(checks, DiagnosticCheck{Name: "session", Status: "pass", Detail: fmt.Sprintf("platform=%s, uptime=%.0fs", session.Platform, time.Since(session.StartedAt).Seconds())})
 
 		// Check 3: Worker reachability (only if session exists)
-		respBytes, werr := s.sessionMgr.WorkerRequest(ctx, "/health", nil)
+		respBytes, werr := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/health", nil)
 		if werr != nil {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "fail", Detail: werr.Error(), Fix: "stop_device_session() and start a new one"})
 			allPassed = false
@@ -2036,6 +2150,11 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 	}
 
 	output := DeviceDoctorOutput{Checks: checks, AllPassed: allPassed, TroubleshootTips: tips}
+	if sessionErr != nil {
+		output.Error = sessionErr.Error()
+		output.NextSteps = errorNextSteps(sessionErr)
+		return &mcp.CallToolResult{IsError: true}, output, nil
+	}
 	if allPassed {
 		output.NextSteps = []NextStep{
 			{Tool: "screenshot", Reason: "Everything looks good -- see the device screen"},
@@ -2073,6 +2192,7 @@ type ListDeviceSessionsInput struct{}
 
 // ListDeviceSessionsSessionItem represents a single session in the list output.
 type ListDeviceSessionsSessionItem struct {
+	SessionID          string  `json:"session_id"`
 	Index              int     `json:"index"`
 	Platform           string  `json:"platform"`
 	Status             string  `json:"status"`
@@ -2098,6 +2218,7 @@ func (s *Server) handleListDeviceSessions(ctx context.Context, req *mcp.CallTool
 	items := make([]ListDeviceSessionsSessionItem, 0, len(sessions))
 	for _, sess := range sessions {
 		items = append(items, ListDeviceSessionsSessionItem{
+			SessionID:          sess.SessionID,
 			Index:              sess.Index,
 			Platform:           sess.Platform,
 			Status:             "running",
@@ -2168,7 +2289,8 @@ func (s *Server) handleSwitchDeviceSession(ctx context.Context, req *mcp.CallToo
 // --- Device Go Home ---
 
 type DeviceGoHomeInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceGoHomeOutput struct {
@@ -2178,17 +2300,13 @@ type DeviceGoHomeOutput struct {
 }
 
 func (s *Server) handleDeviceGoHome(ctx context.Context, req *mcp.CallToolRequest, input DeviceGoHomeInput) (*mcp.CallToolResult, DeviceGoHomeOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceGoHomeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/go_home", nil)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/go_home", nil)
 	if err != nil {
 		return nil, DeviceGoHomeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2204,7 +2322,8 @@ func (s *Server) handleDeviceGoHome(ctx context.Context, req *mcp.CallToolReques
 // --- Device Kill App ---
 
 type DeviceKillAppInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceKillAppOutput struct {
@@ -2214,17 +2333,13 @@ type DeviceKillAppOutput struct {
 }
 
 func (s *Server) handleDeviceKillApp(ctx context.Context, req *mcp.CallToolRequest, input DeviceKillAppInput) (*mcp.CallToolResult, DeviceKillAppOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceKillAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/kill_app", nil)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/kill_app", nil)
 	if err != nil {
 		return nil, DeviceKillAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2242,6 +2357,7 @@ func (s *Server) handleDeviceKillApp(ctx context.Context, req *mcp.CallToolReque
 type DeviceOpenAppInput struct {
 	App          string `json:"app" jsonschema:"System app name (e.g. 'settings', 'safari', 'chrome') or raw bundle ID (REQUIRED)"`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceOpenAppOutput struct {
@@ -2256,11 +2372,7 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 	if input.App == "" {
 		return nil, DeviceOpenAppOutput{Success: false, Error: "app is required (e.g. 'settings', 'safari', or a raw bundle ID)"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceOpenAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2268,7 +2380,7 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 
 	bundleID := ResolveSystemApp(session.Platform, input.App)
 	body := map[string]string{"bundle_id": bundleID}
-	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
+	respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/launch", body)
 	if err != nil {
 		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2293,6 +2405,7 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 type DeviceNavigateInput struct {
 	URL          string `json:"url" jsonschema:"URL or deep link to open on the device (REQUIRED)"`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceNavigateOutput struct {
@@ -2314,18 +2427,14 @@ func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequ
 	if input.URL == "" {
 		return nil, DeviceNavigateOutput{Success: false, Error: "url is required"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceNavigateOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"url": input.URL}
-	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", body)
+	respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/open_url", body)
 	if err != nil {
 		return nil, DeviceNavigateOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2349,6 +2458,7 @@ type DeviceSetLocationInput struct {
 	Latitude     float64 `json:"latitude" jsonschema:"Latitude (-90 to 90, REQUIRED)"`
 	Longitude    float64 `json:"longitude" jsonschema:"Longitude (-180 to 180, REQUIRED)"`
 	SessionIndex *int    `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string  `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceSetLocationOutput struct {
@@ -2366,18 +2476,14 @@ func (s *Server) handleDeviceSetLocation(ctx context.Context, req *mcp.CallToolR
 	if input.Longitude < -180 || input.Longitude > 180 {
 		return nil, DeviceSetLocationOutput{Success: false, Error: fmt.Sprintf("longitude must be between -180 and 180, got %f", input.Longitude)}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceSetLocationOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]float64{"latitude": input.Latitude, "longitude": input.Longitude}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/set_location", body)
+	_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/set_location", body)
 	if err != nil {
 		return nil, DeviceSetLocationOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2398,6 +2504,7 @@ type DeviceDownloadFileInput struct {
 	URL          string `json:"url" jsonschema:"URL to download file from (REQUIRED)"`
 	Filename     string `json:"filename,omitempty" jsonschema:"Optional destination filename on the device."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type DeviceDownloadFileOutput struct {
@@ -2418,19 +2525,15 @@ func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallTool
 	if err != nil {
 		return nil, DeviceDownloadFileOutput{Success: false, Error: fmt.Sprintf("rejected url: %v", err)}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceDownloadFileOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	response, err := s.sessionMgr.DownloadFileForSession(
+	response, err := s.sessionMgr.DownloadFileOnSession(
 		ctx,
-		session.Index,
+		session,
 		DeviceDownloadFileRequest{
 			URL:      url,
 			Filename: normalizeOptionalToolInput(input.Filename),
@@ -2457,7 +2560,8 @@ func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallTool
 // ---------------------------------------------------------------------------
 
 type GetSessionReportInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index (omit for active session)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index (omit for active session)"`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type GetSessionReportOutput struct {
@@ -2477,20 +2581,25 @@ type GetSessionReportOutput struct {
 }
 
 func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRequest, input GetSessionReportInput) (*mcp.CallToolResult, GetSessionReportOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
-	if err != nil {
-		return nil, GetSessionReportOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	// A report is a backend read, so a session_id alone skips session
+	// resolution, as the CLI's device report --session-id does, and also
+	// works for sessions that have already ended.
+	sessionID := strings.TrimSpace(input.SessionID)
+	if sessionID != "" && input.SessionIndex == nil {
+		s.recordSessionTargetMode(ctx, nil, sessionID)
+	} else {
+		session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
+		if err != nil {
+			return nil, GetSessionReportOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		}
+		sessionID = session.SessionID
 	}
 
-	envelope, err := s.apiClient.GetReportBySession(ctx, session.SessionID, true, true, false)
+	envelope, err := s.apiClient.GetReportBySession(ctx, sessionID, true, true, false)
 	if err != nil {
 		return nil, GetSessionReportOutput{
 			Success:   false,
-			SessionID: session.SessionID,
+			SessionID: sessionID,
 			Error:     fmt.Sprintf("No report available: %v", err),
 			NextSteps: []NextStep{
 				{Tool: "screenshot", Reason: "Session may still be active - take a screenshot to verify"},
@@ -2500,7 +2609,7 @@ func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRe
 	r := envelope.Report
 	out := GetSessionReportOutput{
 		Success:   true,
-		SessionID: session.SessionID,
+		SessionID: sessionID,
 	}
 	if r.ReportUrl != nil {
 		out.ReportURL = *r.ReportUrl
@@ -2539,6 +2648,7 @@ func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRe
 // PollPerformanceMetricsInput defines parameters for the poll_performance_metrics MCP tool.
 type PollPerformanceMetricsInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 	Cursor       string `json:"cursor,omitempty" jsonschema:"Opaque cursor from a previous response. Use '0' for the first call."`
 	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum number of samples to return. Default 100."`
 }
@@ -2550,11 +2660,7 @@ type PollPerformanceMetricsOutput struct {
 }
 
 func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.CallToolRequest, input PollPerformanceMetricsInput) (*mcp.CallToolResult, PollPerformanceMetricsOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.sessionMgr.ResolveSession(sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, PollPerformanceMetricsOutput{
 			PerfPollResponse: PerfPollResponse{Success: false},
@@ -2573,7 +2679,7 @@ func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.Call
 		limit = 100
 	}
 
-	resp, pollErr := s.sessionMgr.PollPerformanceMetricsForSession(ctx, session.Index, cursor, limit)
+	resp, pollErr := s.sessionMgr.PollPerformanceMetricsOnSession(ctx, session, cursor, limit)
 	if pollErr != nil {
 		return nil, PollPerformanceMetricsOutput{
 			PerfPollResponse: PerfPollResponse{
@@ -2604,7 +2710,8 @@ func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.Call
 // DeviceStateSessionInput is the bare session selector. All device-state
 // tools support an optional session_index.
 type DeviceStateSessionInput struct {
-	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 // DeviceStateListInput defines input for device_state_list.
@@ -2621,15 +2728,11 @@ type DeviceStateListOutput struct {
 }
 
 func (s *Server) handleDeviceStateList(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateListInput) (*mcp.CallToolResult, DeviceStateListOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceStateListOutput{Success: false, Error: err.Error()}, nil
 	}
-	body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/list", nil)
+	body, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/device_state/list", nil)
 	if err != nil {
 		return nil, DeviceStateListOutput{Success: false, Error: err.Error()}, nil
 	}
@@ -2653,15 +2756,11 @@ type DeviceStateSnapshotOutput struct {
 }
 
 func (s *Server) handleDeviceStateSnapshot(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateSnapshotInput) (*mcp.CallToolResult, DeviceStateSnapshotOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceStateSnapshotOutput{Success: false, Error: err.Error()}, nil
 	}
-	body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/snapshot", map[string]any{})
+	body, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/device_state/snapshot", map[string]any{})
 	if err != nil {
 		return nil, DeviceStateSnapshotOutput{Success: false, Error: err.Error()}, nil
 	}
@@ -2676,6 +2775,7 @@ func (s *Server) handleDeviceStateSnapshot(ctx context.Context, req *mcp.CallToo
 type DeviceStateDiffInput struct {
 	SnapshotID   string `json:"snapshot_id" jsonschema:"Snapshot id returned by device_state_snapshot (REQUIRED)."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 // DeviceStateDiffOutput mirrors the worker's DeviceStateDiffResponse.
@@ -2693,15 +2793,11 @@ func (s *Server) handleDeviceStateDiff(ctx context.Context, req *mcp.CallToolReq
 	if strings.TrimSpace(input.SnapshotID) == "" {
 		return nil, DeviceStateDiffOutput{Success: false, Error: "snapshot_id is required"}, nil
 	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceStateDiffOutput{Success: false, Error: err.Error()}, nil
 	}
-	body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/diff", map[string]any{"snapshot_id": input.SnapshotID})
+	body, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/device_state/diff", map[string]any{"snapshot_id": input.SnapshotID})
 	if err != nil {
 		return nil, DeviceStateDiffOutput{Success: false, Error: err.Error()}, nil
 	}
@@ -2723,6 +2819,7 @@ type DeviceStateQueryInput struct {
 	SQL          string        `json:"sql,omitempty" jsonschema:"For sqlite target — a single SELECT or WITH...SELECT statement."`
 	Params       []interface{} `json:"params,omitempty" jsonschema:"For sqlite target — positional '?' placeholders. JSON-typed."`
 	SessionIndex *int          `json:"session_index,omitempty" jsonschema:"Session index. Omit for active session."`
+	SessionID    string        `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 // DeviceStateQueryOutput covers both targets — only the relevant subset
@@ -2742,11 +2839,7 @@ type DeviceStateQueryOutput struct {
 }
 
 func (s *Server) handleDeviceStateQuery(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateQueryInput) (*mcp.CallToolResult, DeviceStateQueryOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, DeviceStateQueryOutput{Success: false, Error: err.Error()}, nil
 	}
@@ -2759,7 +2852,7 @@ func (s *Server) handleDeviceStateQuery(ctx context.Context, req *mcp.CallToolRe
 		if input.Key != "" {
 			reqBody["key"] = input.Key
 		}
-		body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/userdefaults", reqBody)
+		body, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/device_state/userdefaults", reqBody)
 		if err != nil {
 			return nil, DeviceStateQueryOutput{Success: false, Error: err.Error()}, nil
 		}
@@ -2781,7 +2874,7 @@ func (s *Server) handleDeviceStateQuery(ctx context.Context, req *mcp.CallToolRe
 			"sql":     input.SQL,
 			"params":  params,
 		}
-		body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/sqlite/query", reqBody)
+		body, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/device_state/sqlite/query", reqBody)
 		if err != nil {
 			return nil, DeviceStateQueryOutput{Success: false, Error: err.Error()}, nil
 		}
@@ -2802,6 +2895,7 @@ func (s *Server) handleDeviceStateQuery(ctx context.Context, req *mcp.CallToolRe
 // PollNetworkRequestsInput defines parameters for the poll_network_requests MCP tool.
 type PollNetworkRequestsInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 	Cursor       string `json:"cursor,omitempty" jsonschema:"Opaque cursor from a previous response. Use '0' for the first call."`
 	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum number of requests to return. Default 100."`
 	MaxBytes     int    `json:"max_bytes,omitempty" jsonschema:"Maximum encoded payload bytes to return. Default 262144."`
@@ -2814,11 +2908,7 @@ type PollNetworkRequestsOutput struct {
 }
 
 func (s *Server) handlePollNetworkRequests(ctx context.Context, req *mcp.CallToolRequest, input PollNetworkRequestsInput) (*mcp.CallToolResult, PollNetworkRequestsOutput, error) {
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.sessionMgr.ResolveSession(sidx)
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
 		return nil, PollNetworkRequestsOutput{
 			NetworkPollResponse: NetworkPollResponse{Success: false},
@@ -2841,7 +2931,7 @@ func (s *Server) handlePollNetworkRequests(ctx context.Context, req *mcp.CallToo
 		maxBytes = 262144
 	}
 
-	resp, pollErr := s.sessionMgr.PollNetworkRequestsForSession(ctx, session.Index, cursor, limit, maxBytes)
+	resp, pollErr := s.sessionMgr.PollNetworkRequestsOnSession(ctx, session, cursor, limit, maxBytes)
 	if pollErr != nil {
 		return nil, PollNetworkRequestsOutput{
 			NetworkPollResponse: NetworkPollResponse{

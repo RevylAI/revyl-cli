@@ -64,6 +64,11 @@ type Server struct {
 
 	// Live browser approval offered to a caller with no usable credential.
 	pendingAuth pendingAuthorization
+
+	// Most explicit session-targeting mode any device tool call has used,
+	// recorded once per escalation on the serve command's terminal event.
+	sessionTargetMu   sync.Mutex
+	sessionTargetRank int
 }
 
 // ServerOption is a functional option for NewServer.
@@ -99,6 +104,7 @@ Stop and report the remediation when restart_required is true, or when the one r
 Use rebuild to trigger local or remote work without blocking, wait_for_rebuild when its result is needed, and get_dev_status for independent status snapshots.
 Do not infer build success from device readiness.
 Use screenshot, interact, and device_validation for device work.
+When more than one device session may be live, pass the session_id that start_dev_loop or device_session returned to every device tool call.
 Interact captures its own pre/post screenshots and resolves natural-language targets inside Revyl. Do not calculate or supply coordinates.
 Treat structured outcome fields as authoritative, including validation and degraded build states.
 Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.`
@@ -230,7 +236,7 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 
 ## Getting Started (Device Interaction)
 
-1. start_device_session(platform="android") -- provisions a cloud device (returns viewer_url and session_index)
+1. start_device_session(platform="android") -- provisions a cloud device (returns session_id, session_index, and viewer_url)
 2. screenshot() -- see the initial screen state
 3. Use device_tap/device_type/device_swipe with target="..." to interact
 4. screenshot() after every action to verify
@@ -244,11 +250,12 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 
 ## Multi-Session Support
 
-You can run multiple devices simultaneously. Each session gets an auto-assigned index (0, 1, 2...).
-- list_device_sessions() to see all active sessions
-- switch_device_session(index=1) to change the default target
-- Pass session_index to any action tool to target a specific session
-- stop_device_session(all=true) to stop everything
+You can run multiple devices simultaneously. start_device_session returns a session_id; when more than one
+session may be live, including when several agents share this server, pass session_id to every device tool.
+session_id selects exactly that session and never falls back to the active one; a conflicting session_index is an error.
+- list_device_sessions() to see all active sessions with their session_id and index
+- session_index (0, 1, 2...) also targets a session; switch_device_session(index=1) changes the default for calls that name none
+- stop_device_session(session_id="...") to stop one session, stop_device_session(all=true) to stop everything
 
 ## Device Tools: Grounded by Default
 

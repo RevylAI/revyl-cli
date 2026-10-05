@@ -1,15 +1,19 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	mcppkg "github.com/revyl/cli/internal/mcp"
+	"github.com/revyl/cli/internal/ui"
 )
 
 const (
@@ -227,7 +231,11 @@ func lookupSessionFlag(cmd *cobra.Command, name string) string {
 // Durable-ID targets go through the stateless resolver, which never reads or
 // writes .revyl/device-sessions.json, so parallel CLI processes sharing a
 // worktree cannot corrupt each other's session list. Index targets keep the
-// existing local-store behavior.
+// existing local-store behavior, with one announced fallback: when -s names
+// an index that no longer exists and exactly one session is live, that
+// session is used. The fallback is refused when the stale index's own session
+// is known to have ended after the live one started, because the live session
+// then ran alongside it and likely belongs to another caller.
 //
 // Parameters:
 //   - cmd: The running command.
@@ -237,6 +245,148 @@ func lookupSessionFlag(cmd *cobra.Command, name string) string {
 //   - *mcppkg.DeviceSession: The resolved session.
 //   - error: A humanized resolution failure naming the next useful action.
 func resolveSessionTarget(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
+	target, err := sessionTargetFromCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if !target.ByDurableID() && target.Index < 0 {
+		return resolveUntargetedSession(cmd, mgr)
+	}
+
+	session, err := resolveExactSessionTarget(cmd, mgr)
+	var lookupErr *mcppkg.SessionLookupError
+	if err == nil || !errors.As(err, &lookupErr) || lookupErr.Reason != mcppkg.SessionLookupIndexNotFound {
+		return session, err
+	}
+
+	live := mgr.ListSessions()
+	if len(live) != 1 {
+		return nil, err
+	}
+	only := live[0]
+	label := fmt.Sprintf("%d (%s %s)", only.Index, only.Platform, truncatePrefix(only.SessionID, 8))
+	if starting := mgr.UnreachableSessions(); len(starting) > 0 {
+		return nil, fmt.Errorf(
+			"%w. Session %s is still starting, so %s is not the only live session and was not used in its place; pass -s with the session ID you want",
+			err, truncatePrefix(starting[0].SessionID, 8), label,
+		)
+	}
+	ended, indexEnded := mgr.EndedSessionAtIndex(lookupErr.Index)
+	if indexEnded && only.StartedAt.Before(ended.EndedAt) {
+		return nil, fmt.Errorf(
+			"%w. The only active session, %s, was already running before that session ended, so it was not used in its place; pass -s %d if it is yours",
+			err, label, only.Index,
+		)
+	}
+
+	ui.PrintInfo("Using session %d, %s %s (index %d is stale and this is the only active session). Pass -s <index or session ID> to choose another.",
+		only.Index, only.Platform, truncatePrefix(only.SessionID, 8), lookupErr.Index)
+	recordAppliedDefault(cmd, appliedDefault{Flag: sessionFlagName, Value: strconv.Itoa(only.Index), Reason: "stale_index_only_active_session"})
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "device_session_target",
+		DomainStatus: "adopted_only_active_session",
+	})
+	return only, nil
+}
+
+// resolveUntargetedSession picks the session for a command that named none,
+// preferring the sessions this directory started or selected (see
+// DeviceSessionManager.ResolveUntargetedSession). It announces the choice when
+// it changes from the previous untargeted command here, and refuses when
+// several sessions are live and none belongs to this directory.
+func resolveUntargetedSession(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
+	choice, err := mgr.ResolveUntargetedSession()
+	var lookupErr *mcppkg.SessionLookupError
+	if errors.As(err, &lookupErr) && lookupErr.Reason == mcppkg.SessionLookupNoneStartedHere {
+		analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+			Domain:       "device_session_target",
+			DomainStatus: "refused_none_started_here",
+		})
+		return nil, untargetedSessionRefusal(cmd, mgr)
+	}
+	if err != nil {
+		return nil, humanizeDeviceSessionResolveError(cmd, err)
+	}
+
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "device_session_target",
+		DomainStatus: string(choice.Rule),
+	})
+	if !choice.Changed {
+		return choice.Session, nil
+	}
+	mgr.RecordUntargetedChoice(choice.Session)
+	if !choice.HadPrevious && choice.StartedHere < 2 {
+		return choice.Session, nil
+	}
+
+	why := map[mcppkg.UntargetedRule]string{
+		mcppkg.UntargetedSelected:    "last started or selected in this directory",
+		mcppkg.UntargetedStartedHere: fmt.Sprintf("most recently started of %d live sessions started here", choice.StartedHere),
+		mcppkg.UntargetedOnlyLive:    "the only live session",
+	}[choice.Rule]
+	flag, selector := sessionTargetFlagFor(cmd, choice.Session)
+	ui.PrintInfo("Using session %d, %s %s (%s). Pass %s to choose another.",
+		choice.Session.Index, choice.Session.Platform, truncatePrefix(choice.Session.SessionID, 8), why, sessionTargetFlagUsage(flag))
+	recordAppliedDefault(cmd, appliedDefault{Flag: flag, Value: selector, Reason: string(choice.Rule)})
+	return choice.Session, nil
+}
+
+// sessionTargetFlagFor names the session-targeting flag this command accepts
+// and the value that selects the session with it. Commands with -s take an
+// index or session ID; commands with only --session-id take the ID.
+func sessionTargetFlagFor(cmd *cobra.Command, session *mcppkg.DeviceSession) (flag, value string) {
+	if cmd.Flags().Lookup(sessionFlagName) != nil {
+		if session.SessionID == "" {
+			return sessionFlagName, strconv.Itoa(session.Index)
+		}
+		return sessionFlagName, session.SessionID
+	}
+	return sessionIDFlagName, session.SessionID
+}
+
+func sessionTargetFlagUsage(flag string) string {
+	if flag == sessionFlagName {
+		return "-s <index or session ID>"
+	}
+	return "--session-id <session ID>"
+}
+
+// untargetedSessionRefusal lists the live sessions with the command that
+// targets each one, for an untargeted command that found several live
+// sessions and none started or selected in this directory.
+func untargetedSessionRefusal(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) error {
+	live := mgr.ListSessions()
+	for _, unreachable := range mgr.UnreachableSessions() {
+		live = append(live, &unreachable)
+	}
+	commandPath := cmd.CommandPath()
+	var list strings.Builder
+	flagSpelling := "-s"
+	for _, session := range live {
+		flag, selector := sessionTargetFlagFor(cmd, session)
+		if flag == sessionIDFlagName {
+			flagSpelling = "--" + sessionIDFlagName
+		}
+		age := "age unknown"
+		if !session.StartedAt.IsZero() {
+			age = "started " + mcppkg.FormatAge(time.Since(session.StartedAt)) + " ago"
+		}
+		if session.Index == mcppkg.UnattachedSessionIndex {
+			age = "still starting"
+		}
+		fmt.Fprintf(&list, "\n  %-8s  %-7s  %-16s  %s %s %s", truncatePrefix(session.SessionID, 8), session.Platform, age, commandPath, flagSpelling, selector)
+	}
+	return fmt.Errorf(
+		"multiple device sessions are live and none was started or selected in this directory, so '%s' did not pick one. Rerun it with %s for your session (keep your other flags), or choose one for this directory with '%s use <index>':%s",
+		commandPath, flagSpelling, deviceCommandPrefix(cmd)+" device", list.String(),
+	)
+}
+
+// resolveExactSessionTarget resolves the requested session and never
+// substitutes another one for a stale index. Teardown uses it so a stop can
+// only ever end the session the caller named.
+func resolveExactSessionTarget(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
 	target, err := sessionTargetFromCommand(cmd)
 	if err != nil {
 		return nil, err

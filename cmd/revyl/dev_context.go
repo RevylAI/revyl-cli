@@ -21,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
@@ -782,6 +783,11 @@ If the context created its device session, that session is stopped too.
 If the context attached to an existing session, only the local dev
 bootstrap is stopped and the device session is left running.
 
+Without a context name, it stops the current context, unless more than one
+context has a running loop or its own device session; then it lists them
+and stops nothing. When exactly one context is live and the current context
+is a loop that has already exited, it stops the live one and says so.
+
 With --all, stops every context in the current worktree.
 
 Examples:
@@ -1041,19 +1047,128 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else {
-		contextName, err = resolveDevContextName(cwd, getDevContextFlag(cmd))
+		explicitContext := getDevContextFlag(cmd)
+		var onlyLive *DevContext
+		if explicitContext == "" {
+			if onlyLive, err = soleLiveDevContextForUntargetedStop(cmd, cwd); err != nil {
+				return err
+			}
+		}
+		contextName, err = resolveDevContextName(cwd, explicitContext)
 		if err != nil {
 			return err
+		}
+		// The current-context pointer follows the latest loop start and is not
+		// cleared when that loop is killed, so it can name a dead context while
+		// another one is still running. Only a current context whose metadata
+		// was read (or that is gone) is known not to be live; an unreadable one
+		// still fails below.
+		if onlyLive != nil && contextName != onlyLive.Name {
+			current, loadErr := loadDevContext(cwd, contextName)
+			_, statErr := os.Stat(devCtxDir(cwd, contextName))
+			if current != nil || (errors.Is(loadErr, fs.ErrNotExist) && errors.Is(statErr, fs.ErrNotExist)) {
+				ui.PrintInfo("Using dev context '%s' (the only live context in this worktree; the current context '%s' is not running). Pass a context name to choose another.", onlyLive.Name, contextName)
+				recordAppliedDefault(cmd, appliedDefault{Flag: "context", Value: onlyLive.Name, Reason: "only_live_context"})
+				contextName = onlyLive.Name
+			}
 		}
 	}
 
 	return stopOneDevContext(cmd, cwd, contextName)
 }
 
+// liveDevContext is a context whose stop would end a running loop or a device
+// session the context started.
+type liveDevContext struct {
+	ctx     *DevContext
+	running bool
+}
+
+// dropContextsWithEndedSessions removes contexts that are live only because
+// they still record a device session Revyl no longer lists, which happens when
+// a loop was killed before it could clean up. Without a confirmed session list
+// every entry is kept, so an unknown session is never treated as ended.
+func dropContextsWithEndedSessions(cmd *cobra.Command, live []liveDevContext) []liveDevContext {
+	mgr, err := getDeviceSessionMgr(cmd)
+	if err != nil || !mgr.InventoryConfirmed() {
+		return live
+	}
+	liveIDs := make(map[string]bool)
+	for _, session := range mgr.ListSessions() {
+		liveIDs[session.SessionID] = true
+	}
+	for _, id := range mgr.UnreachableSessionIDs() {
+		liveIDs[id] = true
+	}
+	kept := make([]liveDevContext, 0, len(live))
+	for _, entry := range live {
+		if entry.running || liveIDs[entry.ctx.SessionID] {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
+// soleLiveDevContextForUntargetedStop returns the only live context in the
+// worktree, or nil when none is live, for a dev stop that names no context. It
+// refuses while several are live: every new loop moves the worktree's
+// current-context pointer, so with parallel agents it can name another
+// agent's loop and device session.
+func soleLiveDevContextForUntargetedStop(cmd *cobra.Command, cwd string) (*DevContext, error) {
+	contexts, err := listDevContexts(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("could not list dev contexts to choose one to stop: %w; name the context, for example 'revyl dev stop <context>'", err)
+	}
+	var live []liveDevContext
+	holdsSessionOnly := false
+	for _, ctx := range contexts {
+		running := isDevContextRunning(cwd, ctx)
+		if !running && (!ctx.SessionOwned || ctx.SessionID == "") {
+			continue
+		}
+		live = append(live, liveDevContext{ctx: ctx, running: running})
+		holdsSessionOnly = holdsSessionOnly || !running
+	}
+	if len(live) > 1 && holdsSessionOnly {
+		live = dropContextsWithEndedSessions(cmd, live)
+	}
+	switch len(live) {
+	case 0:
+		return nil, nil
+	case 1:
+		return live[0].ctx, nil
+	}
+	var list strings.Builder
+	for _, entry := range live {
+		state := "holds its device session"
+		if entry.running {
+			state = "loop running"
+		}
+		if !entry.ctx.CreatedAt.IsZero() {
+			state += ", started " + mcppkg.FormatAge(time.Since(entry.ctx.CreatedAt)) + " ago"
+		}
+		fmt.Fprintf(&list, "\n  %-16s  %-7s  %-36s  revyl dev stop %s", entry.ctx.Name, entry.ctx.Platform, state, entry.ctx.Name)
+	}
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "dev_stop",
+		DomainStatus: "multiple_live_contexts",
+	})
+	return nil, fmt.Errorf(
+		"multiple dev contexts are live in this worktree, so 'revyl dev stop' did not pick one. Stop the one you started, or stop them all with 'revyl dev stop --all':%s",
+		list.String(),
+	)
+}
+
 func stopOneDevContext(cmd *cobra.Command, cwd, name string) error {
 	ctx, loadErr := loadDevContext(cwd, name)
+	if _, statErr := os.Stat(devCtxDir(cwd, name)); errors.Is(loadErr, fs.ErrNotExist) && errors.Is(statErr, fs.ErrNotExist) {
+		reportNothingToStop(cmd, "dev_stop",
+			fmt.Sprintf("No dev context '%s' in this worktree; nothing to stop. Run 'revyl dev list' to see contexts.", name),
+			map[string]interface{}{"context": name, "stopped": false})
+		return nil
+	}
 	if loadErr != nil {
-		return fmt.Errorf("context '%s' not found", name)
+		return fmt.Errorf("could not read dev context '%s' to stop it: %w", name, loadErr)
 	}
 
 	if running, _ := isDevCtxProcessAlive(ctx.PID, ctx.StartedAtNano, devCtxPIDPath(cwd, name)); running {
@@ -1093,12 +1208,12 @@ func stopOneDevContext(cmd *cobra.Command, cwd, name string) error {
 	_ = saveDevContext(cwd, ctx)
 
 	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
-		data, _ := json.MarshalIndent(map[string]interface{}{
+		data, _ := json.MarshalIndent(withAppliedDefaults(cmd, map[string]interface{}{
 			"context":       name,
 			"stopped":       true,
 			"session_id":    stoppedSessionID,
 			"session_owned": ctx.SessionOwned,
-		}, "", "  ")
+		}), "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
@@ -1116,7 +1231,8 @@ func stopAllDevContexts(cmd *cobra.Command, cwd string) error {
 		return err
 	}
 	if len(contexts) == 0 {
-		ui.PrintDim("No dev contexts to stop.")
+		reportNothingToStop(cmd, "dev_stop", "No dev contexts in this worktree; nothing to stop.",
+			map[string]interface{}{"contexts": []string{}, "stopped": false})
 		return nil
 	}
 	for _, ctx := range contexts {

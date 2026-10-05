@@ -526,7 +526,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	// Handle no-wait mode (result will have TaskID but may not be complete)
 	if runNoWait && result.TaskID != "" {
 		if runOutputJSON || runGitHubActions {
-			outputTestResultJSON(result)
+			outputTestResultJSON(cmd, result, true)
 			return nil
 		}
 		ui.PrintSuccess("Test queued successfully")
@@ -539,7 +539,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	switch {
 	case result.Success:
 		if runOutputJSON || runGitHubActions {
-			outputTestResultJSON(result)
+			outputTestResultJSON(cmd, result, true)
 		} else {
 			ui.PrintTestResult(result.TestName, "passed", result.ReportURL, "")
 			ui.Println()
@@ -551,7 +551,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	case result.Status == "cancelled":
 		if runOutputJSON || runGitHubActions {
-			outputTestResultJSON(result)
+			outputTestResultJSON(cmd, result, false)
 		} else {
 			ui.PrintTestResult(result.TestName, "cancelled", result.ReportURL, "")
 			ui.Println()
@@ -559,7 +559,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	case result.Status == "timeout":
 		if runOutputJSON || runGitHubActions {
-			outputTestResultJSON(result)
+			outputTestResultJSON(cmd, result, false)
 		} else {
 			ui.PrintTestResult(result.TestName, "timeout", result.ReportURL, result.ErrorMessage)
 			ui.Println()
@@ -570,7 +570,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	default:
 		if runOutputJSON || runGitHubActions {
-			outputTestResultJSON(result)
+			outputTestResultJSON(cmd, result, false)
 		} else {
 			ui.PrintTestResult(result.TestName, "failed", result.ReportURL, result.ErrorMessage)
 			ui.Println()
@@ -601,10 +601,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 }
 
 // outputTestResultJSON outputs test results as JSON for CI/CD integration.
-//
-// Parameters:
-//   - result: The test execution result
-func outputTestResultJSON(result *execution.RunTestResult) {
+// defaults_applied is added only when the command succeeds, so the JSON a
+// failed run writes stays unchanged.
+func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, commandSucceeded bool) {
 	output := map[string]interface{}{
 		"success":     result.Success,
 		"task_id":     result.TaskID,
@@ -616,7 +615,11 @@ func outputTestResultJSON(result *execution.RunTestResult) {
 		"error":       result.ErrorMessage,
 	}
 
-	data, _ := json.MarshalIndent(output, "", "  ")
+	var payload interface{} = output
+	if commandSucceeded {
+		payload = withAppliedDefaults(cmd, output)
+	}
+	data, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Println(string(data))
 }
 
@@ -1301,7 +1304,8 @@ func failedDomainStatus(status string) string {
 // resolveDeviceSelection resolves the target device pair from flags or an
 // interactive picker. When interactive is true it fetches the test's platform
 // via the API and presents a bubbletea selection menu. When deviceModel and
-// osVersion are provided directly they are validated against the target matrix.
+// osVersion are provided directly they are validated against the target matrix;
+// a deviceModel without osVersion gets the newest runtime that model supports.
 //
 // Parameters:
 //   - cmd: cobra command (used for context)
@@ -1328,7 +1332,7 @@ func resolveDeviceSelection(
 		if deviceModel == "" && osVersion == "" {
 			return "", "", nil
 		}
-		if deviceModel == "" || osVersion == "" {
+		if deviceModel == "" {
 			return "", "", fmt.Errorf("--device-model and --os-version must both be provided")
 		}
 	}
@@ -1344,6 +1348,12 @@ func resolveDeviceSelection(
 
 	targetCatalog := loadRuntimeDeviceTargetCatalog(cmd.Context(), client)
 	if !interactive {
+		if osVersion == "" {
+			osVersion, err = defaultOSVersionForModel(cmd, targetCatalog, test.Platform, deviceModel)
+			if err != nil {
+				return "", "", err
+			}
+		}
 		if err := targetCatalog.ValidateDevicePair(test.Platform, deviceModel, osVersion); err != nil {
 			return "", "", err
 		}

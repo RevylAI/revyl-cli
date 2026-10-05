@@ -19,6 +19,7 @@ type BuildPreflightInfo struct {
 // StartDevLoopOutput preserves the flat core/full MCP startup contract.
 type StartDevLoopOutput struct {
 	Success            bool                `json:"success"`
+	SessionID          string              `json:"session_id,omitempty"`
 	SessionIndex       int                 `json:"session_index"`
 	ManualStepRequired bool                `json:"manual_step_required,omitempty"`
 	DeepLinkURL        string              `json:"deep_link_url,omitempty"`
@@ -32,6 +33,7 @@ type StartDevLoopOutput struct {
 // StartDevLoopCoreOutput adds structured setup recovery to the flat core/full contract.
 type StartDevLoopCoreOutput struct {
 	Success            bool                `json:"success"`
+	SessionID          string              `json:"session_id,omitempty"`
 	SessionIndex       int                 `json:"session_index"`
 	ManualStepRequired bool                `json:"manual_step_required,omitempty"`
 	DeepLinkURL        string              `json:"deep_link_url,omitempty"`
@@ -72,6 +74,7 @@ func (s *Server) handleStartDevLoopCompat(
 	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
 	output := StartDevLoopOutput{
 		Success:      canonical.Success,
+		SessionID:    canonical.Result.SessionID,
 		SessionIndex: canonical.Result.SessionIndex,
 		ViewerURL:    canonical.Result.ViewerURL,
 		Error:        canonical.Error,
@@ -81,6 +84,9 @@ func (s *Server) handleStartDevLoopCompat(
 	}
 	if output.ViewerURL == "" {
 		output.ViewerURL = canonical.Outcome.ViewerURL
+	}
+	if output.SessionID == "" {
+		output.SessionID = canonical.Outcome.SessionID
 	}
 	return toolResult, output, err
 }
@@ -93,6 +99,7 @@ func (s *Server) handleStartDevLoopCoreCompat(
 	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
 	output := StartDevLoopCoreOutput{
 		Success:      canonical.Success,
+		SessionID:    canonical.Result.SessionID,
 		SessionIndex: canonical.Result.SessionIndex,
 		ViewerURL:    canonical.Result.ViewerURL,
 		Outcome:      canonical.Outcome,
@@ -104,6 +111,9 @@ func (s *Server) handleStartDevLoopCoreCompat(
 	}
 	if output.ViewerURL == "" {
 		output.ViewerURL = canonical.Outcome.ViewerURL
+	}
+	if output.SessionID == "" {
+		output.SessionID = canonical.Outcome.SessionID
 	}
 	return toolResult, output, err
 }

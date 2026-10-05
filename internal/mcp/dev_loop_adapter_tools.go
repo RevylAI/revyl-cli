@@ -200,7 +200,7 @@ func (s *Server) handleStartDevLoopCommand(
 		return nil, output, nil
 	}
 	screenshotResult, screenshot, screenshotErr := s.handleScreenshot(
-		ctx,
+		withPinnedSession(ctx),
 		req,
 		ScreenshotInput{SessionIndex: &result.SessionIndex},
 	)

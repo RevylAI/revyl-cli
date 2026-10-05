@@ -130,6 +130,11 @@ type persistedState struct {
 	OrgID     string           `json:"org_id"`
 	UserEmail string           `json:"user_email"`
 	Sessions  []*DeviceSession `json:"sessions"`
+	Ended     []*EndedSession  `json:"ended_sessions,omitempty"`
+
+	StartedHere    []persistedSessionRef `json:"started_here,omitempty"`
+	Selected       *persistedSessionRef  `json:"selected,omitempty"`
+	LastUntargeted *persistedSessionRef  `json:"last_untargeted,omitempty"`
 }
 
 type sessionCacheIdentity struct {
@@ -138,11 +143,15 @@ type sessionCacheIdentity struct {
 }
 
 type sessionCacheMutation struct {
-	removedSessions []sessionCacheIdentity
-	addedSessions   []*DeviceSession
-	updatedSessions []*DeviceSession
-	updateActive    bool
-	resetNextIndex  bool
+	removedSessions  []sessionCacheIdentity
+	addedSessions    []*DeviceSession
+	updatedSessions  []*DeviceSession
+	endedSessions    []*EndedSession
+	startedSession   *DeviceSession
+	selectedSession  *DeviceSession
+	untargetedChoice *DeviceSession
+	updateActive     bool
+	resetNextIndex   bool
 }
 
 type screenAnchorState struct {
@@ -183,6 +192,26 @@ type DeviceSessionManager struct {
 	// worktree, where a read-modify-write of that file would corrupt the
 	// session list of sibling processes.
 	persistenceDisabled bool
+
+	// inventoryConfirmed records that SyncSessions read the backend's
+	// active-session list, so an empty local map means no session is running.
+	inventoryConfirmed bool
+
+	// unreachableSessions lists live backend sessions the last SyncSessions
+	// could not add because they have no worker yet or failed a health check.
+	unreachableSessions []DeviceSession
+
+	errorSurface ErrorSurface
+
+	// endedSessions remembers recently pruned sessions, newest first.
+	endedSessions []*EndedSession
+
+	// startedHere, selected, and lastUntargeted tie sessions to this
+	// directory: sessions it started, the session last started or selected
+	// here, and the session the previous untargeted command used.
+	startedHere    []sessionCacheIdentity
+	selected       *sessionCacheIdentity
+	lastUntargeted *sessionCacheIdentity
 }
 
 // UnattachedSessionIndex marks a session resolved by durable ID that was never
@@ -507,7 +536,7 @@ func (m *DeviceSessionManager) StartSession(
 	if err != nil {
 		// Cancel the device if we can't get the worker URL
 		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
-		return -1, nil, fmt.Errorf("device started but worker not ready: %w. Try again or call device_doctor() to diagnose", err)
+		return -1, nil, fmt.Errorf("device started but worker not ready: %w. %s", err, m.nextStep(nextStepRetryStart))
 	}
 
 	// Wait for the device to actually be connected (up to 30 seconds).
@@ -591,7 +620,9 @@ func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (i
 	}
 
 	if err := m.persistSessionsWithMutation(sessionCacheMutation{
-		addedSessions: []*DeviceSession{session},
+		addedSessions:   []*DeviceSession{session},
+		startedSession:  session,
+		selectedSession: session,
 	}); err != nil {
 		delete(m.sessions, idx)
 		delete(m.sessions, session.Index)
@@ -634,6 +665,7 @@ func (m *DeviceSessionManager) StopSession(ctx context.Context, index int) error
 	mutation := sessionCacheMutation{updateActive: cancelErr == nil}
 	if cancelErr == nil {
 		mutation.removedSessions = []sessionCacheIdentity{removedSession}
+		mutation.endedSessions = []*EndedSession{locallyEndedSession(session, index, EndedSessionStopped)}
 	}
 	m.persistSessionsWithMutation(mutation)
 	return cancelErr
@@ -661,10 +693,12 @@ func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session 
 
 	if _, tracked := m.sessions[session.Index]; tracked {
 		removedSession := sessionCacheIdentityFor(session)
-		cancelErr := m.stopSessionAtIndexLocked(ctx, session.Index, session)
+		stoppedIndex := session.Index
+		cancelErr := m.stopSessionAtIndexLocked(ctx, stoppedIndex, session)
 		mutation := sessionCacheMutation{updateActive: cancelErr == nil}
 		if cancelErr == nil {
 			mutation.removedSessions = []sessionCacheIdentity{removedSession}
+			mutation.endedSessions = []*EndedSession{locallyEndedSession(session, stoppedIndex, EndedSessionStopped)}
 		}
 		m.persistSessionsWithMutation(mutation)
 		return cancelErr
@@ -720,6 +754,7 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessi
 	}
 	var stopErrors []error
 	removedSessions := make([]sessionCacheIdentity, 0, len(m.sessions))
+	endedSessions := make([]*EndedSession, 0, len(m.sessions))
 	indices := make([]int, 0, len(m.sessions))
 	for idx := range m.sessions {
 		indices = append(indices, idx)
@@ -746,6 +781,7 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessi
 			}
 		} else {
 			removedSessions = append(removedSessions, identity)
+			endedSessions = append(endedSessions, locallyEndedSession(session, idx, EndedSessionStopped))
 		}
 		result.RequestAccepted = result.RequestAccepted && outcome.RequestAccepted
 		result.SessionSettled = result.SessionSettled && outcome.SessionSettled
@@ -757,6 +793,7 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessi
 	}
 	m.persistSessionsWithMutation(sessionCacheMutation{
 		removedSessions: removedSessions,
+		endedSessions:   endedSessions,
 		updateActive:    len(removedSessions) > 0,
 		resetNextIndex:  len(m.sessions) == 0,
 	})
@@ -770,6 +807,7 @@ func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 
 	var firstErr error
 	removedSessions := make([]sessionCacheIdentity, 0, len(m.ownedSessions))
+	endedSessions := make([]*EndedSession, 0, len(m.ownedSessions))
 	for idx, session := range m.sessions {
 		if !m.ownedSessions[idx] {
 			continue
@@ -781,10 +819,12 @@ func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 			}
 		} else {
 			removedSessions = append(removedSessions, identity)
+			endedSessions = append(endedSessions, locallyEndedSession(session, idx, EndedSessionStopped))
 		}
 	}
 	m.persistSessionsWithMutation(sessionCacheMutation{
 		removedSessions: removedSessions,
+		endedSessions:   endedSessions,
 		updateActive:    len(removedSessions) > 0,
 	})
 	return firstErr
@@ -830,8 +870,12 @@ func (m *DeviceSessionManager) SetActive(index int) error {
 	if _, ok := m.sessions[index]; !ok {
 		return fmt.Errorf("no session at index %d", index)
 	}
+	previousActiveIndex := m.activeIndex
 	m.activeIndex = index
-	m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true})
+	if err := m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true, selectedSession: m.sessions[index]}); err != nil {
+		m.activeIndex = previousActiveIndex
+		return fmt.Errorf("could not save the selected session: %w", err)
+	}
 	return nil
 }
 
@@ -888,11 +932,25 @@ func (m *DeviceSessionManager) SessionCount() int {
 func (m *DeviceSessionManager) ResolveSession(index int) (*DeviceSession, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.resolveSessionLocked(index)
+}
 
+func (m *DeviceSessionManager) resolveSessionLocked(index int) (*DeviceSession, error) {
 	if index >= 0 {
 		s, ok := m.sessions[index]
 		if !ok {
-			return nil, fmt.Errorf("no session at index %d. Call list_device_sessions() to see active sessions", index)
+			guidance := m.nextStep(nextStepListSessions)
+			if ended := m.endedSessionAtIndexLocked(index); ended != nil {
+				guidance = m.endedSessionGuidance(ended)
+				if len(m.sessions) > 0 {
+					guidance = fmt.Sprintf("%s. %s", capitalizeFirst(ended.describe(time.Now())), m.nextStep(nextStepListSessions))
+				}
+			}
+			return nil, &SessionLookupError{
+				Reason:  SessionLookupIndexNotFound,
+				Index:   index,
+				message: fmt.Sprintf("no session at index %d. %s", index, guidance),
+			}
 		}
 		return s, nil
 	}
@@ -912,10 +970,85 @@ func (m *DeviceSessionManager) ResolveSession(index int) (*DeviceSession, error)
 	}
 
 	if len(m.sessions) == 0 {
-		return nil, fmt.Errorf("no active device sessions. Start one with start_device_session(platform='ios') or start_device_session(platform='android')")
+		guidance := m.nextStep(nextStepStartSession)
+		if len(m.endedSessions) > 0 {
+			guidance = m.endedSessionGuidance(m.endedSessions[0])
+		}
+		return nil, &SessionLookupError{
+			Reason:  SessionLookupNoActiveSessions,
+			Index:   index,
+			message: "no active device sessions. " + guidance,
+		}
 	}
 
-	return nil, fmt.Errorf("multiple sessions active. Specify session_index or call list_device_sessions() to see them")
+	return nil, &SessionLookupError{
+		Reason:  SessionLookupMultipleActive,
+		Index:   index,
+		message: "multiple sessions active. " + m.nextStep(nextStepSelectSession),
+	}
+}
+
+// SessionLookupReason classifies why ResolveSession found no usable session.
+type SessionLookupReason int
+
+const (
+	SessionLookupNoActiveSessions SessionLookupReason = iota + 1
+	SessionLookupIndexNotFound
+	SessionLookupMultipleActive
+	SessionLookupNoneStartedHere
+)
+
+// SessionLookupError reports a ResolveSession failure. Its message keeps the
+// established prefixes ("no active device sessions", "no session at index N",
+// "multiple sessions active") that MCP clients and scripts already match on.
+type SessionLookupError struct {
+	Reason  SessionLookupReason
+	Index   int
+	message string
+}
+
+func (e *SessionLookupError) Error() string {
+	return e.message
+}
+
+// InventoryConfirmed reports whether the last SyncSessions read the backend's
+// active-session list. Without it, an empty local session map proves nothing.
+func (m *DeviceSessionManager) InventoryConfirmed() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.inventoryConfirmed
+}
+
+// UnreachableSessionIDs returns live backend sessions the last SyncSessions
+// listed but could not add locally, because they have no worker yet or their
+// worker failed its health check. They are still running and stoppable by ID.
+func (m *DeviceSessionManager) UnreachableSessionIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.unreachableSessions))
+	for _, session := range m.unreachableSessions {
+		ids = append(ids, session.SessionID)
+	}
+	return ids
+}
+
+// UnreachableSessions returns the same sessions as UnreachableSessionIDs with
+// the platform and start time the backend reported, and no local index.
+func (m *DeviceSessionManager) UnreachableSessions() []DeviceSession {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]DeviceSession(nil), m.unreachableSessions...)
+}
+
+func unreachableSessionFrom(bs api.ActiveDeviceSessionItem) DeviceSession {
+	session := DeviceSession{Index: UnattachedSessionIndex, SessionID: bs.Id, Platform: bs.Platform}
+	switch {
+	case bs.StartedAt != nil:
+		session.StartedAt = *bs.StartedAt
+	case bs.CreatedAt != nil:
+		session.StartedAt = *bs.CreatedAt
+	}
+	return session
 }
 
 // ResetIdleTimer resets the idle timeout for a specific session.
@@ -1195,6 +1328,7 @@ func (m *DeviceSessionManager) resetIdleTimerForSessionLocked(index int, ctx con
 			if err := m.stopSessionAtIndexLocked(ctx, index, s); err == nil {
 				m.persistSessionsWithMutation(sessionCacheMutation{
 					removedSessions: []sessionCacheIdentity{identity},
+					endedSessions:   []*EndedSession{locallyEndedSession(s, index, EndedSessionIdleTimeout)},
 					updateActive:    true,
 				})
 			}
@@ -1416,6 +1550,8 @@ func (m *DeviceSessionManager) applyPersistedSessions(
 
 func (m *DeviceSessionManager) persistSessionsWithMutation(mutation sessionCacheMutation) error {
 	if m.workDir == "" || m.persistenceDisabled {
+		m.endedSessions = mergeEndedSessions(m.endedSessions, mutation.endedSessions, time.Now())
+		m.applyDirectoryTargeting(mutation)
 		return nil
 	}
 
@@ -1449,6 +1585,8 @@ func (m *DeviceSessionManager) persistSessionsWithMutation(mutation sessionCache
 		for _, session := range m.sessions {
 			existing.Sessions = append(existing.Sessions, session)
 		}
+		existing.Ended = m.endedSessions
+		existing.StartedHere, existing.Selected, existing.LastUntargeted = m.directoryTargetingRefs()
 	}
 	desiredActiveIdentity := sessionCacheIdentity{}
 	hasDesiredActive := false
@@ -1547,12 +1685,30 @@ func (m *DeviceSessionManager) persistSessionsWithMutation(mutation sessionCache
 	if userEmail == "" {
 		userEmail = existing.UserEmail
 	}
+	startedHere := existing.StartedHere
+	if mutation.startedSession != nil {
+		startedHere = append(startedHere, sessionRefFor(mutation.startedSession))
+	}
+	selected := existing.Selected
+	if mutation.selectedSession != nil {
+		ref := sessionRefFor(mutation.selectedSession)
+		selected = &ref
+	}
+	lastUntargeted := existing.LastUntargeted
+	if mutation.untargetedChoice != nil {
+		ref := sessionRefFor(mutation.untargetedChoice)
+		lastUntargeted = &ref
+	}
 	state := persistedState{
-		Active:    activeIndex,
-		NextIdx:   nextIndex,
-		OrgID:     orgID,
-		UserEmail: userEmail,
-		Sessions:  sessions,
+		Active:         activeIndex,
+		NextIdx:        nextIndex,
+		OrgID:          orgID,
+		UserEmail:      userEmail,
+		Sessions:       sessions,
+		Ended:          mergeEndedSessions(existing.Ended, mutation.endedSessions, time.Now()),
+		StartedHere:    liveSessionRefs(startedHere, sessions),
+		Selected:       optionalLiveSessionRef(selected, sessions),
+		LastUntargeted: lastUntargeted,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -1563,6 +1719,8 @@ func (m *DeviceSessionManager) persistSessionsWithMutation(mutation sessionCache
 		return err
 	}
 	m.applyPersistedSessions(sessions, activeIndex, nextIndex)
+	m.endedSessions = state.Ended
+	m.loadDirectoryTargeting(state)
 	return nil
 }
 
@@ -1627,6 +1785,8 @@ func (m *DeviceSessionManager) loadLocalCache() {
 			for _, s := range state.Sessions {
 				m.sessions[s.Index] = s
 			}
+			m.endedSessions = mergeEndedSessions(nil, state.Ended, time.Now())
+			m.loadDirectoryTargeting(state)
 			return
 		}
 	}
@@ -1685,29 +1845,41 @@ func (m *DeviceSessionManager) LoadPersistedSession() *DeviceSession {
 // Parameters:
 //   - session: The session to check status for.
 //
-// Returns a human-readable reason string, or "" if the status can't be determined.
-func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSession) string {
+// Returns a human-readable reason, or "" if the status can't be determined, and
+// whether that reason means the session has ended.
+func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSession) (reason string, ended bool) {
 	if session == nil || m.apiClient == nil {
-		return ""
+		return "", false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resp, err := m.apiClient.GetWorkerWSURL(ctx, session.WorkflowRunID)
 	if err != nil {
-		return "" // can't reach backend either
+		return "", false // can't reach backend either
 	}
 	switch resp.Status {
 	case api.WorkerConnectionResponseStatusStopped:
-		return workerConnectionStoppedReason(resp)
+		return workerConnectionStoppedReason(resp), true
 	case api.WorkerConnectionResponseStatusCancelled:
-		return "session was cancelled externally (from browser or another client)"
+		return "session was cancelled externally (from browser or another client)", true
 	case api.WorkerConnectionResponseStatusFailed:
-		return "session failed on the worker"
+		return "session failed on the worker", true
 	case api.WorkerConnectionResponseStatusNotReady:
-		return "device is not accepting commands yet (still starting); retry shortly"
+		return "device is not accepting commands yet (still starting); retry shortly", false
 	default:
-		return ""
+		return "", false
 	}
+}
+
+// sessionStateGuidance explains a failed worker action from the backend's view
+// of the session: why it ended and how to start another, or that it is still
+// starting. It returns "" when the backend cannot say.
+func (m *DeviceSessionManager) sessionStateGuidance(session *DeviceSession) string {
+	reason, ended := m.checkSessionStatusOnFailure(session)
+	if ended {
+		return reason + ". " + m.nextStep(nextStepStartNewSession)
+	}
+	return reason
 }
 
 // CheckSessionAlive queries the backend to determine whether a device session
@@ -1790,7 +1962,7 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (worke
 			if errors.As(err, &workerErr) {
 				return workerHealthResponse{}, workerErr
 			}
-			if reason := m.checkSessionStatusOnFailure(session); reason != "" {
+			if reason, _ := m.checkSessionStatusOnFailure(session); reason != "" {
 				return workerHealthResponse{}, fmt.Errorf("%s", reason)
 			}
 			return workerHealthResponse{}, err
@@ -1811,7 +1983,7 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (worke
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if reason := m.checkSessionStatusOnFailure(session); reason != "" {
+		if reason, _ := m.checkSessionStatusOnFailure(session); reason != "" {
 			return workerHealthResponse{}, fmt.Errorf("%s", reason)
 		}
 		return workerHealthResponse{}, err
@@ -1858,6 +2030,14 @@ func applyBackendScreenDimensions(session *DeviceSession, width, height *int) {
 	}
 	if height != nil && *height > 0 {
 		session.ScreenHeight = *height
+	}
+}
+
+// applyBackendIdleTimeout records the idle timeout the backend enforces, so
+// sessions discovered by sync don't carry a guessed value.
+func applyBackendIdleTimeout(session *DeviceSession, bs api.ActiveDeviceSessionItem) {
+	if bs.IdleTimeoutSeconds != nil && *bs.IdleTimeoutSeconds > 0 {
+		session.IdleTimeout = time.Duration(*bs.IdleTimeoutSeconds) * time.Second
 	}
 }
 
@@ -2400,14 +2580,18 @@ func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
 
 	respBody, err := m.workerRequestForSession(ctx, session, "/execute_step", req)
 	if err != nil {
-		return nil, err
+		return nil, m.explainWorkerSessionState(session, err)
 	}
 
 	// Detect async (202) vs sync (200) response by checking for the
 	// "accepted" status field that only stepAcceptedResponse carries.
 	var accepted stepAcceptedResponse
 	if err := json.Unmarshal(respBody, &accepted); err == nil && accepted.Status == "accepted" && accepted.StepID != "" {
-		return m.pollStepUntilDone(ctx, session, accepted.StepID)
+		result, pollErr := m.pollStepUntilDone(ctx, session, accepted.StepID)
+		if pollErr != nil {
+			return nil, m.explainWorkerSessionState(session, pollErr)
+		}
+		return result, nil
 	}
 
 	// Sync fallback for older workers returning 200 with full result.
@@ -2653,7 +2837,7 @@ func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, path string, b
 	if err != nil {
 		return nil, err
 	}
-	return m.workerRequestForSession(ctx, session, path, body)
+	return m.WorkerRequestOnSession(ctx, session, path, body)
 }
 
 // WorkerRequestForSession sends a worker action request to a specific session.
@@ -2672,7 +2856,7 @@ func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, inde
 	if err != nil {
 		return nil, err
 	}
-	return m.workerRequestForSession(ctx, session, path, body)
+	return m.WorkerRequestOnSession(ctx, session, path, body)
 }
 
 // WorkerRequestOnSession sends a worker action to an already-resolved session.
@@ -2694,7 +2878,11 @@ func (m *DeviceSessionManager) WorkerRequestOnSession(ctx context.Context, sessi
 	if session == nil {
 		return nil, fmt.Errorf("no session resolved for worker request %s", path)
 	}
-	return m.workerRequestForSession(ctx, session, path, body)
+	respBody, err := m.workerRequestForSession(ctx, session, path, body)
+	if err != nil {
+		return nil, m.explainWorkerSessionState(session, err)
+	}
+	return respBody, nil
 }
 
 func (m *DeviceSessionManager) lockInputAction(ctx context.Context, session *DeviceSession) (func(), error) {
@@ -2768,31 +2956,58 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 
 			var retryWorkerErr *WorkerHTTPError
 			if errors.As(retryErr, &retryWorkerErr) {
-				if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-					return nil, fmt.Errorf("%w. %s", retryWorkerErr, reason)
+				if guidance := m.sessionStateGuidance(session); guidance != "" {
+					return nil, fmt.Errorf("%w. %s", retryWorkerErr, guidance)
 				}
-				return nil, fmt.Errorf(
-					"%w. "+
-						"The device may not be fully connected yet -- wait a few seconds and retry, or call device_doctor() to diagnose",
-					retryWorkerErr,
-				)
+				return nil, fmt.Errorf("%w. %s", retryWorkerErr, m.nextStep(nextStepDeviceConnecting))
 			}
 			return nil, retryErr
 		}
 		if workerErr.StatusCode >= 500 {
-			if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-				return nil, fmt.Errorf("%w. %s", workerErr, reason)
+			if guidance := m.sessionStateGuidance(session); guidance != "" {
+				return nil, fmt.Errorf("%w. %s", workerErr, guidance)
 			}
-			return nil, fmt.Errorf("%w. Call device_doctor() to check worker health", workerErr)
+			return nil, fmt.Errorf("%w. %s", workerErr, m.nextStep(nextStepDiagnose))
 		}
 		return nil, workerErr
 	}
 
-	if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-		return nil, fmt.Errorf("%s. Start a new session with start_device_session()", reason)
+	if reason, ended := m.checkSessionStatusOnFailure(session); reason != "" {
+		if ended {
+			return nil, fmt.Errorf("%s. %s", reason, m.nextStep(nextStepStartNewSession))
+		}
+		return nil, fmt.Errorf("%s", reason)
 	}
 
 	return nil, fmt.Errorf("backend device control request failed: %w", err)
+}
+
+// explainWorkerSessionState adds session-state guidance to the worker
+// failures workerRequestForSession returns unexplained: a 404 (the session's
+// worker is gone or never served this action), a 409 (the session is busy),
+// and a 503 on an action that is never retried. It runs once, where a public
+// operation hands its failure back to the caller, so internal polling and
+// fallback loops keep reading the raw status without extra backend lookups.
+func (m *DeviceSessionManager) explainWorkerSessionState(session *DeviceSession, err error) error {
+	var workerErr *WorkerHTTPError
+	if !errors.As(err, &workerErr) {
+		return err
+	}
+	switch {
+	case workerErr.StatusCode == http.StatusNotFound:
+		if guidance := m.sessionStateGuidance(session); guidance != "" {
+			return fmt.Errorf("%w. %s", err, guidance)
+		}
+		return fmt.Errorf("%w. The device session did not accept this action and may have ended. %s", err, m.nextStep(nextStepListSessions))
+	case workerErr.StatusCode == http.StatusConflict:
+		return fmt.Errorf("%w. The device session is busy with another step or app install. %s", err, m.nextStep(nextStepRetryWhenIdle))
+	case workerErr.StatusCode == http.StatusServiceUnavailable && nonIdempotentPaths[workerErr.Path]:
+		if guidance := m.sessionStateGuidance(session); guidance != "" {
+			return fmt.Errorf("%w. %s", err, guidance)
+		}
+		return fmt.Errorf("%w. %s", err, m.nextStep(nextStepDeviceConnecting))
+	}
+	return err
 }
 
 // Screenshot captures the current device screen.
@@ -3173,11 +3388,15 @@ func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, sess
 	}
 
 	if !shouldFallbackToBackendGrounding(workerErr) {
-		return nil, workerErr
+		return nil, m.explainWorkerSessionState(session, workerErr)
 	}
 
 	ui.PrintDebug("worker resolve_target unavailable, falling back to backend grounding: %v", workerErr)
-	return m.resolveTargetViaBackendForSession(ctx, session, target)
+	resolved, err := m.resolveTargetViaBackendForSession(ctx, session, target)
+	if err != nil {
+		return nil, m.explainWorkerSessionState(session, err)
+	}
+	return resolved, nil
 }
 
 // shouldFallbackToBackendGrounding reports whether worker grounding errors
@@ -3226,7 +3445,7 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Cont
 		if resolvedResp.Error != "" {
 			errMsg = resolvedResp.Error
 		}
-		return nil, fmt.Errorf("%s. Try screenshot() to see the current screen and adjust the target description", errMsg)
+		return nil, fmt.Errorf("%s. %s", errMsg, m.nextStep(nextStepScreenshot))
 	}
 	if resolvedResp.X == nil || resolvedResp.Y == nil {
 		return nil, fmt.Errorf("worker resolve_target response omitted resolved coordinates")
@@ -3287,7 +3506,7 @@ func (m *DeviceSessionManager) resolveTargetFromImageForSession(
 		if groundResp.Error != "" {
 			errMsg = groundResp.Error
 		}
-		return nil, fmt.Errorf("%s. Try screenshot() to see the current screen and adjust the target description", errMsg)
+		return nil, fmt.Errorf("%s. %s", errMsg, m.nextStep(nextStepScreenshot))
 	}
 
 	resolvedX := groundResp.X
@@ -3341,6 +3560,8 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch active sessions: %w", err)
 	}
+	m.inventoryConfirmed = true
+	m.unreachableSessions = nil
 
 	// Step 3: Filter by user email (only your sessions)
 	backendSessions := make([]api.ActiveDeviceSessionItem, 0)
@@ -3397,6 +3618,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			}
 			applyBackendScreenDimensions(ls, bs.ScreenWidth, bs.ScreenHeight)
 			applyBackendLastActivity(ls, bs)
+			applyBackendIdleTimeout(ls, bs)
 			continue
 		}
 		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
@@ -3407,9 +3629,12 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			}
 			applyBackendScreenDimensions(ls, bs.ScreenWidth, bs.ScreenHeight)
 			applyBackendLastActivity(ls, bs)
+			applyBackendIdleTimeout(ls, bs)
 		}
 	}
 	removedSessions := make([]sessionCacheIdentity, 0)
+	endedSessions := make([]*EndedSession, 0)
+	pruneTime := time.Now()
 	var settlementReadErrors []error
 	for idx, ls := range m.sessions {
 		if allBackendIDs[ls.SessionID] {
@@ -3434,6 +3659,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if ls != nil {
 			_ = beforesession.ClearSessionValues(m.workDir, ls.SessionID)
 			removedSessions = append(removedSessions, sessionCacheIdentityFor(ls))
+			endedSessions = append(endedSessions, endedSessionFromPrune(ls, detail, pruneTime))
 		}
 		// The backend is authoritative about which sessions still exist, so this
 		// pruning must survive the merge instead of being re-read from the file.
@@ -3474,6 +3700,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 		if workerBaseURL == "" {
 			// Can't resolve worker URL; skip this session
+			m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
 			continue
 		}
 
@@ -3492,6 +3719,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 		if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
 			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), hErr)
+			m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
 			continue
 		}
 
@@ -3522,6 +3750,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		}
 		applyBackendScreenDimensions(session, bs.ScreenWidth, bs.ScreenHeight)
 		applyBackendLastActivity(session, bs)
+		applyBackendIdleTimeout(session, bs)
 
 		m.sessions[idx] = session
 		addedSessions = append(addedSessions, session)
@@ -3554,6 +3783,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		removedSessions: removedSessions,
 		addedSessions:   addedSessions,
 		updatedSessions: updatedSessions,
+		endedSessions:   endedSessions,
 		updateActive:    true,
 		resetNextIndex:  len(m.sessions) == 0,
 	})
@@ -3587,8 +3817,12 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	// Check if already known locally.
 	for idx, s := range m.sessions {
 		if s.SessionID == sessionID {
+			previousActiveIndex := m.activeIndex
 			m.activeIndex = idx
-			m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true})
+			if err := m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true, selectedSession: s}); err != nil {
+				m.activeIndex = previousActiveIndex
+				return -1, nil, fmt.Errorf("could not save the attached session: %w", err)
+			}
 			return idx, s, nil
 		}
 	}
@@ -3598,6 +3832,8 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 		return -1, nil, err
 	}
 
+	previousActiveIndex := m.activeIndex
+	previousNextIndex := m.nextIndex
 	idx := m.nextIndex
 	m.nextIndex++
 	session.Index = idx
@@ -3605,10 +3841,20 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	m.sessions[idx] = session
 	m.activeIndex = idx
 	m.resetIdleTimerForSessionLocked(idx, ctx)
-	m.persistSessionsWithMutation(sessionCacheMutation{
-		addedSessions: []*DeviceSession{session},
-		updateActive:  true,
-	})
+	if err := m.persistSessionsWithMutation(sessionCacheMutation{
+		addedSessions:   []*DeviceSession{session},
+		selectedSession: session,
+		updateActive:    true,
+	}); err != nil {
+		if timer, ok := m.idleTimers[idx]; ok {
+			timer.Stop()
+			delete(m.idleTimers, idx)
+		}
+		delete(m.sessions, idx)
+		m.activeIndex = previousActiveIndex
+		m.nextIndex = previousNextIndex
+		return -1, nil, fmt.Errorf("could not save the attached session: %w", err)
+	}
 	idx = session.Index
 
 	return idx, session, nil
@@ -3663,7 +3909,11 @@ func (m *DeviceSessionManager) resolveSessionByIDLocked(ctx context.Context, ses
 	// Verify it's in a usable state.
 	status := strings.ToLower(detail.Status)
 	if status == "completed" || status == "failed" || status == "cancelled" || status == "timeout" {
-		return nil, fmt.Errorf("session %s is in terminal state: %s", shortID, detail.Status)
+		if detail.EndedAt == nil {
+			return nil, fmt.Errorf("session %s is in terminal state: %s", shortID, detail.Status)
+		}
+		ended := endedSessionFromPrune(&DeviceSession{SessionID: sessionID}, detail, time.Now())
+		return nil, fmt.Errorf("session %s is in terminal state: %s; it %s", shortID, detail.Status, ended.endedPhrase(time.Now()))
 	}
 
 	// Worker actions are relayed by workflow run ID, so that ID is the only

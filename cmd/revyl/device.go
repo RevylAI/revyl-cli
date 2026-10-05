@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
@@ -62,6 +64,7 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	api.SetDefaultVersion(version)
 	sessionMgr := mcppkg.NewDeviceSessionManager(client, workDir)
 	sessionMgr.SetDevMode(devMode)
+	sessionMgr.SetErrorSurface(mcppkg.ErrorSurfaceCLI)
 
 	// A single-session durable-ID target resolves straight from the backend, so
 	// neither the sync nor the local cache is needed and both are skipped to
@@ -119,11 +122,33 @@ func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager,
 	return x, y, nil
 }
 
+// deviceScreenCenter returns the center of the session's screen in device
+// coordinates. The worker's current report wins over the size recorded at
+// session start, which can be stale after a rotation.
+func deviceScreenCenter(ctx context.Context, mgr *mcppkg.DeviceSessionManager, session *mcppkg.DeviceSession) (int, int, error) {
+	width, height := session.ScreenWidth, session.ScreenHeight
+	respBytes, err := mgr.WorkerRequestOnSession(ctx, session, "/health", nil)
+	if err != nil && (width <= 0 || height <= 0) {
+		return 0, 0, fmt.Errorf("could not read the screen size to start the swipe at the screen center: %w", err)
+	}
+	var health struct {
+		ScreenWidth  int `json:"screen_width"`
+		ScreenHeight int `json:"screen_height"`
+	}
+	if err == nil && json.Unmarshal(respBytes, &health) == nil && health.ScreenWidth > 0 && health.ScreenHeight > 0 {
+		width, height = health.ScreenWidth, health.ScreenHeight
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, fmt.Errorf("device swipe could not start at the screen center because the device did not report its screen size; pass --x/--y, for example 'revyl device swipe up --x 200 --y 600'")
+	}
+	return width / 2, height / 2, nil
+}
+
 // jsonOrPrint outputs result as JSON if --json flag is set, otherwise prints the message.
 func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if jsonOutput {
-		data, _ := json.MarshalIndent(v, "", "  ")
+		data, _ := json.MarshalIndent(withAppliedDefaults(cmd, v), "", "  ")
 		fmt.Println(string(data))
 	} else {
 		ui.PrintInfo("%s", fallbackMsg)
@@ -620,6 +645,48 @@ func normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL string) (st
 	return normalizedAppID, normalizedBuildVersionID, normalizedAppURL, nil
 }
 
+// checkDeviceStartArtifactSelectors rejects artifact selectors that can never
+// name the same artifact. --app-url installs the file at that URL, so it
+// conflicts with any stored-build selector. --app-id with --build-version-id
+// may agree and is checked against the backend by confirmBuildVersionApp.
+func checkDeviceStartArtifactSelectors(appID, buildVersionID, appURL string) error {
+	if appURL == "" || (appID == "" && buildVersionID == "") {
+		return nil
+	}
+	other, installs := "--app-id", "that app's latest build"
+	if buildVersionID != "" {
+		other, installs = "--build-version-id", "that stored build"
+	}
+	return fmt.Errorf(
+		"--app-url and %s conflict: --app-url installs the file at that URL, while %s installs %s. Pass one of them, for example 'revyl device start %s <value>'",
+		other, other, installs, other,
+	)
+}
+
+// confirmBuildVersionApp accepts --app-id together with --build-version-id
+// when the build version belongs to that app, and names the conflict when it
+// belongs to another app.
+func confirmBuildVersionApp(ctx context.Context, client *api.Client, appID, buildVersionID string) error {
+	detail, err := client.GetBuildVersionDownloadURL(ctx, buildVersionID)
+	if err != nil {
+		return fmt.Errorf("could not check that --build-version-id %s belongs to --app-id %s: %w", buildVersionID, appID, err)
+	}
+	owner := ""
+	if detail != nil {
+		owner = strings.TrimSpace(detail.AppID)
+	}
+	if owner == "" {
+		return fmt.Errorf("could not check that --build-version-id %s belongs to --app-id %s: Revyl did not report its app. Pass only --build-version-id to start that build", buildVersionID, appID)
+	}
+	if !strings.EqualFold(owner, appID) {
+		return fmt.Errorf(
+			"--build-version-id %s belongs to app %s, not --app-id %s. Pass only --build-version-id to start that build, or only --app-id to start the latest build of %s",
+			buildVersionID, owner, appID, appID,
+		)
+	}
+	return nil
+}
+
 // normalizeRequiredDeviceURLFlag trims a required URL flag and returns a
 // user-facing error when the resulting value is empty.
 func normalizeRequiredDeviceURLFlag(rawValue, flagName, usage string) (string, error) {
@@ -662,12 +729,9 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 	cmdPrefix := deviceCommandPrefix(cmd)
 	listAction := fmt.Sprintf("run '%s device list --json' to see active sessions and their IDs", cmdPrefix)
 
-	if strings.Contains(msg, "multiple sessions active") {
-		return fmt.Errorf("multiple sessions active. Specify -s <index or session ID> or %s", listAction)
-	}
-
 	// Durable-ID resolution failures. Each names why the ID is unusable so the
-	// caller can tell "wrong ID" apart from "right ID, wrong time".
+	// caller can tell "wrong ID" apart from "right ID, wrong time". Local index
+	// lookups already carry CLI guidance from the CLI-surface session manager.
 	switch {
 	case strings.Contains(msg, "session not found or not accessible"):
 		return fmt.Errorf("%s. The session ID may be wrong or owned by another organization; %s", msg, listAction)
@@ -677,21 +741,7 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 	case strings.Contains(msg, "has no workflow run ID"):
 		return fmt.Errorf("%s. Wait for the device to finish provisioning, then retry; %s", msg, listAction)
 	}
-
-	msg = strings.ReplaceAll(msg,
-		"Call list_device_sessions() to see active sessions",
-		fmt.Sprintf("Run '%s device list' to see active sessions", cmdPrefix),
-	)
-	msg = strings.ReplaceAll(msg,
-		"call list_device_sessions() to see them",
-		fmt.Sprintf("run '%s device list' to see active sessions", cmdPrefix),
-	)
-	msg = strings.ReplaceAll(msg,
-		"Start one with start_device_session(platform='ios') or start_device_session(platform='android')",
-		fmt.Sprintf("Start one with '%s device start'", cmdPrefix),
-	)
-
-	return fmt.Errorf("%s", msg)
+	return err
 }
 
 // isNoActiveDeviceSessionError reports whether a resolve failure is the genuine
@@ -762,8 +812,10 @@ var deviceStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --orientation value %q: must be 'portrait' or 'landscape'", initialOrientation)
 		}
 		jsonOutput, _ := cmd.Flags().GetBool("json")
-		appID, buildVersionID, appURL, err = normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL)
-		if err != nil {
+		appID = normalizeOptionalDeviceFlagValue(appID)
+		buildVersionID = normalizeOptionalDeviceFlagValue(buildVersionID)
+		appURL = normalizeOptionalDeviceFlagValue(appURL)
+		if err := checkDeviceStartArtifactSelectors(appID, buildVersionID, appURL); err != nil {
 			return err
 		}
 		appLink = normalizeOptionalDeviceFlagValue(appLink)
@@ -787,6 +839,13 @@ var deviceStartCmd = &cobra.Command{
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
+		}
+
+		if appID != "" && buildVersionID != "" {
+			if err := confirmBuildVersionApp(cmd.Context(), mgr.APIClient(), appID, buildVersionID); err != nil {
+				return err
+			}
+			ui.PrintInfo("Starting build version %s, which belongs to --app-id %s.", buildVersionID, appID)
 		}
 
 		if !platformExplicit && (appID != "" || buildVersionID != "" || appURL != "") {
@@ -829,8 +888,14 @@ var deviceStartCmd = &cobra.Command{
 			selectedDeviceModel = presetModel
 			selectedOsVersion = presetRuntime
 		} else if deviceModelFlag != "" || osVersionFlag != "" {
-			if deviceModelFlag == "" || osVersionFlag == "" {
+			if deviceModelFlag == "" {
 				return fmt.Errorf("--device-model and --os-version must both be provided")
+			}
+			if osVersionFlag == "" {
+				osVersionFlag, err = defaultOSVersionForModel(cmd, targetCatalog, platform, deviceModelFlag)
+				if err != nil {
+					return err
+				}
 			}
 			if err := targetCatalog.ValidateDevicePair(platform, deviceModelFlag, osVersionFlag); err != nil {
 				return err
@@ -943,7 +1008,7 @@ var deviceStartCmd = &cobra.Command{
 		}
 
 		if jsonOutput {
-			data, _ := json.MarshalIndent(session, "", "  ")
+			data, _ := json.MarshalIndent(withAppliedDefaults(cmd, session), "", "  ")
 			fmt.Println(string(data))
 		} else {
 			devMode, _ := cmd.Flags().GetBool("dev")
@@ -989,6 +1054,11 @@ func getExactStringArrayFlag(cmd *cobra.Command, name string) []string {
 var deviceStopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop a device session (-s <index or session ID> or --all)",
+	Long: `Stop a device session and release its device.
+
+Without -s, --session-id, REVYL_SESSION_ID, or --all, it stops your only live
+session. When several sessions are live it stops nothing and lists each one
+with the command that stops it, since another agent may still be using it.`,
 	Example: `  revyl device stop
   revyl device stop --all
   revyl device stop -s 1`,
@@ -1008,12 +1078,28 @@ var deviceStopCmd = &cobra.Command{
 				"device_released": result.DeviceReleased,
 				"results":         result.Results,
 			}
+			if stopErr == nil && len(result.Results) == 0 && nothingToStopBlocker(mgr) == nil {
+				reportNothingToStop(cmd, "device_session_stop", "No active device sessions to stop; nothing to do.", output)
+				return nil
+			}
 			message := "All sessions stopped."
 			if stopErr != nil {
 				output["error"] = stopErr.Error()
 				message = "Some device stop requests failed; check results and retry the remaining sessions."
 			} else if !result.SessionSettled || !result.DeviceReleased {
 				message = "All device stops requested. Session cleanup is still pending."
+			}
+			if unreachable := mgr.UnreachableSessionIDs(); len(unreachable) > 0 {
+				output["stopped_all"] = false
+				output["unreachable_session_ids"] = unreachable
+				ui.PrintWarning("%d live session(s) still starting or failing health checks were not stopped (%s); stop one by ID with 'revyl device stop -s %s'",
+					len(unreachable), strings.Join(unreachable, ", "), unreachable[0])
+				switch {
+				case stopErr == nil && len(result.Results) == 0:
+					message = "No reachable device session to stop."
+				case stopErr == nil && result.SessionSettled && result.DeviceReleased:
+					message = "Stopped every reachable session."
+				}
 			}
 			jsonOrPrint(cmd, output, message)
 			return stopErr
@@ -1027,9 +1113,26 @@ var deviceStopCmd = &cobra.Command{
 		if target.SessionID != "" {
 			session = &mcppkg.DeviceSession{SessionID: target.SessionID, Index: mcppkg.UnattachedSessionIndex}
 		} else {
-			session, err = resolveSessionTarget(cmd, mgr)
+			if target.Index < 0 {
+				if err := requireSingleLiveSessionForUntargetedStop(cmd, mgr); err != nil {
+					return err
+				}
+			}
+			session, err = resolveExactSessionTarget(cmd, mgr)
 			if err != nil {
-				return err
+				var lookupErr *mcppkg.SessionLookupError
+				if !errors.As(err, &lookupErr) || lookupErr.Reason == mcppkg.SessionLookupMultipleActive {
+					return err
+				}
+				if blocker := nothingToStopBlocker(mgr); blocker != nil {
+					return blocker
+				}
+				notice := "No active device session to stop; nothing to do."
+				if lookupErr.Reason == mcppkg.SessionLookupIndexNotFound {
+					notice = fmt.Sprintf("No active device session at index %d to stop; nothing to do.", lookupErr.Index)
+				}
+				reportNothingToStop(cmd, "device_session_stop", notice, map[string]interface{}{"stopped": false})
+				return nil
 			}
 		}
 		jsonOutput, _ := cmd.Flags().GetBool("json")
@@ -1056,6 +1159,94 @@ var deviceStopCmd = &cobra.Command{
 		jsonOrPrint(cmd, map[string]bool{"stopped": true}, "Device session stopped.")
 		return nil
 	},
+}
+
+// requireSingleLiveSessionForUntargetedStop refuses a stop that names no
+// session while several are live. The active session is only a local pointer,
+// and parallel agents sharing one account each see the others' sessions, so
+// stopping it could end a session another caller is still using.
+func requireSingleLiveSessionForUntargetedStop(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) error {
+	live := mgr.ListSessions()
+	for _, unreachable := range mgr.UnreachableSessions() {
+		live = append(live, &unreachable)
+	}
+	if len(live) < 2 {
+		return nil
+	}
+	status, lead := "multiple_live_sessions", "multiple device sessions are live"
+	if !mgr.InventoryConfirmed() {
+		status = "multiple_cached_sessions"
+		lead = fmt.Sprintf("could not read your live sessions from Revyl and %d sessions are cached here", len(live))
+	}
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "device_session_stop",
+		DomainStatus: status,
+	})
+
+	var list strings.Builder
+	for _, session := range live {
+		selector := session.SessionID
+		if selector == "" {
+			selector = strconv.Itoa(session.Index)
+		}
+		age := "age unknown"
+		if !session.StartedAt.IsZero() {
+			age = "started " + mcppkg.FormatAge(time.Since(session.StartedAt)) + " ago"
+		}
+		if session.Index == mcppkg.UnattachedSessionIndex {
+			age = "still starting"
+		}
+		fmt.Fprintf(&list, "\n  %-8s  %-7s  %-16s  revyl device stop -s %s",
+			truncatePrefix(session.SessionID, 8), session.Platform, age, selector)
+	}
+	return fmt.Errorf(
+		"%s, so 'revyl device stop' did not pick one. Stop the one you started, or stop them all with 'revyl device stop --all':%s",
+		lead, list.String(),
+	)
+}
+
+// nothingToStopBlocker explains why a stop that found no local session can't
+// claim there is nothing to stop: the session list could not be read from
+// Revyl, or Revyl lists live sessions this CLI could not reach yet.
+//
+// Parameters:
+//   - mgr: The synced device session manager.
+//
+// Returns:
+//   - error: nil when the empty session list is authoritative.
+func nothingToStopBlocker(mgr *mcppkg.DeviceSessionManager) error {
+	if !mgr.InventoryConfirmed() {
+		return fmt.Errorf("could not read your device sessions from Revyl, so nothing was stopped; retry 'revyl device stop', or stop a session by ID with 'revyl device stop -s <session-id>'")
+	}
+	if unreachable := mgr.UnreachableSessionIDs(); len(unreachable) > 0 {
+		return fmt.Errorf(
+			"no reachable device session to stop, but Revyl lists %d live session(s) still starting or failing health checks (%s); stop one by ID with 'revyl device stop -s %s'",
+			len(unreachable), strings.Join(unreachable, ", "), unreachable[0],
+		)
+	}
+	return nil
+}
+
+// reportNothingToStop reports an idempotent stop whose target was already
+// gone: one stderr notice, a JSON document carrying the additive
+// already_stopped key under --json, and a bounded analytics outcome.
+//
+// Parameters:
+//   - cmd: The running stop command.
+//   - analyticsDomain: Bounded analytics domain for the stop command.
+//   - notice: The stderr line explaining that nothing was stopped.
+//   - payload: The command's usual JSON keys; already_stopped is added.
+func reportNothingToStop(cmd *cobra.Command, analyticsDomain, notice string, payload map[string]interface{}) {
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       analyticsDomain,
+		DomainStatus: "already_stopped",
+	})
+	ui.PrintInfo("%s", notice)
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		payload["already_stopped"] = true
+		data, _ := json.MarshalIndent(payload, "", "  ")
+		fmt.Println(string(data))
+	}
 }
 
 var deviceScreenshotCmd = &cobra.Command{
@@ -1283,12 +1474,17 @@ var deviceTypeCmd = &cobra.Command{
 		if text == "" {
 			return fmt.Errorf("--text is required")
 		}
+		target, _ := cmd.Flags().GetString("target")
+		if target == "" && !cmd.Flags().Changed("x") && !cmd.Flags().Changed("y") {
+			return fmt.Errorf(
+				"device type needs the field to type into: the device focuses a field by tapping it, so pass --target or --x/--y, for example 'revyl device type --target \"email field\" --text \"<text>\"'",
+			)
+		}
 		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
 		clearFirst, _ := cmd.Flags().GetBool("clear-first")
-		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y, "text": text, "clear_first": clearFirst}
 		if target != "" {
 			body["target"] = target
@@ -1312,7 +1508,7 @@ var deviceTypeCmd = &cobra.Command{
 
 var deviceSwipeCmd = &cobra.Command{
 	Use:   "swipe [direction]",
-	Short: "Swipe (--target or --x/--y, plus direction)",
+	Short: "Swipe from --target, --x/--y, or the screen center",
 	Example: `  revyl device swipe down
   revyl device swipe up --target "product list"
   revyl device swipe --direction down --x 200 --y 400`,
@@ -1333,15 +1529,26 @@ var deviceSwipeCmd = &cobra.Command{
 		if direction == "" {
 			return fmt.Errorf("direction is required: revyl device swipe <up|down|left|right>")
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
-		if err != nil {
-			return err
+		target, _ := cmd.Flags().GetString("target")
+		var x, y int
+		if target == "" && !cmd.Flags().Changed("x") && !cmd.Flags().Changed("y") {
+			x, y, err = deviceScreenCenter(cmd.Context(), mgr, session)
+			if err != nil {
+				return err
+			}
+			ui.PrintInfo("Using the screen center (%d, %d) as the swipe start (no --target or --x/--y given). Pass --target or --x/--y to choose another.", x, y)
+			recordAppliedDefault(cmd, appliedDefault{Flag: "x", Value: strconv.Itoa(x), Reason: "screen_center"})
+			recordAppliedDefault(cmd, appliedDefault{Flag: "y", Value: strconv.Itoa(y), Reason: "screen_center"})
+		} else {
+			x, y, err = resolveTargetOrCoords(cmd, mgr, session)
+			if err != nil {
+				return err
+			}
 		}
 		dur, _ := cmd.Flags().GetInt("duration")
 		if dur == 0 {
 			dur = 500
 		}
-		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y, "direction": direction, "duration_ms": dur}
 		if target != "" {
 			body["target"] = target
@@ -1940,10 +2147,9 @@ directly without needing to attach first.
 			if err != nil {
 				return err
 			}
-			session, err := mgr.ResolveSession(target.Index)
+			session, err := resolveSessionTarget(cmd, mgr)
 			if err != nil {
-				return fmt.Errorf("no active session (use --session-id to specify one directly): %w",
-					humanizeDeviceSessionResolveError(cmd, err))
+				return fmt.Errorf("could not choose a session to report on (use --session-id to specify one directly): %w", err)
 			}
 			targetSessionID = session.SessionID
 		}
@@ -2473,7 +2679,7 @@ var deviceDoctorCmd = &cobra.Command{
 
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 		if jsonOutput {
-			data, _ := json.MarshalIndent(output, "", "  ")
+			data, _ := json.MarshalIndent(withAppliedDefaults(cmd, output), "", "  ")
 			fmt.Println(string(data))
 			return nil
 		}
@@ -2543,7 +2749,7 @@ var deviceListCmd = &cobra.Command{
 
 var deviceUseCmd = &cobra.Command{
 	Use:   "use <index>",
-	Short: "Switch active session to the given index",
+	Short: "Use the session at the given index for commands in this directory that name no session",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
@@ -3175,7 +3381,7 @@ func init() {
 	deviceStartCmd.Flags().Bool("json", false, "Output as JSON")
 	deviceStartCmd.Flags().Bool("device", false, "Interactively select device model and OS version")
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
-	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
+	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
 
 	// Stop
@@ -3450,4 +3656,17 @@ func init() {
 	sessionFlag(devicePushApnsCmd)
 	devicePushCmd.AddCommand(devicePushApnsCmd)
 	deviceCmd.AddCommand(devicePushCmd)
+}
+
+// defaultOSVersionForModel picks the newest runtime the device-target catalog
+// supports for a model when --device-model is given without --os-version, and
+// announces the choice.
+func defaultOSVersionForModel(cmd *cobra.Command, catalog *devicetargets.Catalog, platform, model string) (string, error) {
+	runtime, err := catalog.NewestRuntime(platform, model)
+	if err != nil {
+		return "", err
+	}
+	ui.PrintInfo("Using %s for --device-model %q (the newest runtime it supports). Pass --os-version to choose another.", runtime, model)
+	recordAppliedDefault(cmd, appliedDefault{Flag: "os-version", Value: runtime, Reason: "newest_runtime_for_model"})
+	return runtime, nil
 }

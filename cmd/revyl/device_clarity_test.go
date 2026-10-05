@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,18 +58,55 @@ func TestDeviceCommandPrefix(t *testing.T) {
 	}
 }
 
+// cliSurfaceLookupError returns the ResolveSession failure a CLI command sees
+// for the given index against a local cache holding sessionCount sessions and
+// no active session.
+func cliSurfaceLookupError(t *testing.T, sessionCount, index int) error {
+	t.Helper()
+
+	dir := t.TempDir()
+	sessions := make([]map[string]interface{}, 0, sessionCount)
+	for i := 0; i < sessionCount; i++ {
+		sessions = append(sessions, map[string]interface{}{
+			"index":           i + 5,
+			"session_id":      fmt.Sprintf("session-%d", i),
+			"workflow_run_id": fmt.Sprintf("run-%d", i),
+			"platform":        "ios",
+		})
+	}
+	state, err := json.Marshal(map[string]interface{}{"active": -1, "next_index": 5 + sessionCount, "sessions": sessions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".revyl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".revyl", "device-sessions.json"), state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := mcppkg.NewDeviceSessionManager(nil, dir)
+	mgr.SetErrorSurface(mcppkg.ErrorSurfaceCLI)
+	mgr.LoadPersistedSession()
+	_, lookupErr := mgr.ResolveSession(index)
+	if lookupErr == nil {
+		t.Fatalf("ResolveSession(%d) with %d sessions succeeded, want a lookup error", index, sessionCount)
+	}
+	return lookupErr
+}
+
 func TestHumanizeDeviceSessionResolveError_NoSessionAtIndex(t *testing.T) {
 	t.Parallel()
 
 	cmd := newDeviceTestCommand(t, false)
-	inputErr := fmt.Errorf("no session at index 0. Call list_device_sessions() to see active sessions")
+	inputErr := cliSurfaceLookupError(t, 1, 0)
 
 	err := humanizeDeviceSessionResolveError(cmd, inputErr)
 	if err == nil {
 		t.Fatal("humanizeDeviceSessionResolveError() error = nil, want non-nil")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "Run 'revyl device list' to see active sessions") {
+	if !strings.Contains(got, "no session at index 0") || !strings.Contains(got, "Run 'revyl device list' to see active sessions") {
 		t.Fatalf("error = %q, want CLI list guidance", got)
 	}
 	if strings.Contains(got, "list_device_sessions()") {
@@ -93,7 +132,7 @@ func TestHumanizeDeviceSessionResolveError_NoActiveSessions(t *testing.T) {
 	t.Parallel()
 
 	cmd := newDeviceTestCommand(t, false)
-	inputErr := fmt.Errorf("no active device sessions. Start one with start_device_session(platform='ios') or start_device_session(platform='android')")
+	inputErr := cliSurfaceLookupError(t, 0, -1)
 
 	err := humanizeDeviceSessionResolveError(cmd, inputErr)
 	if err == nil {
@@ -106,13 +145,16 @@ func TestHumanizeDeviceSessionResolveError_NoActiveSessions(t *testing.T) {
 	if strings.Contains(got, "start_device_session(") {
 		t.Fatalf("error = %q, should not contain MCP function names", got)
 	}
+	if !isNoActiveDeviceSessionError(err) {
+		t.Fatalf("error = %q, want the empty-session diagnostic preserved", got)
+	}
 }
 
 func TestHumanizeDeviceSessionResolveError_MultipleSessions(t *testing.T) {
 	t.Parallel()
 
 	cmd := newDeviceTestCommand(t, false)
-	inputErr := fmt.Errorf("multiple sessions active. Specify session_index or call list_device_sessions() to see them")
+	inputErr := cliSurfaceLookupError(t, 2, -1)
 
 	err := humanizeDeviceSessionResolveError(cmd, inputErr)
 	if err == nil {
@@ -131,7 +173,7 @@ func TestHumanizeDeviceSessionResolveError_DevModeCommandPrefix(t *testing.T) {
 	t.Parallel()
 
 	cmd := newDeviceTestCommand(t, true)
-	inputErr := fmt.Errorf("no session at index 2. Call list_device_sessions() to see active sessions")
+	inputErr := cliSurfaceLookupError(t, 1, 2)
 
 	err := humanizeDeviceSessionResolveError(cmd, inputErr)
 	if err == nil {

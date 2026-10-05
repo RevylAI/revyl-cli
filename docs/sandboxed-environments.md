@@ -153,6 +153,18 @@ fields describe every targeted session; `results` lists each session’s identit
 acceptance, settlement, release, and any request error. Pending and rejected
 sessions remain available to check or retry.
 
+Stopping is idempotent. When no session is running, or `-s <index>` names a
+session that already ended, `device stop` exits zero, prints one stderr line
+such as `No active device session to stop; nothing to do.`, and `--json` adds
+`already_stopped: true` to the usual keys. A session ID that your organization
+can't access still fails, and so does a stop whose session list could not be
+read from Revyl. A session that is still starting has no reachable worker yet:
+a single stop names it with a `revyl device stop -s <session-id>` command, and
+`--all` lists it under `unreachable_session_ids` with `stopped_all: false`.
+A `device stop` without `-s`, `--session-id`, `REVYL_SESSION_ID`, or `--all`
+stops nothing when several sessions are live; it lists each one with its
+`revyl device stop -s <session-id>` command instead.
+
 ## Evaluate the rollout
 
 The useful adoption measure is setup-to-first successful action: elapsed time

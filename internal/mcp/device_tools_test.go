@@ -101,7 +101,7 @@ func TestResolveCoords_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rc, err := srv.resolveCoords(context.Background(), tt.target, tt.x, tt.y, -1)
+			rc, err := srv.resolveCoords(context.Background(), tt.target, tt.x, tt.y, nil, "")
 
 			if tt.wantErr != "" {
 				if err == nil {
@@ -215,7 +215,7 @@ func TestResolveCoords_TargetRequiresSession(t *testing.T) {
 		},
 	}
 
-	_, err := srv.resolveCoords(context.Background(), "Sign In button", nil, nil, -1)
+	_, err := srv.resolveCoords(context.Background(), "Sign In button", nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("expected error when using target without active session")
 	}

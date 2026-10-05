@@ -167,7 +167,7 @@ func reportAnnotationsJSONOutput(cmd *cobra.Command) bool {
 }
 
 func printReportAnnotationResult(cmd *cobra.Command, value interface{}) error {
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := json.MarshalIndent(withAppliedDefaults(cmd, value), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -199,9 +199,9 @@ func resolveReportAnnotationSessionID(cmd *cobra.Command) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	session, err := mgr.ResolveSession(-1)
+	session, err := resolveUntargetedSession(cmd, mgr)
 	if err != nil {
-		return "", fmt.Errorf("no active device session (pass --session-id to target one directly): %w", humanizeDeviceSessionResolveError(cmd, err))
+		return "", fmt.Errorf("could not choose a device session to annotate (pass --session-id to target one directly): %w", err)
 	}
 	return session.SessionID, nil
 }

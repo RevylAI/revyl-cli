@@ -219,7 +219,7 @@ func init() {
 	testRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 	testRunCmd.Flags().BoolVar(&runDeviceSelect, "device", false, "Interactively select device model and OS version")
 	testRunCmd.Flags().StringVar(&runDeviceModel, "device-model", "", "Target device model (e.g. \"iPhone 16\")")
-	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
+	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	testRunCmd.Flags().StringVar(&runOrientation, "orientation", "", "Initial device orientation (portrait or landscape)")
 	testRunCmd.Flags().BoolVar(&runFailFast, "fail-fast", false, "Halt the run on the first failed step or validation (overrides the test's stored run_config for this run)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchEnv, "launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides attached launch vars)")

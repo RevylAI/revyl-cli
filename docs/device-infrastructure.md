@@ -50,7 +50,8 @@ steps; use the viewer to watch the device.
 
 For a repeatable CI run, select a specific uploaded version with
 `--build-version-id` instead of `--app-id`. A build version ID is different from
-a remote build job ID.
+a remote build job ID. If you pass both, the build version must belong to that
+app; otherwise `device start` names the app it belongs to and stops.
 
 Device commands do not require a local config or a Git checkout. With no
 `.revyl/config.yaml`, `device start` uses its command defaults and explicit
