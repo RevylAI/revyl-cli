@@ -3962,6 +3962,9 @@ type DashboardMetrics struct {
 	// HasAtlasMap Whether the org has a renderable Atlas map (any exploration run with atlas_status completed/partial). Own-milestone fact for the atlas onboarding lens.
 	HasAtlasMap *bool `json:"has_atlas_map,omitempty"`
 
+	// HasExploration Whether the org has started any Atlas exploration, in any state. Hides the post-setup offer to map the app.
+	HasExploration *bool `json:"has_exploration,omitempty"`
+
 	// OrgHasApps Whether the org has any user-uploaded apps (controls whether 'upload app' step is shown).
 	OrgHasApps *bool `json:"org_has_apps,omitempty"`
 
@@ -5734,10 +5737,7 @@ type RemoteBuildRequest struct {
 	// Recipe One platform recipe as the customer wrote it, with setup and build steps kept apart.
 	//
 	// Revyl adds checkout, fingerprinting, and the artifact upload around these steps.
-	Recipe *BuildRecipe `json:"recipe,omitempty"`
-
-	// Runtime Optional iOS runtime the build targets, e.g. 26.5. Must be one the chosen image carries; see the runtimes on /remote/build-images.
-	Runtime      *string                   `json:"runtime,omitempty"`
+	Recipe       *BuildRecipe              `json:"recipe,omitempty"`
 	SetAsCurrent *bool                     `json:"set_as_current,omitempty"`
 	Source       RemoteBuildRequest_Source `json:"source"`
 
