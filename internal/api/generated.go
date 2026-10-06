@@ -2795,6 +2795,7 @@ type AtlasV2GraphResponse struct {
 	BuildId       *string                   `json:"build_id,omitempty"`
 	Curation      *map[string]interface{}   `json:"curation,omitempty"`
 	Edges         *[]map[string]interface{} `json:"edges,omitempty"`
+	Facets        *map[string]interface{}   `json:"facets,omitempty"`
 	Flows         *[]map[string]interface{} `json:"flows,omitempty"`
 	Nodes         *[]map[string]interface{} `json:"nodes,omitempty"`
 	Projection    *map[string]interface{}   `json:"projection,omitempty"`
@@ -7752,8 +7753,9 @@ type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
 	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
 	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	DeviceModel         *string `form:"device_model,omitempty" json:"device_model,omitempty"`
+	DeviceRuntime       *string `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
 	RecentBuildLimit    *int    `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
-	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
@@ -7766,7 +7768,8 @@ type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservatio
 	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
 	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	DeviceModel        *string `form:"device_model,omitempty" json:"device_model,omitempty"`
+	DeviceRuntime      *string `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
 	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
@@ -7780,10 +7783,11 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
 	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
 	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	DeviceModel         *string `form:"device_model,omitempty" json:"device_model,omitempty"`
+	DeviceRuntime       *string `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
 	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
 	RecentBuildLimit    *int    `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
-	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeDetails      *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
@@ -7800,7 +7804,8 @@ type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParam
 	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
 	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	DeviceModel        *string `form:"device_model,omitempty" json:"device_model,omitempty"`
+	DeviceRuntime      *string `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
 	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
@@ -7826,7 +7831,6 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
 	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`

@@ -313,13 +313,11 @@ func TestAtlasCommandDoesNotExposeRemovedOpinionatedCommands(t *testing.T) {
 	}
 }
 
-func TestAtlasCommandsDefaultToAllSurfaces(t *testing.T) {
-	flag := atlasGraphCmd.Flags().Lookup("surface-scope")
-	if flag == nil {
-		t.Fatal("Atlas graph command is missing --surface-scope")
-	}
-	if flag.DefValue != "all" {
-		t.Fatalf("surface scope default = %q, want all", flag.DefValue)
+func TestAtlasCommandsDoNotExposeSurfaceScope(t *testing.T) {
+	for _, command := range atlasCmd.Commands() {
+		if flag := command.Flags().Lookup("surface-scope"); flag != nil {
+			t.Fatalf("Atlas command %q still exposes --surface-scope", command.Name())
+		}
 	}
 }
 
@@ -446,8 +444,36 @@ func TestAtlasEvidenceProjectionIsExplicit(t *testing.T) {
 		IncludeVariants: &includeVariants,
 		Limit:           3,
 	})
-	if projection["data_source"] != "evidence" || len(projection) != 1 {
+	if projection["data_source"] != "evidence" || projection["requested_build_id"] != "build-1" {
 		t.Fatalf("unexpected evidence projection: %#v", projection)
+	}
+}
+
+func TestAtlasScopedNextActionsPreserveDeviceAndTimeCriteria(t *testing.T) {
+	graph := atlasContractFixture()
+	graph["projection"] = map[string]interface{}{
+		"data_source":        "summary",
+		"requested_build_id": "build-1",
+		"from_time":          "2026-10-05T00:00:00Z",
+		"device_model":       "iPhone Air",
+		"device_runtime":     "iOS 26.5",
+	}
+	actions := atlasScopedNextActions(graph, []string{
+		"revyl atlas screen home --app app-1 --json",
+		"revyl test report execution-1 --json",
+	})
+	for _, expected := range []string{
+		`--build "build-1"`,
+		`--from "2026-10-05T00:00:00Z"`,
+		`--device-model "iPhone Air"`,
+		`--runtime "iOS 26.5"`,
+	} {
+		if !strings.Contains(actions[0], expected) {
+			t.Fatalf("scoped action %q does not include %q", actions[0], expected)
+		}
+	}
+	if actions[1] != "revyl test report execution-1 --json" {
+		t.Fatalf("non-Atlas action changed: %q", actions[1])
 	}
 }
 

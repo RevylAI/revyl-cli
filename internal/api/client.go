@@ -3085,9 +3085,10 @@ type AtlasQuery struct {
 	TestID              string
 	WorkflowExecutionID string
 	SourceKind          string
+	DeviceModel         string
+	DeviceRuntime       string
 	FromTime            string
 	ToTime              string
-	SurfaceScope        string
 	Visibility          string
 	IncludeVariants     *bool
 	IncludeDetails      *bool
@@ -3116,14 +3117,17 @@ func (q AtlasQuery) values() url.Values {
 	if q.SourceKind != "" {
 		values.Set("source_kind", q.SourceKind)
 	}
+	if q.DeviceModel != "" {
+		values.Set("device_model", q.DeviceModel)
+	}
+	if q.DeviceRuntime != "" {
+		values.Set("device_runtime", q.DeviceRuntime)
+	}
 	if q.FromTime != "" {
 		values.Set("from_time", q.FromTime)
 	}
 	if q.ToTime != "" {
 		values.Set("to_time", q.ToTime)
-	}
-	if q.SurfaceScope != "" {
-		values.Set("surface_scope", q.SurfaceScope)
 	}
 	if q.Visibility != "" {
 		values.Set("visibility", q.Visibility)

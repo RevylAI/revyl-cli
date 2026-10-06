@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,7 +139,8 @@ var (
 	atlasTestID              string
 	atlasWorkflowExecutionID string
 	atlasSourceKind          string
-	atlasSurfaceScope        string
+	atlasDeviceModel         string
+	atlasRuntime             string
 	atlasVisibility          string
 	atlasIncludeVariants     bool
 	atlasLimit               int
@@ -195,6 +197,9 @@ func init() {
 	atlasOpenCmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
 	atlasOpenCmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
 	atlasOpenCmd.Flags().StringVar(&atlasSince, "since", "", "Product range: 1d, 7d, or 30d")
+	atlasOpenCmd.Flags().StringVar(&atlasDeviceModel, "device-model", "", "Filter by device model")
+	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "runtime", "", "Filter by OS runtime")
+	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "os-version", "", "Alias for --runtime")
 	atlasOpenCmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Show variant nodes")
 	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
 	atlasAppsCmd.Flags().StringVar(&atlasAppsSearch, "search", "", "Search by app name")
@@ -228,7 +233,9 @@ func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
 		cmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
 	}
 	cmd.Flags().StringVar(&atlasSourceKind, "source-kind", "", "Filter by Atlas source kind")
-	cmd.Flags().StringVar(&atlasSurfaceScope, "surface-scope", "all", "Surface scope: all, app, app+system, app+external")
+	cmd.Flags().StringVar(&atlasDeviceModel, "device-model", "", "Filter by device model")
+	cmd.Flags().StringVar(&atlasRuntime, "runtime", "", "Filter by OS runtime")
+	cmd.Flags().StringVar(&atlasRuntime, "os-version", "", "Alias for --runtime")
 	cmd.Flags().StringVar(&atlasVisibility, "visibility", "included", "Visibility: included or included+excluded_debug")
 	cmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Include variant nodes")
 	cmd.Flags().IntVar(&atlasLimit, "limit", atlasGraphFetchLimit, "Maximum results to return")
@@ -354,10 +361,7 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 	if fromTime == "" && atlasSince != "" {
 		fromTime = atlasSinceToTime(atlasSince)
 	}
-	var includeVariants *bool
-	if cmd.Flags().Changed("include-variants") {
-		includeVariants = &atlasIncludeVariants
-	}
+	includeVariants := atlasIncludeVariants
 	return api.AtlasQuery{
 		AppID:               app.ID,
 		BuildID:             buildID,
@@ -365,11 +369,12 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 		TestID:              atlasTestID,
 		WorkflowExecutionID: atlasWorkflowExecutionID,
 		SourceKind:          atlasSourceKind,
+		DeviceModel:         atlasDeviceModel,
+		DeviceRuntime:       atlasRuntime,
 		FromTime:            fromTime,
 		ToTime:              atlasTo,
-		SurfaceScope:        atlasSurfaceScope,
 		Visibility:          atlasVisibility,
-		IncludeVariants:     includeVariants,
+		IncludeVariants:     &includeVariants,
 		Limit:               atlasLimit,
 		IncludeScreenshots:  atlasScreenshots || atlasScreenshotDir != "",
 	}, app, nil
@@ -917,6 +922,12 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 	if atlasIncludeVariants {
 		params.Set("includeVariants", "1")
 	}
+	if query.DeviceModel != "" {
+		params.Set("deviceModel", query.DeviceModel)
+	}
+	if query.DeviceRuntime != "" {
+		params.Set("deviceRuntime", query.DeviceRuntime)
+	}
 	if encoded := params.Encode(); encoded != "" {
 		viewerURL += "?" + encoded
 	}
@@ -959,6 +970,10 @@ func runAtlasObservations(cmd *cobra.Command, args []string) error {
 	}
 	resp["contract"] = "atlas_observations.v1"
 	resp["projection"] = atlasEvidenceProjection(query)
+	resp["next_actions"] = atlasScopedNextActionsForQuery(
+		query,
+		atlasStringSlice(resp["next_actions"]),
+	)
 	return printAtlasResponse(cmd, "Atlas observations", resp)
 }
 
@@ -977,9 +992,12 @@ func runAtlasObservation(cmd *cobra.Command, args []string) error {
 	}
 	resp["contract"] = "atlas_observation.v1"
 	resp["projection"] = atlasEvidenceProjection(query)
-	resp["next_actions"] = append(
-		atlasStringSlice(resp["next_actions"]),
-		fmt.Sprintf("revyl atlas report %s --app %s --json", args[0], query.AppID),
+	resp["next_actions"] = atlasScopedNextActionsForQuery(
+		query,
+		append(
+			atlasStringSlice(resp["next_actions"]),
+			fmt.Sprintf("revyl atlas report %s --app %s --json", args[0], query.AppID),
+		),
 	)
 	return printAtlasResponse(cmd, "Atlas observation", resp)
 }
@@ -1083,18 +1101,23 @@ func buildAtlasReportContract(
 		"action_index":          observation["action_index"],
 		"workflow_execution_id": report["workflow_execution_id"],
 	}
+	projection := atlasProjectionContract(graph)
+	projection["data_source"] = "evidence"
 	result := map[string]interface{}{
 		"contract":   "atlas_report.v1",
 		"app":        atlasAppSummary(app, graph),
-		"projection": map[string]interface{}{"data_source": "evidence"},
+		"projection": projection,
 		"requested": map[string]interface{}{
 			"value":       requested,
 			"resolved_as": resolvedAs,
 		},
-		"observation":  observation,
-		"provenance":   provenance,
-		"report":       report,
-		"next_actions": atlasReportNextActions(graph, provenance),
+		"observation": observation,
+		"provenance":  provenance,
+		"report":      report,
+		"next_actions": atlasScopedNextActions(
+			graph,
+			atlasReportNextActions(graph, provenance),
+		),
 	}
 	if sourceScreen != nil {
 		result["screen"] = atlasAgentScreen(sourceScreen)
@@ -1194,7 +1217,10 @@ func runAtlasEdge(cmd *cobra.Command, args []string) error {
 		result["evidence"] = evidence
 		result["next_actions"] = append(
 			atlasStringSlice(result["next_actions"]),
-			atlasEdgeReportNextActions(query.AppID, evidence)...,
+			atlasScopedNextActions(
+				graph,
+				atlasEdgeReportNextActions(query.AppID, evidence),
+			)...,
 		)
 	}
 	return printAtlasContract(cmd, result, printAtlasEdgeContract)
@@ -1275,6 +1301,7 @@ func buildAtlasBrief(app *api.App, graph api.AtlasResponse) map[string]interface
 		"high_connectivity_screens": atlasConnectivityScreens(nodes, connectivity, 10),
 		"visual_sample":             atlasVisualSample(nodes, 6),
 		"curation":                  atlasCurationContract(graph),
+		"facets":                    atlasFacetsContract(graph),
 	}
 	appID := atlasString(graph, "app_id")
 	next := []string{fmt.Sprintf("revyl atlas graph --app %s", appID)}
@@ -1285,7 +1312,7 @@ func buildAtlasBrief(app *api.App, graph api.AtlasResponse) map[string]interface
 			fmt.Sprintf("revyl atlas neighbors %s --app %s", id, appID),
 		)
 	}
-	result["next_actions"] = next
+	result["next_actions"] = atlasScopedNextActions(graph, next)
 	return result
 }
 
@@ -1316,7 +1343,7 @@ func buildAtlasKnowledgeGraph(app *api.App, graph api.AtlasResponse) map[string]
 	})
 	appID := atlasString(graph, "app_id")
 	truncated := limit < len(allNodes) || atlasBool(atlasMap(graph["projection"])["truncated"])
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"contract":         "atlas_graph.v1",
 		"app":              atlasAppSummary(app, graph),
 		"projection":       atlasProjectionContract(graph),
@@ -1328,12 +1355,18 @@ func buildAtlasKnowledgeGraph(app *api.App, graph api.AtlasResponse) map[string]
 		"nodes":            atlasAgentScreens(nodes, len(nodes)),
 		"edges":            edges,
 		"curation":         atlasCurationContract(graph),
+		"facets":           atlasFacetsContract(graph),
 		"viewer_url":       graph["viewer_url"],
 		"next_actions": []string{
 			fmt.Sprintf("revyl atlas brief --app %s", appID),
 			fmt.Sprintf("revyl atlas search \"<capability>\" --app %s", appID),
 		},
 	}
+	result["next_actions"] = atlasScopedNextActions(
+		graph,
+		atlasStringSlice(result["next_actions"]),
+	)
+	return result
 }
 
 func atlasGraphStats(graph api.AtlasResponse) map[string]interface{} {
@@ -1487,7 +1520,7 @@ func buildAtlasScreen(app *api.App, graph api.AtlasResponse, node map[string]int
 	nodeID := atlasString(node, "id")
 	nodeByID := atlasNodeIndex(graph)
 	incoming, outgoing := atlasEdgesForNode(graph, nodeID, nodeByID)
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"contract":       "atlas_screen.v2",
 		"app":            atlasAppSummary(app, graph),
 		"projection":     atlasProjectionContract(graph),
@@ -1501,6 +1534,11 @@ func buildAtlasScreen(app *api.App, graph api.AtlasResponse, node map[string]int
 			fmt.Sprintf("revyl atlas neighbors %s --app %s", nodeID, atlasString(graph, "app_id")),
 		},
 	}
+	result["next_actions"] = atlasScopedNextActions(
+		graph,
+		atlasStringSlice(result["next_actions"]),
+	)
+	return result
 }
 
 func buildAtlasNeighbors(app *api.App, graph api.AtlasResponse, node map[string]interface{}, direction string) map[string]interface{} {
@@ -1522,7 +1560,10 @@ func buildAtlasNeighbors(app *api.App, graph api.AtlasResponse, node map[string]
 		"incoming":       incoming,
 		"outgoing":       outgoing,
 	}
-	result["next_actions"] = atlasTraversalNextActions(graph, nodeID, incoming, outgoing)
+	result["next_actions"] = atlasScopedNextActions(
+		graph,
+		atlasTraversalNextActions(graph, nodeID, incoming, outgoing),
+	)
 	return result
 }
 
@@ -1570,10 +1611,10 @@ func buildAtlasSearch(app *api.App, graph api.AtlasResponse, query string, limit
 	if len(results) > 0 {
 		id := atlasString(results[0], "id")
 		appID := atlasString(graph, "app_id")
-		result["next_actions"] = []string{
+		result["next_actions"] = atlasScopedNextActions(graph, []string{
 			fmt.Sprintf("revyl atlas screen %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", id, appID),
 			fmt.Sprintf("revyl atlas neighbors %s --app %s", id, appID),
-		}
+		})
 	}
 	return result
 }
@@ -1591,7 +1632,7 @@ func buildAtlasEdge(app *api.App, graph api.AtlasResponse, source, target map[st
 		matches = append(matches, edge)
 		transitions = append(transitions, atlasAgentEdge(edge, nodeByID))
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"contract":         "atlas_edge.v1",
 		"app":              atlasAppSummary(app, graph),
 		"projection":       atlasProjectionContract(graph),
@@ -1603,7 +1644,12 @@ func buildAtlasEdge(app *api.App, graph api.AtlasResponse, source, target map[st
 			fmt.Sprintf("revyl atlas observations %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", sourceID, atlasString(graph, "app_id")),
 			fmt.Sprintf("revyl atlas observations %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", targetID, atlasString(graph, "app_id")),
 		},
-	}, matches
+	}
+	result["next_actions"] = atlasScopedNextActions(
+		graph,
+		atlasStringSlice(result["next_actions"]),
+	)
+	return result, matches
 }
 
 func atlasTraversalNextActions(graph api.AtlasResponse, nodeID string, incoming, outgoing []map[string]interface{}) []string {
@@ -1710,14 +1756,95 @@ func atlasNodeSearchScore(node map[string]interface{}, query string) (int, []str
 
 func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
 	projection := atlasMap(graph["projection"])
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"data_source": projection["data_source"],
 	}
+	for _, key := range []string{
+		"requested_build_id",
+		"from_time",
+		"to_time",
+		"device_model",
+		"device_runtime",
+		"visibility",
+	} {
+		if value := atlasString(projection, key); value != "" {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 func atlasEvidenceProjection(query api.AtlasQuery) map[string]interface{} {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"data_source": "evidence",
+	}
+	if query.DeviceModel != "" {
+		result["device_model"] = query.DeviceModel
+	}
+	if query.DeviceRuntime != "" {
+		result["device_runtime"] = query.DeviceRuntime
+	}
+	if query.BuildID != "" {
+		result["requested_build_id"] = query.BuildID
+	}
+	if query.FromTime != "" {
+		result["from_time"] = query.FromTime
+	}
+	if query.ToTime != "" {
+		result["to_time"] = query.ToTime
+	}
+	return result
+}
+
+func atlasScopeFlagSuffix(graph api.AtlasResponse) string {
+	projection := atlasProjectionContract(graph)
+	flags := make([]string, 0, 5)
+	for _, item := range []struct {
+		key  string
+		flag string
+	}{
+		{"requested_build_id", "--build"},
+		{"from_time", "--from"},
+		{"to_time", "--to"},
+		{"device_model", "--device-model"},
+		{"device_runtime", "--runtime"},
+	} {
+		if value := atlasString(projection, item.key); value != "" {
+			flags = append(flags, item.flag+" "+strconv.Quote(value))
+		}
+	}
+	if len(flags) == 0 {
+		return ""
+	}
+	return " " + strings.Join(flags, " ")
+}
+
+func atlasScopedNextActions(graph api.AtlasResponse, actions []string) []string {
+	suffix := atlasScopeFlagSuffix(graph)
+	if suffix == "" {
+		return actions
+	}
+	result := make([]string, len(actions))
+	for index, action := range actions {
+		result[index] = action
+		if strings.HasPrefix(action, "revyl atlas ") {
+			result[index] += suffix
+		}
+	}
+	return result
+}
+
+func atlasScopedNextActionsForQuery(query api.AtlasQuery, actions []string) []string {
+	return atlasScopedNextActions(
+		api.AtlasResponse{"projection": atlasEvidenceProjection(query)},
+		actions,
+	)
+}
+
+func atlasFacetsContract(graph api.AtlasResponse) map[string]interface{} {
+	facets := atlasMap(graph["facets"])
+	return map[string]interface{}{
+		"device_targets": atlasSlice(facets["device_targets"]),
 	}
 }
 
@@ -1846,6 +1973,7 @@ func printAtlasBrief(result map[string]interface{}) {
 	ui.PrintInfo("%s", atlasString(result, "summary"))
 	projection := atlasMap(result["projection"])
 	ui.PrintDim("  source=%s", atlasString(projection, "data_source"))
+	printAtlasScope(result)
 	printAtlasProductAreas(result["product_areas"])
 	printAtlasAnchors(result["starting_anchors"])
 	printAtlasNamedList("Highly connected screens", result["high_connectivity_screens"])
@@ -1861,12 +1989,27 @@ func printAtlasKnowledgeGraph(result map[string]interface{}) {
 	returned := atlasMap(result["returned"])
 	ui.PrintInfo("%s knowledge graph", atlasString(app, "name"))
 	ui.PrintDim("  %d screens, %d observed relationships, %d observations", atlasInt(stats["nodes"]), atlasInt(stats["edges"]), atlasInt(stats["observations"]))
+	printAtlasScope(result)
 	if atlasBool(result["truncated"]) {
 		ui.PrintDim("  response is truncated; increase --limit before treating this as the complete graph")
 	} else if atlasInt(returned["nodes"]) != atlasInt(stats["nodes"]) || atlasInt(returned["edges"]) != atlasInt(stats["edges"]) {
 		ui.PrintDim("  returned %d screens and %d relationships; increase --limit for more", atlasInt(returned["nodes"]), atlasInt(returned["edges"]))
 	}
 	printAtlasURL("Viewer", result["viewer_url"])
+	if atlasInt(stats["nodes"]) == 0 {
+		projection := atlasMap(result["projection"])
+		if atlasString(projection, "device_model") != "" || atlasString(projection, "device_runtime") != "" {
+			targets := atlasMaps(atlasMap(result["facets"])["device_targets"])
+			labels := make([]string, 0, len(targets))
+			for _, target := range targets {
+				labels = append(labels, strings.TrimSpace(atlasString(target, "device_model")+" / "+atlasString(target, "device_runtime")))
+			}
+			ui.PrintDim("  No observations matched the exact device/runtime scope.")
+			if len(labels) > 0 {
+				ui.PrintDim("  Available targets: %s", strings.Join(labels, ", "))
+			}
+		}
+	}
 	printAtlasAnchors(result["starting_anchors"])
 	printAtlasGraphEdges("Connections", result["edges"])
 	ui.Println()
@@ -1875,6 +2018,28 @@ func printAtlasKnowledgeGraph(result map[string]interface{}) {
 		ui.PrintDim("Use --include-variants when state variants are relevant to the question.")
 	}
 	printAtlasNext(result["next_actions"])
+}
+
+func printAtlasScope(result map[string]interface{}) {
+	projection := atlasMap(result["projection"])
+	parts := make([]string, 0, 5)
+	for _, item := range []struct {
+		key   string
+		label string
+	}{
+		{"requested_build_id", "build"},
+		{"from_time", "from"},
+		{"to_time", "to"},
+		{"device_model", "device"},
+		{"device_runtime", "runtime"},
+	} {
+		if value := atlasString(projection, item.key); value != "" {
+			parts = append(parts, item.label+"="+value)
+		}
+	}
+	if len(parts) > 0 {
+		ui.PrintDim("  scope: %s", strings.Join(parts, "  "))
+	}
 }
 
 func printAtlasScreenContract(result map[string]interface{}) {

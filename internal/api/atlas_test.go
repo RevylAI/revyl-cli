@@ -22,6 +22,19 @@ func TestAtlasQueryOmitsUnspecifiedIncludeVariants(t *testing.T) {
 	}
 }
 
+func TestAtlasQuerySerializesDeviceScope(t *testing.T) {
+	values := (AtlasQuery{
+		DeviceModel:   "Pixel 7",
+		DeviceRuntime: "Android 14",
+	}).values()
+	if values.Get("device_model") != "Pixel 7" {
+		t.Fatalf("device_model = %q", values.Get("device_model"))
+	}
+	if values.Get("device_runtime") != "Android 14" {
+		t.Fatalf("device_runtime = %q", values.Get("device_runtime"))
+	}
+}
+
 func TestGetAtlasEdgeRunsPreservesGraphScope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()
@@ -33,7 +46,6 @@ func TestGetAtlasEdgeRunsPreservesGraphScope(t *testing.T) {
 			"source_kind":           "test_report",
 			"from_time":             "2026-08-01T00:00:00Z",
 			"to_time":               "2026-08-02T00:00:00Z",
-			"surface_scope":         "app+system",
 			"visibility":            "included+excluded_debug",
 			"source":                "source-1",
 			"target":                "target-1",
@@ -67,7 +79,6 @@ func TestGetAtlasEdgeRunsPreservesGraphScope(t *testing.T) {
 		SourceKind:          "test_report",
 		FromTime:            "2026-08-01T00:00:00Z",
 		ToTime:              "2026-08-02T00:00:00Z",
-		SurfaceScope:        "app+system",
 		Visibility:          "included+excluded_debug",
 		IncludeVariants:     &includeVariants,
 		IncludeDetails:      &includeDetails,

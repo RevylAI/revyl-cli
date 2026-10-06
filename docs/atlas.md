@@ -11,6 +11,7 @@ not discarded before its media and originating report are understood.
 revyl atlas apps
 revyl atlas brief --app "My App"
 revyl atlas graph --app "My App"
+revyl atlas graph --app "My App" --device-model "Pixel 7" --runtime "Android 14"
 ```
 
 `brief` is a bounded orientation: product areas, starting anchors, highly
@@ -88,8 +89,15 @@ committed artifacts.
 
 Every JSON response has a versioned `contract` and `projection.data_source`.
 `summary` is the compact graph model; `evidence` is a focused read of screenshot
-observations. `--include-variants=false` is an explicit canonical-only request;
-omitting it preserves the endpoint default.
+observations. Atlas CLI reads are canonical-only unless `--include-variants` is
+set.
+
+Use `--device-model` and `--runtime` independently or together; `--os-version`
+is an alias for `--runtime`. Values match the model and OS runtime recorded on
+Atlas evidence exactly, including case, and combined filters use AND semantics.
+The active criteria are returned in `projection`, available choices are returned
+in `facets.device_targets`, and suggested Atlas follow-up commands preserve the
+active build, time, device, and runtime scope.
 
 Install `revyl-cli-atlas` to make this media-first traversal workflow the agent
 default:
