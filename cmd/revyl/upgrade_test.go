@@ -49,6 +49,11 @@ func TestDetectInstallMethodFromPath(t *testing.T) {
 			expected: "pipx",
 		},
 		{
+			name:     "uv tool path",
+			execPath: "/Users/alice/.local/share/uv/tools/revyl/lib/python3.12/site-packages/revyl/_bin/revyl-darwin-arm64",
+			expected: "uv",
+		},
+		{
 			name:     "pip site-packages path",
 			execPath: "/opt/venv/lib/python3.12/site-packages/revyl/bin/revyl",
 			expected: "pip",
@@ -82,6 +87,33 @@ func TestDetectInstallMethodFromPath(t *testing.T) {
 	}
 }
 
+func TestDetectInstallMethodRecognizesRelocatedUVToolEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		receipt bool
+		want    string
+	}{
+		{name: "uv tool environment", receipt: true, want: "uv"},
+		{name: "plain virtual environment", want: "pip"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "custom-tools", "revyl")
+			binDir := filepath.Join(root, "lib", "python3.12", "site-packages", "revyl", "_bin")
+			if err := os.MkdirAll(binDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if test.receipt {
+				if err := os.WriteFile(filepath.Join(root, "uv-receipt.toml"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := detectInstallMethodForExecutable(filepath.Join(binDir, "revyl-linux-amd64")); got != test.want {
+				t.Fatalf("detectInstallMethodForExecutable() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestFetchLatestReleaseAddsAuthorizationHeader(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "github-token")
 	t.Setenv("GH_TOKEN", "gh-token")
@@ -90,13 +122,13 @@ func TestFetchLatestReleaseAddsAuthorizationHeader(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authorization = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v1.2.3"}`))
+		_, _ = w.Write([]byte(`[{"tag_name":"v1.2.3"}]`))
 	}))
 	defer server.Close()
 
 	configureGitHubTestRequest(t, server.URL)
 
-	release, err := fetchLatestRelease(context.Background(), false)
+	release, err := fetchLatestRelease(context.Background(), true)
 	if err != nil {
 		t.Fatalf("fetchLatestRelease returned error: %v", err)
 	}
@@ -118,13 +150,13 @@ func TestFetchLatestReleaseOmitsAuthorizationHeaderWithoutToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authorization = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v1.2.3"}`))
+		_, _ = w.Write([]byte(`[{"tag_name":"v1.2.3"}]`))
 	}))
 	defer server.Close()
 
 	configureGitHubTestRequest(t, server.URL)
 
-	if _, err := fetchLatestRelease(context.Background(), false); err != nil {
+	if _, err := fetchLatestRelease(context.Background(), true); err != nil {
 		t.Fatalf("fetchLatestRelease returned error: %v", err)
 	}
 
@@ -162,13 +194,13 @@ func TestFetchLatestReleaseRetriesTransientFailures(t *testing.T) {
 					_, _ = w.Write([]byte(`{"message":"temporary failure"}`))
 					return
 				}
-				_, _ = w.Write([]byte(`{"tag_name":"v1.2.3"}`))
+				_, _ = w.Write([]byte(`[{"tag_name":"v1.2.3"}]`))
 			}))
 			defer server.Close()
 
 			configureGitHubTestRequest(t, server.URL)
 
-			release, err := fetchLatestRelease(context.Background(), false)
+			release, err := fetchLatestRelease(context.Background(), true)
 			if err != nil {
 				t.Fatalf("fetchLatestRelease returned error: %v", err)
 			}
@@ -199,7 +231,7 @@ func TestFetchLatestReleaseFormatsRateLimitErrors(t *testing.T) {
 
 	configureGitHubTestRequest(t, server.URL)
 
-	_, err := fetchLatestRelease(context.Background(), false)
+	_, err := fetchLatestRelease(context.Background(), true)
 	if err == nil {
 		t.Fatal("fetchLatestRelease error = nil, want rate-limit error")
 	}
@@ -223,13 +255,7 @@ func TestRunUpgradeDoesNotApplyFetchTimeoutToDownload(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "1")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		// A version far ahead of the build version so the self-update path runs.
-		_, _ = w.Write([]byte(`{"tag_name":"v999.0.0"}`))
-	}))
-	defer server.Close()
-	configureGitHubTestRequest(t, server.URL)
+	serveLatestReleaseRedirect(t, "v999.0.0")
 
 	originalDetect := detectInstallMethodFn
 	detectInstallMethodFn = func() string { return "direct" }
@@ -504,12 +530,7 @@ func TestRunUpgradeLeavesSkillsUnchanged(t *testing.T) {
 			beforeProject := snapshotUpgradeSkillTree(t, workDir)
 			beforeGlobal := snapshotUpgradeSkillTree(t, homeDir)
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"tag_name":"v999.0.0"}`))
-			}))
-			defer server.Close()
-			configureGitHubTestRequest(t, server.URL)
+			serveLatestReleaseRedirect(t, "v999.0.0")
 			originalDetect := detectInstallMethodFn
 			originalSelfUpdate := performSelfUpdateFn
 			originalRunner := brewCommandRunner
@@ -578,12 +599,7 @@ func TestRunUpgradeCheckAndJSONDoNotUpdateSkills(t *testing.T) {
 			t.Setenv("GH_TOKEN", "")
 			writeUpgradeSkillFixture(t, filepath.Join(workDir, ".agents", "skills"), "revyl-cli-dev-loop")
 			before := snapshotUpgradeSkillTree(t, workDir)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"tag_name":"v999.0.0"}`))
-			}))
-			defer server.Close()
-			configureGitHubTestRequest(t, server.URL)
+			serveLatestReleaseRedirect(t, "v999.0.0")
 			originalCheck := upgradeCheckOnly
 			originalJSON := upgradeOutputJSON
 			originalDetect := detectInstallMethodFn
@@ -691,21 +707,125 @@ func configureGitHubTestRequest(t *testing.T, baseURL string) {
 	t.Helper()
 
 	originalBaseURL := gitHubAPIBaseURL
+	originalWebBaseURL := gitHubWebBaseURL
 	originalMaxRetries := gitHubMaxRetries
 	originalBaseDelay := gitHubRetryBaseDelay
 	originalMaxDelay := gitHubRetryMaxDelay
 
 	gitHubAPIBaseURL = baseURL
+	gitHubWebBaseURL = baseURL
 	gitHubMaxRetries = 2
 	gitHubRetryBaseDelay = time.Millisecond
 	gitHubRetryMaxDelay = 2 * time.Millisecond
 
 	t.Cleanup(func() {
 		gitHubAPIBaseURL = originalBaseURL
+		gitHubWebBaseURL = originalWebBaseURL
 		gitHubMaxRetries = originalMaxRetries
 		gitHubRetryBaseDelay = originalBaseDelay
 		gitHubRetryMaxDelay = originalMaxDelay
 	})
+}
+
+// serveLatestReleaseRedirect serves github.com's latest-release redirect for
+// tagName and fails the test on any other request, including REST API calls.
+func serveLatestReleaseRedirect(t *testing.T, tagName string) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead || r.URL.Path != "/RevylAI/revyl-cli/releases/latest" {
+			t.Errorf("unexpected release request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/RevylAI/revyl-cli/releases/tag/"+tagName, http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+	configureGitHubTestRequest(t, server.URL)
+}
+
+func TestFetchLatestStableReleaseUsesRedirectInsteadOfAPI(t *testing.T) {
+	serveLatestReleaseRedirect(t, "v1.2.3")
+
+	release, err := fetchLatestRelease(context.Background(), false)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease returned error: %v", err)
+	}
+	if release.TagName != "v1.2.3" {
+		t.Fatalf("fetchLatestRelease tag = %q, want %q", release.TagName, "v1.2.3")
+	}
+}
+
+func TestResolveLatestReleaseTagRetriesTransientFailures(t *testing.T) {
+	for _, statusCode := range []int{http.StatusTooManyRequests, http.StatusBadGateway} {
+		t.Run(strconv.Itoa(statusCode), func(t *testing.T) {
+			attempts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				attempts++
+				if attempts == 1 {
+					w.WriteHeader(statusCode)
+					return
+				}
+				http.Redirect(w, r, "/RevylAI/revyl-cli/releases/tag/v1.2.3", http.StatusFound)
+			}))
+			defer server.Close()
+			configureGitHubTestRequest(t, server.URL)
+
+			tagName, err := resolveLatestReleaseTag(context.Background())
+			if err != nil {
+				t.Fatalf("resolveLatestReleaseTag returned error: %v", err)
+			}
+			if tagName != "v1.2.3" || attempts != 2 {
+				t.Fatalf("tag = %q after %d attempts, want v1.2.3 after 2", tagName, attempts)
+			}
+		})
+	}
+}
+
+func TestResolveLatestReleaseTagRejectsUnexpectedResponses(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		location string
+		status   int
+		wantErr  string
+	}{
+		{name: "no releases", location: "/RevylAI/revyl-cli/releases", status: http.StatusFound, wantErr: "no published Revyl CLI release"},
+		{name: "other repository", location: "/someone/else/releases/tag/v9.9.9", status: http.StatusFound, wantErr: "no published Revyl CLI release"},
+		{name: "invalid tag", location: "/RevylAI/revyl-cli/releases/tag/nightly", status: http.StatusFound, wantErr: "not a valid version"},
+		{name: "not a redirect", status: http.StatusOK, wantErr: "status 200"},
+		{name: "not found", status: http.StatusNotFound, wantErr: "status 404"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if test.location != "" {
+					w.Header().Set("Location", test.location)
+				}
+				w.WriteHeader(test.status)
+			}))
+			defer server.Close()
+			configureGitHubTestRequest(t, server.URL)
+
+			_, err := resolveLatestReleaseTag(context.Background())
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("error = %v, want it to contain %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestUpgradeCommandForInstallMethod(t *testing.T) {
+	for method, want := range map[string]string{
+		"homebrew": "brew upgrade revyl",
+		"npm":      "npm update -g @revyl/cli",
+		"pipx":     "pipx upgrade revyl",
+		"uv":       "uv tool upgrade revyl",
+		"pip":      "pip install --upgrade revyl",
+		"direct":   "revyl upgrade",
+		"":         "revyl upgrade",
+	} {
+		if got := upgradeCommandForInstallMethod(method); got != want {
+			t.Errorf("upgradeCommandForInstallMethod(%q) = %q, want %q", method, got, want)
+		}
+	}
 }
 
 func TestDownloadBinaryRespectsContextDeadlineNotReleaseCheckTimeout(t *testing.T) {

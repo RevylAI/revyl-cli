@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
@@ -35,6 +36,10 @@ const (
 
 	// GitHubAPIURL is the base URL for GitHub API.
 	GitHubAPIURL = "https://api.github.com"
+
+	// GitHubWebURL is the base URL for github.com pages, whose latest-release
+	// redirect is not subject to the unauthenticated REST API rate limit.
+	GitHubWebURL = "https://github.com"
 
 	// GitHubReleasesURL is the URL for downloading releases.
 	GitHubReleasesURL = "https://github.com/RevylAI/revyl-cli/releases/download"
@@ -83,6 +88,7 @@ var (
 	upgradePrerelease bool
 
 	gitHubAPIBaseURL     = GitHubAPIURL
+	gitHubWebBaseURL     = GitHubWebURL
 	gitHubMaxRetries     = 2
 	gitHubRetryBaseDelay = 500 * time.Millisecond
 	gitHubRetryMaxDelay  = 5 * time.Second
@@ -109,10 +115,13 @@ var upgradeCmd = &cobra.Command{
 	Long: `Check for and install updates to the Revyl CLI.
 
 BEHAVIOR:
-  - Detects how the CLI was installed (Homebrew, npm, pip, direct download)
+  - Detects how the CLI was installed (Homebrew, npm, pip, pipx, uv, install
+    script or direct download)
   - Homebrew: runs brew update && brew upgrade revyl automatically
-  - npm/pip: shows the upgrade command to run
-  - Direct downloads: downloads and replaces the binary
+  - npm/pip/pipx/uv: shows the upgrade command to run
+  - Install script and direct downloads: downloads and replaces the binary
+  - Resolves the latest release from the github.com release redirect, which
+    is not subject to the GitHub API rate limit
   - Updates only the CLI; existing agent skills are left unchanged
   - Run revyl skill update separately to update installed skills
 
@@ -165,7 +174,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		ui.Println()
 	}
 
-	// Fetch latest release from GitHub. The short timeout is scoped to the API
+	// Resolve the latest release. The short timeout is scoped to the release
 	// check only; the binary download phase uses its own (longer) per-request
 	// HTTP client timeouts and must not inherit this deadline.
 	fetchCtx, fetchCancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -204,7 +213,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Handle based on installation method
 	switch result.InstallMethod {
 	case "homebrew":
-		result.UpgradeCommand = "brew upgrade revyl"
+		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
 		result.Message = "Update available via Homebrew"
 
 		if jsonOutput {
@@ -229,9 +238,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		printUpgradeNextSteps()
 		return nil
 
-	case "npm":
-		result.UpgradeCommand = "npm update -g @revyl/cli"
-		result.Message = "Update available via npm"
+	case "npm", "pipx", "uv", "pip":
+		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
+		result.Message = "Update available via " + result.InstallMethod
 
 		if jsonOutput {
 			outputJSON(result)
@@ -239,38 +248,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			ui.PrintInfo("Current version: %s", version)
 			ui.PrintInfo("Latest version:  %s", release.TagName)
 			ui.Println()
-			ui.PrintWarning("Installed via npm. Run:")
-			ui.PrintDim("  npm update -g @revyl/cli")
-		}
-		return nil
-
-	case "pipx":
-		result.UpgradeCommand = "pipx upgrade revyl"
-		result.Message = "Update available via pipx"
-
-		if jsonOutput {
-			outputJSON(result)
-		} else {
-			ui.PrintInfo("Current version: %s", version)
-			ui.PrintInfo("Latest version:  %s", release.TagName)
-			ui.Println()
-			ui.PrintWarning("Installed via pipx. Run:")
-			ui.PrintDim("  pipx upgrade revyl")
-		}
-		return nil
-
-	case "pip":
-		result.UpgradeCommand = "pip install --upgrade revyl"
-		result.Message = "Update available via pip"
-
-		if jsonOutput {
-			outputJSON(result)
-		} else {
-			ui.PrintInfo("Current version: %s", version)
-			ui.PrintInfo("Latest version:  %s", release.TagName)
-			ui.Println()
-			ui.PrintWarning("Installed via pip. Run:")
-			ui.PrintDim("  pip install --upgrade revyl")
+			ui.PrintWarning("Installed via %s. Run:", result.InstallMethod)
+			ui.PrintDim("  %s", result.UpgradeCommand)
 		}
 		return nil
 
@@ -304,10 +283,31 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 }
 
+// upgradeCommandForInstallMethod returns the command that upgrades a CLI
+// installed through installMethod. Install-script and direct-download binaries
+// (and any location that cannot be classified) self-update in place through
+// revyl upgrade.
+func upgradeCommandForInstallMethod(installMethod string) string {
+	switch installMethod {
+	case "homebrew":
+		return "brew upgrade revyl"
+	case "npm":
+		return "npm update -g @revyl/cli"
+	case "pipx":
+		return "pipx upgrade revyl"
+	case "uv":
+		return "uv tool upgrade revyl"
+	case "pip":
+		return "pip install --upgrade revyl"
+	default:
+		return "revyl upgrade"
+	}
+}
+
 // detectInstallMethod determines how the CLI was installed.
 //
 // Returns:
-//   - string: The installation method (homebrew, npm, pip, direct)
+//   - string: The installation method (homebrew, npm, pipx, uv, pip, direct)
 func detectInstallMethod() string {
 	execPath, err := os.Executable()
 	if err != nil {
@@ -319,7 +319,29 @@ func detectInstallMethod() string {
 		execPath = resolvedExecPath
 	}
 
-	return detectInstallMethodFromPath(execPath)
+	return detectInstallMethodForExecutable(execPath)
+}
+
+// detectInstallMethodForExecutable classifies an installed executable by its
+// path, then recognizes uv tool environments that UV_TOOL_DIR moved away from
+// the default uv/tools/ location by the uv-receipt.toml at their root.
+func detectInstallMethodForExecutable(execPath string) string {
+	method := detectInstallMethodFromPath(execPath)
+	if method != "pip" {
+		return method
+	}
+	dir := filepath.Dir(execPath)
+	for range 6 {
+		if _, err := os.Stat(filepath.Join(dir, "uv-receipt.toml")); err == nil {
+			return "uv"
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return method
 }
 
 // detectInstallMethodFromPath classifies install method from executable path.
@@ -341,6 +363,10 @@ func detectInstallMethodFromPath(execPath string) string {
 		return "pipx"
 	}
 
+	if strings.Contains(normalizedPath, "uv/tools/") {
+		return "uv"
+	}
+
 	// Check for pip (Python)
 	//
 	// NOTE: Paths under ~/.revyl/bin are downloaded CLI binaries and should be
@@ -352,21 +378,103 @@ func detectInstallMethodFromPath(execPath string) string {
 	return "direct"
 }
 
-// fetchLatestRelease fetches the latest release from GitHub.
+// fetchLatestRelease resolves the newest release.
+//
+// Stable releases come from the github.com latest-release redirect, which is
+// not subject to the 60-requests-per-hour unauthenticated REST API limit that
+// shared CI and agent hosts exhaust. Only --prerelease needs the REST API,
+// because the redirect never points at a pre-release.
 //
 // Parameters:
 //   - ctx: Context for cancellation
 //   - includePrerelease: Whether to include pre-release versions
 //
 // Returns:
-//   - *GitHubRelease: The latest release
+//   - *GitHubRelease: The latest release (only TagName is set for stable releases)
 //   - error: Any error that occurred
 func fetchLatestRelease(ctx context.Context, includePrerelease bool) (*GitHubRelease, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/releases", gitHubAPIBaseURL, GitHubOwner, GitHubRepo)
-
-	if !includePrerelease {
-		url = fmt.Sprintf("%s/repos/%s/%s/releases/latest", gitHubAPIBaseURL, GitHubOwner, GitHubRepo)
+	if includePrerelease {
+		return fetchNewestReleaseFromAPI(ctx)
 	}
+	tagName, err := resolveLatestReleaseTag(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &GitHubRelease{TagName: tagName}, nil
+}
+
+// resolveLatestReleaseTag reads the tag that github.com/<repo>/releases/latest
+// redirects to, without following the redirect.
+func resolveLatestReleaseTag(ctx context.Context) (string, error) {
+	url := fmt.Sprintf("%s/%s/%s/releases/latest", gitHubWebBaseURL, GitHubOwner, GitHubRepo)
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	attempts := max(gitHubMaxRetries+1, 1)
+	for attempt := 0; attempt < attempts; attempt++ {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("User-Agent", "revyl-cli/"+version)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == attempts-1 {
+				return "", fmt.Errorf("failed to resolve the latest release: %w", err)
+			}
+			if err := waitForGitHubRetry(ctx, nil, attempt); err != nil {
+				return "", err
+			}
+			continue
+		}
+		resp.Body.Close()
+
+		if isRetryableGitHubStatus(resp.StatusCode) && attempt < attempts-1 {
+			if err := waitForGitHubRetry(ctx, resp, attempt); err != nil {
+				return "", err
+			}
+			continue
+		}
+		return latestReleaseTagFromRedirect(resp)
+	}
+
+	return "", fmt.Errorf("failed to resolve the latest release: retry loop ended unexpectedly")
+}
+
+// latestReleaseTagFromRedirect validates that a latest-release response
+// redirects to a semver release tag of the CLI repository.
+func latestReleaseTagFromRedirect(resp *http.Response) (string, error) {
+	if resp.StatusCode < http.StatusMultipleChoices || resp.StatusCode >= http.StatusBadRequest {
+		return "", fmt.Errorf("github.com returned status %d for the latest release", resp.StatusCode)
+	}
+	location, err := resp.Location()
+	if err != nil {
+		return "", fmt.Errorf("github.com returned a latest-release redirect without a location: %w", err)
+	}
+	tagPrefix := fmt.Sprintf("/%s/%s/releases/tag/", GitHubOwner, GitHubRepo)
+	tagName, found := strings.CutPrefix(location.Path, tagPrefix)
+	if !found {
+		return "", fmt.Errorf("no published Revyl CLI release was found")
+	}
+	if _, err := semver.StrictNewVersion(strings.TrimPrefix(tagName, "v")); err != nil {
+		return "", fmt.Errorf("the latest release tag %q is not a valid version", tagName)
+	}
+	return tagName, nil
+}
+
+// fetchNewestReleaseFromAPI returns the newest non-draft release, including
+// pre-releases, from the GitHub REST API.
+func fetchNewestReleaseFromAPI(ctx context.Context) (*GitHubRelease, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/releases", gitHubAPIBaseURL, GitHubOwner, GitHubRepo)
 
 	attempts := gitHubMaxRetries + 1
 	if attempts < 1 {
@@ -418,7 +526,7 @@ func fetchLatestRelease(ctx context.Context, includePrerelease bool) (*GitHubRel
 			return nil, apiErr
 		}
 
-		release, err := parseGitHubReleaseResponse(resp.Body, includePrerelease)
+		release, err := parseGitHubReleaseList(resp.Body)
 		resp.Body.Close()
 		if err != nil {
 			return nil, err
@@ -525,34 +633,18 @@ func parseGitHubRateLimitReset(value string) string {
 	return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
 }
 
-func parseGitHubReleaseResponse(body io.Reader, includePrerelease bool) (*GitHubRelease, error) {
-	if includePrerelease {
-		// Parse list of releases and find the latest (including prereleases)
-		var releases []GitHubRelease
-		if err := json.NewDecoder(body).Decode(&releases); err != nil {
-			return nil, fmt.Errorf("failed to parse releases: %w", err)
-		}
-
-		if len(releases) == 0 {
-			return nil, fmt.Errorf("no releases found")
-		}
-
-		// Return the first non-draft release
-		for _, r := range releases {
-			if !r.Draft {
-				return &r, nil
-			}
-		}
-		return nil, fmt.Errorf("no releases found")
+func parseGitHubReleaseList(body io.Reader) (*GitHubRelease, error) {
+	var releases []GitHubRelease
+	if err := json.NewDecoder(body).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("failed to parse releases: %w", err)
 	}
 
-	// Parse single release
-	var release GitHubRelease
-	if err := json.NewDecoder(body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("failed to parse release: %w", err)
+	for _, r := range releases {
+		if !r.Draft {
+			return &r, nil
+		}
 	}
-
-	return &release, nil
+	return nil, fmt.Errorf("no releases found")
 }
 
 // performSelfUpdate downloads and installs the new version.

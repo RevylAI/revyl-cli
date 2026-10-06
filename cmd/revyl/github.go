@@ -690,9 +690,9 @@ func waitForGithubInstallation(ctx context.Context, client *api.Client) (*api.Gi
 				return nil, terminalErr
 			}
 			if time.Now().After(deadline) {
-				return nil, fmt.Errorf(
+				return nil, analytics.WithFailureClass(fmt.Errorf(
 					"timed out waiting for the GitHub App install; finish it in the browser, then run 'revyl github status'",
-				)
+				), analytics.FailureClassGitHub)
 			}
 		}
 	}
@@ -714,16 +714,16 @@ func actionableGithubStatusError(err error, retryCommand string) error {
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
 		case 401:
-			return fmt.Errorf("Revyl authentication is no longer valid; run 'revyl auth login', then retry '%s'", retryCommand)
+			return analytics.WithFailureClass(fmt.Errorf("Revyl authentication is no longer valid; run 'revyl auth login', then retry '%s'", retryCommand), analytics.FailureClassAuth)
 		case 403:
-			return fmt.Errorf("the active Revyl account cannot access GitHub integration status; run 'revyl auth status' to verify the account and organization, then retry '%s'", retryCommand)
+			return analytics.WithFailureClass(fmt.Errorf("the active Revyl account cannot access GitHub integration status; run 'revyl auth status' to verify the account and organization, then retry '%s'", retryCommand), analytics.FailureClassAuth)
 		default:
 			if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
-				return fmt.Errorf("Revyl rejected the GitHub installation status request; run 'revyl auth status' to verify the active account and organization, then retry '%s'; run 'revyl doctor' if it still fails", retryCommand)
+				return analytics.WithFailureClass(fmt.Errorf("Revyl rejected the GitHub installation status request; run 'revyl auth status' to verify the active account and organization, then retry '%s'; run 'revyl doctor' if it still fails", retryCommand), analytics.FailureClassGitHub)
 			}
 		}
 	}
-	return fmt.Errorf("could not fetch GitHub status: %v; retry '%s', then run 'revyl doctor' if it still fails", err, retryCommand)
+	return fmt.Errorf("could not fetch GitHub status: %w; retry '%s', then run 'revyl doctor' if it still fails", err, retryCommand)
 }
 
 func printGithubStatus(repos *api.GithubRepositoriesResponse) {

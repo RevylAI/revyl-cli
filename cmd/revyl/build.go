@@ -331,11 +331,11 @@ func deprecatedBuildRemoteError() error {
 }
 
 func deprecatedBuildUploadRemoteError() error {
-	return fmt.Errorf("`revyl build upload --remote` has been replaced.\n\nUse:\n  revyl build --remote")
+	return usageErrorf("`revyl build upload --remote` has been replaced.\n\nUse:\n  revyl build --remote")
 }
 
 func deprecatedBuildUploadLocalBuildError() error {
-	return fmt.Errorf("`revyl build upload` requires --file or --url.\n\nUse:\n  revyl build                         Build from source and upload\n  revyl build upload --file ./app.apk Upload an existing artifact\n  revyl build upload --url <url>      Ingest an artifact from a URL")
+	return usageErrorf("`revyl build upload` requires --file or --url.\n\nUse:\n  revyl build                         Build from source and upload\n  revyl build upload --file ./app.apk Upload an existing artifact\n  revyl build upload --url <url>      Ingest an artifact from a URL")
 }
 
 func missingConfiguredBuildAppError(platform string) error {
@@ -397,7 +397,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	artifactPath, err := build.ResolveArtifactPath(cwd, uploadFileFlag)
 	if err != nil {
 		ui.PrintError("File not found: %s", uploadFileFlag)
-		return fmt.Errorf("file not found: %w", err)
+		return usageErrorf("file not found: %w", err)
 	}
 
 	info, err := os.Stat(artifactPath)
@@ -407,7 +407,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	}
 	if info.IsDir() && !build.IsAppBundle(artifactPath) {
 		ui.PrintError("Path is a directory, not a build artifact: %s", artifactPath)
-		return fmt.Errorf("path is a directory, not a build artifact")
+		return usageErrorf("path is a directory, not a build artifact")
 	}
 
 	// Determine target platform from --platform flag or file extension.
@@ -419,11 +419,11 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 		devicePlatform = normalized
 	} else if uploadPlatformFlag != "" {
 		ui.PrintError("Invalid platform %q (must be ios or android)", uploadPlatformFlag)
-		return fmt.Errorf("invalid platform: %s", uploadPlatformFlag)
+		return usageErrorf("invalid platform: %s", uploadPlatformFlag)
 	} else {
 		ui.PrintError("Cannot determine platform from file extension '%s'", filepath.Ext(artifactPath))
 		ui.PrintInfo("Use --platform to specify the target platform (ios or android)")
-		return fmt.Errorf("unable to infer platform from file path: %s", artifactPath)
+		return usageErrorf("unable to infer platform from file path: %s", artifactPath)
 	}
 
 	// Handle dry-run before doing any real work.
@@ -563,10 +563,10 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 //   - error: If the flags are in an invalid combination
 func validateUploadSourceFlags(file, urlFlag string, headers []string) error {
 	if file != "" && urlFlag != "" {
-		return fmt.Errorf("--file and --url are mutually exclusive")
+		return usageErrorf("--file and --url are mutually exclusive")
 	}
 	if len(headers) > 0 && urlFlag == "" {
-		return fmt.Errorf("--header requires --url")
+		return usageErrorf("--header requires --url")
 	}
 	return nil
 }
@@ -588,11 +588,11 @@ func parseHeaderFlags(flags []string) (map[string]string, error) {
 	for _, h := range flags {
 		idx := strings.Index(h, ":")
 		if idx < 1 {
-			return nil, fmt.Errorf("invalid --header format %q: expected \"Name: value\"", h)
+			return nil, usageErrorf("invalid --header format %q: expected \"Name: value\"", h)
 		}
 		name := strings.TrimSpace(h[:idx])
 		if name == "" {
-			return nil, fmt.Errorf("invalid --header format %q: header name is empty", h)
+			return nil, usageErrorf("invalid --header format %q: header name is empty", h)
 		}
 		value := strings.TrimSpace(h[idx+1:])
 		headers[name] = value
@@ -632,11 +632,11 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 		devicePlatform = normalized
 	} else if uploadPlatformFlag != "" {
 		ui.PrintError("Invalid platform %q (must be ios or android)", uploadPlatformFlag)
-		return fmt.Errorf("invalid platform: %s", uploadPlatformFlag)
+		return usageErrorf("invalid platform: %s", uploadPlatformFlag)
 	} else {
 		ui.PrintError("Cannot determine platform from URL filename '%s'", urlBase)
 		ui.PrintInfo("Use --platform to specify the target platform (ios or android)")
-		return fmt.Errorf("unable to infer platform from URL: %s", uploadURLFlag)
+		return usageErrorf("unable to infer platform from URL: %s", uploadURLFlag)
 	}
 
 	// Handle dry-run.
@@ -766,15 +766,15 @@ func resolveDirectUploadApp(cmd *cobra.Command, client *api.Client, cwd, platfor
 	}
 	if !interactive {
 		if binding != nil {
-			return "", fmt.Errorf(
+			return "", analytics.WithFailureClass(fmt.Errorf(
 				"no app is configured for %s/%s; pass '--app <name-or-id>' or add 'build.profiles.%s.%s.app_id' to .revyl/config.yaml and run 'revyl config validate'",
 				binding.Profile,
 				platform,
 				binding.Profile,
 				platform,
-			)
+			), analytics.FailureClassConfig)
 		}
-		return "", fmt.Errorf("no app is configured for %s upload; pass '--app <name-or-id>' or retry in an interactive terminal to select or create an app", platform)
+		return "", analytics.WithFailureClass(fmt.Errorf("no app is configured for %s upload; pass '--app <name-or-id>' or retry in an interactive terminal to select or create an app", platform), analytics.FailureClassConfig)
 	}
 	return selectOrCreateUploadApp(cmd, client, binding, platform)
 }

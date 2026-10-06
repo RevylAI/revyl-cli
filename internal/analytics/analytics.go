@@ -6,12 +6,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/revyl/cli/internal/agentinfo"
 	"github.com/revyl/cli/internal/auth"
 )
 
-const defaultBackendAnalyticsPath = "/api/v1/telemetry/cli-analytics"
+const (
+	defaultBackendAnalyticsPath = "/api/v1/telemetry/cli-analytics"
+	backgroundFlushWait         = 250 * time.Millisecond
+)
 
 type Config struct {
 	Version    string
@@ -23,12 +27,16 @@ type Config struct {
 type Recorder struct {
 	enabled bool
 	flush   func(TelemetryPayload)
+	// Without a credential at start the helper cannot send, so the started
+	// event waits for the terminal flush, which may run after a login.
+	sendStartedAtStart bool
 
-	mu        sync.Mutex
-	userID    string
-	orgID     string
-	baseProps map[string]interface{}
-	events    []TelemetryEvent
+	mu              sync.Mutex
+	userID          string
+	orgID           string
+	baseProps       map[string]interface{}
+	events          []TelemetryEvent
+	backgroundFlush <-chan struct{}
 }
 
 type identityInfo struct {
@@ -36,6 +44,7 @@ type identityInfo struct {
 	UserID           string
 	OrgID            string
 	AuthMethod       string
+	HasValidAuth     bool
 }
 
 func NewFromEnv(cfg Config) *Recorder {
@@ -93,11 +102,12 @@ func NewWithFlusher(cfg Config, flush func(TelemetryPayload)) *Recorder {
 	}
 
 	return &Recorder{
-		enabled:   true,
-		flush:     flush,
-		userID:    identity.UserID,
-		orgID:     identity.OrgID,
-		baseProps: baseProps,
+		enabled:            true,
+		flush:              flush,
+		sendStartedAtStart: identity.HasValidAuth,
+		userID:             identity.UserID,
+		orgID:              identity.OrgID,
+		baseProps:          baseProps,
 	}
 }
 
@@ -109,21 +119,53 @@ func (r *Recorder) Enabled() bool {
 	return r != nil && r.enabled && r.flush != nil
 }
 
+// Flush first waits, at most backgroundFlushWait, for an earlier background
+// flush, so a fast command neither drops that payload nor stalls behind a slow
+// helper spawn.
 func (r *Recorder) Flush() {
 	if !r.Enabled() {
 		return
 	}
-
 	r.mu.Lock()
-	events := make([]TelemetryEvent, len(r.events))
-	copy(events, r.events)
-	r.events = nil
+	backgroundFlush := r.backgroundFlush
 	r.mu.Unlock()
+	if backgroundFlush != nil {
+		select {
+		case <-backgroundFlush:
+		case <-time.After(backgroundFlushWait):
+		}
+	}
+	if payload, ok := r.takePendingEvents(); ok {
+		r.flush(payload)
+	}
+}
 
-	if len(events) == 0 {
+// flushInBackground hands the pending events to the flusher without making
+// the caller wait for it.
+func (r *Recorder) flushInBackground() {
+	payload, ok := r.takePendingEvents()
+	if !ok {
 		return
 	}
-	r.flush(TelemetryPayload{Events: events})
+	done := make(chan struct{})
+	r.mu.Lock()
+	r.backgroundFlush = done
+	r.mu.Unlock()
+	go func() {
+		defer close(done)
+		r.flush(payload)
+	}()
+}
+
+func (r *Recorder) takePendingEvents() (TelemetryPayload, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.events) == 0 {
+		return TelemetryPayload{}, false
+	}
+	events := r.events
+	r.events = nil
+	return TelemetryPayload{Events: events}, true
 }
 
 func (r *Recorder) eventProps(run *CommandRun) map[string]interface{} {
@@ -163,6 +205,7 @@ func loadIdentity() identityInfo {
 	info.UserID = strings.TrimSpace(creds.UserID)
 	info.OrgID = strings.TrimSpace(creds.OrgID)
 	info.AuthMethod = strings.TrimSpace(creds.AuthMethod)
+	info.HasValidAuth = creds.HasValidAuth()
 	return info
 }
 

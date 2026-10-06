@@ -56,7 +56,7 @@ func newStopTestCommand(t *testing.T, args ...string) *cobra.Command {
 func runStopWithAnalytics(t *testing.T, cmd *cobra.Command, runE func(*cobra.Command, []string) error, args []string) (stdout, stderr string, runErr error, terminal map[string]interface{}) {
 	t.Helper()
 	var captured analytics.TelemetryPayload
-	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 	run := recorder.StartCommand(cmd, args)
 	cmd.SetContext(analytics.ContextWithCommandRun(context.Background(), run))
 	stdout, stderr = captureStdoutAndStderrSeparate(t, func() { runErr = runE(cmd, args) })

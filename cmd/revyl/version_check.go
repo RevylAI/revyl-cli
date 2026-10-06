@@ -15,11 +15,14 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/ui"
 )
 
 const (
 	// versionCheckInterval is how often we check for updates (24 hours).
+	// A failed check is cached for the same interval so an offline or
+	// rate-limited machine does not retry on every command.
 	versionCheckInterval = 24 * time.Hour
 
 	// versionCheckTimeout is the max time for the background HTTP call.
@@ -27,12 +30,37 @@ const (
 
 	// versionCacheFile is the filename for the cached check result.
 	versionCacheFile = "version-check.json"
+
+	// updateNoticeFile records when the non-interactive update notice was last shown.
+	updateNoticeFile = "update-notice.json"
+
+	// updateNoticeInterval is the minimum spacing between non-interactive
+	// update notices on one machine.
+	updateNoticeInterval = 24 * time.Hour
+
+	// updateNoticeLockStaleAfter bounds how long a lock left behind by a
+	// crashed invocation can suppress notices.
+	updateNoticeLockStaleAfter = time.Minute
 )
 
 // versionCheckCache stores the result of the last version check.
 type versionCheckCache struct {
 	LastChecked   time.Time `json:"last_checked"`
 	LatestVersion string    `json:"latest_version"`
+}
+
+// updateNoticeState stores when each daily update notice was last shown.
+type updateNoticeState struct {
+	UpdateAvailableShownAt time.Time `json:"update_available_shown_at"`
+	UpcomingMinimumShownAt time.Time `json:"upcoming_minimum_shown_at"`
+}
+
+func updateAvailableShownAt(state *updateNoticeState) *time.Time {
+	return &state.UpdateAvailableShownAt
+}
+
+func upcomingMinimumShownAt(state *updateNoticeState) *time.Time {
+	return &state.UpcomingMinimumShownAt
 }
 
 // versionCheckResult holds the outcome of a background check.
@@ -52,6 +80,10 @@ var (
 
 	// versionCheckOutput holds the result (if any) for printing after the command.
 	versionCheckOutput *versionCheckResult
+
+	// announcedMinimumCLIVersion returns the minimum version a backend
+	// response announced for an upcoming compatibility cutoff. Overridden in tests.
+	announcedMinimumCLIVersion = api.UpcomingMinimumVersion
 )
 
 // skipVersionCheckCommands lists commands that should not trigger a version check.
@@ -63,14 +95,12 @@ var skipVersionCheckCommands = map[string]bool{
 	"mcp":        true,
 }
 
+// shouldSkipVersionCheck reports whether the invoked command must never check
+// for or mention CLI updates. Output modes such as --json and --quiet do not
+// skip the check; they only change how the notice is printed.
 func shouldSkipVersionCheck(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
-	}
-	jsonOutput, _ := cmd.Flags().GetBool("json")
-	quiet, _ := cmd.Flags().GetBool("quiet")
-	if jsonOutput || quiet {
-		return true
 	}
 	for current := cmd; current != nil; current = current.Parent() {
 		if skipVersionCheckCommands[current.Name()] {
@@ -86,9 +116,9 @@ func shouldSkipVersionCheck(cmd *cobra.Command) bool {
 	return false
 }
 
-// startVersionCheck kicks off a background version check (non-blocking).
-// It reads the cache first — if a check was done within versionCheckInterval,
-// it uses the cached result. Otherwise it fetches from GitHub.
+// startVersionCheck answers from a fresh cache immediately, so a cached
+// result never depends on how long the command runs, and otherwise resolves
+// the latest release in the background (non-blocking).
 //
 // Respects the REVYL_NO_UPDATE_NOTIFIER environment variable — if set to any
 // non-empty value, the check is skipped entirely.
@@ -99,69 +129,91 @@ func startVersionCheck(currentVersion string) {
 
 	versionCheckOnce.Do(func() {
 		versionCheckStarted = true
+		if versionCheckAnsweredFromCache(currentVersion) {
+			close(versionCheckDone)
+			return
+		}
 		go func() {
 			defer close(versionCheckDone)
-			doVersionCheck(currentVersion)
+			refreshVersionCheck(currentVersion)
 		}()
 	})
 }
 
-// doVersionCheck performs the actual check (cache read or HTTP fetch).
-func doVersionCheck(currentVersion string) {
+// versionCheckAnsweredFromCache records a cached result and reports true when
+// no release lookup is needed: a development build, or a cache younger than
+// versionCheckInterval.
+func versionCheckAnsweredFromCache(currentVersion string) bool {
 	currentClean := strings.TrimPrefix(currentVersion, "v")
 	if currentClean == "" || currentClean == "dev" {
-		return // Don't check for dev builds
+		return true
 	}
+	cached, err := readVersionCache(revylStateFilePath(versionCacheFile))
+	if err != nil || time.Since(cached.LastChecked) >= versionCheckInterval {
+		return false
+	}
+	recordAvailableUpdate(currentClean, cached.LatestVersion)
+	return true
+}
 
-	cachePath := versionCheckCachePath()
-
-	// Try reading cache first
+// refreshVersionCheck resolves the latest release and caches the outcome. A
+// failed lookup is cached as well, keeping the last known release, so the
+// next attempt waits a full versionCheckInterval; it never replaces a cache
+// that a concurrent invocation refreshed while this lookup was failing.
+func refreshVersionCheck(currentVersion string) {
+	currentClean := strings.TrimPrefix(currentVersion, "v")
+	cachePath := revylStateFilePath(versionCacheFile)
+	latestVersion := ""
 	if cached, err := readVersionCache(cachePath); err == nil {
-		if time.Since(cached.LastChecked) < versionCheckInterval {
-			// Cache is fresh — use it
-			latestClean := strings.TrimPrefix(cached.LatestVersion, "v")
-			if latestClean != "" && compareSemver(currentClean, latestClean) < 0 {
-				versionCheckOutput = &versionCheckResult{
-					UpdateAvailable: true,
-					LatestVersion:   cached.LatestVersion,
-					InstallMethod:   detectInstallMethod(),
-				}
-			}
-			return
-		}
+		latestVersion = cached.LatestVersion
 	}
 
-	// Cache is stale or missing — fetch from GitHub
 	ctx, cancel := context.WithTimeout(context.Background(), versionCheckTimeout)
 	defer cancel()
-
-	release, err := fetchLatestRelease(ctx, false)
-	if err != nil {
-		log.Debug("Background version check failed", "error", err)
-		return
+	if release, err := fetchLatestRelease(ctx, false); err != nil {
+		log.Debug("Background version check failed; retrying after the check interval", "error", err)
+		if cached, readErr := readVersionCache(cachePath); readErr == nil && time.Since(cached.LastChecked) < versionCheckInterval {
+			recordAvailableUpdate(currentClean, cached.LatestVersion)
+			return
+		}
+	} else {
+		latestVersion = release.TagName
 	}
 
-	// Write cache regardless of result
 	writeVersionCache(cachePath, versionCheckCache{
 		LastChecked:   time.Now(),
-		LatestVersion: release.TagName,
+		LatestVersion: latestVersion,
 	})
+	recordAvailableUpdate(currentClean, latestVersion)
+}
 
-	latestClean := strings.TrimPrefix(release.TagName, "v")
-	if compareSemver(currentClean, latestClean) < 0 {
-		versionCheckOutput = &versionCheckResult{
-			UpdateAvailable: true,
-			LatestVersion:   release.TagName,
-			InstallMethod:   detectInstallMethod(),
-		}
+func recordAvailableUpdate(currentClean, latestVersion string) {
+	latestClean := strings.TrimPrefix(latestVersion, "v")
+	if latestClean == "" || compareSemver(currentClean, latestClean) >= 0 {
+		return
+	}
+	versionCheckOutput = &versionCheckResult{
+		UpdateAvailable: true,
+		LatestVersion:   latestVersion,
+		InstallMethod:   detectInstallMethod(),
 	}
 }
 
 func printVersionWarning(cmd *cobra.Command) {
-	if cmd == nil || !versionCheckStarted || shouldSkipVersionCheck(cmd) || os.Getenv("REVYL_NO_UPDATE_NOTIFIER") != "" {
+	if cmd == nil || shouldSkipVersionCheck(cmd) || os.Getenv("REVYL_NO_UPDATE_NOTIFIER") != "" {
 		return
 	}
 	if ctx := cmd.Context(); ctx != nil && ctx.Err() != nil {
+		return
+	}
+	warnedAboutCutoff := printUpcomingMinimumWarning()
+	if !versionCheckStarted {
+		return
+	}
+	if !isInteractiveUpdateSession(cmd) {
+		if !warnedAboutCutoff {
+			printDailyUpdateNotice()
+		}
 		return
 	}
 	// Wait for the background check to finish (with a short timeout
@@ -190,27 +242,124 @@ func printVersionWarning(cmd *cobra.Command) {
 		return
 	}
 
-	switch versionCheckOutput.InstallMethod {
-	case "homebrew":
-		ui.PrintDim("  Update with: brew upgrade revyl")
-	case "npm":
-		ui.PrintDim("  Update with: npm update -g @revyl/cli")
-	case "pipx":
-		ui.PrintDim("  Update with: pipx upgrade revyl")
-	case "pip":
-		ui.PrintDim("  Update with: pip install --upgrade revyl")
-	default:
-		ui.PrintDim("  Update with: revyl upgrade")
-	}
+	ui.PrintDim("  Update with: %s", upgradeCommandForInstallMethod(versionCheckOutput.InstallMethod))
 }
 
-// versionCheckCachePath returns the path to the version check cache file.
-func versionCheckCachePath() string {
+// isInteractiveUpdateSession reports whether a person at a terminal can take
+// the inline upgrade prompt. Every other run (--json, --quiet, CI, coding
+// agents, piped or redirected output) gets the daily one-line notice instead.
+func isInteractiveUpdateSession(cmd *cobra.Command) bool {
+	jsonOutput, _ := cmd.Flags().GetBool("json")
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	return !jsonOutput && !quiet && canPromptForUpgrade()
+}
+
+// printDailyUpdateNotice prints one stderr line naming the available release
+// and the upgrade command for this installation, at most once per
+// updateNoticeInterval per machine. It never waits for an in-flight release
+// check, so it cannot delay the command; stdout is never written.
+func printDailyUpdateNotice() {
+	select {
+	case <-versionCheckDone:
+	default:
+		return
+	}
+	update := versionCheckOutput
+	if update == nil || !update.UpdateAvailable || !claimUpdateNotice(time.Now(), updateAvailableShownAt) {
+		return
+	}
+	ui.PrintWarning(
+		"Revyl CLI %s is available (current %s). Upgrade with: %s",
+		strings.TrimPrefix(update.LatestVersion, "v"),
+		strings.TrimPrefix(version, "v"),
+		upgradeCommandForInstallMethod(update.InstallMethod),
+	)
+}
+
+// printUpcomingMinimumWarning warns, at most once per updateNoticeInterval per
+// machine and in every output mode, when a backend response announced that an
+// upcoming compatibility cutoff will reject this CLI version. A response
+// without the announcement means there is nothing to say. It reports whether
+// the warning was printed.
+func printUpcomingMinimumWarning() bool {
+	announced := announcedMinimumCLIVersion()
+	current := strings.TrimPrefix(version, "v")
+	if announced == "" || current == "" || current == "dev" || compareSemver(current, announced) >= 0 {
+		return false
+	}
+	if !claimUpdateNotice(time.Now(), upcomingMinimumShownAt) {
+		return false
+	}
+	ui.PrintWarning(
+		"Revyl CLI %s will soon stop working: the Revyl API will require %s or later. Upgrade now with: %s",
+		current,
+		announced,
+		upgradeCommandForInstallMethod(detectInstallMethod()),
+	)
+	return true
+}
+
+// claimUpdateNotice records now as the last time of the notice that shownAt
+// selects and reports whether the caller may print, which is only when that
+// notice was not shown within updateNoticeInterval and the new time was
+// persisted. A lock file serializes concurrent invocations, so parallel agent
+// commands print at most one notice; an invocation that cannot take the lock
+// stays silent.
+func claimUpdateNotice(now time.Time, shownAt func(*updateNoticeState) *time.Time) bool {
+	statePath := revylStateFilePath(updateNoticeFile)
+	if statePath == "" {
+		return false
+	}
+	release, locked := lockUpdateNoticeState(statePath+".lock", now)
+	if !locked {
+		return false
+	}
+	defer release()
+
+	var state updateNoticeState
+	data, readErr := os.ReadFile(statePath) // #nosec G304 -- fixed file name inside the CLI state directory
+	if readErr == nil {
+		if err := json.Unmarshal(data, &state); err != nil {
+			log.Debug("Ignoring unreadable update notice state", "error", err)
+		}
+	}
+	lastShown := shownAt(&state)
+	if elapsed := now.Sub(*lastShown); elapsed >= 0 && elapsed < updateNoticeInterval {
+		return false
+	}
+	*lastShown = now
+	if err := writeStateFileAtomically(statePath, state); err != nil {
+		log.Debug("Failed to record update notice time", "error", err)
+		return false
+	}
+	return true
+}
+
+// lockUpdateNoticeState takes an exclusive lock file without waiting. A lock
+// older than updateNoticeLockStaleAfter is removed so a later invocation can
+// take it.
+func lockUpdateNoticeState(lockPath string, now time.Time) (func(), bool) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return nil, false
+	}
+	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- fixed file name inside the CLI state directory
+	if err != nil {
+		if info, statErr := os.Stat(lockPath); statErr == nil && now.Sub(info.ModTime()) > updateNoticeLockStaleAfter {
+			_ = os.Remove(lockPath)
+		}
+		return nil, false
+	}
+	_ = file.Close()
+	return func() { _ = os.Remove(lockPath) }, true
+}
+
+// revylStateFilePath returns the path of name inside the CLI state directory (~/.revyl).
+func revylStateFilePath(name string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".revyl", versionCacheFile)
+	return filepath.Join(home, ".revyl", name)
 }
 
 // readVersionCache reads the cached version check result.
@@ -270,21 +419,33 @@ func writeVersionCache(path string, cache versionCheckCache) {
 	if path == "" {
 		return
 	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Debug("Failed to create cache directory", "error", err)
-		return
-	}
-
-	data, err := json.Marshal(cache)
-	if err != nil {
-		log.Debug("Failed to marshal version cache", "error", err)
-		return
-	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writeStateFileAtomically(path, cache); err != nil {
 		log.Debug("Failed to write version cache", "error", err)
 	}
+}
+
+// writeStateFileAtomically replaces path with value's JSON encoding, so a
+// concurrent invocation never reads a partially written file.
+func writeStateFileAtomically(path string, value any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temporary.Name())
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), path)
 }

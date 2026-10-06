@@ -121,7 +121,10 @@ func actionableLocalConfigMessage(err error) error {
 	if !errors.As(err, &configError) {
 		return err
 	}
+	return analytics.WithFailureClass(localConfigRecoveryError(configError), analytics.FailureClassConfig)
+}
 
+func localConfigRecoveryError(configError *config.ConfigError) error {
 	field := ""
 	if len(configError.Path) > 0 {
 		field = fmt.Sprintf(" at %s", strings.Join(configError.Path, "."))

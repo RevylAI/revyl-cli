@@ -80,6 +80,7 @@ func (c *Client) PublishProofComment(ctx context.Context, body, problem, blocked
 	if err != nil {
 		return fmt.Errorf("publish proof comment: %w", err)
 	}
+	recordUpcomingMinimumVersion(resp)
 
 	return parseResponse(resp, nil)
 }

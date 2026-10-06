@@ -1,8 +1,6 @@
 package commandanalytics
 
 import (
-	"errors"
-
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
@@ -76,7 +74,7 @@ func completeCommandAnalytics(commandRun *analytics.CommandRun, err error, panic
 	if panicked {
 		// Never capture a raw panic value: it may contain customer input. The
 		// original panic is rethrown immediately after this best-effort fact.
-		commandRun.Complete(errors.New("command panicked"))
+		commandRun.Complete(analytics.ErrCommandPanicked)
 	} else {
 		commandRun.Complete(err)
 	}

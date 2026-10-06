@@ -90,6 +90,7 @@ func (c *Client) PublishSessionProofMedia(ctx context.Context, sessionID, filePa
 	if err != nil {
 		return nil, fmt.Errorf("publish proof media: %w", err)
 	}
+	recordUpcomingMinimumVersion(resp)
 
 	var result SessionProofMediaResponse
 	if err := parseResponse(resp, &result); err != nil {

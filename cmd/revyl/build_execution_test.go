@@ -196,7 +196,7 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 			}
 			cmd := newPublicBuildTestCommand(t, args...)
 			var captured analytics.TelemetryPayload
-			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 			run := recorder.StartCommand(cmd, nil)
 			cmd.SetContext(analytics.ContextWithCommandRun(context.Background(), run))
 			var buildErr error

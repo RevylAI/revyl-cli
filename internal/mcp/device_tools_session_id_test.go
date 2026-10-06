@@ -493,7 +493,7 @@ func TestServeAnalyticsRecordTheMostExplicitSessionTargetMode(t *testing.T) {
 		t.Helper()
 		srv, _ := newSessionIDToolServer(t)
 		var captured analytics.TelemetryPayload
-		recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+		recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 		commandRun := recorder.StartCommand(&cobra.Command{Use: "serve"}, nil)
 		calls(analytics.ContextWithCommandRun(context.Background(), commandRun), srv)
 		commandRun.Complete(nil)
@@ -540,7 +540,7 @@ func TestSessionTargetModeReachesTheServeEventThroughTheSDK(t *testing.T) {
 	server.sessionMgr = fake.sessionMgr
 
 	var captured analytics.TelemetryPayload
-	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 	commandRun := recorder.StartCommand(&cobra.Command{Use: "serve"}, nil)
 	serveCtx := analytics.ContextWithCommandRun(context.Background(), commandRun)
 

@@ -621,6 +621,7 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
+	recordUpcomingMinimumVersion(resp)
 	return resp, nil
 }
 
@@ -747,6 +748,7 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 
 		// Execute the request
 		resp, err := client.Do(req)
+		recordUpcomingMinimumVersion(resp)
 
 		// Check if we should retry
 		statusCode := 0

@@ -78,7 +78,7 @@ func TestRunTestExecReportsNotFoundOnlyForMissingTests(t *testing.T) {
 			cmd.Flags().Bool("open", false, "")
 			cmd.Flags().Int("timeout", execution.DefaultRunTimeoutSeconds, "")
 			var captured analytics.TelemetryPayload
-			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 			run := recorder.StartCommand(cmd, []string{testID})
 
 			runErr := runTestExec(cmd, []string{testID})
@@ -118,7 +118,7 @@ func TestTestHistoryReportsLegacyProjectConfigurationInsteadOfNotFound(t *testin
 
 	cmd := newLeafCommand("history", runTestHistory)
 	var captured analytics.TelemetryPayload
-	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 	run := recorder.StartCommand(cmd, []string{"login-flow"})
 
 	historyErr := runTestHistory(cmd, []string{"login-flow"})
@@ -140,7 +140,7 @@ func TestTestHistoryReportsLegacyProjectConfigurationInsteadOfNotFound(t *testin
 func TestTestLookupFailureKeepsSearchCauseOutOfAnalytics(t *testing.T) {
 	searchErr := fmt.Errorf("failed to search for test: %w", &api.APIError{StatusCode: http.StatusBadGateway, Detail: "upstream customer-private-name"})
 	var captured analytics.TelemetryPayload
-	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 	cmd := newLeafCommand("status", runTestStatus)
 	run := recorder.StartCommand(cmd, []string{"login-flow"})
 	ui.SetOutputObserver(run.ObserveOutput)

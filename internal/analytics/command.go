@@ -21,6 +21,10 @@ const (
 	maxOutputTail = 20
 )
 
+// ErrCommandPanicked is the terminal error recorded for a command that
+// panicked. The panic value itself is never captured.
+var ErrCommandPanicked = errors.New("command panicked")
+
 type CommandRun struct {
 	rec       *Recorder
 	startedAt time.Time
@@ -126,7 +130,12 @@ func (r *Recorder) StartCommand(cmd *cobra.Command, args []string) *CommandRun {
 		diagnosticRedactions: commandDiagnosticRedactions(cmd, args),
 	}
 	run.props = r.commandProps(cmd, args, run.commandID)
-	run.capture(CliCommandStartedEvent, nil)
+	if !r.sendStartedAtStart {
+		run.capture(CliCommandStartedEvent, nil)
+		return run
+	}
+	run.capture(CliCommandStartedEvent, map[string]interface{}{"sent_at_start": true})
+	r.flushInBackground()
 	return run
 }
 
@@ -143,7 +152,8 @@ func (r *CommandRun) completeCommand(err error) {
 	props := map[string]interface{}{
 		"duration_ms": time.Since(r.startedAt).Milliseconds(),
 	}
-	mergeCommandCompletionProperties(props, r.completionSnapshot())
+	recordedCompletion := r.completionSnapshot()
+	mergeCommandCompletionProperties(props, recordedCompletion)
 	var completedErr *CompletedError
 	if errors.As(err, &completedErr) {
 		completion := completedErr.Completion()
@@ -155,6 +165,7 @@ func (r *CommandRun) completeCommand(err error) {
 	if err != nil {
 		props["error"] = true
 		props["exit_code"] = 1
+		props["failure_class"] = string(classifyFailure(err, recordedCompletion))
 		diagnostic := err.Error()
 		var safeErr interface{ safeDiagnostic() string }
 		hasSafeDiagnostic := errors.As(err, &safeErr)

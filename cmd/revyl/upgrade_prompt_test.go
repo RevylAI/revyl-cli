@@ -33,11 +33,14 @@ func prepareUpgradePromptTest(t *testing.T) {
 	oldTerminal, oldConfirm := upgradeTerminalAvailable, confirmInlineUpgrade
 	oldInstall, oldVerify := installInlineUpgrade, verifyInlineUpgrade
 	oldStarted, oldDone, oldOutput := versionCheckStarted, versionCheckDone, versionCheckOutput
+	oldAnnounced := announcedMinimumCLIVersion
 	t.Cleanup(func() {
 		upgradeTerminalAvailable, confirmInlineUpgrade = oldTerminal, oldConfirm
 		installInlineUpgrade, verifyInlineUpgrade = oldInstall, oldVerify
 		versionCheckStarted, versionCheckDone, versionCheckOutput = oldStarted, oldDone, oldOutput
+		announcedMinimumCLIVersion = oldAnnounced
 	})
+	announcedMinimumCLIVersion = func() string { return "" }
 	upgradeTerminalAvailable = func() bool { return true }
 	confirmInlineUpgrade = func(string, bool) (bool, error) { return false, nil }
 	installInlineUpgrade = func(context.Context, versionCheckResult) (string, error) {
@@ -82,12 +85,10 @@ func TestCanPromptForUpgradeExcludesAutomation(t *testing.T) {
 }
 
 func TestVersionNoticeRespectsOutputAndCommandBoundaries(t *testing.T) {
-	for _, name := range []string{"json", "quiet", "upgrade", "update", "version", "completion", "mcp", "disabled", "not_started", "current", "cancelled"} {
+	for _, name := range []string{"upgrade", "update", "version", "completion", "mcp", "disabled", "not_started", "current", "cancelled"} {
 		t.Run(name, func(t *testing.T) {
 			prepareUpgradePromptTest(t)
 			cmd := &cobra.Command{Use: "example"}
-			cmd.Flags().Bool("json", name == "json", "")
-			cmd.Flags().Bool("quiet", name == "quiet", "")
 			switch name {
 			case "upgrade", "update", "version", "completion", "mcp":
 				cmd.Use = name
@@ -113,30 +114,33 @@ func TestVersionNoticeRespectsOutputAndCommandBoundaries(t *testing.T) {
 	}
 }
 
-func TestShouldSkipVersionCheckForOutputModes(t *testing.T) {
+func TestShouldSkipVersionCheckIgnoresOutputModes(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		jsonOutput bool
 		quiet      bool
-		wantSkip   bool
 	}{
 		{name: "human output"},
-		{name: "json", jsonOutput: true, wantSkip: true},
-		{name: "quiet", quiet: true, wantSkip: true},
-		{name: "quiet json", jsonOutput: true, quiet: true, wantSkip: true},
+		{name: "json", jsonOutput: true},
+		{name: "quiet", quiet: true},
+		{name: "quiet json", jsonOutput: true, quiet: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cmd := &cobra.Command{Use: "example"}
 			cmd.Flags().Bool("json", test.jsonOutput, "")
 			cmd.Flags().Bool("quiet", test.quiet, "")
-			if got := shouldSkipVersionCheck(cmd); got != test.wantSkip {
-				t.Fatalf("shouldSkipVersionCheck() = %v, want %v", got, test.wantSkip)
+			if shouldSkipVersionCheck(cmd) {
+				t.Fatal("output modes must still check for updates")
 			}
 		})
 	}
 }
 
-func TestExecuteWithVersionNoticePreservesJSONOutput(t *testing.T) {
+// TestJSONStdoutIsIdenticalWithAndWithoutPendingUpdateNotice is the --json
+// output contract for the update notice: stdout carries exactly the command's
+// document whether or not a notice is pending, and the notice is a single
+// stderr line shown at most once per interval.
+func TestJSONStdoutIsIdenticalWithAndWithoutPendingUpdateNotice(t *testing.T) {
 	upgradeRequired := &api.APIError{
 		StatusCode: http.StatusUpgradeRequired,
 		Code:       "cli_upgrade_required",
@@ -161,29 +165,47 @@ func TestExecuteWithVersionNoticePreservesJSONOutput(t *testing.T) {
 						t.Fatal("JSON command must not prompt for an upgrade")
 						return false, nil
 					}
-					root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
-					root.PersistentFlags().Bool("json", false, "")
-					group := &cobra.Command{Use: "example"}
-					command := &cobra.Command{Use: "run", RunE: func(cmd *cobra.Command, args []string) error {
-						if !shouldSkipVersionCheck(cmd) {
-							t.Fatal("JSON command must skip the background version check")
+					run := func(pending bool) (string, string) {
+						versionCheckOutput.UpdateAvailable = pending
+						root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+						root.PersistentFlags().Bool("json", false, "")
+						group := &cobra.Command{Use: "example"}
+						command := &cobra.Command{Use: "run", RunE: func(cmd *cobra.Command, args []string) error {
+							if shouldSkipVersionCheck(cmd) {
+								t.Fatal("JSON command must still check for updates")
+							}
+							fmt.Fprintln(os.Stdout, outcome.output)
+							return outcome.err
+						}}
+						if localJSONFlag {
+							command.Flags().Bool("json", false, "")
 						}
-						fmt.Fprintln(os.Stdout, outcome.output)
-						return outcome.err
-					}}
-					if localJSONFlag {
-						command.Flags().Bool("json", false, "")
+						group.AddCommand(command)
+						root.AddCommand(group)
+						root.SetArgs(args)
+						return captureStdoutAndStderrSeparate(t, func() {
+							if err := executeWithVersionNotice(root); err != outcome.err {
+								t.Fatalf("command result changed: got %v, want %v", err, outcome.err)
+							}
+						})
 					}
-					group.AddCommand(command)
-					root.AddCommand(group)
-					root.SetArgs(args)
-					output := captureStdoutAndStderr(t, func() {
-						if err := executeWithVersionNotice(root); err != outcome.err {
-							t.Fatalf("command result changed: got %v, want %v", err, outcome.err)
+
+					withoutNoticeStdout, withoutNoticeStderr := run(false)
+					withNoticeStdout, withNoticeStderr := run(true)
+					repeatStdout, repeatStderr := run(true)
+
+					for _, stdout := range []string{withoutNoticeStdout, withNoticeStdout, repeatStdout} {
+						if stdout != outcome.output+"\n" {
+							t.Fatalf("JSON stdout was altered: %q", stdout)
 						}
-					})
-					if output != outcome.output+"\n" {
-						t.Fatalf("JSON output was altered: %q", output)
+					}
+					if withoutNoticeStderr != "" || repeatStderr != "" {
+						t.Fatalf("unexpected stderr without a due notice: %q / %q", withoutNoticeStderr, repeatStderr)
+					}
+					if strings.Count(withNoticeStderr, "\n") != 1 ||
+						!strings.Contains(withNoticeStderr, "Revyl CLI 999.0.0 is available") ||
+						!strings.Contains(withNoticeStderr, "Upgrade with: revyl upgrade") {
+						t.Fatalf("stderr = %q, want one update notice line", withNoticeStderr)
 					}
 				})
 			}
@@ -194,6 +216,7 @@ func TestExecuteWithVersionNoticePreservesJSONOutput(t *testing.T) {
 func TestVersionNoticeKeepsPackageManagerGuidance(t *testing.T) {
 	for method, command := range map[string]string{
 		"npm": "npm update -g @revyl/cli", "pip": "pip install --upgrade revyl", "pipx": "pipx upgrade revyl",
+		"uv": "uv tool upgrade revyl",
 	} {
 		t.Run(method, func(t *testing.T) {
 			prepareUpgradePromptTest(t)
@@ -249,7 +272,7 @@ func TestPromptedUpgradeRecordsOutcomeWithoutSensitiveDiagnostics(t *testing.T) 
 				return "v999.0.0", test.verifyErr
 			}
 			var captured analytics.TelemetryPayload
-			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured = payload })
+			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { captured.Events = append(captured.Events, payload.Events...) })
 			cmd := &cobra.Command{Use: "upgrade"}
 			run := recorder.StartCommand(cmd, nil)
 			cmd.SetContext(analytics.ContextWithCommandRun(context.Background(), run))

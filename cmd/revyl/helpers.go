@@ -33,6 +33,12 @@ var reservedNames = map[string]bool{
 	"status": true, "history": true, "report": true, "share": true,
 }
 
+// usageErrorf reports an invocation the command cannot act on, such as an
+// invalid flag combination or a missing artifact, as a usage failure.
+func usageErrorf(format string, args ...any) error {
+	return analytics.WithFailureClass(fmt.Errorf(format, args...), analytics.FailureClassUsage)
+}
+
 // detectOrgMismatchForCurrentProject checks whether the current auth org
 // mismatches the cwd project's bound org_id.
 func detectOrgMismatchForCurrentProject(cmd *cobra.Command) *orgguard.MismatchError {

@@ -19,11 +19,16 @@ var (
 	windowsPathPattern = regexp.MustCompile(`(?i)\b[A-Z]:\\[^\s]+`)
 )
 
+// customerNameListPattern matches the rest of a line listing customer-authored
+// names, such as a "test not found" error's local test aliases.
+var customerNameListPattern = regexp.MustCompile(`(?i)\b(available (?:tests|areas)):[^\n]*`)
+
 func sanitizeString(value string) string {
 	out := strings.TrimSpace(value)
 	if out == "" {
 		return ""
 	}
+	out = customerNameListPattern.ReplaceAllString(out, "$1: <redacted>")
 	out = bearerPattern.ReplaceAllString(out, "Bearer <redacted>")
 	out = secretKVPattern.ReplaceAllString(out, "$1=<redacted>")
 	out = apiKeyPattern.ReplaceAllString(out, "<redacted-api-key>")

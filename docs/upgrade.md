@@ -1,8 +1,11 @@
 # Updating the Revyl CLI
 
 After a command succeeds or fails, Revyl checks for a newer release and shows an
-update notice when one is available. Release checks are cached for 24 hours and
-do not prevent the command from completing if the check is unavailable.
+update notice when one is available. The check reads the latest-release redirect
+on github.com, not the rate-limited GitHub API. Results, including failed checks,
+are cached for 24 hours, and the check never fails the command. Non-interactive
+runs never wait for it; an interactive terminal waits at most two seconds for a
+pending check before showing the notice.
 
 In an interactive terminal, direct-download and Homebrew installations offer:
 
@@ -21,14 +24,35 @@ If an error requires configuration migration, follow that error's recovery
 instructions separately. See [Agent skills](#agent-skills) for how to update
 skills yourself.
 
-Piped or redirected commands, CI, and detected coding agents never receive the
-interactive update prompt. npm, pip, and pipx installations show their existing
-package-manager upgrade command instead of updating a potentially different
-installation automatically.
+Piped or redirected commands, `--json` and `--quiet` runs, CI, and detected
+coding agents never receive the interactive update prompt. Instead, they get one
+stderr line at most once every 24 hours per machine:
 
-`--json`, `--quiet`, MCP commands, version commands, shell completion, and upgrade
-commands suppress the automatic notice. Set `REVYL_NO_UPDATE_NOTIFIER=1` to
-disable it entirely.
+```text
+⚠ Revyl CLI 0.1.131 is available (current 0.1.96). Upgrade with: brew upgrade revyl
+```
+
+The notice names the upgrade command for the installation: `brew upgrade revyl`
+for Homebrew, `pip install --upgrade revyl`, `pipx upgrade revyl`, or
+`uv tool upgrade revyl` for Python packages, `npm update -g @revyl/cli` for npm,
+and `revyl upgrade` for the shell installer, direct downloads, and any location
+it cannot classify. npm, pip, pipx, and uv installations are never updated
+automatically, because that could update a different installation.
+
+The notice never writes to stdout, so `--json` output is unchanged. If a script
+parses stdout and stderr together, set `REVYL_NO_UPDATE_NOTIFIER=1`.
+
+Before the Revyl API stops accepting an older CLI version, its responses
+announce the minimum version it will require. A CLI below that minimum prints a
+stronger warning once every 24 hours per machine, in every output mode:
+
+```text
+⚠ Revyl CLI 0.1.133 will soon stop working: the Revyl API will require 0.1.140 or later. Upgrade now with: brew upgrade revyl
+```
+
+MCP commands, version commands, shell completion, and upgrade commands never
+show a notice. Set `REVYL_NO_UPDATE_NOTIFIER=1` to disable update checks and
+notices entirely.
 
 You can also run `revyl upgrade` (or its `revyl update` alias) directly. Use
 `revyl upgrade --check` to check without installing. Like inline updates,
