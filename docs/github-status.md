@@ -80,3 +80,45 @@ When the App is not connected, `connected` is `false`, `repository_count` is
 
 The keys above are a stable contract for scripts and coding agents. New keys
 may be added; existing keys are not renamed or removed.
+
+## Connecting from a remote shell or coding agent
+
+`revyl github connect` opens the GitHub App install page in a browser and waits
+up to three minutes for the installation. An agent can't show the user anything
+while a command is still running, so issue the link and return at once instead:
+
+```bash
+revyl github connect --no-wait --json            # open the page if possible, return at once
+revyl github connect --no-open --no-wait --json  # never open a browser
+```
+
+The first form still opens the page on a local machine. A remote shell or cloud
+workspace can't open a browser the user sees, so also hand `install_url` to the
+user. `install_url` is in the JSON whether or not a browser opened, and a browser
+that fails to open changes neither `status` nor the exit code. Every human line
+goes to stderr, so stdout holds exactly one JSON object:
+
+```json
+{
+  "status": "link_issued",
+  "connected": false,
+  "install_url": "https://github.com/apps/<app>/installations/new?state=<token>",
+  "repository_count": 0
+}
+```
+
+After the user installs the App, confirm it with `revyl github status`. Each
+link is bound to the active Revyl organization, and an earlier link stays valid
+after a new one is issued.
+
+| `status`            | Meaning                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `already_connected` | The App was already installed; no link is issued.                                       |
+| `link_issued`       | `--no-wait` issued `install_url` without waiting.                                       |
+| `connected`         | The installation became active while the command waited.                                |
+| `timed_out`         | The wait ended before the installation was active; the command exits non-zero.          |
+
+`--no-open` alone still waits; it only skips the browser. Use it when a link
+has already been handed out, so the user isn't sent a second install page. If the user isn't an
+owner of the GitHub organization, GitHub sends the install to an owner as a
+request, and the App stays disconnected until an owner approves it.

@@ -28,6 +28,10 @@ var githubConnectPollInterval = 3 * time.Second
 // install to complete before giving up.
 var githubConnectPollTimeout = 3 * time.Minute
 
+var errGithubInstallTimedOut = errors.New(
+	"timed out waiting for the GitHub App install; finish it in the browser, then run 'revyl github status'",
+)
+
 var (
 	ensureGithubSetupConnected = ensureGithubConnected
 	selectGithubSetupApp       = selectOrCreateGithubSetupApp
@@ -65,8 +69,20 @@ This opens the GitHub App install page in your browser. Complete the install
 there; the CLI waits and confirms once the installation is active. If the app
 is already installed, this is a no-op.
 
+A coding agent can't show the user anything while a command runs, so pass
+--no-wait to return as soon as the link is issued; the page still opens when a
+browser is available, and the link is printed either way so it can be handed to
+the user. Pass --no-open to skip the browser, for example when a link was
+already handed out.
+
+With --json, print one JSON object on stdout:
+  status (already_connected, connected, link_issued, timed_out), connected,
+  install_url, repository_count.
+
 EXAMPLES:
-  revyl github connect`,
+  revyl github connect
+  revyl github connect --no-wait --json
+  revyl github connect --no-open --json`,
 	Args: cobra.NoArgs,
 	RunE: runGithubConnect,
 }
@@ -108,6 +124,8 @@ EXAMPLES:
 }
 
 func init() {
+	githubConnectCmd.Flags().Bool("no-open", false, "Print the install link instead of opening a browser")
+	githubConnectCmd.Flags().Bool("no-wait", false, "Return once the install link is issued instead of waiting for the installation")
 	githubCmd.AddCommand(githubConnectCmd, githubStatusCmd, githubSetupCmd)
 }
 
@@ -122,17 +140,60 @@ func newGithubAPIClient(cmd *cobra.Command) (*api.Client, error) {
 	return api.NewClientWithDevMode(apiKey, devMode), nil
 }
 
+// githubConnectReport is the stable `revyl github connect --json` contract.
+type githubConnectReport struct {
+	Status          string `json:"status"`
+	Connected       bool   `json:"connected"`
+	InstallURL      string `json:"install_url,omitempty"`
+	RepositoryCount int    `json:"repository_count"`
+}
+
 func runGithubConnect(cmd *cobra.Command, _ []string) error {
 	client, err := newGithubAPIClient(cmd)
 	if err != nil {
 		return err
 	}
-	repos, err := ensureGithubConnected(cmd.Context(), client)
+	noOpen, _ := cmd.Flags().GetBool("no-open")
+	noWait, _ := cmd.Flags().GetBool("no-wait")
+	outcome, err := connectGithub(cmd.Context(), client, githubConnectOptions{
+		openBrowser: !noOpen,
+		wait:        !noWait,
+	})
+	completionStatus := outcome.status
+	if completionStatus == "" && err != nil {
+		completionStatus = githubConnectFailed
+	}
+	if completionStatus != "" {
+		analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+			Domain:       "github_connect",
+			DomainStatus: completionStatus,
+		})
+	}
+	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput && outcome.status != "" {
+		report := githubConnectReport{
+			Status:     outcome.status,
+			Connected:  outcome.repos.IsConnected(),
+			InstallURL: outcome.installURL,
+		}
+		if outcome.repos != nil {
+			report.RepositoryCount = len(outcome.repos.Repositories)
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if encodeErr := encoder.Encode(report); encodeErr != nil && err == nil {
+			return encodeErr
+		}
+		return err
+	}
 	if err != nil {
 		return err
 	}
+	if outcome.status == githubConnectLinkIssued {
+		ui.PrintDim("  After the install finishes, run 'revyl github status' to confirm it.")
+		return nil
+	}
 	ui.Println()
-	printGithubStatus(repos)
+	printGithubStatus(outcome.repos)
 	return nil
 }
 
@@ -642,34 +703,81 @@ func printGithubSetupBuildSummary(build config.AuthoredReviewBuild) {
 	ui.PrintKeyValue("Review builds:", "CI uploads for "+strings.Join(platforms, " and "))
 }
 
+const (
+	githubConnectAlreadyConnected = "already_connected"
+	githubConnectConnected        = "connected"
+	githubConnectLinkIssued       = "link_issued"
+	githubConnectTimedOut         = "timed_out"
+	githubConnectFailed           = "failed"
+)
+
+// openGithubInstallPage opens the install link; tests replace it so no browser
+// is launched.
+var openGithubInstallPage = ui.OpenBrowser
+
+type githubConnectOptions struct {
+	openBrowser bool
+	wait        bool
+}
+
+// githubConnectOutcome is the bounded result of one connect attempt.
+type githubConnectOutcome struct {
+	status     string
+	installURL string
+	repos      *api.GithubRepositoriesResponse
+}
+
 // ensureGithubConnected returns the current installation state, driving the
 // browser install flow when GitHub is not yet connected.
 func ensureGithubConnected(ctx context.Context, client *api.Client) (*api.GithubRepositoriesResponse, error) {
+	outcome, err := connectGithub(ctx, client, githubConnectOptions{openBrowser: true, wait: true})
+	return outcome.repos, err
+}
+
+func connectGithub(ctx context.Context, client *api.Client, opts githubConnectOptions) (githubConnectOutcome, error) {
+	var outcome githubConnectOutcome
 	repos, err := client.GetGithubRepositories(ctx)
 	if err != nil {
-		return nil, actionableGithubStatusError(err, "revyl github connect")
+		return outcome, actionableGithubStatusError(err, "revyl github connect")
 	}
 	if repos.IsConnected() {
 		ui.PrintSuccess("GitHub App already connected")
-		return repos, nil
+		outcome.status, outcome.repos = githubConnectAlreadyConnected, repos
+		return outcome, nil
 	}
 
 	install, err := client.GetGithubInstallURL(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start GitHub install: %w", err)
+		return outcome, fmt.Errorf("failed to start GitHub install: %w", err)
 	}
-	ui.PrintInfo("Opening the GitHub App install page in your browser ...")
-	if openErr := ui.OpenBrowser(install.InstallURL); openErr != nil {
+	outcome.installURL, outcome.repos = install.InstallURL, repos
+	switch {
+	case !opts.openBrowser:
+		ui.PrintInfo("Open this URL to install the Revyl GitHub App:")
+		ui.PrintLink("Install Revyl GitHub App", install.InstallURL)
+	case openGithubInstallPage(install.InstallURL) != nil:
 		ui.PrintWarning("Could not open a browser automatically.")
 		ui.PrintInfo("Open this URL to install the Revyl GitHub App:")
 		ui.PrintLink("Install Revyl GitHub App", install.InstallURL)
-	} else {
+	default:
+		ui.PrintInfo("Opened the GitHub App install page in your browser.")
 		ui.PrintDim("  If the page didn't open, visit: %s", install.InstallURL)
+	}
+	if !opts.wait {
+		outcome.status = githubConnectLinkIssued
+		return outcome, nil
 	}
 
 	ui.Println()
 	ui.PrintInfo("Waiting for the installation to complete ...")
-	return waitForGithubInstallation(ctx, client)
+	connected, err := waitForGithubInstallation(ctx, client)
+	switch {
+	case err == nil:
+		outcome.status, outcome.repos = githubConnectConnected, connected
+	case errors.Is(err, errGithubInstallTimedOut):
+		outcome.status = githubConnectTimedOut
+	}
+	return outcome, err
 }
 
 func waitForGithubInstallation(ctx context.Context, client *api.Client) (*api.GithubRepositoriesResponse, error) {
@@ -690,9 +798,7 @@ func waitForGithubInstallation(ctx context.Context, client *api.Client) (*api.Gi
 				return nil, terminalErr
 			}
 			if time.Now().After(deadline) {
-				return nil, analytics.WithFailureClass(fmt.Errorf(
-					"timed out waiting for the GitHub App install; finish it in the browser, then run 'revyl github status'",
-				), analytics.FailureClassGitHub)
+				return nil, analytics.WithFailureClass(errGithubInstallTimedOut, analytics.FailureClassGitHub)
 			}
 		}
 	}
