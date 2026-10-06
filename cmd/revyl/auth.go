@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
@@ -128,6 +130,7 @@ EXAMPLES:
   revyl auth login --browser
   REVYL_API_KEY=rk_xxx revyl auth status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		recordSetupRef(cmd)
 		ui.PrintBanner(version)
 
 		apiKeyValue, _ := cmd.Flags().GetString("api-key")
@@ -158,6 +161,24 @@ EXAMPLES:
 		}
 		return loginWithDeviceApproval(cmd, mgr, devMode)
 	},
+}
+
+// setupRefPattern matches the random setup reference that Revyl's hosted
+// setup instructions pass as REVYL_SETUP_REF to `auth status` and `auth login`,
+// joining a copied setup prompt to the CLI it reached, in analytics only.
+var setupRefPattern = regexp.MustCompile(`^[0-9a-f]{24}$`)
+
+// recordSetupRef attaches a well-formed REVYL_SETUP_REF to the command's
+// terminal analytics event. Any other value is ignored and never recorded, and
+// the reference is never written to local state.
+func recordSetupRef(cmd *cobra.Command) {
+	setupRef := os.Getenv("REVYL_SETUP_REF")
+	if !setupRefPattern.MatchString(setupRef) {
+		return
+	}
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Properties: map[string]interface{}{"setup_ref": setupRef},
+	})
 }
 
 // authPersistCloudEnvironmentOutput reports which Cloud bootstrap state was stored.
@@ -607,6 +628,7 @@ var authStatusCmd = &cobra.Command{
 	Short: "Show authentication status",
 	Long:  `Show current authentication status and user information.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		recordSetupRef(cmd)
 		jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
 		mgr := auth.NewManager()
