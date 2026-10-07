@@ -570,18 +570,20 @@ func stripHTMLTags(s string) string {
 	return result.String()
 }
 
-// doRequest performs an HTTP request with authentication and retry logic.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	return c.doRequestWithRetry(ctx, method, path, body, nil)
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return c.doRequestWithRetry(ctx, method, path, body)
+	default:
+		return c.doRequestOnce(ctx, method, path, body)
+	}
 }
 
-// doRequestOnce performs a single HTTP request without retries.
-// Use this for endpoints where retrying is unlikely to help (e.g. deterministic failures).
-func (c *Client) doRequestOnce(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	return c.doRequestOnceWithClient(ctx, method, path, body, c.httpClient)
+func (c *Client) doRequestOnce(ctx context.Context, method, path string, body interface{}, extraHeaders ...map[string]string) (*http.Response, error) {
+	return c.doRequestOnceWithClient(ctx, method, path, body, c.httpClient, extraHeaders...)
 }
 
-func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path string, body interface{}, client *http.Client) (*http.Response, error) {
+func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path string, body interface{}, client *http.Client, extraHeaders ...map[string]string) (*http.Response, error) {
 	reqURL := c.baseURL + path
 
 	var bodyReader io.Reader
@@ -613,6 +615,11 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 	backendheaders.SetCloudAgentConversationContext(req)
 	setCIHeaders(req)
 	setAgentHeaders(req)
+	if len(extraHeaders) > 0 {
+		for key, value := range extraHeaders[0] {
+			req.Header.Set(key, value)
+		}
+	}
 
 	if client == nil {
 		client = http.DefaultClient
@@ -3966,7 +3973,7 @@ func (c *Client) CreateHotReloadRelay(
 	ctx context.Context,
 	req HotReloadRelayCreateParams,
 ) (*HotReloadRelaySession, error) {
-	resp, err := c.doRequestWithRetry(ctx, "POST", "/api/v1/hotreload/relays", req, traceHandoffHeadersFromContext(ctx))
+	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/hotreload/relays", req, traceHandoffHeadersFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -4214,7 +4221,7 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 		headers[cliTraceHandoffHeader] = handoff.HandoffToken
 	}
 
-	resp, err := c.doRequestWithRetry(ctx, "POST", "/api/v1/execution/start_device", req, headers)
+	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/execution/start_device", req, headers)
 	if err != nil {
 		return nil, err
 	}

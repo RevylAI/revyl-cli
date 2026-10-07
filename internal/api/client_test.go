@@ -21,6 +21,98 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestRequestRetryPolicy(t *testing.T) {
+	for _, policy := range []struct {
+		method       string
+		wantAttempts int32
+	}{
+		{http.MethodGet, 2},
+		{http.MethodHead, 2},
+		{http.MethodOptions, 2},
+		{http.MethodPost, 1},
+		{http.MethodPut, 1},
+		{http.MethodPatch, 1},
+		{http.MethodDelete, 1},
+	} {
+		t.Run(policy.method, func(t *testing.T) {
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				attempts.Add(1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			client := NewClientWithBaseURL("test-key", server.URL)
+			client.maxRetries = 1
+			client.retryBaseDelay = time.Millisecond
+			client.retryMaxDelay = time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			response, err := client.doRequest(ctx, policy.method, "/resource", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if attempts.Load() != policy.wantAttempts {
+				t.Fatalf("attempts = %d, want %d", attempts.Load(), policy.wantAttempts)
+			}
+		})
+	}
+}
+
+func TestSubmissionsDoNotRetry(t *testing.T) {
+	for _, operation := range []string{"test", "device", "workflow", "relay"} {
+		for _, status := range []int{http.StatusServiceUnavailable, 0} {
+			t.Run(fmt.Sprintf("%s/%d", operation, status), func(t *testing.T) {
+				var attempts atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					attempts.Add(1)
+					if status == 0 {
+						connection, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Errorf("hijack response: %v", err)
+							return
+						}
+						_ = connection.Close()
+						return
+					}
+					http.Error(w, `{"detail":"submission outcome unknown"}`, status)
+				}))
+				defer server.Close()
+				client := NewClientWithBaseURL("test-key", server.URL)
+				client.retryBaseDelay = time.Millisecond
+				client.retryMaxDelay = time.Millisecond
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				ctx = WithTraceHandoff(ctx, &TraceHandoff{
+					Traceparent:  "00-1234567890abcdef1234567890abcdef-1111111111111111-01",
+					HandoffToken: "test-handoff",
+					RequestID:    "test-request",
+				})
+				var err error
+				switch operation {
+				case "test":
+					_, err = client.ExecuteTest(ctx, &ExecuteTestRequest{TestID: "test-id"})
+				case "device":
+					_, err = client.StartDevice(ctx, &StartDeviceRequest{Platform: "ios"})
+				case "workflow":
+					_, err = client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{WorkflowID: "workflow-id"})
+				case "relay":
+					_, err = client.CreateHotReloadRelay(ctx, HotReloadRelayCreateParams{Provider: "expo"})
+				}
+				if attempts.Load() != 1 || err == nil {
+					t.Fatalf("attempts = %d, error = %v; want one failed attempt", attempts.Load(), err)
+				}
+				if status != 0 {
+					var apiErr *APIError
+					if !errors.As(err, &apiErr) || apiErr.StatusCode != status || apiErr.Detail != "submission outcome unknown" {
+						t.Fatalf("error response was not preserved: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
+
 func writeTestArtifact(t *testing.T) string {
 	t.Helper()
 	// .apk files bypass the local-zip structural pre-flight in
