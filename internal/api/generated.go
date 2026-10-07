@@ -3157,7 +3157,7 @@ type BuildCache struct {
 	// Key Org-local cache key. The build runner prefixes it with the org ID.
 	Key string `json:"key"`
 
-	// Paths Project-relative paths stored in this cache archive.
+	// Paths Project-relative or ~/ paths stored in this cache archive.
 	Paths []string `json:"paths"`
 }
 

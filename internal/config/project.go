@@ -395,7 +395,7 @@ type BuildCache struct {
 	// Key is the org-local cache key. The backend prefixes it with the org ID.
 	Key string `yaml:"key" json:"key"`
 
-	// Paths are project-relative paths stored in this cache archive.
+	// Paths are project-relative or ~/ paths stored in this cache archive.
 	Paths []string `yaml:"paths" json:"paths"`
 }
 

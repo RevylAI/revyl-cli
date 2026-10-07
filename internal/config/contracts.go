@@ -458,11 +458,12 @@ func validateCachesAtPath(fieldPath []string, caches []BuildCache) error {
 			return authoredContractError(append(cachePath, "paths"), fmt.Sprintf("%s.paths must not be empty", cachePathText))
 		}
 		for _, cacheEntry := range cache.Paths {
-			if cacheEntry == "" || strings.TrimSpace(cacheEntry) != cacheEntry || utf8.RuneCountInString(cacheEntry) > 1024 ||
-				strings.HasPrefix(cacheEntry, "/") || strings.HasPrefix(cacheEntry, "~") || strings.Contains(cacheEntry, "%") ||
-				strings.ContainsRune(cacheEntry, '\x00') || path.Clean(cacheEntry) != cacheEntry || cacheEntry == "." || cacheEntry == ".." ||
-				strings.HasPrefix(cacheEntry, "../") {
-				return authoredContractError(append(cachePath, "paths"), fmt.Sprintf("%s.paths must contain valid project-relative paths", cachePathText))
+			relativeEntry := strings.TrimPrefix(cacheEntry, "~/")
+			if relativeEntry == "" || strings.TrimSpace(cacheEntry) != cacheEntry || utf8.RuneCountInString(cacheEntry) > 1024 ||
+				strings.HasPrefix(relativeEntry, "/") || strings.HasPrefix(relativeEntry, "~") || strings.Contains(cacheEntry, "%") ||
+				strings.ContainsRune(cacheEntry, '\x00') || path.Clean(relativeEntry) != relativeEntry || relativeEntry == "." || relativeEntry == ".." ||
+				strings.HasPrefix(relativeEntry, "../") {
+				return authoredContractError(append(cachePath, "paths"), fmt.Sprintf("%s.paths must contain project-relative paths or ~/ paths", cachePathText))
 			}
 		}
 	}

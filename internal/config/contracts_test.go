@@ -346,3 +346,29 @@ func TestIOSSigningRequiresCompleteProvisioningSource(t *testing.T) {
 		})
 	}
 }
+
+func TestCachePathsSupportHomeDirectories(t *testing.T) {
+	for _, test := range []struct {
+		path    string
+		wantErr bool
+	}{
+		{"node_modules", false},
+		{"~/.gradle/caches/modules-*/files-*", false},
+		{"~/.gradle/wrapper", false},
+		{"~", true},
+		{"~/", true},
+		{"~/..", true},
+		{"~/../secrets", true},
+		{"~//etc", true},
+		{"~/a/../../secrets", true},
+		{"~other/.gradle", true},
+		{"/tmp/cache", true},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			err := validateCaches("build.caches", []BuildCache{{Key: "dependencies", Paths: []string{test.path}}})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateCaches() error = %v, wantErr = %v", err, test.wantErr)
+			}
+		})
+	}
+}
