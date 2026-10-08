@@ -2210,7 +2210,10 @@ type AppResponse struct {
 	ExpoSynced             *bool                                     `json:"expo_synced,omitempty"`
 
 	// HasAtlas Whether this app has renderable Atlas content. Populated by app collection endpoints; null when the caller did not request Atlas enrichment.
-	HasAtlas         *bool               `json:"has_atlas,omitempty"`
+	HasAtlas *bool `json:"has_atlas,omitempty"`
+
+	// IconUrl Short-lived URL (at least five minutes) of the app's icon, taken from the latest checked build. Checks run after uploads at most once per 24 hours. Populated by the app list and app detail endpoints; null when no build has yielded an icon.
+	IconUrl          *string             `json:"icon_url,omitempty"`
 	Id               *openapi_types.UUID `json:"id,omitempty"`
 	LatestBuildId    *openapi_types.UUID `json:"latest_build_id,omitempty"`
 	LatestVersion    *string             `json:"latest_version,omitempty"`
