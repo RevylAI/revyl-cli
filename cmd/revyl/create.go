@@ -79,7 +79,7 @@ func createRemoteTest(
 // requireTestAppID enforces that every test is created with an app association.
 // A test with no app is unrunnable, so we fail fast with actionable guidance
 // rather than creating one. This mirrors the backend guard in
-// create_test_supabase and the api.Client.CreateTest backstop.
+// create_authored_test and the api.Client.CreateTest backstop.
 func requireTestAppID(appID, platform string) error {
 	if appID != "" {
 		return nil

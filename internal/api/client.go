@@ -2589,7 +2589,7 @@ func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*Creat
 	// Every test must be associated with an app. This is the single chokepoint
 	// all CLI test creation funnels through, so enforcing here guarantees no
 	// command path (create, hot-reload, interactive, init) can create an
-	// app-less test. Mirrors the backend guard in create_test_supabase.
+	// app-less test. Mirrors the backend guard in create_authored_test.
 	if req == nil || strings.TrimSpace(req.AppID) == "" {
 		return nil, fmt.Errorf(
 			"a test must be associated with an app: provide an app_id before creating a test",
