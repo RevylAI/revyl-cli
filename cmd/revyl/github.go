@@ -207,9 +207,10 @@ type githubStatusRepository struct {
 // githubStatusProject is the published pull-request automation state for the
 // project root selected by the nearest .revyl/config.yaml.
 type githubStatusProject struct {
-	Root      string `json:"root"`
-	Status    string `json:"status"`
-	Authority string `json:"authority,omitempty"`
+	Root       string `json:"root"`
+	Status     string `json:"status"`
+	Authority  string `json:"authority,omitempty"`
+	NextAction string `json:"next_action,omitempty"`
 }
 
 // githubStatusReport is the stable `revyl github status --json` contract; the
@@ -328,6 +329,7 @@ func githubProjectStatusFromRead(
 	switch {
 	case current == nil || current.State == api.ProjectConfigurationReadResponseStateAbsent:
 		project.Status = githubProjectStatusNotPublished
+		project.NextAction = unpublishedConfigurationNextAction(local.Authored)
 	case current.State != api.ProjectConfigurationReadResponseStatePresent || current.Resource == nil:
 		project.Status = githubProjectStatusInvalid
 	default:
@@ -368,7 +370,7 @@ func printGithubStatusReport(repos *api.GithubRepositoriesResponse, report githu
 	switch report.Project.Status {
 	case githubProjectStatusNotPublished:
 		ui.PrintKeyValue("  Current project:", projectLabel+" — not published")
-		ui.PrintDim("  Run 'revyl github setup' to configure pull request automation.")
+		ui.PrintDim("  Next: %s to turn on pull request automation.", report.Project.NextAction)
 	case githubProjectStatusInvalid:
 		ui.PrintKeyValue("  Current project:", projectLabel+" — invalid server state")
 	default:

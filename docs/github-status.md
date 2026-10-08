@@ -40,7 +40,12 @@ revyl -C apps/mobile github status       # Nested monorepo project
   `not configured`, or `invalid server state` for the project root selected by
   the nearest `.revyl/config.yaml`, followed by the configuration `Authority`
   once it is published. When no config applies or it cannot be read, the line
-  carries the same recovery guidance as `revyl config validate`.
+  carries the same recovery guidance as `revyl config validate`. A
+  `not published` project adds a `Next:` line naming the non-interactive
+  publish step: `revyl config validate`, then `revyl config push`. If the local
+  file does not enable both PR review and Proof of Changes, the line first asks
+  you to configure an enabled `pr_review` block with its build settings and
+  `proof_of_changes.enabled: true`; publication alone cannot enable them.
 - The project read is skipped while the repository is not granted, because
   publication cannot succeed until it is.
 
@@ -73,6 +78,7 @@ With `--json`, stdout holds exactly one object and stderr stays empty:
 | `project.root`             | Repository-relative project root selected by the config.                                                        |
 | `project.status`           | `not_published`, `enabled`, `disabled`, `not_configured`, or `invalid`.                                         |
 | `project.authority`        | Present once the project is published: `manual` or `git_default_branch`.                                       |
+| `project.next_action`      | Present when `project.status` is `not_published`; the exact commands that publish the project.                  |
 | `project_error`            | Present when `project` is `null` for a reason other than a missing grant; the actionable message to act on.     |
 
 When the App is not connected, `connected` is `false`, `repository_count` is

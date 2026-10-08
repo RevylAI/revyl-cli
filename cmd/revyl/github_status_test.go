@@ -188,18 +188,71 @@ func TestCollectGithubStatusResolvesGitOriginOnce(t *testing.T) {
 }
 
 func TestCollectGithubStatusMarksUnpublishedProject(t *testing.T) {
-	local := configContext(t, 300)
-	client := &fakeProjectConfigurationClient{
-		readResult: &api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStateAbsent},
+	cases := []struct {
+		name           string
+		local          *config.ProjectContext
+		wantNextAction string
+	}{
+		{
+			name:           "pull request automation configured locally",
+			local:          prReviewConfigContext(t, true),
+			wantNextAction: `run "revyl config validate", then "revyl config push"`,
+		},
+		{
+			name:           "no pull request automation locally",
+			local:          configContext(t, 300),
+			wantNextAction: `configure an enabled pr_review block with its build settings and proof_of_changes.enabled: true in .revyl/config.yaml, then run "revyl config validate", then "revyl config push"`,
+		},
+		{
+			name:           "pull request automation disabled locally",
+			local:          prReviewConfigContext(t, false),
+			wantNextAction: `configure an enabled pr_review block with its build settings and proof_of_changes.enabled: true in .revyl/config.yaml, then run "revyl config validate", then "revyl config push"`,
+		},
 	}
-	withProjectConfigurationDependencies(t, local, "token", client)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &fakeProjectConfigurationClient{
+				readResult: &api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStateAbsent},
+			}
+			withProjectConfigurationDependencies(t, testCase.local, "token", client)
+			repos := connectedRepos()
+			repos.Repositories = []api.GithubOrgRepository{{Owner: "acme", Repo: "mobile", InstallationID: 123}}
+
+			report := collectGithubStatus(githubStatusCommand(t, false), client, &repos)
+
+			if report.Project == nil || report.Project.Status != githubProjectStatusNotPublished || report.Project.Authority != "" {
+				t.Fatalf("project = %+v", report.Project)
+			}
+			if report.Project.NextAction != testCase.wantNextAction {
+				t.Fatalf("next action = %q, want %q", report.Project.NextAction, testCase.wantNextAction)
+			}
+		})
+	}
+}
+
+func TestGithubStatusHumanOutputNamesPublishStepForUnpublishedProject(t *testing.T) {
+	local := prReviewConfigContext(t, true)
+	withProjectConfigurationDependencies(t, local, "token", &fakeProjectConfigurationClient{})
 	repos := connectedRepos()
 	repos.Repositories = []api.GithubOrgRepository{{Owner: "acme", Repo: "mobile", InstallationID: 123}}
+	server := githubStatusServer(t, repos, &api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStateAbsent})
+	t.Cleanup(server.Close)
+	t.Setenv("REVYL_API_KEY", "test-key")
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
 
-	report := collectGithubStatus(githubStatusCommand(t, false), client, &repos)
+	var runErr error
+	_, stderr := captureStdoutAndStderrSeparate(t, func() {
+		runErr = runGithubStatus(githubStatusCommand(t, false), nil)
+	})
 
-	if report.Project == nil || report.Project.Status != githubProjectStatusNotPublished || report.Project.Authority != "" {
-		t.Fatalf("project = %+v", report.Project)
+	if runErr != nil {
+		t.Fatalf("runGithubStatus() error = %v", runErr)
+	}
+	if !strings.Contains(stderr, `Next: run "revyl config validate", then "revyl config push"`) {
+		t.Fatalf("stderr missing the publish step:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "Run 'revyl github setup' to configure pull request automation") {
+		t.Fatalf("unpublished project still points at the interactive setup:\n%s", stderr)
 	}
 }
 
@@ -363,7 +416,7 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			local := configContext(t, 300)
+			local := prReviewConfigContext(t, true)
 			withProjectConfigurationDependencies(t, local, "token", &fakeProjectConfigurationClient{})
 			repos := connectedRepos()
 			repos.Repositories = []api.GithubOrgRepository{{Owner: "acme", Repo: "mobile", InstallationID: 123}}
@@ -402,6 +455,14 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 			}
 			if project["root"] != "." || project["status"] != testCase.wantStatus {
 				t.Fatalf("project = %v, want root=. status=%s", project, testCase.wantStatus)
+			}
+			nextAction, hasNextAction := project["next_action"]
+			if testCase.wantStatus == githubProjectStatusNotPublished {
+				if nextAction != `run "revyl config validate", then "revyl config push"` {
+					t.Fatalf("next_action = %q, want the publish step", nextAction)
+				}
+			} else if hasNextAction {
+				t.Fatalf("next_action must be omitted for %s, got %q", testCase.wantStatus, nextAction)
 			}
 			authority, hasAuthority := project["authority"]
 			if testCase.wantAuthority == "" && hasAuthority {

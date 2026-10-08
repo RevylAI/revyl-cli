@@ -138,6 +138,20 @@ type projectConfigurationValidationOutput struct {
 	CurrentState                      *string                                `json:"current_state"`
 	Authority                         *api.ConfigurationAuthority            `json:"authority"`
 	Connected                         connectedConfigurationValidationOutput `json:"connected"`
+	Publication                       projectConfigurationPublicationOutput  `json:"publication"`
+}
+
+const (
+	projectPublicationPublished   = "published"
+	projectPublicationUnpublished = "unpublished"
+	projectPublicationDrifted     = "drifted"
+	projectPublicationUnknown     = "unknown"
+)
+
+type projectConfigurationPublicationOutput struct {
+	Status      string `json:"status"`
+	NextAction  string `json:"next_action"`
+	Explanation string `json:"explanation"`
 }
 
 type connectedConfigurationValidationOutput struct {
@@ -264,6 +278,10 @@ func printProjectConfigurationJSON(value any) error {
 }
 
 func runConfigValidate(cmd *cobra.Command, _ []string) error {
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "project_configuration_validate",
+		DomainStatus: "failed",
+	})
 	local, err := resolveLocalProjectConfiguration()
 	if err != nil {
 		return actionableLocalConfigError(err)
@@ -281,10 +299,20 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 		ProjectID:                         local.Authored.Project.ID,
 		CandidateProjectConfigurationHash: localAggregate.ProjectConfigurationHash,
 	}
-	complete := func(connected connectedConfigurationValidationOutput, connectedErr error) error {
+	complete := func(
+		connected connectedConfigurationValidationOutput,
+		publication projectConfigurationPublicationOutput,
+		connectedErr error,
+	) error {
 		output.Connected = connected
 		output.CurrentState = connected.CurrentState
 		output.Authority = connected.Authority
+		output.Publication = publication
+		if connectedErr == nil {
+			analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+				DomainStatus: configValidateDomainStatus(publication.Status),
+			})
+		}
 		if projectConfigurationJSON(cmd) {
 			if err := printProjectConfigurationJSON(output); err != nil {
 				return err
@@ -305,20 +333,34 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 			if connected.NextAction != "none" && connectedErr == nil {
 				ui.PrintDim("Next: %s", connected.NextAction)
 			}
+			switch publication.Status {
+			case projectPublicationPublished:
+				ui.PrintSuccess("Published: %s", publication.Explanation)
+			case projectPublicationUnpublished, projectPublicationDrifted:
+				ui.PrintWarning("Not published: %s", publication.Explanation)
+				ui.PrintInfo("Next: %s", publication.NextAction)
+			}
 		}
 		return connectedErr
+	}
+	completeWithoutPublication := func(connected connectedConfigurationValidationOutput, connectedErr error) error {
+		return complete(connected, projectConfigurationPublicationOutput{
+			Status:      projectPublicationUnknown,
+			NextAction:  connected.NextAction,
+			Explanation: "publication can be checked only after connected validation succeeds",
+		}, connectedErr)
 	}
 	token, err := readActiveConfigToken()
 	if err != nil {
 		authStatus := cliRecoveryCommand("auth", "status")
 		authLogin := cliRecoveryCommand("auth", "login")
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "failed", NextAction: fmt.Sprintf("run %q, then %q and retry", authStatus, authLogin),
 			Explanation: "authentication could not be read",
 		}, fmt.Errorf("Revyl authentication could not be read; run %q, then %q and retry %q: %w", authStatus, authLogin, cliRecoveryCommand("config", "validate"), err))
 	}
 	if strings.TrimSpace(token) == "" {
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "skipped", NextAction: fmt.Sprintf("run %q to enable connected validation", cliRecoveryCommand("auth", "login")),
 			Explanation: "Revyl is not authenticated",
 		}, nil)
@@ -327,14 +369,14 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		addOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "add", "origin", "https://github.com/<owner>/<repository>.git")
 		setOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "set-url", "origin", "https://github.com/<owner>/<repository>.git")
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "skipped", NextAction: fmt.Sprintf("run %q if origin is missing or %q to update the existing origin, then retry", addOrigin, setOrigin),
 			Explanation: "the worktree has no supported GitHub repository remote",
 		}, nil)
 	}
 	authored, err := authoredConfigForAPI(*local.Authored)
 	if err != nil {
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "failed", NextAction: "review the local configuration and retry",
 			Explanation: "the local configuration could not be prepared for connected validation",
 		}, err)
@@ -368,14 +410,14 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 			cliRecoveryCommand("config", "validate"),
 			local,
 		)
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "failed", NextAction: err.Error(),
 			Explanation: connectedExplanation,
 		}, err)
 	}
 	if result == nil || result.CandidateProjectConfigurationHash != localAggregate.ProjectConfigurationHash {
 		err := fmt.Errorf("server returned an invalid project configuration validation result")
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "failed", NextAction: "retry connected validation",
 			Explanation: "Revyl returned an inconsistent candidate hash",
 		}, err)
@@ -384,7 +426,7 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 		(result.Current.State == api.ProjectConfigurationReadResponseStateAbsent && result.Current.Resource != nil) ||
 		(result.Current.State != api.ProjectConfigurationReadResponseStatePresent && result.Current.State != api.ProjectConfigurationReadResponseStateAbsent) {
 		err := fmt.Errorf("server returned an invalid project configuration state")
-		return complete(connectedConfigurationValidationOutput{
+		return completeWithoutPublication(connectedConfigurationValidationOutput{
 			Status: "failed", NextAction: "retry connected validation",
 			Explanation: "Revyl returned an invalid project configuration state",
 		}, err)
@@ -397,7 +439,85 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	if result.Current.Resource != nil {
 		connected.Authority = &result.Current.Resource.Authority
 	}
-	return complete(connected, nil)
+	return complete(connected, projectConfigurationPublication(result.Current, local.Authored, localAggregate.ProjectConfigurationHash), nil)
+}
+
+const enableProofOfChangesStep = "configure an enabled pr_review block with its build settings and proof_of_changes.enabled: true in .revyl/config.yaml"
+
+func localProofOfChangesEnabled(authored *config.AuthoredConfig) bool {
+	review := authored.PRReview
+	return review != nil && (review.Enabled == nil || *review.Enabled) &&
+		review.ProofOfChanges != nil && review.ProofOfChanges.Enabled != nil && *review.ProofOfChanges.Enabled
+}
+
+func unpublishedConfigurationNextAction(authored *config.AuthoredConfig) string {
+	nextAction := fmt.Sprintf("run %q, then %q", cliRecoveryCommand("config", "validate"), cliRecoveryCommand("config", "push"))
+	if !localProofOfChangesEnabled(authored) {
+		return enableProofOfChangesStep + ", then " + nextAction
+	}
+	return nextAction
+}
+
+func projectConfigurationPublication(
+	current api.ProjectConfigurationReadResponse,
+	authored *config.AuthoredConfig,
+	localProjectConfigurationHash string,
+) projectConfigurationPublicationOutput {
+	push := cliRecoveryCommand("config", "push")
+	if current.State == api.ProjectConfigurationReadResponseStateAbsent {
+		if !localProofOfChangesEnabled(authored) {
+			return projectConfigurationPublicationOutput{
+				Status:      projectPublicationUnpublished,
+				NextAction:  unpublishedConfigurationNextAction(authored),
+				Explanation: "Revyl has no published configuration for this project, and this file does not enable both pull request automation and Proof of Changes, so publishing it alone would not turn both on",
+			}
+		}
+		return projectConfigurationPublicationOutput{
+			Status:      projectPublicationUnpublished,
+			NextAction:  fmt.Sprintf("run %q", push),
+			Explanation: "Revyl has no published configuration for this project, so pull request automation and Proof of Changes stay off until you publish it",
+		}
+	}
+	if current.Resource.ProjectConfigurationHash == localProjectConfigurationHash {
+		return projectConfigurationPublicationOutput{
+			Status:      projectPublicationPublished,
+			NextAction:  "none",
+			Explanation: "Revyl runs this exact configuration",
+		}
+	}
+	if current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch {
+		nextAction := fmt.Sprintf("commit the designated .revyl/config.yaml to the default branch; to publish once without changing that management mode, run %q", cliRecoveryCommand("config", "push", "--force"))
+		if !localProofOfChangesEnabled(authored) {
+			nextAction = enableProofOfChangesStep + ", validate it, then " + nextAction
+		}
+		return projectConfigurationPublicationOutput{
+			Status:      projectPublicationDrifted,
+			NextAction:  nextAction,
+			Explanation: "this file differs from the configuration Revyl runs, which is managed from the default branch",
+		}
+	}
+	nextAction := fmt.Sprintf("run %q", push)
+	if !localProofOfChangesEnabled(authored) {
+		nextAction = unpublishedConfigurationNextAction(authored)
+	}
+	return projectConfigurationPublicationOutput{
+		Status:      projectPublicationDrifted,
+		NextAction:  nextAction,
+		Explanation: "this file differs from the configuration Revyl runs, so pull requests keep using the published version until you publish it",
+	}
+}
+
+func configValidateDomainStatus(publicationStatus string) string {
+	switch publicationStatus {
+	case projectPublicationPublished:
+		return "valid_published"
+	case projectPublicationUnpublished:
+		return "valid_unpublished"
+	case projectPublicationDrifted:
+		return "valid_drifted"
+	default:
+		return "valid_local_only"
+	}
 }
 
 func readRemoteProjectConfiguration(

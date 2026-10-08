@@ -147,6 +147,44 @@ func configContext(t *testing.T, idleTimeout int) *config.ProjectContext {
 	}
 }
 
+func prReviewConfigContext(t *testing.T, enabled bool) *config.ProjectContext {
+	t.Helper()
+	commands := config.CommandStepItems([]string{"build"})
+	profile := "preview"
+	authored := config.AuthoredConfig{
+		Project: config.AuthoredProject{ID: configRemoteProjectID},
+		Build: &config.AuthoredBuild{
+			Framework: "ios",
+			Profiles: map[string]config.AuthoredBuildProfile{
+				profile: {IOS: &config.AuthoredBuildRecipe{BuildCommands: &commands}},
+			},
+		},
+		PRReview: &config.AuthoredPRReview{
+			Enabled: &enabled,
+			Build:   config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
+			ProofOfChanges: &config.AuthoredProofOfChanges{
+				Enabled: &enabled,
+				Harness: &config.AuthoredProofHarness{Kind: "revyl"},
+			},
+		},
+	}
+	aggregate, err := config.NormalizeAuthoredConfig(authored, config.CompilationContext{
+		RepositoryRelativeProjectRoot: ".",
+		ExecutionDirectory:            ".",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &config.ProjectContext{
+		WorktreeRoot:                         t.TempDir(),
+		ConfigPath:                           "/repo/.revyl/config.yaml",
+		RepositoryRelativeProjectRoot:        ".",
+		RepositoryRelativeExecutionDirectory: ".",
+		Authored:                             &authored,
+		Aggregate:                            aggregate,
+	}
+}
+
 func withProjectConfigurationDependencies(
 	t *testing.T,
 	local *config.ProjectContext,
@@ -356,6 +394,237 @@ func TestConfigValidateConnectedAppFailureReportsExactRecoveryInJSON(t *testing.
 	}
 	if decoded.Connected.Explanation != cleanDetail || !strings.Contains(decoded.Connected.NextAction, "revyl app list --platform ios") {
 		t.Fatalf("connected validation = %#v", decoded.Connected)
+	}
+}
+
+func runConfigValidateWithAnalytics(
+	t *testing.T,
+	command *cobra.Command,
+) (stdout, stderr string, runErr error, terminal map[string]interface{}) {
+	t.Helper()
+	var captured analytics.TelemetryPayload
+	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) {
+		captured.Events = append(captured.Events, payload.Events...)
+	})
+	run := recorder.StartCommand(command, nil)
+	command.SetContext(analytics.ContextWithCommandRun(context.Background(), run))
+	stdout, stderr = captureStdoutAndStderrSeparate(t, func() { runErr = runConfigValidate(command, nil) })
+	run.Complete(runErr)
+	recorder.Flush()
+	if len(captured.Events) != 2 {
+		t.Fatalf("captured %d lifecycle events, want start and terminal", len(captured.Events))
+	}
+	return stdout, stderr, runErr, captured.Events[1].Properties
+}
+
+func TestConfigValidateReportsWhetherRevylRunsThisConfiguration(t *testing.T) {
+	automated := prReviewConfigContext(t, true)
+	automatedHash := automated.Aggregate.ProjectConfigurationHash
+	present := func(hash string, authority api.ConfigurationAuthority) api.ProjectConfigurationReadResponse {
+		return api.ProjectConfigurationReadResponse{
+			State: api.ProjectConfigurationReadResponseStatePresent,
+			Resource: &api.ProjectConfigurationResource{
+				ProjectConfigurationHash: hash,
+				Authority:                authority,
+			},
+		}
+	}
+	absent := api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStateAbsent}
+	cases := []struct {
+		name             string
+		local            *config.ProjectContext
+		current          api.ProjectConfigurationReadResponse
+		wantStatus       string
+		wantNextAction   string
+		wantDomainStatus string
+	}{
+		{
+			name:             "never published",
+			local:            automated,
+			current:          absent,
+			wantStatus:       projectPublicationUnpublished,
+			wantNextAction:   `run "revyl config push"`,
+			wantDomainStatus: "valid_unpublished",
+		},
+		{
+			name:             "never published without pull request automation",
+			local:            configContext(t, 300),
+			current:          absent,
+			wantStatus:       projectPublicationUnpublished,
+			wantNextAction:   `configure an enabled pr_review block with its build settings and proof_of_changes.enabled: true in .revyl/config.yaml, then run "revyl config validate", then "revyl config push"`,
+			wantDomainStatus: "valid_unpublished",
+		},
+		{
+			name:             "published",
+			local:            automated,
+			current:          present(automatedHash, api.ConfigurationAuthorityManual),
+			wantStatus:       projectPublicationPublished,
+			wantNextAction:   "none",
+			wantDomainStatus: "valid_published",
+		},
+		{
+			name:             "local changes not published",
+			local:            automated,
+			current:          present("published-hash", api.ConfigurationAuthorityManual),
+			wantStatus:       projectPublicationDrifted,
+			wantNextAction:   `run "revyl config push"`,
+			wantDomainStatus: "valid_drifted",
+		},
+		{
+			name:             "local changes on a default-branch project",
+			local:            automated,
+			current:          present("published-hash", api.ConfigurationAuthorityGitDefaultBranch),
+			wantStatus:       projectPublicationDrifted,
+			wantNextAction:   `commit the designated .revyl/config.yaml to the default branch; to publish once without changing that management mode, run "revyl config push --force"`,
+			wantDomainStatus: "valid_drifted",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			withProjectConfigurationDependencies(t, testCase.local, "token", &fakeProjectConfigurationClient{
+				validateResult: &api.ProjectConfigurationValidateResponse{
+					Status:                            "valid",
+					CandidateProjectConfigurationHash: testCase.local.Aggregate.ProjectConfigurationHash,
+					Current:                           testCase.current,
+				},
+			})
+			command := testConfigCommand()
+			_ = command.Flags().Set("json", "true")
+
+			stdout, stderr, err, terminal := runConfigValidateWithAnalytics(t, command)
+
+			if err != nil {
+				t.Fatalf("runConfigValidate() error = %v", err)
+			}
+			if stderr != "" {
+				t.Fatalf("--json must keep stderr empty, got %q", stderr)
+			}
+			var decoded projectConfigurationValidationOutput
+			if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+				t.Fatalf("validation report is not JSON: %v\n%s", err, stdout)
+			}
+			if decoded.Connected.Status != "succeeded" ||
+				decoded.Publication.Status != testCase.wantStatus ||
+				decoded.Publication.NextAction != testCase.wantNextAction {
+				t.Fatalf("connected = %#v publication = %#v", decoded.Connected, decoded.Publication)
+			}
+			if terminal["domain"] != "project_configuration_validate" || terminal["domain_status"] != testCase.wantDomainStatus {
+				t.Fatalf("terminal analytics = %+v, want domain_status %s", terminal, testCase.wantDomainStatus)
+			}
+		})
+	}
+}
+
+func TestPublicationGuidanceRequiresProofOfChanges(t *testing.T) {
+	enabled := true
+	disabled := false
+	cases := []struct {
+		name   string
+		review *config.AuthoredPRReview
+	}{
+		{name: "missing review"},
+		{name: "disabled review", review: &config.AuthoredPRReview{Enabled: &disabled}},
+		{name: "missing proof", review: &config.AuthoredPRReview{Enabled: &enabled}},
+		{name: "unspecified proof", review: &config.AuthoredPRReview{Enabled: &enabled, ProofOfChanges: &config.AuthoredProofOfChanges{}}},
+		{name: "disabled proof", review: &config.AuthoredPRReview{Enabled: &enabled, ProofOfChanges: &config.AuthoredProofOfChanges{Enabled: &disabled}}},
+	}
+	states := []api.ProjectConfigurationReadResponse{
+		{State: api.ProjectConfigurationReadResponseStateAbsent},
+		{State: api.ProjectConfigurationReadResponseStatePresent, Resource: &api.ProjectConfigurationResource{ProjectConfigurationHash: "old", Authority: api.ConfigurationAuthorityManual}},
+		{State: api.ProjectConfigurationReadResponseStatePresent, Resource: &api.ProjectConfigurationResource{ProjectConfigurationHash: "old", Authority: api.ConfigurationAuthorityGitDefaultBranch}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			authored := &config.AuthoredConfig{PRReview: testCase.review}
+			for _, state := range states {
+				publication := projectConfigurationPublication(state, authored, "local")
+				if !strings.Contains(publication.NextAction, "enabled pr_review block") || !strings.Contains(publication.NextAction, "proof_of_changes.enabled: true") {
+					t.Fatalf("publication next action = %q, want both settings before publication", publication.NextAction)
+				}
+				if state.Resource != nil && state.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch && !strings.Contains(publication.NextAction, "commit the designated .revyl/config.yaml to the default branch") {
+					t.Fatalf("Git-managed next action lost the commit path: %q", publication.NextAction)
+				}
+			}
+			project := githubProjectStatusFromRead(&config.ProjectContext{Authored: authored}, &states[0])
+			if !strings.Contains(project.NextAction, "enabled pr_review block") || !strings.Contains(project.NextAction, "proof_of_changes.enabled: true") {
+				t.Fatalf("github next action = %q, want both settings before publication", project.NextAction)
+			}
+		})
+	}
+}
+
+func TestConfigValidateHumanOutputNamesThePublishStep(t *testing.T) {
+	local := prReviewConfigContext(t, true)
+	withProjectConfigurationDependencies(t, local, "token", &fakeProjectConfigurationClient{
+		validateResult: &api.ProjectConfigurationValidateResponse{
+			Status:                            "valid",
+			CandidateProjectConfigurationHash: local.Aggregate.ProjectConfigurationHash,
+			Current: api.ProjectConfigurationReadResponse{
+				State: api.ProjectConfigurationReadResponseStateAbsent,
+			},
+		},
+	})
+
+	stdout, stderr, err, _ := runConfigValidateWithAnalytics(t, testConfigCommand())
+
+	if err != nil {
+		t.Fatalf("runConfigValidate() error = %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("human output must stay on stderr, stdout = %q", stdout)
+	}
+	for _, want := range []string{"Connected validation succeeded", "Not published:", `Next: run "revyl config push"`} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestConfigValidateWithoutConnectedResultLeavesPublicationUnknown(t *testing.T) {
+	local := configContext(t, 300)
+	withProjectConfigurationDependencies(t, local, "", nil)
+	command := testConfigCommand()
+	_ = command.Flags().Set("json", "true")
+
+	stdout, _, err, terminal := runConfigValidateWithAnalytics(t, command)
+
+	if err != nil {
+		t.Fatalf("runConfigValidate() error = %v", err)
+	}
+	var decoded projectConfigurationValidationOutput
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Publication.Status != projectPublicationUnknown || decoded.Publication.NextAction != decoded.Connected.NextAction {
+		t.Fatalf("publication = %#v connected = %#v", decoded.Publication, decoded.Connected)
+	}
+	if terminal["domain_status"] != "valid_local_only" {
+		t.Fatalf("terminal analytics = %+v, want valid_local_only", terminal)
+	}
+}
+
+func TestConfigValidateConnectedFailureRecordsFailedDomainStatus(t *testing.T) {
+	local := configContext(t, 300)
+	withProjectConfigurationDependencies(t, local, "token", &fakeProjectConfigurationClient{
+		validateErr: errors.New("server unavailable"),
+	})
+	command := testConfigCommand()
+	_ = command.Flags().Set("json", "true")
+
+	stdout, _, err, terminal := runConfigValidateWithAnalytics(t, command)
+
+	if err == nil {
+		t.Fatal("connected failure returned nil")
+	}
+	var decoded projectConfigurationValidationOutput
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Publication.Status != projectPublicationUnknown {
+		t.Fatalf("publication = %#v", decoded.Publication)
+	}
+	if terminal["domain"] != "project_configuration_validate" || terminal["domain_status"] != "failed" {
+		t.Fatalf("terminal analytics = %+v, want a failed validation", terminal)
 	}
 }
 
