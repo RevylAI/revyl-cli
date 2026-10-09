@@ -11,6 +11,7 @@ const maxSanitizedStringLength = 500
 
 var (
 	apiKeyPattern      = regexp.MustCompile(`\brk_[A-Za-z0-9._-]{8,}\b`)
+	issuedTokenPattern = regexp.MustCompile(`\br(?:st|rt)_[a-z0-9][a-z0-9_-]{0,31}_[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])`)
 	bearerPattern      = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
 	secretKVPattern    = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*\S+`)
 	emailPattern       = regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`)
@@ -32,6 +33,7 @@ func sanitizeString(value string) string {
 	out = bearerPattern.ReplaceAllString(out, "Bearer <redacted>")
 	out = secretKVPattern.ReplaceAllString(out, "$1=<redacted>")
 	out = apiKeyPattern.ReplaceAllString(out, "<redacted-api-key>")
+	out = issuedTokenPattern.ReplaceAllString(out, "<redacted-api-key>$1")
 	out = emailPattern.ReplaceAllString(out, "<email>")
 	out = urlPattern.ReplaceAllString(out, "<url>")
 	out = userPathPattern.ReplaceAllString(out, "<path>")
