@@ -121,6 +121,11 @@ type DeviceSession struct {
 
 	// IdleTimeout is how long the session can be idle before auto-stop.
 	IdleTimeout time.Duration `json:"idle_timeout"`
+
+	// BackendStatus is the backend lifecycle status of a live session the last
+	// SyncSessions could not attach yet, such as "queued" or "starting".
+	// Attached sessions leave it empty; it is never persisted.
+	BackendStatus string `json:"-"`
 }
 
 // persistedState is the on-disk format for device-sessions.json.
@@ -383,6 +388,10 @@ type StartSessionOptions struct {
 	OsVersion string
 	// DeviceRunnerID pins the session to a specific worker DEVICE_ID label.
 	DeviceRunnerID string
+
+	// OnStartAccepted, when set, is called once the backend has accepted the
+	// start and named its session, before StartSession waits for the device.
+	OnStartAccepted func(sessionID string)
 }
 
 // StartSession provisions a new cloud device and adds it to the session map.
@@ -530,6 +539,9 @@ func (m *DeviceSessionManager) StartSession(
 	traceID := ""
 	if resp.TraceId != nil {
 		traceID = strings.TrimSpace(*resp.TraceId)
+	}
+	if opts.OnStartAccepted != nil {
+		opts.OnStartAccepted(sessionID)
 	}
 
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, deviceWorkerReadyTimeout)
@@ -1041,7 +1053,12 @@ func (m *DeviceSessionManager) UnreachableSessions() []DeviceSession {
 }
 
 func unreachableSessionFrom(bs api.ActiveDeviceSessionItem) DeviceSession {
-	session := DeviceSession{Index: UnattachedSessionIndex, SessionID: bs.Id, Platform: bs.Platform}
+	session := DeviceSession{
+		Index:         UnattachedSessionIndex,
+		SessionID:     bs.Id,
+		Platform:      bs.Platform,
+		BackendStatus: bs.Status,
+	}
 	switch {
 	case bs.StartedAt != nil:
 		session.StartedAt = *bs.StartedAt
@@ -3682,10 +3699,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if _, exists := localByID[bs.Id]; exists {
 			continue // already known locally
 		}
-		if isProofOwnedSession(bs.SourceMetadata) {
-			// Proof-run sessions belong to one review run. Discovering them
-			// through the shared scm-adaptive-report identity would let
-			// `revyl device stop` tear down a concurrent proof.
+		if isOtherProofRunSession(bs.SourceMetadata, activeResp.ProofRunId) {
 			continue
 		}
 

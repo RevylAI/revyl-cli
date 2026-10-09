@@ -980,6 +980,17 @@ var deviceStartCmd = &cobra.Command{
 		if prepErr != nil {
 			return prepErr
 		}
+		cmdPrefix := deviceCommandPrefix(cmd)
+		startOpts.OnStartAccepted = func(sessionID string) {
+			if sessionID == "" {
+				return
+			}
+			if !jsonOutput {
+				ui.StopSpinner()
+				defer ui.StartSpinner("Waiting for the device to be ready...")
+			}
+			ui.PrintInfo("Started session %s; waiting for its device. Run '%s device list' to check on it.", sessionID, cmdPrefix)
+		}
 
 		var session *mcppkg.DeviceSession
 		if jsonOutput {
@@ -1021,7 +1032,6 @@ var deviceStartCmd = &cobra.Command{
 			ui.PrintSuccess("Device ready! Session %d (%s)", session.Index, platform)
 			ui.PrintLink("Session", session.SessionID)
 			ui.PrintLink("Live View", reportURL)
-			cmdPrefix := deviceCommandPrefix(cmd)
 			ui.PrintNextSteps([]ui.NextStep{
 				{Label: "Take a screenshot", Command: fmt.Sprintf("%s device screenshot --out screen.png", cmdPrefix)},
 				{Label: "Stop when done", Command: fmt.Sprintf("%s device stop -s %d", cmdPrefix, session.Index)},
@@ -2732,33 +2742,68 @@ var deviceListCmd = &cobra.Command{
 			return err
 		}
 
-		sessions := mgr.ListSessions()
+		entries := deviceListEntries(mgr.ListSessions(), mgr.UnreachableSessions())
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 
 		if jsonOutput {
-			data, _ := json.MarshalIndent(sessions, "", "  ")
+			data, _ := json.MarshalIndent(entries, "", "  ")
 			fmt.Println(string(data))
 			return nil
 		}
 
-		if len(sessions) == 0 {
+		if len(entries) == 0 {
 			ui.PrintInfo("No active device sessions.")
 			return nil
 		}
 
 		activeIdx := mgr.ActiveIndex()
 		fmt.Printf("  %-3s %-10s %-10s %-12s %s\n", "#", "PLATFORM", "STATUS", "SESSION ID", "UPTIME")
-		for _, s := range sessions {
+		var notReady *deviceListEntry
+		for i, s := range entries {
 			marker := " "
-			if s.Index == activeIdx {
+			index := strconv.Itoa(s.Index)
+			switch {
+			case s.Index == mcppkg.UnattachedSessionIndex:
+				index = "-"
+				if notReady == nil {
+					notReady = &entries[i]
+				}
+			case s.Index == activeIdx:
 				marker = "*"
 			}
 			idShort := truncatePrefix(s.SessionID, 8)
 			uptime := time.Since(s.StartedAt).Round(time.Second)
-			fmt.Printf("%s %-3d %-10s %-10s %-12s %s\n", marker, s.Index, s.Platform, "running", idShort, uptime)
+			fmt.Printf("%s %-3s %-10s %-10s %-12s %s\n", marker, index, s.Platform, s.Status, idShort, uptime)
+		}
+		if notReady != nil {
+			ui.PrintDim("Sessions without a # have no ready device yet; target one by ID, e.g. -s %s.", notReady.SessionID)
 		}
 		return nil
 	},
+}
+
+// deviceListEntry is one `revyl device list` row: a session with its status.
+// Sessions whose device is not ready yet carry no local index (-1) and the
+// backend's status, such as "queued" or "starting".
+type deviceListEntry struct {
+	*mcppkg.DeviceSession
+	Status string `json:"status"`
+}
+
+func deviceListEntries(attached []*mcppkg.DeviceSession, notReady []mcppkg.DeviceSession) []deviceListEntry {
+	entries := make([]deviceListEntry, 0, len(attached)+len(notReady))
+	for _, session := range attached {
+		entries = append(entries, deviceListEntry{DeviceSession: session, Status: "running"})
+	}
+	for i := range notReady {
+		session := &notReady[i]
+		status := session.BackendStatus
+		if status == "" {
+			status = "starting"
+		}
+		entries = append(entries, deviceListEntry{DeviceSession: session, Status: status})
+	}
+	return entries
 }
 
 var deviceUseCmd = &cobra.Command{

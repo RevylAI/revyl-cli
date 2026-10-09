@@ -2,11 +2,17 @@ package mcp
 
 import "strings"
 
-// isProofOwnedSession reports whether a live session belongs to a proof run.
-// SyncSessions must not auto-adopt these into a shared identity; otherwise
-// `revyl device stop` can tear down a concurrent proof.
-func isProofOwnedSession(metadata *map[string]interface{}) bool {
-	return proofReviewRunID(metadata) != ""
+// isOtherProofRunSession reports whether a live session belongs to a proof run
+// other than the one the listing is confined to. SyncSessions must not
+// auto-adopt these into a shared identity; otherwise `revyl device stop` can
+// tear down a concurrent proof. A proof agent's own listing names its run, so
+// its own sessions are still adopted.
+func isOtherProofRunSession(metadata *map[string]interface{}, listingProofRunID *string) bool {
+	runID := proofReviewRunID(metadata)
+	if runID == "" {
+		return false
+	}
+	return listingProofRunID == nil || !strings.EqualFold(runID, strings.TrimSpace(*listingProofRunID))
 }
 
 func proofReviewRunID(metadata *map[string]interface{}) string {

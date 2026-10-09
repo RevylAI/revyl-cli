@@ -48,6 +48,12 @@ Revyl selects a default device and installs the app's latest build. The command
 prints the session ID and a live viewer link. Keep the session ID for the next
 steps; use the viewer to watch the device.
 
+The start waits until the device is ready, which takes longer when devices are
+queued. As soon as Revyl accepts it, the command names the session on stderr,
+and `revyl device list` shows that session as `queued` or `starting`, with no
+local index, until its device is ready; target it by session ID in the
+meantime.
+
 For a repeatable CI run, select a specific uploaded version with
 `--build-version-id` instead of `--app-id`. A build version ID is different from
 a remote build job ID. If you pass both, the build version must belong to that

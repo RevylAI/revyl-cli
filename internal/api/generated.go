@@ -2144,7 +2144,10 @@ type ActiveDeviceSessionsResponse struct {
 	ConcurrencyMode         *ActiveDeviceSessionsResponseConcurrencyMode `json:"concurrency_mode,omitempty"`
 	IosConcurrencyLimit     *int                                         `json:"ios_concurrency_limit,omitempty"`
 	OrgId                   string                                       `json:"org_id"`
-	Sessions                []ActiveDeviceSessionItem                    `json:"sessions"`
+
+	// ProofRunId The proof run this listing is confined to, set only when the caller is a proof agent; every listed session belongs to it
+	ProofRunId *string                   `json:"proof_run_id,omitempty"`
+	Sessions   []ActiveDeviceSessionItem `json:"sessions"`
 }
 
 // ActiveDeviceSessionsResponseConcurrencyMode defines model for ActiveDeviceSessionsResponse.ConcurrencyMode.
