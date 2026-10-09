@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -73,6 +74,56 @@ func TestRunnerRunPreservesCompatibility(t *testing.T) {
 	}
 	if strings.Join(lines, ",") != "first,second" {
 		t.Fatalf("Run() output = %q", lines)
+	}
+}
+
+func TestRunnerDrainsOutputAfterFastProcessExit(t *testing.T) {
+	var lines []string
+	var delayReader sync.Once
+	err := NewRunner(t.TempDir()).Run(runnerTestHelperCommand(t, "burst"), func(line string) {
+		delayReader.Do(func() { time.Sleep(100 * time.Millisecond) })
+		lines = append(lines, line)
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	seen := make(map[string]bool, len(lines))
+	for _, line := range lines {
+		seen[line] = true
+	}
+	for _, stream := range []string{"stdout", "stderr"} {
+		for index := 0; index < 1000; index++ {
+			if line := fmt.Sprintf("%s-%04d", stream, index); !seen[line] {
+				t.Fatalf("missing %s after process exit; received %d of 2000 lines", line, len(lines))
+			}
+		}
+	}
+	if len(lines) != 2000 {
+		t.Fatalf("received %d lines, want 2000", len(lines))
+	}
+}
+
+func TestRunnerPreservesOutputDuringSlowCallback(t *testing.T) {
+	var lines []string
+	var delayReader sync.Once
+	err := NewRunner(t.TempDir()).Run(runnerTestHelperCommand(t, "output-both"), func(line string) {
+		delayReader.Do(func() { time.Sleep(7 * time.Second) })
+		lines = append(lines, line)
+	})
+	if err != nil {
+		t.Fatalf("slow output delivery failed a successful command: %v", err)
+	}
+	for _, want := range []string{"stdout-first", "stdout-last", "stderr-first", "stderr-last"} {
+		found := false
+		for _, line := range lines {
+			found = found || line == want
+		}
+		if !found {
+			t.Fatalf("missing %q in output %q", want, lines)
+		}
+	}
+	if len(lines) != 4 {
+		t.Fatalf("received %d lines, want 4", len(lines))
 	}
 }
 
@@ -207,6 +258,20 @@ func TestRunnerHelperProcess(t *testing.T) {
 		_, _ = os.Stdout.WriteString(os.Getenv("REVYL_RUNNER_ADDED") + "\n")
 	case "output":
 		_, _ = os.Stdout.WriteString("first\nsecond\n")
+	case "output-both":
+		_, _ = os.Stdout.WriteString("stdout-first\nstdout-last")
+		_, _ = os.Stderr.WriteString("stderr-first\nstderr-last")
+	case "burst":
+		for _, stream := range []struct {
+			name string
+			file *os.File
+		}{{"stdout", os.Stdout}, {"stderr", os.Stderr}} {
+			var output strings.Builder
+			for index := 0; index < 1000; index++ {
+				fmt.Fprintf(&output, "%s-%04d\n", stream.name, index)
+			}
+			_, _ = stream.file.WriteString(output.String())
+		}
 	case "started-and-wait":
 		_, _ = os.Stdout.WriteString("started\n")
 		time.Sleep(30 * time.Second)

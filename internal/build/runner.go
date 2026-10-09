@@ -141,21 +141,28 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 		return nil
 	}
 
-	// Create pipes for stdout and stderr
-	stdout, err := cmd.StdoutPipe()
+	// Own the pipes so cmd.Wait cannot close them before the readers drain.
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
+	defer stdout.Close()
+	defer stdoutWriter.Close()
 
-	stderr, err := cmd.StderrPipe()
+	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
+	defer stderr.Close()
+	defer stderrWriter.Close()
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
 
-	// Start the command
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
 
 	emit := onOutput
 	if r.FilterOutput && onOutput != nil {
@@ -168,12 +175,16 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 
 	var mu sync.Mutex
 
-	// Stream stdout
+	stdoutReader := &commandOutputReader{pipe: stdout, idleTimeout: outputReadIdleTimeout}
+	stderrReader := &commandOutputReader{pipe: stderr, idleTimeout: outputReadIdleTimeout}
+	readFailures := make(chan error, 2)
+	var stdoutErr, stderrErr error
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
+		defer stdout.Close()
+		scanner := bufio.NewScanner(stdoutReader)
 		scanner.Split(scanCRLF)
 		for scanner.Scan() {
 			if emit != nil {
@@ -182,13 +193,17 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 				mu.Unlock()
 			}
 		}
+		stdoutErr = scanner.Err()
+		if stdoutErr != nil {
+			readFailures <- stdoutErr
+		}
 	}()
 
-	// Stream stderr and capture for error detection
 	var stderrLines []string
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stderr)
+		defer stderr.Close()
+		scanner := bufio.NewScanner(stderrReader)
 		scanner.Split(scanCRLF)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -199,21 +214,43 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 			}
 			mu.Unlock()
 		}
+		stderrErr = scanner.Err()
+		if stderrErr != nil {
+			readFailures <- stderrErr
+		}
 	}()
 
-	// Wait for command to complete
+	outputDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(outputDone)
+	}()
 	cmdErr, interruptErr := waitForCommand(runCtx, cmd, ownsProcessGroup)
+	stdoutReader.markProcessExited()
+	stderrReader.markProcessExited()
 	if interruptErr != nil {
-		// A terminal-attached command cannot safely own a separate Unix process
-		// group. Closing its pipes still prevents surviving descendants from
-		// keeping cancellation blocked after the shell is terminated.
 		_ = stdout.Close()
 		_ = stderr.Close()
 	}
-	// Wait for goroutines to finish reading all output before accessing stderrLines
-	wg.Wait()
+	select {
+	case <-outputDone:
+	case <-runCtx.Done():
+		interruptErr = runCtx.Err()
+		terminateCommand(cmd, ownsProcessGroup)
+		_ = stdout.Close()
+		_ = stderr.Close()
+	case <-readFailures:
+		terminateCommand(cmd, ownsProcessGroup)
+		_ = stdout.Close()
+		_ = stderr.Close()
+	}
+	<-outputDone
 	if interruptErr != nil {
 		return interruptedCommandError(interruptErr, invocationTimeoutForError(ctx, interruptErr, options.Timeout))
+	}
+	readErr := errors.Join(stdoutErr, stderrErr)
+	if errors.Is(readErr, os.ErrDeadlineExceeded) {
+		return fmt.Errorf("build output stalled for %s after process exit; check for background processes holding output pipes open: %w", outputReadIdleTimeout, readErr)
 	}
 
 	if cmdErr != nil {
@@ -222,6 +259,9 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 			return toolErr
 		}
 		return fmt.Errorf("command failed: %w", cmdErr)
+	}
+	if readErr != nil {
+		return fmt.Errorf("failed to read build output: %w", readErr)
 	}
 
 	return nil
