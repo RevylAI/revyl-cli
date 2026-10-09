@@ -1,6 +1,6 @@
 module github.com/revyl/cli
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -18,6 +18,7 @@ require (
 	github.com/oapi-codegen/runtime v1.6.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.14.2
 	github.com/tidwall/sjson v1.2.5
 	go.opentelemetry.io/otel v1.44.0
@@ -78,7 +79,6 @@ require (
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/twinj/uuid v0.0.0-00010101000000-000000000000 // indirect
