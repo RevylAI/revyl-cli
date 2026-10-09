@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -2165,7 +2166,9 @@ directly without needing to attach first.
 		devMode, _ := cmd.Flags().GetBool("dev")
 		client := api.NewClientWithDevMode(apiKey, devMode)
 
-		envelope, err := client.GetReportBySession(cmd.Context(), targetSessionID, true, true, false)
+		noSteps, _ := cmd.Flags().GetBool("no-steps")
+		noActions, _ := cmd.Flags().GetBool("no-actions")
+		envelope, err := client.GetReportBySession(cmd.Context(), targetSessionID, !noSteps, !noSteps && !noActions, false)
 		if err != nil {
 			return fmt.Errorf("failed to fetch session report: %w", err)
 		}
@@ -2337,7 +2340,18 @@ var deviceHistoryCmd = &cobra.Command{
 		if !jsonOutput {
 			ui.StartSpinner("Fetching session history...")
 		}
-		result, err := client.GetDeviceSessionHistory(cmd.Context(), limit, 0)
+		offset, _ := cmd.Flags().GetInt("offset")
+		if limit < 1 || limit > 100 || offset < 0 {
+			return fmt.Errorf("limit must be 1-100 and offset nonnegative")
+		}
+		filters := url.Values{"limit": {fmt.Sprint(limit)}, "offset": {fmt.Sprint(offset)}}
+		for flag, parameter := range map[string]string{"app": "app_id", "build": "build_id", "from": "created_from", "to": "created_to", "source": "source", "status": "status", "platform": "platform"} {
+			value, _ := cmd.Flags().GetString(flag)
+			if value != "" {
+				filters.Set(parameter, value)
+			}
+		}
+		result, err := client.QueryDeviceSessionHistory(cmd.Context(), filters)
 		if !jsonOutput {
 			ui.StopSpinner()
 		}
@@ -3574,6 +3588,14 @@ func init() {
 	deviceTargetsCmd.Flags().Bool("json", false, "Output as JSON")
 
 	// History
+	deviceHistoryCmd.Flags().Int("offset", 0, "Sessions to skip after server-side filtering")
+	deviceHistoryCmd.Flags().String("app", "", "Exact app UUID; includes Explore sessions")
+	deviceHistoryCmd.Flags().String("build", "", "Exact build UUID")
+	deviceHistoryCmd.Flags().String("from", "", "Inclusive creation timestamp (RFC3339)")
+	deviceHistoryCmd.Flags().String("to", "", "Exclusive creation timestamp (RFC3339)")
+	deviceHistoryCmd.Flags().String("source", "", "Session source: explore, ui, cli, api, ci_cd, workflow")
+	deviceHistoryCmd.Flags().String("status", "", "Session status; defaults to terminal sessions; all includes every status; running selects active sessions")
+	deviceHistoryCmd.Flags().String("platform", "", "Platform: ios or android")
 	deviceHistoryCmd.Flags().Int("limit", 20, "Maximum number of sessions to show")
 	deviceHistoryCmd.Flags().Bool("json", false, "Output as JSON")
 
@@ -3619,6 +3641,8 @@ func init() {
 	deviceCmd.AddCommand(deviceReportCmd)
 	sessionFlag(deviceReportCmd)
 	deviceReportCmd.Flags().Bool("json", false, "Output as JSON")
+	deviceReportCmd.Flags().Bool("no-steps", false, "Read report summary without step details")
+	deviceReportCmd.Flags().Bool("no-actions", false, "Read step outcomes without individual action payloads")
 	deviceReportCmd.Flags().String("artifact", "", "Artifact to fetch: perf, network, or trace")
 	deviceReportCmd.Flags().Bool("download", false, "Download the selected artifact to a local file")
 	deviceReportCmd.Flags().String("output", "", "Local output path for --download (defaults to a sensible filename)")

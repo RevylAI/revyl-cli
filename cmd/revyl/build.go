@@ -149,6 +149,8 @@ var (
 	uploadIncludeDirtyFlag    bool
 	buildListJSON             bool
 	buildListBranch           string
+	buildListPage             int
+	buildListLimit            int
 	buildUploadJSON           bool
 	uploadPreviewFlag         bool
 	buildDryRun               bool
@@ -259,6 +261,8 @@ func init() {
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Filter builds by git branch (use HEAD for current branch)")
+	buildListCmd.Flags().IntVar(&buildListPage, "page", 1, "Build version page (requires --app)")
+	buildListCmd.Flags().IntVar(&buildListLimit, "limit", 20, "Build versions per page (1-100; requires --app)")
 	analytics.MarkFlagValue(buildListCmd, "platform")
 	analytics.MarkFlagValue(buildListCmd, "json")
 
@@ -1581,6 +1585,9 @@ func runBuildList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Otherwise, show all apps in the organization
+	if cmd.Flags().Changed("page") || cmd.Flags().Changed("limit") {
+		return fmt.Errorf("build pagination requires --app")
+	}
 	return listOrgApps(cmd, client)
 }
 
@@ -1603,7 +1610,10 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	if !jsonOutput {
 		ui.StartSpinner("Fetching builds...")
 	}
-	versions, err := client.ListBuildVersions(cmd.Context(), appID)
+	if buildListPage < 1 || buildListPage > 10000 || buildListLimit < 1 || buildListLimit > 100 {
+		return fmt.Errorf("build page must be 1-10000 and limit 1-100")
+	}
+	page, err := client.ListBuildVersionsPage(cmd.Context(), appID, buildListPage, buildListLimit)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -1614,6 +1624,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	}
 
 	// Resolve --branch flag (HEAD = current git branch)
+	versions := page.Items
 	branchFilter := strings.TrimSpace(buildListBranch)
 	if strings.EqualFold(branchFilter, "HEAD") {
 		cwd, _ := os.Getwd()
@@ -1633,9 +1644,14 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 
 	if jsonOutput {
 		output := map[string]interface{}{
-			"app_id":   appID,
-			"versions": versions,
-			"count":    len(versions),
+			"app_id":        appID,
+			"versions":      versions,
+			"count":         len(versions),
+			"page":          page.Page,
+			"page_size":     page.PageSize,
+			"total":         page.Total,
+			"has_next":      page.HasNext,
+			"scanned_count": len(page.Items),
 		}
 		if branchFilter != "" {
 			output["branch_filter"] = branchFilter
@@ -1646,11 +1662,15 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	}
 
 	if len(versions) == 0 {
+		if page.HasNext {
+			ui.PrintInfo("No matching builds on this page; continue with --page %d", page.Page+1)
+			return nil
+		}
 		if branchFilter != "" {
-			ui.PrintInfo("No builds found for branch %q", branchFilter)
+			ui.PrintInfo("No builds on this page match branch %q", branchFilter)
 			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android")
 		} else {
-			ui.PrintInfo("No builds found")
+			ui.PrintInfo("No builds on this page")
 		}
 		return nil
 	}

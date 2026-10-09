@@ -613,6 +613,7 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
 	backendheaders.SetCloudAgentConversationContext(req)
+	backendheaders.SetRuntimeTraceContext(req)
 	setCIHeaders(req)
 	setAgentHeaders(req)
 	if len(extraHeaders) > 0 {
@@ -745,6 +746,7 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
 		backendheaders.SetCloudAgentConversationContext(req)
+		backendheaders.SetRuntimeTraceContext(req)
 		setCIHeaders(req)
 		setAgentHeaders(req)
 		for key, value := range headers {
@@ -926,7 +928,8 @@ func (c *Client) GetBillingPlan(ctx context.Context) (*BillingPlanResponse, erro
 //   - *ExecuteTestResponse: The execution response with task ID
 //   - error: Any error that occurred
 func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*ExecuteTestResponse, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/api/execute_test_id_async", req)
+	// Dispatch has no idempotency key; retrying an uncertain response can launch twice.
+	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/execution/api/execute_test_id_async", req)
 	if err != nil {
 		return nil, err
 	}
@@ -3034,8 +3037,9 @@ type TestTag struct {
 
 // CLITestListWithTagsResponse represents the response from the full test list endpoint.
 type CLITestListWithTagsResponse struct {
-	Tests []TestWithTags `json:"tests"`
-	Count int            `json:"count"`
+	Tests      []TestWithTags `json:"tests"`
+	Count      int            `json:"count"`
+	TotalCount *int           `json:"total_count,omitempty"`
 }
 
 // ListOrgTestsWithTags fetches all tests with their tags.
@@ -3086,6 +3090,7 @@ type App struct {
 
 // AtlasQuery carries the shared filters supported by Atlas inspection endpoints.
 type AtlasQuery struct {
+	RecentBuildLimit    int
 	AppID               string
 	BuildID             string
 	ReportID            string
@@ -3109,6 +3114,9 @@ type AtlasResponse map[string]interface{}
 
 func (q AtlasQuery) values() url.Values {
 	values := url.Values{}
+	if q.RecentBuildLimit > 0 {
+		values.Set("recent_build_limit", fmt.Sprintf("%d", q.RecentBuildLimit))
+	}
 	if q.BuildID != "" {
 		values.Set("build_id", q.BuildID)
 	}
@@ -3182,6 +3190,7 @@ func (c *Client) GetAtlasGraph(ctx context.Context, query AtlasQuery) (AtlasResp
 
 func (c *Client) GetAtlasIndex(ctx context.Context, search string, limit, offset int, contentOnly, olapReady bool) (AtlasResponse, error) {
 	values := url.Values{}
+	values.Set("summary_first", "true")
 	if search != "" {
 		values.Set("search", search)
 	}
@@ -5652,15 +5661,28 @@ func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string,
 type DeviceSessionHistoryResponse struct {
 	Sessions []DeviceSessionHistoryItem `json:"sessions"`
 	Total    int                        `json:"total"`
+	Limit    int                        `json:"limit"`
+	Offset   int                        `json:"offset"`
 }
 
 // DeviceSessionHistoryItem represents a single device session in the history list.
 type DeviceSessionHistoryItem struct {
-	ID        string  `json:"id"`
-	Platform  string  `json:"platform"`
-	Status    string  `json:"status"`
-	CreatedAt string  `json:"created_at"`
-	Duration  float64 `json:"duration_seconds,omitempty"`
+	ID              string  `json:"id"`
+	AppID           *string `json:"app_id"`
+	BuildID         *string `json:"build_id"`
+	AppName         *string `json:"app_name"`
+	BuildVersion    *string `json:"build_version"`
+	Source          *string `json:"source"`
+	ReportID        *string `json:"report_id"`
+	TestExecutionID *string `json:"test_execution_id"`
+	TestName        *string `json:"test_name"`
+	StartedAt       *string `json:"started_at"`
+	EndedAt         *string `json:"ended_at"`
+	StepCount       int     `json:"step_count"`
+	Platform        string  `json:"platform"`
+	Status          string  `json:"status"`
+	CreatedAt       string  `json:"created_at"`
+	Duration        float64 `json:"duration_seconds,omitempty"`
 }
 
 // GetDeviceSessionHistory retrieves paginated device session history.
@@ -5674,7 +5696,11 @@ type DeviceSessionHistoryItem struct {
 //   - *DeviceSessionHistoryResponse: The paginated session history
 //   - error: Any error that occurred
 func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int) (*DeviceSessionHistoryResponse, error) {
-	path := fmt.Sprintf("/api/v1/execution/device-sessions/history?limit=%d&offset=%d", limit, offset)
+	return c.QueryDeviceSessionHistory(ctx, url.Values{"limit": {fmt.Sprint(limit)}, "offset": {fmt.Sprint(offset)}})
+}
+
+func (c *Client) QueryDeviceSessionHistory(ctx context.Context, filters url.Values) (*DeviceSessionHistoryResponse, error) {
+	path := "/api/v1/execution/device-sessions/history?" + filters.Encode()
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err

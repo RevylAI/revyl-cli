@@ -87,7 +87,7 @@ ffmpeg -loglevel error -ss <source-video-start> -i "<active-video-url>" \
 Keep signed URLs and downloaded customer media temporary and out of logs and
 committed artifacts.
 
-Every JSON response has a versioned `contract` and `projection.data_source`.
+Graph inspection JSON responses have a versioned `contract` and `projection.data_source`.
 `summary` is the compact graph model; `evidence` is a focused read of screenshot
 observations. Atlas CLI reads are canonical-only unless `--include-variants` is
 set.
@@ -98,6 +98,26 @@ Atlas evidence exactly, including case, and combined filters use AND semantics.
 The active criteria are returned in `projection`, available choices are returned
 in `facets.device_targets`, and suggested Atlas follow-up commands preserve the
 active build, time, device, and runtime scope.
+
+Graph-backed reads accept `--recent-build-limit 20` to match the product's
+Recent view (the latest 20 builds, not the latest build or a rolling date window).
+Use `--from` and `--to` for absolute time bounds. The `atlas.brief`, `atlas.graph`,
+`atlas.area`, `atlas.search`, `atlas.screen`, `atlas.neighbors`, and `atlas.edge`
+tool capabilities, along with `atlas.observations`, also expose `recent_build_limit`
+and `workflow_execution_id`. Capture listings preserve these filters and return
+bounded samples per identity stack, not an exhaustive list. Exact-capture reads
+remain exact evidence. Graph `limit` has a minimum fetch size, so an
+output-budget failure should be narrowed by area or neighbors, not simply retried
+with a lower limit.
+
+Selected reports can be projected upward with `revyl atlas from-reports --app
+<APP_UUID> --reports <REPORT_UUID>,<REPORT_UUID> --json`. The result retains
+per-report graph scope, completeness and unmapped membership. Compare two
+builds' observed identities with `revyl atlas compare --app <APP_UUID>
+--base-build <BASE_UUID> --head-build <HEAD_UUID> --json`. Neither operation
+turns missing evidence into proof of missing functionality. See
+[agent investigations](agent-investigations.md) for the discoverable tool
+catalog, diagnostic drill-down and replayable view recipes.
 
 Install `revyl-cli-atlas` to make this media-first traversal workflow the agent
 default:

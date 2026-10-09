@@ -60,12 +60,17 @@ type ReportStep struct {
 	StatusReason   string
 }
 
-// FetchReport pulls the high-context report for the given task_id (=
-// execution_id). Returns “(nil, ErrReportNotFound)“ if the backend
-// returned 404 — caller surfaces a friendly "no report yet" message
-// rather than treating it as a hard error.
-func FetchReport(ctx context.Context, client *api.Client, taskID string) (*Report, error) {
-	envelope, err := client.GetReportContextByExecution(ctx, taskID, true, false, false)
+func FetchReportReference(ctx context.Context, client *api.Client, taskID, kind string) (*Report, error) {
+	var envelope *api.CLIReportContextEnvelope
+	var err error
+	switch kind {
+	case "execution":
+		envelope, err = client.GetReportContextByExecution(ctx, taskID, true, false, false)
+	case "session":
+		envelope, err = client.GetReportBySession(ctx, taskID, true, false, false)
+	default:
+		return nil, fmt.Errorf("id-kind must be execution or session")
+	}
 	if err != nil {
 		if isNotFound(err) {
 			return nil, ErrReportNotFound

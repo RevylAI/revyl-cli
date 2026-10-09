@@ -17,6 +17,7 @@ var (
 	statusOpen        bool
 	historyOutputJSON bool
 	historyLimit      int
+	historyOffset     int
 )
 
 func init() {
@@ -25,6 +26,7 @@ func init() {
 
 	testHistoryCmd.Flags().BoolVar(&historyOutputJSON, "json", false, "Output results as JSON")
 	testHistoryCmd.Flags().IntVar(&historyLimit, "limit", 10, "Maximum number of executions to show")
+	testHistoryCmd.Flags().IntVar(&historyOffset, "offset", 0, "Number of executions to skip (0-100000)")
 }
 
 // testStatusCmd shows the latest execution status for a test.
@@ -263,7 +265,10 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 	if !jsonOutput {
 		ui.StartSpinner("Fetching execution history...")
 	}
-	history, err := client.GetTestEnhancedHistory(cmd.Context(), testID, historyLimit, 0)
+	if historyOffset < 0 || historyOffset > 100000 {
+		return fmt.Errorf("--offset must be 0-100000")
+	}
+	history, err := client.GetTestEnhancedHistory(cmd.Context(), testID, historyLimit, historyOffset)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -278,7 +283,9 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 			output := map[string]interface{}{
 				"test_id":     testID,
 				"items":       []interface{}{},
-				"total_count": 0,
+				"total_count": history.TotalCount,
+				"offset":      historyOffset,
+				"has_more":    false,
 			}
 			data, _ := json.MarshalIndent(output, "", "  ")
 			fmt.Println(string(data))
@@ -322,6 +329,8 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 			"items":       items,
 			"total_count": history.TotalCount,
 			"shown_count": len(history.Items),
+			"offset":      historyOffset,
+			"has_more":    historyOffset+len(history.Items) < history.TotalCount,
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))

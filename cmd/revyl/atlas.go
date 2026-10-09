@@ -144,10 +144,13 @@ var (
 	atlasVisibility          string
 	atlasIncludeVariants     bool
 	atlasLimit               int
+	atlasRecentBuildLimit    int
 	atlasJSON                bool
 	atlasDirection           string
 	atlasAppsSearch          string
 	atlasAppsAll             bool
+	atlasAppsOffset          int
+	atlasAppsLimit           int
 	atlasEdgeRuns            bool
 	atlasScreenshots         bool
 	atlasScreenshotDir       string
@@ -191,7 +194,7 @@ func init() {
 		atlasObservationsCmd,
 		atlasObservationCmd,
 	} {
-		addAtlasScopeFlags(cmd, false)
+		addAtlasScopeFlags(cmd, cmd == atlasObservationsCmd)
 		addAtlasOutputFlags(cmd)
 	}
 	atlasOpenCmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
@@ -204,6 +207,8 @@ func init() {
 	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
 	atlasAppsCmd.Flags().StringVar(&atlasAppsSearch, "search", "", "Search by app name")
 	atlasAppsCmd.Flags().BoolVar(&atlasAppsAll, "all", false, "Include apps without available Atlas data")
+	atlasAppsCmd.Flags().IntVar(&atlasAppsOffset, "offset", 0, "Apps to skip before local platform filtering (0-100000)")
+	atlasAppsCmd.Flags().IntVar(&atlasAppsLimit, "limit", 250, "Apps per page (1-250)")
 	atlasAppsCmd.Flags().BoolVar(&atlasJSON, "json", false, "Output raw JSON")
 	atlasNeighborsCmd.Flags().StringVar(&atlasDirection, "direction", "both", "Neighbor direction: both, in, or out")
 	atlasEdgeCmd.Flags().BoolVar(&atlasEdgeRuns, "runs", false, "Include recent raw evidence runs for the transition")
@@ -231,6 +236,9 @@ func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
 	cmd.Flags().StringVar(&atlasTestID, "test-id", "", "Filter to one test")
 	if includeWorkflow {
 		cmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
+		if cmd != atlasReportCmd {
+			cmd.Flags().IntVar(&atlasRecentBuildLimit, "recent-build-limit", 0, "Restrict to the latest N builds (1-100); 0 disables")
+		}
 	}
 	cmd.Flags().StringVar(&atlasSourceKind, "source-kind", "", "Filter by Atlas source kind")
 	cmd.Flags().StringVar(&atlasDeviceModel, "device-model", "", "Filter by device model")
@@ -349,6 +357,9 @@ func resolveAtlasBuild(cmd *cobra.Command, client *api.Client, appID string, bui
 }
 
 func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api.App, error) {
+	if atlasRecentBuildLimit < 0 || atlasRecentBuildLimit > 100 {
+		return api.AtlasQuery{}, nil, fmt.Errorf("recent-build-limit must be between 0 and 100")
+	}
 	app, err := resolveAtlasApp(cmd, client, atlasApp)
 	if err != nil {
 		return api.AtlasQuery{}, nil, err
@@ -365,6 +376,7 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 	return api.AtlasQuery{
 		AppID:               app.ID,
 		BuildID:             buildID,
+		RecentBuildLimit:    atlasRecentBuildLimit,
 		ReportID:            atlasReportID,
 		TestID:              atlasTestID,
 		WorkflowExecutionID: atlasWorkflowExecutionID,
@@ -729,7 +741,10 @@ func runAtlasApps(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := client.GetAtlasIndex(cmd.Context(), atlasAppsSearch, 250, 0, false, !atlasAppsAll)
+	if atlasAppsOffset < 0 || atlasAppsOffset > 100000 || atlasAppsLimit < 1 || atlasAppsLimit > 250 {
+		return fmt.Errorf("offset must be 0-100000 and limit 1-250")
+	}
+	result, err := client.GetAtlasIndex(cmd.Context(), atlasAppsSearch, atlasAppsLimit, atlasAppsOffset, false, !atlasAppsAll)
 	if err != nil {
 		return err
 	}
@@ -755,11 +770,14 @@ func runAtlasApps(cmd *cobra.Command, args []string) error {
 	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(map[string]interface{}{
-			"contract":    "atlas_apps.v1",
-			"apps":        apps,
-			"count":       len(apps),
-			"ready_count": readyCount,
-			"total":       atlasInt(result["total"]),
+			"contract":      "atlas_apps.v1",
+			"apps":          apps,
+			"count":         len(apps),
+			"ready_count":   readyCount,
+			"total":         atlasInt(result["total"]),
+			"offset":        atlasAppsOffset,
+			"scanned_count": len(atlasSlice(result["apps"])),
+			"has_more":      atlasAppsOffset+len(atlasSlice(result["apps"])) < atlasInt(result["total"]),
 		}, "", "  ")
 		fmt.Println(string(data))
 		return nil

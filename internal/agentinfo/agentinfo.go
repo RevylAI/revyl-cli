@@ -32,6 +32,8 @@ type AgentInfo struct {
 // detected (e.g. a human running the CLI directly in a terminal).
 func Detect() AgentInfo {
 	switch {
+	case strings.EqualFold(strings.TrimSpace(os.Getenv("REVYL_AGENT")), "revyl"):
+		return AgentInfo{Name: "revyl"}
 	case os.Getenv("CODEX_SHELL") != "" || os.Getenv("CODEX_CI") != "" || strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")) != "":
 		return AgentInfo{
 			Name:       "codex",

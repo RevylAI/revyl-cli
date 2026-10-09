@@ -100,10 +100,14 @@ func LoadArtifacts(
 	client *api.Client,
 	taskID string,
 ) (*Report, []DeviceStateLine, error) {
+	return LoadArtifactsReference(ctx, client, taskID, "execution")
+}
+
+func LoadArtifactsReference(ctx context.Context, client *api.Client, taskID, kind string) (*Report, []DeviceStateLine, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	report, err := FetchReport(ctx, client, taskID)
+	report, err := FetchReportReference(ctx, client, taskID, kind)
 	if err != nil {
 		if errors.Is(err, ErrReportNotFound) {
 			return nil, nil, fmt.Errorf(

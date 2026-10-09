@@ -35,6 +35,16 @@ func TestAtlasQuerySerializesDeviceScope(t *testing.T) {
 	}
 }
 
+func TestAtlasQueryPreservesRecentBuildScope(t *testing.T) {
+	values := (AtlasQuery{RecentBuildLimit: 20, WorkflowExecutionID: "workflow-1"}).values()
+	if values.Get("recent_build_limit") != "20" || values.Get("workflow_execution_id") != "workflow-1" {
+		t.Fatalf("unexpected scope: %v", values)
+	}
+	if (AtlasQuery{}).values().Has("recent_build_limit") {
+		t.Fatal("unscoped queries must not acquire a recent-build restriction")
+	}
+}
+
 func TestGetAtlasEdgeRunsPreservesGraphScope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()

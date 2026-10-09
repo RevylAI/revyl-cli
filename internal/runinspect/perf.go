@@ -24,8 +24,8 @@ import (
 
 // PerfSample mirrors one entry in `samples`.
 type PerfSample struct {
-	WallTimeS      float64 `json:"wall_time_s"`
-	VideoRelativeS float64 `json:"video_relative_s,omitempty"`
+	WallTimeS      float64  `json:"wall_time_s"`
+	VideoRelativeS *float64 `json:"video_relative_s,omitempty"`
 	CPU            *struct {
 		AppPercent float64 `json:"app_percent"`
 	} `json:"cpu,omitempty"`

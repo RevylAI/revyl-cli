@@ -35,6 +35,12 @@ their names in the recipe's `secrets` or with `--secret NAME`.
 
 ## Build controls
 
+Read exactly attributed executions with `revyl build runs <BUILD_UUID>
+--page 1 --limit 20 --json`. The response preserves pagination and unknown or
+cancelled outcomes; follow `has_next` before drawing build-wide conclusions.
+See [agent investigations](agent-investigations.md) for report drill-down and
+Atlas comparison across builds.
+
 - `--json` returns the remote-build response.
 - Cloud builds wait for completion. Use `--detach` to return a job ID,
   `revyl build status <id> --follow` to follow it, or `revyl build cancel <id>`

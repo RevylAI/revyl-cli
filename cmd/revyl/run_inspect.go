@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -336,6 +337,7 @@ func runLogsRun(cmd *cobra.Command, args []string) error {
 		filter.Levels = runinspect.NormaliseLevels(levelTokens)
 	}
 	filtered := filter.Apply(lines)
+	matchedBeforeLimit := len(filtered)
 	if tail, _ := cmd.Flags().GetInt("tail"); tail > 0 {
 		filtered = runinspect.TailN(filtered, tail)
 	}
@@ -344,11 +346,13 @@ func runLogsRun(cmd *cobra.Command, args []string) error {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
-			"task_id": taskID,
-			"lines":   filtered,
-			"total":   len(lines),
-			"matched": len(filtered),
-			"partial": partial,
+			"task_id":              taskID,
+			"lines":                filtered,
+			"total":                len(lines),
+			"matched":              len(filtered),
+			"matched_before_limit": matchedBeforeLimit,
+			"truncated":            len(filtered) < matchedBeforeLimit,
+			"partial":              partial,
 		})
 	}
 	if partial {
@@ -391,6 +395,12 @@ var runNetworkCmd = &cobra.Command{
 }
 
 func runNetworkRun(cmd *cobra.Command, args []string) error {
+	limit, _ := cmd.Flags().GetInt("limit")
+	offset, _ := cmd.Flags().GetInt("offset")
+	minimumDurationMs, _ := cmd.Flags().GetFloat64("min-duration-ms")
+	if limit < 0 || offset < 0 || minimumDurationMs < 0 || math.IsNaN(minimumDurationMs) || math.IsInf(minimumDurationMs, 0) {
+		return fmt.Errorf("network limit, offset and min-duration-ms must be non-negative")
+	}
 	taskID := strings.TrimSpace(args[0])
 	report, client, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
@@ -489,17 +499,23 @@ func runNetworkRun(cmd *cobra.Command, args []string) error {
 		filter.UntilSeconds = &u
 	}
 	filtered := filter.Apply(cap.Requests)
+	slowestFirst, _ := cmd.Flags().GetBool("slowest-first")
+	compact, _ := cmd.Flags().GetBool("compact")
+	page, matched, hasMore := networkRequestPage(filtered, minimumDurationMs, slowestFirst, compact, limit, offset)
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
 			"task_id":  taskID,
-			"requests": filtered,
+			"requests": page,
 			"summary":  cap.Summary,
-			"matched":  len(filtered),
+			"matched":  matched,
+			"returned": len(page),
+			"offset":   offset,
+			"has_more": hasMore,
 			"total":    len(cap.Requests),
-			"partial":  partial,
+			"partial":  partial || hasMore || offset > 0,
 		})
 	}
 
@@ -508,12 +524,13 @@ func runNetworkRun(cmd *cobra.Command, args []string) error {
 	}
 	noFilters := len(filter.HostGlobs) == 0 && len(filter.Statuses) == 0 &&
 		!filter.FailedOnly && filter.Grep == nil &&
-		filter.SinceSeconds == nil && filter.UntilSeconds == nil
+		filter.SinceSeconds == nil && filter.UntilSeconds == nil &&
+		minimumDurationMs == 0 && !slowestFirst && limit == 0 && offset == 0
 	withBody, _ := cmd.Flags().GetBool("body")
 	if noFilters {
 		return printNetworkHostRollup(cmd, cap)
 	}
-	return printNetworkRequests(cmd, filtered, len(cap.Requests), withBody)
+	return printNetworkRequests(cmd, page, len(cap.Requests), withBody)
 }
 
 func printNetworkHostRollup(cmd *cobra.Command, cap *runinspect.NetworkCapture) error {
@@ -681,6 +698,15 @@ func runPerfRun(cmd *cobra.Command, args []string) error {
 			"summary": cap.Summary,
 			"partial": partial,
 		}
+		timeline, _ := cmd.Flags().GetBool("timeline")
+		if timeline {
+			kind, _ := cmd.Flags().GetString("id-kind")
+			evidence, err := performanceTimeline(cmd.Context(), client, taskID, kind, cap)
+			if err != nil {
+				return err
+			}
+			out["timeline"] = evidence
+		}
 		if cpuOK {
 			out["cpu"] = cpu
 		}
@@ -827,7 +853,8 @@ func loadRunArtifacts(
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	return runinspect.LoadArtifacts(ctx, client, taskID)
+	kind, _ := cmd.Flags().GetString("id-kind")
+	return runinspect.LoadArtifactsReference(ctx, client, taskID, kind)
 }
 
 // loadReportOnly is the no-device-state cousin of loadRunArtifacts.
@@ -845,7 +872,8 @@ func loadReportOnly(
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	report, err := runinspect.FetchReport(ctx, client, taskID)
+	kind, _ := cmd.Flags().GetString("id-kind")
+	report, err := runinspect.FetchReportReference(ctx, client, taskID, kind)
 	if err != nil {
 		if errors.Is(err, runinspect.ErrReportNotFound) {
 			return nil, nil, fmt.Errorf(
@@ -1089,6 +1117,8 @@ func formatPlistValueOneline(v interface{}) string {
 }
 
 func init() {
+	runPerfCmd.Flags().Bool("timeline", false, "Include a bounded interactive timeline with source report captures")
+	runCmd.PersistentFlags().String("id-kind", "execution", "Reference kind: execution or session (Explore/device sessions)")
 	runCmd.PersistentFlags().Bool("json", false, "Emit raw JSON instead of pretty-printed output")
 	runCmd.PersistentFlags().Bool("dev", false, "Use dev/staging backend (default: production)")
 
@@ -1126,6 +1156,11 @@ func init() {
 		"Only show requests starting before N seconds from run start")
 	runNetworkCmd.Flags().Bool("body", false,
 		"Include request/response body previews under each matched entry")
+	runNetworkCmd.Flags().Int("limit", 0, "Maximum matching requests (0 returns all)")
+	runNetworkCmd.Flags().Int("offset", 0, "Skip this many matching requests after ordering")
+	runNetworkCmd.Flags().Float64("min-duration-ms", 0, "Only return requests lasting at least this many milliseconds")
+	runNetworkCmd.Flags().Bool("slowest-first", false, "Order matching requests by descending duration")
+	runNetworkCmd.Flags().Bool("compact", false, "Omit headers and body previews from JSON request details")
 	runNetworkCmd.Flags().Bool("download", false,
 		"Download the raw .json.gz artifact instead of printing")
 	runNetworkCmd.Flags().String("output", "",

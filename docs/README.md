@@ -11,6 +11,7 @@ See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the R
 - [Upload existing builds](build-uploads.md)
 - [Check GitHub connection status](github-status.md)
 - [Understand an app with Atlas](atlas.md)
+- [Compose agent investigations and query-backed views](agent-investigations.md)
 - [Update the CLI](upgrade.md)
 - [Send feedback to the Revyl team](feedback.md)
 - [Access your organization's machine with Revyl Computer](computer.md)

@@ -3446,6 +3446,22 @@ type BuildResponse struct {
 	WasReused              *bool                                     `json:"was_reused,omitempty"`
 }
 
+// BuildRunItem defines model for BuildRunItem.
+type BuildRunItem struct {
+	CompletedAt          *time.Time              `json:"completed_at,omitempty"`
+	ExecutionId          string                  `json:"execution_id"`
+	ExecutionTimeSeconds *float32                `json:"execution_time_seconds,omitempty"`
+	Metadata             *map[string]interface{} `json:"metadata,omitempty"`
+	ReportMetadata       *map[string]interface{} `json:"report_metadata,omitempty"`
+	ResolvedBuildVersion *string                 `json:"resolved_build_version,omitempty"`
+	Source               *string                 `json:"source,omitempty"`
+	StartedAt            *time.Time              `json:"started_at,omitempty"`
+	Status               *string                 `json:"status,omitempty"`
+	Success              *bool                   `json:"success,omitempty"`
+	TestId               *string                 `json:"test_id,omitempty"`
+	TestName             *string                 `json:"test_name,omitempty"`
+}
+
 // BuildRunnerStatus Response for the build runner availability pre-flight check.
 //
 // Attributes:
@@ -5339,6 +5355,17 @@ type PaginatedAppsResponse struct {
 
 	// TotalPages Total number of pages
 	TotalPages int `json:"total_pages"`
+}
+
+// PaginatedBuildRunsResponse defines model for PaginatedBuildRunsResponse.
+type PaginatedBuildRunsResponse struct {
+	HasNext     bool            `json:"has_next"`
+	HasPrevious bool            `json:"has_previous"`
+	Items       *[]BuildRunItem `json:"items,omitempty"`
+	Page        int             `json:"page"`
+	PageSize    int             `json:"page_size"`
+	Total       int             `json:"total"`
+	TotalPages  int             `json:"total_pages"`
 }
 
 // PaginatedBuildsResponse Paginated response for builds.
@@ -7554,6 +7581,15 @@ type GetBuildApiV1AppsBuildsVersionIdGetParams struct {
 	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
 }
 
+// GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams defines parameters for GetBuildRunsApiV1AppsBuildsVersionIdRunsGet.
+type GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams struct {
+	// Page Page number (1-indexed)
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page (max 100)
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
 // TriggerRemoteBuildApiV1AppsRemotePostParams defines parameters for TriggerRemoteBuildApiV1AppsRemotePost.
 type TriggerRemoteBuildApiV1AppsRemotePostParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
@@ -7765,18 +7801,20 @@ type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
 
 // GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams defines parameters for GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGet.
 type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams struct {
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	DeviceModel        *string `form:"device_model,omitempty" json:"device_model,omitempty"`
-	DeviceRuntime      *string `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId             *string             `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId            *string             `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId              *string             `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind          *string             `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime            *string             `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime              *string             `form:"to_time,omitempty" json:"to_time,omitempty"`
+	DeviceModel         *string             `form:"device_model,omitempty" json:"device_model,omitempty"`
+	DeviceRuntime       *string             `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
+	Visibility          *string             `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants     *bool               `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots  *bool               `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit               *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	RecentBuildLimit    *int                `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
+	WorkflowExecutionId *openapi_types.UUID `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
 }
 
 // GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams defines parameters for GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGet.
@@ -7893,6 +7931,9 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	Limit                                *int                  `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset                               *int                  `form:"offset,omitempty" json:"offset,omitempty"`
 	Source                               *SessionHistorySource `form:"source,omitempty" json:"source,omitempty"`
+	BuildId                              *openapi_types.UUID   `form:"build_id,omitempty" json:"build_id,omitempty"`
+	CreatedFrom                          *time.Time            `form:"created_from,omitempty" json:"created_from,omitempty"`
+	CreatedTo                            *time.Time            `form:"created_to,omitempty" json:"created_to,omitempty"`
 	Platform                             *string               `form:"platform,omitempty" json:"platform,omitempty"`
 	Status                               *string               `form:"status,omitempty" json:"status,omitempty"`
 	Search                               *string               `form:"search,omitempty" json:"search,omitempty"`

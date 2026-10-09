@@ -46,6 +46,19 @@ when that visibility is acceptable, and never put its value in the setup script.
 See [Anthropic's cloud environment documentation](https://code.claude.com/docs/en/claude-code-on-the-web)
 for the current access and credential-storage constraints.
 
+## Agent attribution
+
+The CLI detects Codex, Cursor, and Claude Code from their runtime environment
+markers. Revyl-owned agent runtimes set `REVYL_AGENT=revyl` on child CLI
+processes. This takes precedence over inherited agent markers and sends
+`X-Revyl-Agent: revyl` through the existing API attribution path. It does not
+reuse an inherited coding-agent session ID.
+
+Only `revyl` is supported for this explicit override, ignoring surrounding
+whitespace and case. Unrecognized values fall back to normal runtime detection;
+manual commands without an agent marker remain unattributed. This is display
+and telemetry metadata, not authentication or an authorization grant.
+
 ## Authenticate without a local browser
 
 For a manual headless approval, run `revyl auth login` only in an

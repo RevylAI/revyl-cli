@@ -26,6 +26,8 @@ var iosTargets = PlatformTargetConfig{
 		"iOS 18.5",
 	},
 	AvailableModels: []string{
+		"iPhone 18 Pro Max",
+		"iPhone 18 Pro",
 		"iPhone 17 Pro Max",
 		"iPhone Air",
 		"iPhone 15",
@@ -33,6 +35,8 @@ var iosTargets = PlatformTargetConfig{
 		"iPad Pro 13-inch (M4)",
 	},
 	CompatibleRuntimes: map[string][]string{
+		"iPhone 18 Pro Max":     {"iOS 27.0"},
+		"iPhone 18 Pro":         {"iOS 27.0"},
 		"iPhone 17 Pro Max":     {"iOS 27.0", "iOS 26.5", "iOS 26.2"},
 		"iPhone Air":            {"iOS 27.0", "iOS 26.5", "iOS 26.2"},
 		"iPhone 15":             {"iOS 18.5", "iOS 26.2"},

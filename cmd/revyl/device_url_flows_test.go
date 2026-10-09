@@ -225,6 +225,35 @@ func TestDeviceDownloadFileCommand_RejectsWhitespaceURL(t *testing.T) {
 	}
 }
 
+func TestDeviceReportCommand_BoundedDetailFlagsReachBackend(t *testing.T) {
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+	for _, summaryOnly := range []bool{false, true} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("include_actions") != "false" {
+				t.Error("action payloads were requested despite no-actions")
+			}
+			if (r.URL.Query().Get("include_steps") == "false") != summaryOnly {
+				t.Error("summary selection was not applied on the backend read")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"report-1","org_id":"org-1","total_steps":120}`))
+		}))
+		t.Setenv("REVYL_BACKEND_URL", server.URL)
+		cmd := newDeviceReportTestCommand(context.Background())
+		cmd.Flags().Bool("no-actions", true, "")
+		cmd.Flags().Bool("no-steps", summaryOnly, "")
+		if err := cmd.Flags().Set("session-id", "sess-report"); err != nil {
+			t.Fatal(err)
+		}
+		captureStdout(t, func() {
+			if err := deviceReportCmd.RunE(cmd, nil); err != nil {
+				t.Fatal(err)
+			}
+		})
+		server.Close()
+	}
+}
+
 func TestDeviceReportCommand_ArtifactJSONOutput(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
