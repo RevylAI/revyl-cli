@@ -403,7 +403,7 @@ func authHintForStatus(statusCode int) string {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
 	if statusCode == 402 {
-		return "Your workspace has used its included allowance. Choose a plan with more monthly usage:\n  → revyl auth billing"
+		return "Billing action is required. Review your plan, available credits, and unpaid invoices:\n  → revyl auth billing"
 	}
 	return ""
 }
