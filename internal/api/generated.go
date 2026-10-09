@@ -1470,6 +1470,51 @@ func (e SessionHistorySource) Valid() bool {
 	}
 }
 
+// Defines values for SessionHistoryStatus.
+const (
+	SessionHistoryStatusAll        SessionHistoryStatus = "all"
+	SessionHistoryStatusCancelled  SessionHistoryStatus = "cancelled"
+	SessionHistoryStatusCompleted  SessionHistoryStatus = "completed"
+	SessionHistoryStatusFailed     SessionHistoryStatus = "failed"
+	SessionHistoryStatusQueued     SessionHistoryStatus = "queued"
+	SessionHistoryStatusRunning    SessionHistoryStatus = "running"
+	SessionHistoryStatusStarting   SessionHistoryStatus = "starting"
+	SessionHistoryStatusStopping   SessionHistoryStatus = "stopping"
+	SessionHistoryStatusTimeout    SessionHistoryStatus = "timeout"
+	SessionHistoryStatusValidating SessionHistoryStatus = "validating"
+	SessionHistoryStatusVerifying  SessionHistoryStatus = "verifying"
+)
+
+// Valid indicates whether the value is a known member of the SessionHistoryStatus enum.
+func (e SessionHistoryStatus) Valid() bool {
+	switch e {
+	case SessionHistoryStatusAll:
+		return true
+	case SessionHistoryStatusCancelled:
+		return true
+	case SessionHistoryStatusCompleted:
+		return true
+	case SessionHistoryStatusFailed:
+		return true
+	case SessionHistoryStatusQueued:
+		return true
+	case SessionHistoryStatusRunning:
+		return true
+	case SessionHistoryStatusStarting:
+		return true
+	case SessionHistoryStatusStopping:
+		return true
+	case SessionHistoryStatusTimeout:
+		return true
+	case SessionHistoryStatusValidating:
+		return true
+	case SessionHistoryStatusVerifying:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCancelled  SessionStatus = "cancelled"
@@ -2102,6 +2147,7 @@ type ActionRange struct {
 // ActiveDeviceSessionItem Response model for a single active device session.
 type ActiveDeviceSessionItem struct {
 	AppPackage                *string                 `json:"app_package,omitempty"`
+	BilledTo                  *string                 `json:"billed_to,omitempty"`
 	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
 	CanInteract               *bool                   `json:"can_interact,omitempty"`
 	CreatedAt                 *time.Time              `json:"created_at,omitempty"`
@@ -4140,6 +4186,7 @@ type DeviceSessionDetailItem struct {
 	ActionCount               *int                                      `json:"action_count,omitempty"`
 	AppId                     *string                                   `json:"app_id,omitempty"`
 	AppName                   *string                                   `json:"app_name,omitempty"`
+	BilledTo                  *string                                   `json:"billed_to,omitempty"`
 	BuildId                   *string                                   `json:"build_id,omitempty"`
 	BuildVersion              *string                                   `json:"build_version,omitempty"`
 	CanCancel                 *bool                                     `json:"can_cancel,omitempty"`
@@ -6194,6 +6241,9 @@ type SessionArtifactUploadResponse struct {
 // SessionHistorySource defines model for SessionHistorySource.
 type SessionHistorySource string
 
+// SessionHistoryStatus defines model for SessionHistoryStatus.
+type SessionHistoryStatus string
+
 // SessionStatus Device session status - the single source of truth for test execution state.
 //
 // Matches the session_status enum in the database.
@@ -7462,6 +7512,7 @@ type WorkflowsBaseSchema struct {
 type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem struct {
 	AppId                  *string                                   `json:"app_id,omitempty"`
 	AppName                *string                                   `json:"app_name,omitempty"`
+	BilledTo               *string                                   `json:"billed_to,omitempty"`
 	BuildId                *string                                   `json:"build_id,omitempty"`
 	BuildVersion           *string                                   `json:"build_version,omitempty"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
@@ -7938,7 +7989,7 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	CreatedFrom                          *time.Time            `form:"created_from,omitempty" json:"created_from,omitempty"`
 	CreatedTo                            *time.Time            `form:"created_to,omitempty" json:"created_to,omitempty"`
 	Platform                             *string               `form:"platform,omitempty" json:"platform,omitempty"`
-	Status                               *string               `form:"status,omitempty" json:"status,omitempty"`
+	Status                               *SessionHistoryStatus `form:"status,omitempty" json:"status,omitempty"`
 	Search                               *string               `form:"search,omitempty" json:"search,omitempty"`
 	UserId                               *string               `form:"user_id,omitempty" json:"user_id,omitempty"`
 	AttributedToCloudAgentConversationId *openapi_types.UUID   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
