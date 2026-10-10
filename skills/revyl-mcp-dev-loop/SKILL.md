@@ -1,6 +1,8 @@
 ---
 name: revyl-mcp-dev-loop
 description: Optional MCP dev-first mobile loop for screenshot-observe-action execution. Not started by the Cursor plugin.
+metadata:
+  internal: true
 ---
 
 # Revyl MCP Dev Loop Skill

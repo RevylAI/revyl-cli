@@ -1,6 +1,8 @@
 ---
 name: revyl-cli
 description: Base CLI skill for Revyl command-driven workflows. Use when users want shell-command setup, Atlas understanding, execution, test authoring, or run triage without MCP tool calls.
+metadata:
+  internal: true
 ---
 
 # Revyl CLI Skill

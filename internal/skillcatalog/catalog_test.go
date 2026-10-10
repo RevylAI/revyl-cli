@@ -2,7 +2,10 @@ package skillcatalog
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/revyl/cli/skills"
 )
@@ -62,5 +65,31 @@ func TestSkillFilesRejectUnknownNames(t *testing.T) {
 		if files != nil || err == nil {
 			t.Errorf("Skill{Name: %q}.Files() = %v, %v; want error", name, files, err)
 		}
+	}
+}
+
+func TestSkillsInstallerOffersOnlyDefaultInstall(t *testing.T) {
+	defaults := make(map[string]bool)
+	for _, skill := range DefaultInstall() {
+		defaults[skill.Name] = true
+	}
+	for _, skill := range All() {
+		t.Run(skill.Name, func(t *testing.T) {
+			parts := strings.SplitN(skill.Content, "---\n", 3)
+			if len(parts) != 3 || parts[0] != "" {
+				t.Fatal("SKILL.md requires YAML frontmatter")
+			}
+			var frontmatter struct {
+				Metadata struct {
+					Internal bool `yaml:"internal"`
+				} `yaml:"metadata"`
+			}
+			if err := yaml.Unmarshal([]byte(parts[1]), &frontmatter); err != nil {
+				t.Fatal(err)
+			}
+			if frontmatter.Metadata.Internal == defaults[skill.Name] {
+				t.Errorf("metadata.internal = %t; set it to true exactly for skills outside DefaultInstall so npx skills add offers the same set as revyl skill install --yes", frontmatter.Metadata.Internal)
+			}
+		})
 	}
 }

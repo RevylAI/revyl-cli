@@ -1,6 +1,8 @@
 ---
 name: revyl-cli-analyze
 description: Analyze failed Revyl test, workflow, and device-session reports via CLI to classify real bugs, flaky tests, infra issues, setup failures, or test-design improvements.
+metadata:
+  internal: true
 ---
 
 # Revyl CLI Failure Analysis Skill

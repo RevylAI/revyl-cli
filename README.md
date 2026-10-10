@@ -19,6 +19,37 @@
 
 Revyl is an AI-powered testing platform for mobile apps. Define tests in natural language, run them on cloud devices, and catch bugs before your users do. It works with iOS and Android, supports Expo / React Native / Flutter / native builds, and integrates with your CI pipeline and AI coding tools.
 
+## For coding agents
+
+To set up Revyl for a user, run these from the app's directory:
+
+```bash
+curl -fsSL https://revyl.com/install.sh | sh && export PATH="$HOME/.revyl/bin:$PATH"
+revyl auth status --json                 # sign in first if "authenticated" is false
+revyl skill install --yes                # recommended skills for this project
+revyl skill show --name revyl-cli        # read the main skill and follow it
+```
+
+To sign in, run `revyl auth login` and post the approval URL it prints as a
+link; the user can approve it from any browser. A hosted agent with
+`REVYL_API_KEY` in its environment is already signed in; it also runs
+`revyl auth persist-cloud-env` so an MCP server that does not inherit the
+variable can use it. Then follow the `revyl-cli-dev-loop` skill to start a
+cloud device with `revyl dev --remote --detach --json`, and share the
+`viewer_url` it returns.
+
+In a project that already uses Revyl, the open [skills](https://skills.sh)
+installer adds the same recommended skills:
+
+```bash
+npx skills add RevylAI/revyl-cli#stable -y
+```
+
+`#stable` matches the latest CLI release; `main` can be ahead of it. Name an
+optional skill from `revyl skill list --all` with `--skill <name>`, and refresh
+with `npx skills update`. For MCP and editor setup, see
+[MCP Setup](https://docs.revyl.com/cli/mcp-setup).
+
 ## Install
 
 ### sh

@@ -1,6 +1,8 @@
 ---
 name: revyl-cli-figma-review
 description: Guide a Figma frame or component review against observed app evidence in Revyl Atlas, with findings in chat, a local visual report, or explicitly requested Atlas annotations.
+metadata:
+  internal: true
 ---
 
 # Figma and Atlas Review

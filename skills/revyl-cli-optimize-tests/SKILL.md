@@ -1,6 +1,8 @@
 ---
 name: revyl-cli-optimize-tests
 description: Optimize existing Revyl YAML tests by converting granular, button-press-level steps into intent-driven natural-language instructions, reducing step count and run time without losing coverage. Supports a deep mode that inspects the last execution's report and screenshots to verify instruction wording against what actually happened on screen.
+metadata:
+  internal: true
 ---
 
 # Revyl CLI Test Optimization Skill

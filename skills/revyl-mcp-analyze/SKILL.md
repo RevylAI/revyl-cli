@@ -1,6 +1,8 @@
 ---
 name: revyl-mcp-analyze
 description: Analyze failed Revyl MCP test executions and classify them as real bugs, flaky tests, infra issues, or test-design improvements.
+metadata:
+  internal: true
 ---
 
 # Revyl MCP Analyze Skill

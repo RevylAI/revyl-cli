@@ -1,6 +1,8 @@
 ---
 name: revyl-mcp
 description: Base MCP skill for Revyl tool-call orchestration. Use when users want direct MCP execution instead of shell commands.
+metadata:
+  internal: true
 ---
 
 # Revyl MCP Skill

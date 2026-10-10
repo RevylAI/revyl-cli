@@ -1,6 +1,8 @@
 ---
 name: revyl-mcp-create
 description: Create and maintain Revyl tests through MCP tools using create/update operations and execution feedback loops.
+metadata:
+  internal: true
 ---
 
 # Revyl MCP Create Skill

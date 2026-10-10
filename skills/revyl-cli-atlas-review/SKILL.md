@@ -2,6 +2,8 @@
 name: revyl-cli-atlas-review
 description: Inspect exact Atlas evidence and manage grounded annotation feedback when the user explicitly requests a feedback mutation.
 disable-model-invocation: true
+metadata:
+  internal: true
 ---
 
 # Revyl Atlas Review Skill

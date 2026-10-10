@@ -1,6 +1,8 @@
 ---
 name: revyl-cli-cross-platform-review
 description: Find meaningful visual differences between confidently matched iOS and Android app states in Revyl Atlas. Use for cross-platform reviews, not missing-screen or feature-coverage audits.
+metadata:
+  internal: true
 ---
 
 # iOS and Android Atlas Review
