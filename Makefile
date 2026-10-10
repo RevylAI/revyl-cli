@@ -92,9 +92,14 @@ clean:
 	@rm -f $(BINARY) $(COMPUTER_BINARY)
 
 ## test: Run tests with summary
-test:
+test: test-workspace
 	@echo "Running tests..."
 	@$(SCRIPTS_DIR)/go-test-summary.sh ./...
+
+.PHONY: test-workspace
+## test-workspace: Run embedded workspace bridge tests
+test-workspace:
+	@node --test internal/mcp/workspace_app.test.cjs
 
 ## test-coverage: Run tests with coverage
 test-coverage:
@@ -315,6 +320,19 @@ sync-codex-plugin:
 check-codex-plugin:
 	@$(GOCMD) run ./cmd/sync-codex-plugin --check
 	@$(GOCMD) test ./cmd/sync-codex-plugin ./plugins/revyl ./cursor-plugin ./internal/cursorpluginrelease
+
+.PHONY: package-openai-plugin check-openai-plugin prepare-openai-plugin-icon
+
+prepare-openai-plugin-icon:
+	@command -v rsvg-convert >/dev/null || { echo "Install librsvg's rsvg-convert to render the OpenAI plugin icon" >&2; exit 1; }
+	@mkdir -p plugins/revyl-openai/assets
+	@rsvg-convert --width 400 --height 400 --output plugins/revyl-openai/assets/icon.png cursor-plugin/assets/icon.svg
+
+package-openai-plugin:
+	@$(GOCMD) run ./cmd/package-openai-plugin $(ARGS)
+
+check-openai-plugin:
+	@$(GOCMD) test ./cmd/package-openai-plugin
 
 # Cursor plugin skill sync
 # Pure-copy skills come from skills/ (source of truth, embedded by embed.go).

@@ -15,3 +15,4 @@ See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the R
 - [Update the CLI](upgrade.md)
 - [Send feedback to the Revyl team](feedback.md)
 - [Access your organization's machine with Revyl Computer](computer.md)
+- [Try the experimental embedded workspace](experimental-workspace.md)

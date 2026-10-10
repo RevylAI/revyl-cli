@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Revyl workspace</title>
+<style>
+:root{color-scheme:light dark;font:14px system-ui,sans-serif}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:Canvas;color:CanvasText}
+[hidden]{display:none!important}
+#state{box-sizing:border-box;display:grid;place-items:center;width:100%;height:100%;padding:24px;text-align:center}
+#status{max-width:40ch;line-height:1.5}
+button{font:inherit;padding:8px 12px}
+iframe{display:block;width:100%;height:100%;border:0}
+</style>
+</head>
+<body>
+<main id="state">
+<div>
+<p id="status" role="status">Loading Revyl workspace…</p>
+<button id="external" type="button" hidden>Open in browser</button>
+<p id="browser-status" role="status" hidden></p>
+</div>
+</main>
+<iframe id="workspace" title="Revyl workspace" referrerpolicy="no-referrer" allow="fullscreen; clipboard-write" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads" hidden></iframe>
+<script>
+const configuredOrigin = __REVYL_ORIGIN__;
+const origin = new URL(configuredOrigin).origin;
+const frame = document.getElementById("workspace");
+const external = document.getElementById("external");
+const status = document.getElementById("status");
+const browserStatus = document.getElementById("browser-status");
+const state = document.getElementById("state");
+const uuid = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const workspacePath = new RegExp("^(?:/atlas|/sessions(?:/" + uuid + ")?|/apps/" + uuid + "/atlas)$");
+const sessionPath = new RegExp("^/sessions/" + uuid + "$");
+// The frontend lets a host frame only its chromeless copies of these pages,
+// which sit at the same paths under this prefix.
+const embeddedPrefix = "/workspace";
+const themeMessage = "revyl-workspace-theme";
+const readyMessage = "revyl-workspace-ready";
+const openLinkMessage = "revyl-workspace-open-link";
+const openLinkFailedMessage = "revyl-workspace-open-link-failed";
+const sessionRequestMessage = "revyl-workspace-session-request";
+const sessionTicketMessage = "revyl-workspace-session-ticket";
+const sessionUnavailableMessage = "revyl-workspace-session-unavailable";
+const sessionTicketTool = "create_revyl_workspace_session_ticket";
+const sessionTicketMetaKey = "revyl/workspaceSessionTicket";
+const sessionTicketResultKind = "workspace_session_ticket";
+// A server that signs its own callers in turns this on when it serves the page.
+const sessionTicketsOffered = false;
+let initialized = false;
+let requestId = 1;
+let pendingLink = null;
+let externalURL = safeURL(origin + "/atlas");
+let queuedResult = null;
+let deepLink = null;
+let hostTheme = null;
+let framedPageReady = false;
+const framedLinks = new Map();
+let pendingSessionTicket = null;
+let resultTimer = null;
+let toolCallUnderway = false;
+function send(message) { window.parent.postMessage(message, "*"); }
+// A host refuses a request either with a JSON-RPC error or with an error result.
+function hostRefused(message) { return !!message.error || message.result?.isError === true; }
+function embeddedURL(url) { return origin + embeddedPrefix + new URL(url).pathname; }
+function applyHostTheme(context) {
+  const theme = context?.theme;
+  if (theme !== "light" && theme !== "dark") return;
+  hostTheme = theme;
+  sendHostTheme();
+}
+// The host sandboxes this frame without pop-ups, so the framed page asks for a
+// browser tab here. Only web URLs without credentials are passed on, and plain
+// HTTP only for the configured origin. The framed page is told when the host
+// refuses or does not answer, so a click never fails silently.
+function openFramedLink(raw) {
+  let url = null;
+  try { url = typeof raw === "string" ? new URL(raw) : null; } catch {}
+  const isWeb = url && (url.protocol === "https:" || (url.protocol === "http:" && url.origin === origin));
+  if (!isWeb || url.username || url.password) { reportFramedLinkFailure(); return; }
+  const id = ++requestId;
+  framedLinks.set(id, setTimeout(() => settleFramedLink(id, false), 10000));
+  send({jsonrpc:"2.0", id, method:"ui/open-link", params:{url:url.href}});
+}
+function settleFramedLink(id, opened) {
+  clearTimeout(framedLinks.get(id));
+  framedLinks.delete(id);
+  if (!opened) reportFramedLinkFailure();
+}
+// A link the replaced document asked for is no business of the new one.
+function abandonFramedLinks() {
+  framedLinks.forEach(timer => clearTimeout(timer));
+  framedLinks.clear();
+}
+function reportFramedLinkFailure() {
+  frame.contentWindow?.postMessage({type:openLinkFailedMessage}, origin);
+}
+// The framed page cannot rely on its sign-in cookie inside a host, so it asks
+// for a one-time ticket. Without one it is told so and uses its own sign-in.
+function requestSessionTicket() {
+  if (pendingSessionTicket) return;
+  if (!sessionTicketsOffered) { answerSessionRequest(""); return; }
+  const id = ++requestId;
+  pendingSessionTicket = {id, timer: setTimeout(() => settleSessionTicket(""), 10000)};
+  send({jsonrpc:"2.0", id, method:"tools/call", params:{name:sessionTicketTool, arguments:{}}});
+}
+function settleSessionTicket(ticket) {
+  clearTimeout(pendingSessionTicket.timer);
+  pendingSessionTicket = null;
+  answerSessionRequest(ticket);
+}
+// A reply to the document being replaced would reach the new one before it
+// has asked, and block its own request until then.
+function abandonSessionTicket() {
+  if (!pendingSessionTicket) return;
+  clearTimeout(pendingSessionTicket.timer);
+  pendingSessionTicket = null;
+}
+function answerSessionRequest(ticket) {
+  frame.contentWindow?.postMessage(
+    ticket ? {type:sessionTicketMessage, ticket} : {type:sessionUnavailableMessage}, origin);
+}
+function sendHostTheme() {
+  if (hostTheme && framedPageReady) frame.contentWindow?.postMessage({type:themeMessage, theme:hostTheme}, origin);
+}
+function safeURL(raw, viewer = false) {
+  if (typeof raw !== "string") return "";
+  try {
+    const url = new URL(raw);
+    if (url.origin !== origin || url.username || url.password || url.search || url.hash || raw.includes("?") || raw.includes("#")) return "";
+    if (!(viewer ? sessionPath : workspacePath).test(url.pathname)) return "";
+    if (raw !== origin + url.pathname && raw !== configuredOrigin + url.pathname) return "";
+    return url.href;
+  } catch { return ""; }
+}
+// A host that initializes and then sends nothing would otherwise leave the
+// page on its loading line for good. A result that arrives later still renders.
+// A host that says a tool call is under way is not waited on: a device takes
+// as long to start as it takes.
+function awaitResult() {
+  resultTimer = setTimeout(() => {
+    resultTimer = null;
+    showError("Still waiting for the workspace. You can open Revyl in your browser instead.");
+  }, 20000);
+}
+function stopAwaitingResult() {
+  clearTimeout(resultTimer);
+  resultTimer = null;
+}
+function showLoading() {
+  frame.hidden = true;
+  state.hidden = false;
+  external.hidden = true;
+  browserStatus.hidden = true;
+  status.textContent = "Loading Revyl workspace…";
+}
+function showError(message, fallbackURL = externalURL) {
+  frame.hidden = true;
+  state.hidden = false;
+  external.hidden = false;
+  browserStatus.hidden = true;
+  externalURL = safeURL(fallbackURL);
+  external.disabled = !externalURL || !!pendingLink;
+  status.textContent = message;
+}
+function navigate(raw, viewer = false, explicitNavigation = false) {
+  stopAwaitingResult();
+  const url = safeURL(raw, viewer);
+  if (!url) {
+    showError("The host returned an unsupported workspace URL. Open the workspace in your browser instead.");
+    return;
+  }
+  const frameURL = embeddedURL(url);
+  if (explicitNavigation || frame.src !== frameURL) {
+    abandonSessionTicket();
+    abandonFramedLinks();
+    frame.src = frameURL;
+  }
+  externalURL = url;
+  state.hidden = true;
+  external.hidden = true;
+  browserStatus.hidden = true;
+  frame.hidden = false;
+}
+// A host may also announce the result of the ticket call this page made
+// itself. It names no workspace and must not take down the one showing. The
+// server marks that result twice, since a host may drop either mark.
+function isSessionTicketResult(result) {
+  return Object.prototype.hasOwnProperty.call(result?._meta ?? {}, sessionTicketMetaKey)
+    || result?.structuredContent?.kind === sessionTicketResultKind;
+}
+function render(result) {
+  if (isSessionTicketResult(result)) return;
+  stopAwaitingResult();
+  if (result?.isError) {
+    showError("Could not open the workspace. Open it in your browser instead.");
+    return;
+  }
+  let payload = result?.structuredContent;
+  if (!payload) {
+    const text = Array.isArray(result?.content) ? result.content.find(item => item.type === "text")?.text : undefined;
+    try { payload = JSON.parse(text); } catch { payload = null; }
+  }
+  if (deepLink !== null && payload?.workspace_url === origin + "/atlas" && !payload.viewer_url) return;
+  if (payload?.success === false) {
+    showError("Could not open the device workspace: session startup failed. Open Sessions in your browser instead.", origin + "/sessions");
+  } else if (payload?.success === true && !payload.viewer_url) {
+    showError("Could not open the device workspace: the result has no viewer URL. Open Sessions in your browser instead.", origin + "/sessions");
+  } else if (payload?.viewer_url) navigate(payload.viewer_url, true);
+  else if (payload?.workspace_url) navigate(payload.workspace_url);
+  else showError("Could not open the workspace: the result has no viewer or workspace URL. Open it in your browser instead.");
+}
+function renderDeepLink(context) {
+  if (!Object.prototype.hasOwnProperty.call(context ?? {}, "openai/deepLink")) return false;
+  deepLink = context["openai/deepLink"];
+  const path = deepLink?.url;
+  if (deepLink === null || path === "/") { deepLink = null; return false; }
+  navigate(typeof path === "string" && path.startsWith("/") ? origin + path : "", false, true);
+  return true;
+}
+external.addEventListener("click", () => {
+  if (external.hidden || !externalURL || pendingLink) return;
+  const id = ++requestId;
+  external.disabled = true;
+  browserStatus.hidden = false;
+  browserStatus.textContent = "Asking the host to open your browser…";
+  pendingLink = {id, timer: setTimeout(() => {
+    pendingLink = null;
+    external.disabled = false;
+    browserStatus.textContent = "The host did not respond to the browser request. Try again.";
+  }, 10000)};
+  send({jsonrpc:"2.0", id, method:"ui/open-link", params:{url:externalURL}});
+});
+const initializeTimer = setTimeout(() => {
+  showError("This host has not connected to the workspace. Open it in your browser instead.");
+}, 10000);
+window.addEventListener("message", event => {
+  if (event.source === frame.contentWindow && event.source !== window.parent) {
+    if (event.origin !== origin) return;
+    if (event.data?.type === readyMessage) { framedPageReady = true; sendHostTheme(); }
+    else if (event.data?.type === openLinkMessage) openFramedLink(event.data.url);
+    else if (event.data?.type === sessionRequestMessage) requestSessionTicket();
+    return;
+  }
+  if (event.source !== window.parent) return;
+  const message = event.data;
+  if (message?.jsonrpc !== "2.0") return;
+  if (message.id === 1 && !initialized) {
+    clearTimeout(initializeTimer);
+    if (!message.result || message.error) {
+      showError("This host could not initialize the workspace. Open it in your browser instead.");
+      return;
+    }
+    initialized = true;
+    applyHostTheme(message.result.hostContext);
+    send({jsonrpc:"2.0", method:"ui/notifications/initialized"});
+    showLoading();
+    const linked = deepLink !== null && renderDeepLink({"openai/deepLink":deepLink});
+    if (!linked && !renderDeepLink(message.result.hostContext)) {
+      if (queuedResult) render(queuedResult);
+      else if (!toolCallUnderway) awaitResult();
+    }
+    queuedResult = null;
+    return;
+  }
+  if (message.method === "ui/notifications/tool-input" || message.method === "ui/notifications/tool-input-partial") {
+    toolCallUnderway = true;
+    stopAwaitingResult();
+  } else if (message.method === "ui/notifications/tool-cancelled") {
+    toolCallUnderway = false;
+    stopAwaitingResult();
+    if (initialized && frame.hidden) showError("The request was cancelled. You can open Revyl in your browser instead.");
+  } else if (message.method === "ui/notifications/tool-result") {
+    if (initialized) render(message.params);
+    else queuedResult = message.params;
+  } else if (message.method === "ui/notifications/host-context-changed") {
+    applyHostTheme(message.params);
+    if (initialized) renderDeepLink(message.params);
+    else if (Object.prototype.hasOwnProperty.call(message.params ?? {}, "openai/deepLink")) deepLink = message.params["openai/deepLink"];
+  } else if (pendingSessionTicket && message.id === pendingSessionTicket.id) {
+    const ticket = hostRefused(message) ? "" : message.result?._meta?.[sessionTicketMetaKey];
+    settleSessionTicket(typeof ticket === "string" ? ticket : "");
+  } else if (framedLinks.has(message.id)) {
+    settleFramedLink(message.id, !hostRefused(message));
+  } else if (pendingLink && message.id === pendingLink.id) {
+    clearTimeout(pendingLink.timer);
+    pendingLink = null;
+    external.disabled = false;
+    browserStatus.textContent = hostRefused(message)
+      ? "The host could not open the browser link. Try again."
+      : "Browser request completed.";
+  }
+});
+showLoading();
+send({jsonrpc:"2.0", id:1, method:"ui/initialize", params:{
+  protocolVersion:"2026-01-26",
+  appInfo:{name:"revyl-workspace", version:"1.0.0"},
+  appCapabilities:{availableDisplayModes:["fullscreen", "inline"]}
+}});
+</script>
+</body>
+</html>

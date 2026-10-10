@@ -641,6 +641,69 @@ func TestInputValidation_StartDeviceSession(t *testing.T) {
 	}
 }
 
+func TestStartDeviceSessionBrowserPolicy(t *testing.T) {
+	const workflowID = "00000000-0000-0000-0000-000000000003"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa03"
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/execution/start_device":
+			_, _ = fmt.Fprintf(w, `{"workflow_run_id":%q,"session_id":%q}`, workflowID, sessionID)
+		case "/api/v1/execution/streaming/worker-connection/" + workflowID:
+			_, _ = fmt.Fprintf(w, `{"status":"ready","workflow_run_id":%q,"worker_ws_url":%q}`, workflowID, "ws://"+r.Host+"/ws/stream")
+		case "/api/v1/execution/device-proxy/" + workflowID + "/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		case "/api/v1/telemetry/cli-traces":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected API call: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+	previous := openDeviceSessionBrowser
+	t.Cleanup(func() { openDeviceSessionBrowser = previous })
+	for _, tc := range []struct {
+		name      string
+		workspace bool
+		noOpen    bool
+		wantOpens int
+	}{
+		{"default opens browser", false, false, 1},
+		{"explicit opt out", false, true, 0},
+		{"workspace suppresses default", true, false, 0},
+		{"workspace with opt out", true, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var opened []string
+			openDeviceSessionBrowser = func(url string) error {
+				opened = append(opened, url)
+				return nil
+			}
+			mgr := NewDeviceSessionManager(api.NewClientWithBaseURL("test-key", apiServer.URL), t.TempDir())
+			t.Cleanup(func() {
+				mgr.mu.Lock()
+				defer mgr.mu.Unlock()
+				for _, timer := range mgr.idleTimers {
+					timer.Stop()
+				}
+			})
+			server := &Server{sessionMgr: mgr, experimentalWorkspace: tc.workspace}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, result, err := server.handleStartDeviceSession(ctx, nil, StartDeviceSessionInput{
+				Platform: "android", NoOpen: tc.noOpen, DisableInheritedLaunchVars: true,
+			})
+			if err != nil || !result.Success || result.SessionID != sessionID {
+				t.Fatalf("start result = %+v, %v", result, err)
+			}
+			if len(opened) != tc.wantOpens {
+				t.Fatalf("opened %d browsers, want %d", len(opened), tc.wantOpens)
+			}
+		})
+	}
+}
+
 func TestInputValidation_StartDeviceSession_RejectsConflictingArtifactInputs(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},

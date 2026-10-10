@@ -4,6 +4,11 @@ This local Codex plugin provides pinned-launcher skills for an explicitly
 authorized Revyl CLI development loop and CI-uploaded-build proof. It has no
 hooks and does not start an MCP server.
 
+The combined ChatGPT/Codex distribution reuses these skills and runtime assets
+through `revyl-cli/plugins/revyl-openai/README.md`. Its generator adds the
+workspace skill and one explicitly selected MCP connection without making the
+CLI-only marketplace installation depend on MCP.
+
 The canonical user setup, including adding this exported `revyl-cli/` folder as
 a local Codex marketplace and installing the `revyl` plugin, is
 [Revyl's IDE and MCP setup guide](https://docs.revyl.ai/cli/mcp-setup). This

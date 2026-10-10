@@ -7,6 +7,9 @@ description: Verify a mobile pull request using an exact-SHA match among its app
 
 Use this skill only for an authorized proof of a pull request whose artifact
 was already uploaded by CI. It does not build, upload, or configure an app.
+This proof workflow requires shell access and uses the pinned CLI below. Do not
+silently switch to a different MCP build lookup: its search and pagination
+contract may differ from the exact-SHA checks in this skill.
 
 ## Launcher and authorization
 
@@ -69,6 +72,10 @@ project's existing launch configuration applies.
    ```
 
    Return the viewer URL immediately as a clickable link when one is present.
+   If `open_revyl_workspace` is available, open the same session with
+   `view="device"` and its returned `session_id`. Do not start a second device
+   through MCP. If browser access fails, retain the CLI's existing session and
+   report the account-linking problem instead of replacing it.
    Exercise only the changed behavior. Target every device command with
    `-s <session-id>`, save concise screenshots, and open each screenshot before
    describing it. A false or missing semantic verdict is a failed proof, but

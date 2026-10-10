@@ -207,6 +207,7 @@ func (s *Server) registerDeviceTools() {
 	// Session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "start_device_session",
+		Meta:        s.workspaceToolMeta(),
 		Description: "Provision a cloud-hosted Android or iOS device. Only platform is required; optionally provide app_id, build_version_id, app_url, or app_link. Returns session_id and a viewer_url to watch the device live in a browser. Pass that session_id to every later device tool call when more than one session may be live, for example when agents run in parallel.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Start Device Session",
@@ -587,7 +588,7 @@ type StartDeviceSessionInput struct {
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 	TestID                     string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
 	IdleTimeout                int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
-	NoOpen                     bool     `json:"no_open,omitempty" jsonschema:"Skip opening the browser (default: false, browser opens automatically)"`
+	NoOpen                     bool     `json:"no_open,omitempty" jsonschema:"Skip opening the local browser (default: false). The experimental workspace always skips local browser opening."`
 }
 
 // StartDeviceSessionOutput defines output for start_device_session.
@@ -602,6 +603,8 @@ type StartDeviceSessionOutput struct {
 	Error              string     `json:"error,omitempty"`
 	NextSteps          []NextStep `json:"next_steps,omitempty"`
 }
+
+var openDeviceSessionBrowser = ui.OpenBrowser
 
 func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StartDeviceSessionInput) (*mcp.CallToolResult, StartDeviceSessionOutput, error) {
 	platform := strings.ToLower(normalizeOptionalToolInput(input.Platform))
@@ -641,11 +644,10 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Auto-open the report URL in the browser unless the caller opted out.
-	if !input.NoOpen {
+	if !input.NoOpen && !s.experimentalWorkspace {
 		reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s",
 			config.GetAppURL(s.devMode), session.SessionID)
-		_ = ui.OpenBrowser(reportURL)
+		_ = openDeviceSessionBrowser(reportURL)
 	}
 
 	return nil, StartDeviceSessionOutput{

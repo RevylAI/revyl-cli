@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	yamlPkg "gopkg.in/yaml.v3"
@@ -60,7 +61,10 @@ type Server struct {
 	delegatedDevContext string
 
 	// Composite tool profile (empty = legacy flat tools)
-	profile Profile
+	profile               Profile
+	experimentalWorkspace bool
+	workspaceOrigin       string
+	chatGPTPluginID       string
 
 	// Live browser approval offered to a caller with no usable credential.
 	pendingAuth pendingAuthorization
@@ -166,6 +170,16 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 	s.workDir = workDir
 	s.version = version
 	s.devMode = devMode
+	if s.experimentalWorkspace {
+		s.chatGPTPluginID = os.Getenv("REVYL_CHATGPT_PLUGIN_ID")
+		if s.chatGPTPluginID != "" && !chatGPTPluginIDPattern.MatchString(s.chatGPTPluginID) {
+			return nil, fmt.Errorf("REVYL_CHATGPT_PLUGIN_ID must be a plugin ID of at most 128 letters, digits, underscores, or hyphens, starting with a letter or digit")
+		}
+		s.workspaceOrigin, err = validateWorkspaceOrigin(config.GetAppURL(devMode))
+		if err != nil {
+			return nil, err
+		}
+	}
 	if s.devLoopRunner == nil {
 		s.devLoopRunner = &devloop.CommandRunner{
 			BinaryPath: binaryPath,
@@ -318,6 +332,9 @@ When in doubt, call device_doctor() -- it checks auth, session, worker, groundin
 		s.registerCompositeTools(s.profile)
 	} else {
 		s.registerTools()
+	}
+	if s.experimentalWorkspace {
+		s.registerWorkspaceApp()
 	}
 
 	return s, nil
@@ -1677,8 +1694,16 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 
 // ListBuildsInput defines input for list_builds tool.
 type ListBuildsInput struct {
+	AppID    string `json:"app_id,omitempty" jsonschema:"App UUID to list build versions for; omit to list apps"`
 	Platform string `json:"platform,omitempty" jsonschema:"Filter by platform (ios or android)"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"Maximum number of builds to return (default 20)"`
+}
+
+type ListedBuildVersion struct {
+	ID         string `json:"id"`
+	Version    string `json:"version"`
+	UploadedAt string `json:"uploaded_at"`
+	IsCurrent  bool   `json:"is_current"`
 }
 
 // BuildInfo contains information about an app.
@@ -1692,9 +1717,11 @@ type BuildInfo struct {
 
 // ListBuildsOutput defines output for list_builds tool.
 type ListBuildsOutput struct {
-	Builds       []BuildInfo `json:"builds"`
-	Total        int         `json:"total"`
-	ErrorMessage string      `json:"error_message,omitempty"`
+	Builds       []BuildInfo          `json:"builds"`
+	Versions     []ListedBuildVersion `json:"versions,omitempty"`
+	HasMore      bool                 `json:"has_more,omitempty"`
+	Total        int                  `json:"total"`
+	ErrorMessage string               `json:"error_message,omitempty"`
 }
 
 // handleListBuilds handles the list_builds tool call.
@@ -1702,6 +1729,30 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 	limit := input.Limit
 	if limit == 0 {
 		limit = 20
+	}
+	if input.AppID != "" {
+		if len(input.AppID) != 36 || uuid.Validate(input.AppID) != nil {
+			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: "app_id must be a hyphenated UUID"}, nil
+		}
+		if limit < 1 || limit > 100 {
+			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: "limit must be between 1 and 100"}, nil
+		}
+		app, err := s.apiClient.GetApp(ctx, input.AppID)
+		if err != nil {
+			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: fmt.Sprintf("failed to get app: %v", err)}, nil
+		}
+		if input.Platform != "" && !strings.EqualFold(input.Platform, app.Platform) {
+			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: "app platform does not match the requested platform"}, nil
+		}
+		page, err := s.apiClient.ListBuildVersionsPage(ctx, input.AppID, 1, limit)
+		if err != nil {
+			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: fmt.Sprintf("failed to list build versions: %v", err)}, nil
+		}
+		versions := make([]ListedBuildVersion, 0, len(page.Items))
+		for _, version := range page.Items {
+			versions = append(versions, ListedBuildVersion{ID: version.ID, Version: version.Version, UploadedAt: version.UploadedAt, IsCurrent: version.IsCurrent})
+		}
+		return nil, ListBuildsOutput{Builds: []BuildInfo{}, Versions: versions, Total: page.Total, HasMore: page.HasNext}, nil
 	}
 
 	result, err := s.apiClient.ListApps(ctx, input.Platform, 1, limit)

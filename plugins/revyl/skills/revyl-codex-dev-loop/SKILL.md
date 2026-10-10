@@ -5,10 +5,16 @@ description: Run, preview, debug, and verify mobile app changes on Revyl cloud d
 
 # Revyl Codex Dev Loop
 
-Use this skill for an authorized Revyl development loop in Codex. This plugin
-has no hooks and no MCP server. Installation never changes an app's source or
-`.revyl/config.yaml`; later source/configuration work is allowed only when the
-task explicitly requires it and the user authorizes it.
+Use this skill for an authorized CLI development loop in a shell-capable host.
+This workflow does not start an MCP server or install hooks. Installation never
+changes an app's source or `.revyl/config.yaml`; later source/configuration work
+is allowed only when the task explicitly requires it and the user authorizes it.
+
+For a request to browse Atlas or view an existing device, prefer the connected
+Revyl workspace tools when available; do not start a development loop just to
+open a view. Source builds and rebuilds stay on this pinned CLI workflow. If
+the host has no shell, explain that limitation instead of running shell commands
+through another tool or starting a replacement device.
 
 ## Launcher and setup
 
@@ -62,6 +68,12 @@ Return the handshake's `viewer_url` immediately without opening it. A viewer or
 `--wait-ready` only means the session is available, not that the current build
 succeeded. Wait for the build to reach its terminal success state before
 claiming a build result.
+
+When `open_revyl_workspace` is available, it can display the same returned
+session using `view="device"` and `session_id=<returned-session-id>`. Never call
+MCP `start_device_session` for a session the CLI already created. Browser and
+CLI authentication are separate; inaccessible sessions require the user to
+connect the matching account, not a new session or credential copied into chat.
 
 Use short-lived commands in separate calls. Target the returned context with
 `--context` for status and rebuild, and pass it positionally to stop:

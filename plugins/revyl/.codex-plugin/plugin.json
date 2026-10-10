@@ -1,6 +1,6 @@
 {
   "name": "revyl",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Run mobile changes on Revyl cloud devices and verify them with screenshots and semantic validation through the Revyl CLI.",
   "author": {
     "name": "Revyl",

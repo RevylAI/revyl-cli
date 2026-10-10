@@ -32,6 +32,17 @@ type CompositeOutput struct {
 	Result map[string]any `json:"result"`
 }
 
+func addCompositeTool(server *mcp.Server, tool *mcp.Tool, handler mcp.ToolHandlerFor[CompositeInput, CompositeOutput]) {
+	tool.InputSchema = map[string]any{
+		"type": "object", "required": []string{"action"}, "additionalProperties": false,
+		"properties": map[string]any{
+			"action": map[string]any{"type": "string", "description": "The operation to perform; see the tool description for allowed values"},
+			"params": map[string]any{"type": "object", "description": "Action-specific parameters", "additionalProperties": true},
+		},
+	}
+	mcp.AddTool(server, tool, handler)
+}
+
 // registerCompositeTools registers the focused dev surface or broader
 // compatibility profiles. Full adds workflow, module, script, tag, file, and
 // variable management to the core development/test surface.
@@ -111,7 +122,7 @@ func dispatchComposite[I any, O any](
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageTestsTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_tests",
 		Description: `Manage Revyl tests. Use the "action" param to select an operation.
 
@@ -160,12 +171,12 @@ func (s *Server) handleManageTests(ctx context.Context, req *mcp.CallToolRequest
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageBuildsTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_builds",
 		Description: `Manage app builds. Use the "action" param to select an operation.
 
 Actions:
-  list       - List available build versions. Params: app_id, platform
+  list       - List apps, or one app's build versions when app_id is provided. Params: app_id, platform, limit (default 20, max 100 for versions). Version results include id, uploaded_at, is_current and has_more; retain the selected version ID when pinning a session or test.
   upload     - Upload a build file. Params: file_path (required), app_id (required), version
   create_app - Create a new app. Params: name (required), platform (required)
   delete_app - Delete an app. Params: app_id (required)`,
@@ -197,7 +208,7 @@ func (s *Server) handleManageBuilds(ctx context.Context, req *mcp.CallToolReques
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageWorkflowsTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_workflows",
 		Description: `Manage Revyl workflows. Use the "action" param to select an operation.
 
@@ -255,7 +266,7 @@ func (s *Server) handleManageWorkflows(ctx context.Context, req *mcp.CallToolReq
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageModulesTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_modules",
 		Description: `Manage reusable test modules. Use the "action" param to select an operation.
 
@@ -294,7 +305,7 @@ func (s *Server) handleManageModules(ctx context.Context, req *mcp.CallToolReque
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageScriptsTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_scripts",
 		Description: `Manage code execution scripts. Use the "action" param to select an operation.
 
@@ -336,7 +347,7 @@ func (s *Server) handleManageScripts(ctx context.Context, req *mcp.CallToolReque
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageTagsTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_tags",
 		Description: `Manage test tags. Use the "action" param to select an operation.
 
@@ -378,7 +389,7 @@ func (s *Server) handleManageTags(ctx context.Context, req *mcp.CallToolRequest,
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageFilesTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_files",
 		Description: `Manage organization files. Use the "action" param to select an operation.
 
@@ -421,7 +432,7 @@ func (s *Server) handleManageFiles(ctx context.Context, req *mcp.CallToolRequest
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerManageVariablesTool() {
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
+	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_variables",
 		Description: `Manage a test's variables. Use the "action" param to select an operation.
 

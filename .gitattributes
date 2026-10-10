@@ -2,6 +2,8 @@ skills/** text=auto eol=lf
 cursor-plugin/skills/** text=auto eol=lf
 examples/cursor-automation/** text=auto eol=lf
 /plugins/revyl/** text eol=lf
+/plugins/revyl-openai/** text eol=lf
+/plugins/revyl-openai/**/*.png binary !eol
 /cursor-plugin/install-local.sh text eol=lf
 /cursor-plugin/hooks/ensure-revyl text eol=lf
 /cursor-plugin/hooks/launch-revyl text eol=lf

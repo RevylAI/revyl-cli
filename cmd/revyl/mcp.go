@@ -136,6 +136,7 @@ EXAMPLE CURSOR CONFIGURATION:
 func init() {
 	mcpCmd.AddCommand(mcpServeCmd)
 	mcpServeCmd.Flags().String("profile", "", "Tool profile: 'dev' (focused), 'core', or 'full'. Omit for legacy flat mode.")
+	mcpServeCmd.Flags().Bool("experimental-workspace", false, "Enable the experimental embedded Atlas and device workspace (MCP Apps hosts only)")
 }
 
 // runMCPServe starts the MCP server.
@@ -144,6 +145,9 @@ func runMCPServe(cmd *cobra.Command, args []string) error {
 	profileStr, _ := cmd.Flags().GetString("profile")
 
 	var opts []mcp.ServerOption
+	if enabled, _ := cmd.Flags().GetBool("experimental-workspace"); enabled {
+		opts = append(opts, mcp.WithExperimentalWorkspace())
+	}
 	switch profileStr {
 	case "dev":
 		opts = append(opts, mcp.WithProfile(mcp.ProfileDev))
