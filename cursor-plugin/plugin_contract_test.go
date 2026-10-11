@@ -304,6 +304,7 @@ func TestHookScriptContract(t *testing.T) {
 
 // TestLocalInstaller verifies isolated copies and live worktree links without plugin MCP.
 func TestLocalInstaller(t *testing.T) {
+	t.Setenv("REVYL_API_KEY", "")
 	pluginRoot := pluginRootPath(t)
 
 	t.Run("production command", func(t *testing.T) {

@@ -492,6 +492,27 @@ func (e BuildRecipePlatform) Valid() bool {
 	}
 }
 
+// Defines values for BuildSelectionMode.
+const (
+	BuildSelectionModeInherit BuildSelectionMode = "inherit"
+	BuildSelectionModeLatest  BuildSelectionMode = "latest"
+	BuildSelectionModePinned  BuildSelectionMode = "pinned"
+)
+
+// Valid indicates whether the value is a known member of the BuildSelectionMode enum.
+func (e BuildSelectionMode) Valid() bool {
+	switch e {
+	case BuildSelectionModeInherit:
+		return true
+	case BuildSelectionModeLatest:
+		return true
+	case BuildSelectionModePinned:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildStepType.
 const (
 	BuildStepTypeAndroidSigning        BuildStepType = "android-signing"
@@ -2255,6 +2276,7 @@ type AppResponse struct {
 	CreatedAt              *time.Time                                `json:"created_at,omitempty"`
 	CurrentBuildId         *openapi_types.UUID                       `json:"current_build_id,omitempty"`
 	CurrentVersion         *string                                   `json:"current_version,omitempty"`
+	DefaultBranchId        *openapi_types.UUID                       `json:"default_branch_id,omitempty"`
 	Description            *string                                   `json:"description,omitempty"`
 	ExpoSynced             *bool                                     `json:"expo_synced,omitempty"`
 
@@ -2844,6 +2866,7 @@ type AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole string
 type AtlasV2GraphResponse struct {
 	AppId         string                    `json:"app_id"`
 	AttachedTests *[]map[string]interface{} `json:"attached_tests,omitempty"`
+	BranchId      *openapi_types.UUID       `json:"branch_id,omitempty"`
 	BuildId       *string                   `json:"build_id,omitempty"`
 	Curation      *map[string]interface{}   `json:"curation,omitempty"`
 	Edges         *[]map[string]interface{} `json:"edges,omitempty"`
@@ -3303,9 +3326,11 @@ type BuildConfigPlatform string
 
 // BuildCreateFromUploadRequest Request to create a build from a completed staging upload.
 type BuildCreateFromUploadRequest struct {
-	Metadata *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId   *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName *string                 `json:"branch_name,omitempty"`
+	Metadata   *map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent Set this build as the app's current version
+	// SetAsCurrent Compatibility-only flag; uploads never change branch pins
 	SetAsCurrent *bool `json:"set_as_current,omitempty"`
 
 	// UploadId Upload session id returned by upload-session
@@ -3317,15 +3342,19 @@ type BuildCreateFromUploadRequest struct {
 
 // BuildCreateResponse Response model for creating a build with upload URL.
 type BuildCreateResponse struct {
-	ContentType     string             `json:"content_type"`
-	UploadExpiresAt int                `json:"upload_expires_at"`
-	UploadUrl       string             `json:"upload_url"`
-	Version         string             `json:"version"`
-	VersionId       openapi_types.UUID `json:"version_id"`
+	BranchId        *openapi_types.UUID `json:"branch_id,omitempty"`
+	ContentType     string              `json:"content_type"`
+	UploadExpiresAt int                 `json:"upload_expires_at"`
+	UploadUrl       string              `json:"upload_url"`
+	Version         string              `json:"version"`
+	VersionId       openapi_types.UUID  `json:"version_id"`
 }
 
 // BuildFromUrlRequest Request to create a build by ingesting an artifact from a URL (e.g., Expo EAS).
 type BuildFromUrlRequest struct {
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
+
 	// FingerprintHash Native dependency fingerprint for compatible artifact reuse
 	FingerprintHash *string `json:"fingerprint_hash,omitempty"`
 
@@ -3336,7 +3365,7 @@ type BuildFromUrlRequest struct {
 	Headers  *map[string]string      `json:"headers,omitempty"`
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent If True, set this version as the current version for the app
+	// SetAsCurrent Compatibility-only flag; uploads never change branch pins
 	SetAsCurrent *bool `json:"set_as_current,omitempty"`
 
 	// Version Version string (must be unique within the app)
@@ -3415,6 +3444,9 @@ type BuildMultipartUploadResumeResponse struct {
 
 // BuildMultipartUploadStartRequest Request to start an S3 multipart upload for a large build artifact.
 type BuildMultipartUploadStartRequest struct {
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
+
 	// FileName Name of the file to upload
 	FileName string `json:"file_name"`
 
@@ -3435,7 +3467,8 @@ type BuildMultipartUploadStartRequest struct {
 // prompt cleanup.
 type BuildMultipartUploadStartResponse struct {
 	// AbortUrl Presigned S3 AbortMultipartUpload URL
-	AbortUrl string `json:"abort_url"`
+	AbortUrl string              `json:"abort_url"`
+	BranchId *openapi_types.UUID `json:"branch_id,omitempty"`
 
 	// CompleteUrl Presigned S3 CompleteMultipartUpload URL
 	CompleteUrl string `json:"complete_url"`
@@ -3484,6 +3517,8 @@ type BuildResponse struct {
 	AppId                  *openapi_types.UUID                       `json:"app_id,omitempty"`
 	ArtifactKind           *string                                   `json:"artifact_kind,omitempty"`
 	ArtifactUrl            *string                                   `json:"artifact_url,omitempty"`
+	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
+	BranchName             *string                                   `json:"branch_name,omitempty"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
 	DownloadUrl            *string                                   `json:"download_url,omitempty"`
 	Id                     *openapi_types.UUID                       `json:"id,omitempty"`
@@ -3524,6 +3559,9 @@ type BuildRunnerStatus struct {
 	UnavailableReason *string `json:"unavailable_reason,omitempty"`
 }
 
+// BuildSelectionMode defines model for BuildSelectionMode.
+type BuildSelectionMode string
+
 // BuildStep One step executed by a sandbox build runner.
 type BuildStep struct {
 	Command *string `json:"command,omitempty"`
@@ -3547,18 +3585,23 @@ type BuildStepType string
 
 // BuildUploadCompleteRequest Request to mark upload as complete.
 type BuildUploadCompleteRequest struct {
-	Metadata *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId   *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName *string                 `json:"branch_name,omitempty"`
+	Metadata   *map[string]interface{} `json:"metadata,omitempty"`
 
 	// PackageName Package name
 	PackageName *string `json:"package_name,omitempty"`
 
-	// SetAsCurrent Set this build as the app's current version
+	// SetAsCurrent Compatibility-only flag; uploads never change branch pins
 	SetAsCurrent *bool              `json:"set_as_current,omitempty"`
 	VersionId    openapi_types.UUID `json:"version_id"`
 }
 
 // BuildUploadSessionRequest Request to open a staging upload session for a new build artifact.
 type BuildUploadSessionRequest struct {
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
+
 	// FileName Name of the file to upload
 	FileName string `json:"file_name"`
 
@@ -3572,10 +3615,11 @@ type BuildUploadSessionRequest struct {
 // after the artifact is uploaded and validated. Abandoned staging objects
 // are swept server-side when a later session for the same app starts.
 type BuildUploadSessionResponse struct {
-	ContentType     string             `json:"content_type"`
-	UploadExpiresAt int                `json:"upload_expires_at"`
-	UploadId        openapi_types.UUID `json:"upload_id"`
-	UploadUrl       string             `json:"upload_url"`
+	BranchId        *openapi_types.UUID `json:"branch_id,omitempty"`
+	ContentType     string              `json:"content_type"`
+	UploadExpiresAt int                 `json:"upload_expires_at"`
+	UploadId        openapi_types.UUID  `json:"upload_id"`
+	UploadUrl       string              `json:"upload_url"`
 }
 
 // BulkSyncTagsRequest Request to bulk sync tags for multiple tests.
@@ -4413,7 +4457,10 @@ type ExplorationLaneConfig struct {
 // ExplorationLaunchRequest defines model for ExplorationLaunchRequest.
 type ExplorationLaunchRequest struct {
 	AuthInstructions   *string                  `json:"auth_instructions,omitempty"`
+	BranchId           *openapi_types.UUID      `json:"branch_id,omitempty"`
+	BranchName         *string                  `json:"branch_name,omitempty"`
 	BuildId            *openapi_types.UUID      `json:"build_id,omitempty"`
+	BuildSelection     *BuildSelectionMode      `json:"build_selection,omitempty"`
 	DeviceModel        *string                  `json:"device_model,omitempty"`
 	EnvVars            *map[string]string       `json:"env_vars,omitempty"`
 	IdleTimeoutSeconds *int                     `json:"idle_timeout_seconds,omitempty"`
@@ -4423,6 +4470,7 @@ type ExplorationLaunchRequest struct {
 	MaxDurationSeconds *int                     `json:"max_duration_seconds,omitempty"`
 	MaxTurns           *int                     `json:"max_turns,omitempty"`
 	OsVersion          *string                  `json:"os_version,omitempty"`
+	PinnedBuildId      *openapi_types.UUID      `json:"pinned_build_id,omitempty"`
 	Platform           *string                  `json:"platform,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
@@ -5523,10 +5571,13 @@ type PlanInfoScheduledBillingPeriod string
 // Attributes:
 //
 //	app_id: UUID of the app to use.
-//	pinned_version: Optional specific version to pin to. If None, uses current/latest.
+//	pinned_version: Legacy version pin, retained during branch rollout.
 type PlatformApp struct {
 	// AppId App UUID
-	AppId openapi_types.UUID `json:"app_id"`
+	AppId          openapi_types.UUID  `json:"app_id"`
+	BranchId       *openapi_types.UUID `json:"branch_id,omitempty"`
+	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildId  *openapi_types.UUID `json:"pinned_build_id,omitempty"`
 
 	// PinnedVersion Optional pinned version string
 	PinnedVersion *string `json:"pinned_version,omitempty"`
@@ -5804,6 +5855,9 @@ type RemoteBuildPhaseTiming struct {
 
 // RemoteBuildRequest Request body to trigger a remote build.
 type RemoteBuildRequest struct {
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
+
 	// BuildDefinitionHash Canonical hash of the resolved build recipe, when available.
 	BuildDefinitionHash *string `json:"build_definition_hash,omitempty"`
 	CleanBuild          *bool   `json:"clean_build,omitempty"`
@@ -5898,6 +5952,7 @@ type RemoteBuildSourceUploadResponse struct {
 type RemoteBuildStatusResponse struct {
 	AppId                  *string                                   `json:"app_id,omitempty"`
 	ArtifactType           *string                                   `json:"artifact_type,omitempty"`
+	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
 	CandidateArtifacts     *[]string                                 `json:"candidate_artifacts,omitempty"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
 	CompletedAt            *time.Time                                `json:"completed_at,omitempty"`
@@ -5960,6 +6015,7 @@ type RemoteBuildStepStatus string
 //	duration_ms: Build duration in milliseconds when known.
 //	is_active: Whether the build is still queued or running.
 type RemoteBuildSummary struct {
+	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
 	BuildId                *string                                   `json:"build_id,omitempty"`
 	BuildJobId             string                                    `json:"build_job_id"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
@@ -5981,8 +6037,9 @@ type RemoteBuildSummary struct {
 //	build_job_id: Unique identifier used to poll build status.
 //	status: Initial public status (usually ``pending``).
 type RemoteBuildTriggerResponse struct {
-	BuildJobId string  `json:"build_job_id"`
-	Status     *string `json:"status,omitempty"`
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BuildJobId string              `json:"build_job_id"`
+	Status     *string             `json:"status,omitempty"`
 }
 
 // ReplaceTestLaunchEnvVarRefsRequest Request model for replacing launch variable attachments on a test.
@@ -6158,6 +6215,8 @@ type RepositoryProjectCatalogResponse struct {
 type ResolvedBuild struct {
 	ArtifactKind *string                 `json:"artifact_kind,omitempty"`
 	ArtifactUrl  *string                 `json:"artifact_url,omitempty"`
+	BranchId     *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName   *string                 `json:"branch_name,omitempty"`
 	BuildName    *string                 `json:"build_name,omitempty"`
 	BuildVarId   openapi_types.UUID      `json:"build_var_id"`
 	Description  *string                 `json:"description,omitempty"`
@@ -6319,11 +6378,14 @@ type StartDeviceInfo struct {
 	AppPackage *string             `json:"app_package,omitempty"`
 	AppUrl     *string             `json:"app_url,omitempty"`
 	BackendUrl *string             `json:"backend_url,omitempty"`
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
 
 	// BuildId Specific `builds` table row UUID. When provided, the backend uses this exact build instead of resolving the latest build for the given `app_id`.
-	BuildId     *openapi_types.UUID `json:"build_id,omitempty"`
-	DeviceLocal *bool               `json:"device_local,omitempty"`
-	DeviceModel *string             `json:"device_model,omitempty"`
+	BuildId        *openapi_types.UUID `json:"build_id,omitempty"`
+	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
+	DeviceLocal    *bool               `json:"device_local,omitempty"`
+	DeviceModel    *string             `json:"device_model,omitempty"`
 
 	// DeviceRunnerId Optional worker DEVICE_ID label to require for direct device sessions.
 	DeviceRunnerId *string            `json:"device_runner_id,omitempty"`
@@ -6341,6 +6403,7 @@ type StartDeviceInfo struct {
 	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
 	OrgId           *openapi_types.UUID   `json:"org_id,omitempty"`
 	OsVersion       *string               `json:"os_version,omitempty"`
+	PinnedBuildId   *openapi_types.UUID   `json:"pinned_build_id,omitempty"`
 	Platform        *string               `json:"platform,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
@@ -6505,8 +6568,11 @@ type TagWithCountResponse struct {
 
 // TaskID defines model for TaskID.
 type TaskID struct {
-	AppLink    *string `json:"app_link,omitempty"`
-	BackendUrl *string `json:"backend_url,omitempty"`
+	AppLink        *string             `json:"app_link,omitempty"`
+	BackendUrl     *string             `json:"backend_url,omitempty"`
+	BranchId       *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName     *string             `json:"branch_name,omitempty"`
+	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
 
 	// BuildVersionId Override the build to use for this test execution. If provided, this will override the build attached to the test.
 	BuildVersionId *openapi_types.UUID `json:"build_version_id,omitempty"`
@@ -6529,8 +6595,9 @@ type TaskID struct {
 	LlmModelName *string `json:"llm_model_name,omitempty"`
 
 	// OsVersion Override the target OS/runtime version for this execution
-	OsVersion *string `json:"os_version,omitempty"`
-	Retries   *int    `json:"retries,omitempty"`
+	OsVersion     *string             `json:"os_version,omitempty"`
+	PinnedBuildId *openapi_types.UUID `json:"pinned_build_id,omitempty"`
+	Retries       *int                `json:"retries,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
@@ -6574,11 +6641,13 @@ type TaskMetadata struct {
 
 // Test defines model for Test.
 type Test struct {
-	AppId       *openapi_types.UUID `json:"app_id,omitempty"`
-	AppLink     *string             `json:"app_link,omitempty"`
-	AppPackage  *string             `json:"app_package,omitempty"`
-	BackendUrl  *string             `json:"backend_url,omitempty"`
-	DeviceLocal *bool               `json:"device_local,omitempty"`
+	AppId          *openapi_types.UUID `json:"app_id,omitempty"`
+	AppLink        *string             `json:"app_link,omitempty"`
+	AppPackage     *string             `json:"app_package,omitempty"`
+	BackendUrl     *string             `json:"backend_url,omitempty"`
+	BranchId       *openapi_types.UUID `json:"branch_id,omitempty"`
+	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
+	DeviceLocal    *bool               `json:"device_local,omitempty"`
 
 	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
 	ExpectedVersion *int                `json:"expected_version,omitempty"`
@@ -6611,6 +6680,7 @@ type Test struct {
 	Orientation   *string             `json:"orientation,omitempty"`
 	Owner         *openapi_types.UUID `json:"owner,omitempty"`
 	PackageName   *string             `json:"package_name,omitempty"`
+	PinnedBuildId *openapi_types.UUID `json:"pinned_build_id,omitempty"`
 	PinnedVersion *string             `json:"pinned_version,omitempty"`
 	Platform      *string             `json:"platform,omitempty"`
 
@@ -6800,6 +6870,8 @@ type TestResourceResponse struct {
 	AppLink                *string                                   `json:"app_link,omitempty"`
 	AppPackage             *string                                   `json:"app_package,omitempty"`
 	BackendUrl             *string                                   `json:"backend_url,omitempty"`
+	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
+	BuildSelection         *BuildSelectionMode                       `json:"build_selection,omitempty"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
 
 	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
@@ -6837,6 +6909,7 @@ type TestResourceResponse struct {
 	Orientation   *string             `json:"orientation,omitempty"`
 	Owner         *openapi_types.UUID `json:"owner,omitempty"`
 	PackageName   *string             `json:"package_name,omitempty"`
+	PinnedBuildId *openapi_types.UUID `json:"pinned_build_id,omitempty"`
 	PinnedVersion *string             `json:"pinned_version,omitempty"`
 	Platform      *string             `json:"platform,omitempty"`
 
@@ -7099,8 +7172,16 @@ type UpdateVariableValueModel struct {
 
 // UpdateWorkflowBuildConfigRequest defines model for UpdateWorkflowBuildConfigRequest.
 type UpdateWorkflowBuildConfigRequest struct {
-	BuildConfig         *map[string]interface{} `json:"build_config"`
-	OverrideBuildConfig bool                    `json:"override_build_config"`
+	// BuildConfig Workflow-level app configuration for iOS and Android.
+	//
+	// When set on a workflow with override_build_config=True, these apps
+	// override individual test app configurations for matching platforms.
+	//
+	// Attributes:
+	//     ios_app: Optional iOS app override configuration.
+	//     android_app: Optional Android app override configuration.
+	BuildConfig         *WorkflowAppConfig `json:"build_config,omitempty"`
+	OverrideBuildConfig bool               `json:"override_build_config"`
 }
 
 // UpdateWorkflowLocationConfigRequest defines model for UpdateWorkflowLocationConfigRequest.
@@ -7256,7 +7337,7 @@ type WorkflowAppConfig struct {
 	//
 	// Attributes:
 	//     app_id: UUID of the app to use.
-	//     pinned_version: Optional specific version to pin to. If None, uses current/latest.
+	//     pinned_version: Legacy version pin, retained during branch rollout.
 	AndroidBuild *PlatformApp `json:"android_build,omitempty"`
 
 	// IosBuild App configuration for a single platform.
@@ -7265,7 +7346,7 @@ type WorkflowAppConfig struct {
 	//
 	// Attributes:
 	//     app_id: UUID of the app to use.
-	//     pinned_version: Optional specific version to pin to. If None, uses current/latest.
+	//     pinned_version: Legacy version pin, retained during branch rollout.
 	IosBuild *PlatformApp `json:"ios_build,omitempty"`
 }
 
@@ -7278,11 +7359,21 @@ type WorkflowCancelResponse struct {
 
 // WorkflowData defines model for WorkflowData.
 type WorkflowData struct {
-	Name     string               `json:"name"`
-	OrgId    *openapi_types.UUID  `json:"org_id,omitempty"`
-	Owner    string               `json:"owner"`
-	Schedule *string              `json:"schedule,omitempty"`
-	Tests    []openapi_types.UUID `json:"tests"`
+	// BuildConfig Workflow-level app configuration for iOS and Android.
+	//
+	// When set on a workflow with override_build_config=True, these apps
+	// override individual test app configurations for matching platforms.
+	//
+	// Attributes:
+	//     ios_app: Optional iOS app override configuration.
+	//     android_app: Optional Android app override configuration.
+	BuildConfig         *WorkflowAppConfig   `json:"build_config,omitempty"`
+	Name                string               `json:"name"`
+	OrgId               *openapi_types.UUID  `json:"org_id,omitempty"`
+	OverrideBuildConfig *bool                `json:"override_build_config,omitempty"`
+	Owner               string               `json:"owner"`
+	Schedule            *string              `json:"schedule,omitempty"`
+	Tests               []openapi_types.UUID `json:"tests"`
 }
 
 // WorkflowDetailInfo defines model for WorkflowDetailInfo.
@@ -7575,6 +7666,8 @@ type AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata struct {
 //	launch_env_var_ids: Stored organization launch variables applied to every child test.
 //	launch_env_vars: Inline launch variables applied to every child test.
 type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
+	BranchName *string `json:"branch_name,omitempty"`
+
 	// BuildConfig Workflow-level app configuration for iOS and Android.
 	//
 	// When set on a workflow with override_build_config=True, these apps
@@ -7729,7 +7822,9 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	Version string `form:"version" json:"version"`
 
 	// FileName Name of the file to upload
-	FileName string `form:"file_name" json:"file_name"`
+	FileName   string              `form:"file_name" json:"file_name"`
+	BranchId   *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	BranchName *string             `form:"branch_name,omitempty" json:"branch_name,omitempty"`
 
 	// Source Build upload source for backend-owned lifecycle analytics
 	Source                                 *string `form:"source,omitempty" json:"source,omitempty"`
@@ -7745,6 +7840,7 @@ type ListAtlasAnnotationFeedbackParams struct {
 	ObservationId    *string                                      `form:"observation_id,omitempty" json:"observation_id,omitempty"`
 	ThreadId         *string                                      `form:"thread_id,omitempty" json:"thread_id,omitempty"`
 	BuildId          *string                                      `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId         *string                                      `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	FromTime         *time.Time                                   `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime           *time.Time                                   `form:"to_time,omitempty" json:"to_time,omitempty"`
 	RecentBuildLimit *int                                         `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
@@ -7840,6 +7936,7 @@ type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
 	ActionType          string  `form:"action_type" json:"action_type"`
 	ActionLabel         *string `form:"action_label,omitempty" json:"action_label,omitempty"`
 	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId            *string `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
 	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
 	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
@@ -7856,6 +7953,7 @@ type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
 // GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams defines parameters for GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGet.
 type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams struct {
 	BuildId             *string             `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId            *string             `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	ReportId            *string             `form:"report_id,omitempty" json:"report_id,omitempty"`
 	TestId              *string             `form:"test_id,omitempty" json:"test_id,omitempty"`
 	SourceKind          *string             `form:"source_kind,omitempty" json:"source_kind,omitempty"`
@@ -7874,6 +7972,7 @@ type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservatio
 // GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams defines parameters for GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGet.
 type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId            *string `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
 	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
 	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
@@ -7894,6 +7993,7 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
 type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams struct {
 	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId           *string `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
 	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
 	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
@@ -7920,6 +8020,7 @@ type CreateGroundedAtlasAnnotationThreadParams struct {
 // GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams defines parameters for GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGet.
 type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId            *string `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
 	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
 	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
@@ -8817,6 +8918,22 @@ func (a *Test) UnmarshalJSON(b []byte) error {
 		delete(object, "backend_url")
 	}
 
+	if raw, found := object["branch_id"]; found {
+		err = json.Unmarshal(raw, &a.BranchId)
+		if err != nil {
+			return fmt.Errorf("error reading 'branch_id': %w", err)
+		}
+		delete(object, "branch_id")
+	}
+
+	if raw, found := object["build_selection"]; found {
+		err = json.Unmarshal(raw, &a.BuildSelection)
+		if err != nil {
+			return fmt.Errorf("error reading 'build_selection': %w", err)
+		}
+		delete(object, "build_selection")
+	}
+
 	if raw, found := object["device_local"]; found {
 		err = json.Unmarshal(raw, &a.DeviceLocal)
 		if err != nil {
@@ -8951,6 +9068,14 @@ func (a *Test) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'package_name': %w", err)
 		}
 		delete(object, "package_name")
+	}
+
+	if raw, found := object["pinned_build_id"]; found {
+		err = json.Unmarshal(raw, &a.PinnedBuildId)
+		if err != nil {
+			return fmt.Errorf("error reading 'pinned_build_id': %w", err)
+		}
+		delete(object, "pinned_build_id")
 	}
 
 	if raw, found := object["pinned_version"]; found {
@@ -9104,6 +9229,20 @@ func (a Test) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.BranchId != nil {
+		object["branch_id"], err = json.Marshal(a.BranchId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'branch_id': %w", err)
+		}
+	}
+
+	if a.BuildSelection != nil {
+		object["build_selection"], err = json.Marshal(a.BuildSelection)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'build_selection': %w", err)
+		}
+	}
+
 	if a.DeviceLocal != nil {
 		object["device_local"], err = json.Marshal(a.DeviceLocal)
 		if err != nil {
@@ -9220,6 +9359,13 @@ func (a Test) MarshalJSON() ([]byte, error) {
 		object["package_name"], err = json.Marshal(a.PackageName)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'package_name': %w", err)
+		}
+	}
+
+	if a.PinnedBuildId != nil {
+		object["pinned_build_id"], err = json.Marshal(a.PinnedBuildId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'pinned_build_id': %w", err)
 		}
 	}
 
@@ -9380,6 +9526,22 @@ func (a *TestResourceResponse) UnmarshalJSON(b []byte) error {
 		delete(object, "backend_url")
 	}
 
+	if raw, found := object["branch_id"]; found {
+		err = json.Unmarshal(raw, &a.BranchId)
+		if err != nil {
+			return fmt.Errorf("error reading 'branch_id': %w", err)
+		}
+		delete(object, "branch_id")
+	}
+
+	if raw, found := object["build_selection"]; found {
+		err = json.Unmarshal(raw, &a.BuildSelection)
+		if err != nil {
+			return fmt.Errorf("error reading 'build_selection': %w", err)
+		}
+		delete(object, "build_selection")
+	}
+
 	if raw, found := object["cloud_agent_conversation"]; found {
 		err = json.Unmarshal(raw, &a.CloudAgentConversation)
 		if err != nil {
@@ -9530,6 +9692,14 @@ func (a *TestResourceResponse) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'package_name': %w", err)
 		}
 		delete(object, "package_name")
+	}
+
+	if raw, found := object["pinned_build_id"]; found {
+		err = json.Unmarshal(raw, &a.PinnedBuildId)
+		if err != nil {
+			return fmt.Errorf("error reading 'pinned_build_id': %w", err)
+		}
+		delete(object, "pinned_build_id")
 	}
 
 	if raw, found := object["pinned_version"]; found {
@@ -9683,6 +9853,20 @@ func (a TestResourceResponse) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.BranchId != nil {
+		object["branch_id"], err = json.Marshal(a.BranchId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'branch_id': %w", err)
+		}
+	}
+
+	if a.BuildSelection != nil {
+		object["build_selection"], err = json.Marshal(a.BuildSelection)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'build_selection': %w", err)
+		}
+	}
+
 	if a.CloudAgentConversation != nil {
 		object["cloud_agent_conversation"], err = json.Marshal(a.CloudAgentConversation)
 		if err != nil {
@@ -9813,6 +9997,13 @@ func (a TestResourceResponse) MarshalJSON() ([]byte, error) {
 		object["package_name"], err = json.Marshal(a.PackageName)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'package_name': %w", err)
+		}
+	}
+
+	if a.PinnedBuildId != nil {
+		object["pinned_build_id"], err = json.Marshal(a.PinnedBuildId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'pinned_build_id': %w", err)
 		}
 	}
 

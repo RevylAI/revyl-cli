@@ -12,6 +12,7 @@ import (
 
 func TestCompleteCommandAnalyticsMarksPanicAsFailure(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "")
 
 	var captured analytics.TelemetryPayload
 	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) {
@@ -35,6 +36,7 @@ func TestCompleteCommandAnalyticsMarksPanicAsFailure(t *testing.T) {
 
 func TestComputerCommandLifecycle(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "")
 	for _, failed := range []bool{false, true} {
 		var captured analytics.TelemetryPayload
 		recorder := analytics.NewWithFlusher(analytics.Config{Version: "test-version"}, func(payload analytics.TelemetryPayload) {
