@@ -81,6 +81,11 @@ go run ./cmd/package-openai-plugin \
   --out ./build/revyl-submission.zip
 ```
 
+Add `--demo-recording-url "$REVYL_DEMO_RECORDING_URL"` once the walkthrough is
+recorded. OpenAI requires that link for a package with a remote server, and the
+flag writes it into the archive's review metadata without it living in the
+repository.
+
 This mode emits one Streamable HTTP connection in `mcp.json`, without a private
 registered-app mapping. Set `REVYL_MCP_URL` to the real deployed HTTPS endpoint;
 never substitute a temporary tunnel, an example URL, or the frontend URL. The
@@ -115,8 +120,9 @@ ZIP generation is not proof of submission readiness. Before submitting:
    unrelated admin or purchase flows from the submitted UI.
 5. Run all five positive and three negative cases in `plugin.json` on the
    release deployment. The supplied cases are a test plan, not recorded passes.
-   Provide a dedicated reviewer account with sample data, a working fixture
-   repository/build, and a full-SHA CI artifact where the case requires one.
+   Provide a dedicated reviewer account with sample data and a working fixture
+   build. The cases use only the hosted MCP tools, so a reviewer needs no cloud
+   workspace, repository, or CLI sign-in to run them.
 6. Add an accessible demonstration recording to the review metadata and enter
    reviewer credentials only in the portal's private fields. Confirm publisher
    verification, endpoint-domain verification, support contact access, and the

@@ -57,6 +57,7 @@ func run(packageDirectory string, args []string) error {
 	appID := flags.String("registered-app-id", "", "registered app ID for a private development package")
 	mcpURL := flags.String("mcp-url", "", "production HTTPS MCP URL for a public submission package")
 	packageName := flags.String("package-name", "", "existing private plugin name when uploading a new version")
+	demoRecordingURL := flags.String("demo-recording-url", "", "HTTPS demo recording URL for a public submission package's review metadata")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *out == "" || (*appID == "") == (*mcpURL == "") {
 		return errors.New("use --out PATH and exactly one of --registered-app-id ID or --mcp-url URL")
 	}
@@ -79,6 +80,12 @@ func run(packageDirectory string, args []string) error {
 	if *mcpURL != "" {
 		if err := validateMCPURL(*mcpURL); err != nil {
 			return err
+		}
+	}
+	if *demoRecordingURL != "" {
+		recording, err := url.Parse(*demoRecordingURL)
+		if *mcpURL == "" || err != nil || recording.Scheme != "https" || recording.Hostname() == "" || recording.User != nil || len(*demoRecordingURL) > 1024 || strings.ContainsAny(*demoRecordingURL, "\\\r\n\t ") {
+			return errors.New("--demo-recording-url requires --mcp-url and an HTTPS URL of at most 1024 characters without credentials or whitespace")
 		}
 	}
 	root, err := os.OpenRoot(packageDirectory)
@@ -156,10 +163,25 @@ func run(packageDirectory string, args []string) error {
 			"apps": map[string]any{"revyl": map[string]string{"id": registeredID}},
 		})
 	} else {
+		if *demoRecordingURL != "" {
+			var review map[string]json.RawMessage
+			if err := json.Unmarshal(openAI["review"], &review); err != nil || review == nil {
+				return errors.New("overlay com.openai.review must be an object to carry a demo recording URL")
+			}
+			if review["demo_recording_url"], err = json.Marshal(*demoRecordingURL); err != nil {
+				return err
+			}
+			if openAI["review"], err = json.Marshal(review); err != nil {
+				return err
+			}
+		}
 		connection, err = jsonFile("mcp.json", map[string]any{
 			"$schema": mcpSchema,
-			"mcpServers": map[string]any{"revyl": map[string]string{
+			"mcpServers": map[string]any{"revyl": map[string]any{
 				"type": "streamable-http", "url": *mcpURL,
+				"extensions": map[string]any{"com.openai": map[string]any{
+					"auth": map[string]any{"type": "oauth", "client": map[string]string{"mode": "dcr"}},
+				}},
 			}},
 		})
 	}

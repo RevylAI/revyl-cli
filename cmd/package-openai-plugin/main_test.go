@@ -214,8 +214,12 @@ func TestPackageRoundTrip(t *testing.T) {
 				}
 				servers := connection["mcpServers"].(map[string]any)
 				server := servers["revyl"].(map[string]any)
-				if len(servers) != 1 || len(server) != 2 || server["type"] != "streamable-http" || server["url"] != mode.value {
+				if len(servers) != 1 || len(server) != 3 || server["type"] != "streamable-http" || server["url"] != mode.value {
 					t.Fatalf("invalid MCP server: %v", servers)
+				}
+				declaredAuth, err := json.Marshal(server["extensions"])
+				if err != nil || string(declaredAuth) != `{"com.openai":{"auth":{"client":{"mode":"dcr"},"type":"oauth"}}}` {
+					t.Fatalf("public connection must declare OAuth with dynamic client registration: %s, %v", declaredAuth, err)
 				}
 			}
 		})
@@ -437,6 +441,44 @@ func TestExistingPrivatePackageIdentity(t *testing.T) {
 	} {
 		if err := run(root, append([]string{"--out", filepath.Join(t.TempDir(), "invalid.zip")}, args...)); err == nil {
 			t.Fatal("unsafe or public package identity override was accepted")
+		}
+	}
+}
+
+func TestDemoRecordingURLJoinsPublicReviewMetadata(t *testing.T) {
+	root := fixture(t)
+	recordingOf := func(args ...string) any {
+		t.Helper()
+		out := filepath.Join(t.TempDir(), "public.zip")
+		if err := run(root, append([]string{"--out", out, "--mcp-url", "https://mcp.example.com/mcp"}, args...)); err != nil {
+			t.Fatal(err)
+		}
+		files, _ := readArchive(t, out)
+		var manifest struct {
+			Extensions map[string]struct {
+				Review map[string]any `json:"review"`
+			} `json:"extensions"`
+		}
+		if err := json.Unmarshal(files["plugin.json"], &manifest); err != nil || len(manifest.Extensions["com.openai"].Review) == 0 {
+			t.Fatalf("public package lost its review metadata: %v", err)
+		}
+		return manifest.Extensions["com.openai"].Review["demo_recording_url"]
+	}
+	if recording := recordingOf(); recording != nil {
+		t.Fatalf("a demo recording URL appeared without the flag: %v", recording)
+	}
+	if recording := recordingOf("--demo-recording-url", "https://videos.example.com/revyl-demo"); recording != "https://videos.example.com/revyl-demo" {
+		t.Fatalf("demo recording URL was not carried into review metadata: %v", recording)
+	}
+	for _, args := range [][]string{
+		{"--registered-app-id", "asdk_app_fixture", "--demo-recording-url", "https://videos.example.com/revyl-demo"},
+		{"--mcp-url", "https://mcp.example.com/mcp", "--demo-recording-url", "http://videos.example.com/revyl-demo"},
+		{"--mcp-url", "https://mcp.example.com/mcp", "--demo-recording-url", "https://user:TEST_SECRET@videos.example.com/revyl-demo"},
+		{"--mcp-url", "https://mcp.example.com/mcp", "--demo-recording-url", "videos.example.com/revyl-demo"},
+		{"--mcp-url", "https://mcp.example.com/mcp", "--demo-recording-url", "https://videos.example.com/" + strings.Repeat("a", 1024)},
+	} {
+		if err := run(root, append([]string{"--out", filepath.Join(t.TempDir(), "invalid.zip")}, args...)); err == nil || strings.Contains(err.Error(), "TEST_SECRET") {
+			t.Fatalf("an unusable demo recording URL should fail safely: %v", err)
 		}
 	}
 }
