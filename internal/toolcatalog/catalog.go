@@ -90,6 +90,18 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 			}
 			key := strings.ReplaceAll(name, "-", "_")
 			parameter.Default = spec.Defaults[key]
+			if spec.Name == "reports.inspect" {
+				switch name {
+				case "field-version":
+					parameter.MaxLength = 64
+				case "section":
+					parameter.Enum = []string{"overview", "steps", "actions", "field"}
+				case "id-kind":
+					parameter.Enum = []string{"execution", "session"}
+				case "status":
+					parameter.Enum = []string{"passed", "failed", "warning", "running", "pending"}
+				}
+			}
 			switch name {
 			case "platform":
 				parameter.Enum = []string{"ios", "android"}
@@ -98,7 +110,7 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 			case "surface-scope":
 				parameter.Enum = []string{"all", "app", "app+system", "app+external"}
 			}
-			if name == "session-id" || name == "app" || name == "branch-id" || name == "observation" || name == "report-id" || name == "test-id" || name == "client-request-id" || name == "base-build" || name == "head-build" {
+			if name == "step-id" || name == "action-id" || name == "session-id" || name == "app" || name == "branch-id" || name == "observation" || name == "report-id" || name == "test-id" || name == "client-request-id" || name == "base-build" || name == "head-build" {
 				parameter.Format = "uuid"
 			}
 			if name == "reports" {
@@ -114,8 +126,14 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 				if name == "page" {
 					minimum, maximum = 1, 10000
 				}
+				if name == "context" {
+					maximum = 20
+				}
 				if name == "offset" {
 					maximum = 100000
+					if spec.Name == "reports.inspect" {
+						maximum = 100000000
+					}
 				}
 				if name == "explorers" {
 					minimum, maximum = 1, 100
@@ -176,6 +194,15 @@ func (d Definition) Arguments(input map[string]any) ([]string, error) {
 		}
 		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
 			return nil, fmt.Errorf("required parameter %s is empty", key)
+		}
+	}
+	if (d.Name == "reports.logs" || d.Name == "sessions.logs") && (input["limit"] != nil || input["offset"] != nil) {
+		if input["tail"] != nil {
+			return nil, fmt.Errorf("use limit/offset or tail, not both")
+		}
+		delete(values, "tail")
+		if input["limit"] == nil {
+			values["limit"] = 80
 		}
 	}
 	args := append([]string{}, d.Command...)

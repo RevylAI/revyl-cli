@@ -17,14 +17,16 @@ package runinspect
 
 import (
 	"bufio"
+	"fmt"
 	"regexp"
 	"strings"
 )
 
 // LogLine is one parsed device-log entry. Level is V/D/I/W/E/F or empty.
 type LogLine struct {
-	Raw   string
-	Level string
+	Raw        string
+	Level      string
+	LineNumber int `json:"line_number"`
 }
 
 // LogFilter narrows a parsed log stream. Zero value matches everything.
@@ -37,7 +39,7 @@ type LogFilter struct {
 // best-effort level for each. Non-data lines (iOS header preamble,
 // blank rows) are returned with Level == "" so callers can still
 // display them when no --level filter is set.
-func ParseLogText(raw []byte) []LogLine {
+func ParseLogText(raw []byte) ([]LogLine, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
 	scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024)
 	var out []LogLine
@@ -54,9 +56,12 @@ func ParseLogText(raw []byte) []LogLine {
 			// Fall back to Android logcat threadtime parsing.
 			level = extractAndroidLevel(line)
 		}
-		out = append(out, LogLine{Raw: line, Level: level})
+		out = append(out, LogLine{Raw: line, Level: level, LineNumber: len(out) + 1})
 	}
-	return out
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("device log parsing stopped before all lines were read: %w", err)
+	}
+	return out, nil
 }
 
 // Apply returns the subset of lines that match the filter, in order.
@@ -172,4 +177,22 @@ func extractAndroidLevel(line string) string {
 		return ""
 	}
 	return m[1]
+}
+
+// LogContext preserves source line numbers and merges overlapping context windows.
+func LogContext(lines, matches []LogLine, contextLines int) []LogLine {
+	if contextLines == 0 {
+		return matches
+	}
+	result := []LogLine{}
+	end := 0
+	for _, match := range matches {
+		start := max(end, match.LineNumber-1-contextLines)
+		next := min(len(lines), match.LineNumber+contextLines)
+		if next > start {
+			result = append(result, lines[start:next]...)
+			end = next
+		}
+	}
+	return result
 }

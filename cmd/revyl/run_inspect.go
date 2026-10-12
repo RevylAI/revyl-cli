@@ -255,6 +255,10 @@ var runLogsCmd = &cobra.Command{
 }
 
 func runLogsRun(cmd *cobra.Command, args []string) error {
+	if cmd.Flags().Changed("tail") && (cmd.Flags().Changed("limit") || cmd.Flags().Changed("offset")) {
+		return fmt.Errorf("use limit/offset or tail, not both")
+	}
+
 	taskID := strings.TrimSpace(args[0])
 	report, client, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
@@ -323,7 +327,10 @@ func runLogsRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	lines := runinspect.ParseLogText(raw)
+	lines, err := runinspect.ParseLogText(raw)
+	if err != nil {
+		return err
+	}
 
 	filter := runinspect.LogFilter{}
 	if pattern, _ := cmd.Flags().GetString("grep"); pattern != "" {
@@ -338,20 +345,47 @@ func runLogsRun(cmd *cobra.Command, args []string) error {
 	}
 	filtered := filter.Apply(lines)
 	matchedBeforeLimit := len(filtered)
+	offset, _ := cmd.Flags().GetInt("offset")
+	limit, _ := cmd.Flags().GetInt("limit")
+	contextLines, _ := cmd.Flags().GetInt("context")
+	if offset < 0 || limit < 0 || contextLines < 0 || contextLines > 20 {
+		return fmt.Errorf("offset and limit must be nonnegative; context must be 0..20")
+	}
+	if offset > len(filtered) {
+		return fmt.Errorf("offset exceeds matching log line count")
+	}
+	filtered = filtered[offset:]
+	var nextOffset *int
+	if limit > 0 && limit < len(filtered) {
+		next := offset + limit
+		nextOffset = &next
+		filtered = filtered[:limit]
+	}
+
 	if tail, _ := cmd.Flags().GetInt("tail"); tail > 0 {
 		filtered = runinspect.TailN(filtered, tail)
 	}
 
+	matched := len(filtered)
+	matchLines := make([]int, 0, matched)
+	for _, line := range filtered {
+		matchLines = append(matchLines, line.LineNumber)
+	}
+	filtered = runinspect.LogContext(lines, filtered, contextLines)
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
 			"task_id":              taskID,
 			"lines":                filtered,
+			"match_line_numbers":   matchLines,
+			"context":              contextLines,
+			"offset":               offset,
+			"next_offset":          nextOffset,
 			"total":                len(lines),
-			"matched":              len(filtered),
+			"matched":              matched,
 			"matched_before_limit": matchedBeforeLimit,
-			"truncated":            len(filtered) < matchedBeforeLimit,
+			"truncated":            matched < matchedBeforeLimit,
 			"partial":              partial,
 		})
 	}
@@ -1131,6 +1165,9 @@ func init() {
 	runStateCmd.Flags().String("output", "",
 		"Output path for --download (default: ./device_state.jsonl.gz)")
 
+	runLogsCmd.Flags().Int("offset", 0, "Skip matching log lines before taking a page")
+	runLogsCmd.Flags().Int("limit", 0, "Maximum matching log lines; use with offset instead of tail (0 returns all)")
+	runLogsCmd.Flags().Int("context", 0, "Surround matches with 0..20 original lines, merging overlapping windows")
 	runLogsCmd.Flags().String("grep", "",
 		"Regexp filter applied to each log line (Go re2 syntax)")
 	runLogsCmd.Flags().StringSlice("level", nil,

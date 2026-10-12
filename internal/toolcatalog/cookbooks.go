@@ -24,7 +24,7 @@ func Cookbooks() []Cookbook {
 		{Name: "explore-diagnostics", Goal: "Find app activity, including Explore sessions without test executions, and trace diagnostics back into Atlas.", Steps: []CookbookStep{
 			{"apps.list", "Resolve the app by name; keep its exact app UUID."},
 			{"sessions.list", "Filter by app and optionally build/source/time/status before pagination. All statuses are included by default; use status=running for only active sessions. Preserve total and offset."},
-			{"sessions.report", "Inspect 1-5 relevant session reports, preserving report_id and session_id even when execution_id is null."},
+			{"reports.inspect", "Start with overview using reference_id=session UUID and id_kind=session. Select 1-5 reports. Page/filter steps or actions, follow next_offset, and read omitted fields in chunks; preserve report_id and session_id even when execution_id is null."},
 			{"sessions.performance", "Read CPU/memory for selected sessions. Compare samples and duration; do not claim screen-specific CPU."},
 			{"sessions.logs", "Inspect selected session device logs, filtered by level or grep."},
 			{"sessions.network", "Inspect captured failed requests and their timing. Missing capture is not a clean network."},
@@ -33,7 +33,7 @@ func Cookbooks() []Cookbook {
 		{Name: "failed-build", Goal: "Find failed executions on a build, locate their Atlas evidence, and inspect diagnostics.", Steps: []CookbookStep{
 			{"builds.list", "Resolve an exact build UUID in an app. Follow has_next if needed; branch filters apply to each scanned page."},
 			{"builds.runs", "Page through this build's attributed executions. Select failed outcomes, retaining their exact execution_id and test_id."},
-			{"reports.get", "Inspect up to five selected executions. Read effective step outcomes, validation results and capture availability; a failed execution can contain successful steps. Preserve the report ID distinct from the execution ID."},
+			{"reports.inspect", "Start with overview using reference_id=execution UUID and id_kind=execution for up to five executions. Page/filter steps and actions, then retrieve omitted field chunks. Read effective step outcomes and capture availability; a failed execution can contain successful steps. Preserve the report ID distinct from the execution ID."},
 			{"tests.get", "Inspect the source test's current instructions and configuration when useful. Do not assume the current definition or settings equal the version and resolved overrides used by the selected execution."},
 			{"atlas.from_reports", "Project these report IDs into the same app. Retain unmapped reports and per-report membership; do not label every screen in a failed run as broken."},
 			{"reports.logs", "Inspect each selected execution's device logs, narrowing grep and level. Preserve partial, matched_before_limit and truncated."},

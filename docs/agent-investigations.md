@@ -18,6 +18,14 @@ unknown parameters, invalid types, invalid UUID references and unsupported
 limits. Arguments become individual argv entries; they are never shell code.
 Each call has a 60-second execution budget and a 120,000-byte result budget.
 Oversized results fail explicitly; they are never returned as truncated JSON.
+`tools call --max-output-bytes` can lower that budget (4,096–120,000 bytes).
+Tool execution and JSON argument validation failures from `call` and `hydrate`
+return a versioned JSON error on stdout and a
+nonzero exit status. The error carries `code`, `retry_unchanged`, and `recovery`
+with concrete tool arguments when available. Oversized report reads suggest a
+bounded overview; that recovery does not mean the whole report was analyzed.
+Timeouts, missing evidence, unavailable resources, authentication failures, and
+uncertain writes have separate codes. Raw child stderr is not forwarded.
 
 `tools search` and `tools describe` need no login. Calls use normal CLI auth
 and routing. Specify the intended environment through the existing CLI
@@ -72,9 +80,11 @@ local agents and sandbox agents can learn the same investigation patterns.
 2. Call `builds.runs` with `build_id`, `page` and `limit`. Select failed
    executions from that page. Follow `has_next` if the investigation requires
    more pages; no failures on one page is not proof of a healthy build.
-3. Call `reports.get` with an exact `execution_id`. Read effective step outcomes,
-   validation results and capture availability. A failed execution can contain
-   successful steps. Preserve the returned report ID and execution ID.
+3. Call `reports.inspect` with `reference_id` set to the execution UUID and
+   `id_kind: "execution"`. Start with `section: "overview"`, then filter/page
+   `steps` or `actions`. Read effective outcomes, validation results and capture
+   availability. A failed execution can contain successful steps. Preserve the
+   returned report ID and execution ID.
 4. Call `atlas.from_reports` with `app` and up to five report UUIDs in
    `reports`. Keep every per-report membership entry, including unmapped ones.
    The graph contains the report's observed evidence, not only its failing step.
@@ -110,8 +120,60 @@ and `revyl run perf <SESSION_UUID> --id-kind session --timeline --json`.
 
 `sessions.report` defaults to `no_actions: true`, retaining step outcomes while
 omitting bulky action details. Use `no_steps: true` for summary-only orientation,
-or `no_actions: false` when exact action payloads are needed. The direct command's
+or use `reports.inspect` to select action details without returning every action. The direct command's
 additive `--no-actions` and `--no-steps` flags preserve its full-detail default.
+
+### Progressive report reads
+
+```bash
+revyl tools call reports.inspect '{"reference_id":"<SESSION_UUID>","id_kind":"session","section":"overview"}' --read-only
+revyl tools call reports.inspect '{"reference_id":"<SESSION_UUID>","id_kind":"session","section":"steps","status":"failed"}' --read-only
+revyl tools call reports.inspect '{"reference_id":"<SESSION_UUID>","id_kind":"session","section":"actions","step_id":"<STEP_UUID>","limit":5}' --read-only
+revyl tools call reports.inspect '{"reference_id":"<SESSION_UUID>","id_kind":"session","section":"field","step_id":"<STEP_UUID>","action_id":"<ACTION_UUID>","field":"/reasoning"}' --read-only
+```
+
+The direct equivalent is `revyl run inspect <REFERENCE_UUID> --id-kind session`;
+use `--section`, `--step-id`, `--action-id`, `--status`, `--grep`, `--offset`, and
+`--limit` for the same investigation. Its default is a readable overview;
+`--json` emits the compact machine contract. Existing `device report --json`
+and `test report --json` full exports keep their contracts.
+
+Pages contain at most 100 items and 48,000 bytes. `total` counts candidates in
+the selected report/step/action scope; `matched` counts them after regex and
+step-status filtering. Search evaluates full fetched values before compaction.
+`returned`, `offset`, `next_offset`, and `truncated` describe pagination.
+`omitted_fields` lists large fields removed from each item, with JSON pointers,
+encoded byte lengths, and short string previews. `excluded_fields` separately
+names intentionally unfetched content. Finishing a page sequence does not mean
+omitted fields or external captures were inspected.
+
+For any field, select its stable step/action IDs and use `section: "field"` with
+an RFC 6901 pointer relative to that report, step, or action. Field pages contain
+up to 4,000 Unicode characters of **encoded JSON**, with character offsets;
+pass the first chunk's `field.version` as `field_version` on continuations,
+concatenate `field.content` chunks, then decode the completed JSON. A changed
+field returns `evidence_changed` instead of mixing versions; select a stable
+nested text field when a collection contains expiring media URLs. `limit`
+applies to item pages, not field chunks. Full LLM call payloads are excluded.
+The CLI currently narrows the existing backend context response locally;
+action reads and fields that traverse actions still fetch all actions. `updated_at` identifies the returned
+report revision, but live reports can change between reads; these are not
+snapshot-isolated cursors.
+
+Use `reports.logs` / `sessions.logs` with `grep`, `context` (0–20 surrounding
+lines), and `limit`/`offset` to investigate stack traces. `match_line_numbers`
+identifies matched source lines; `lines` also includes deduplicated context and
+one-based `line_number`. `next_offset` continues through matching lines.
+`tail` instead returns the latest matches and cannot combine with pagination.
+`matched_before_limit` counts all matches in the parsed capture; `partial`
+identifies a capture still in progress. Parser failures are errors, never a
+successful search of a silently truncated file. Zero matches in a complete
+capture differ from `evidence_unavailable`.
+
+Screenshot and video URLs remain evidence locators. Retrieving a URL does not
+inspect pixels or motion. Shell agents can open selected media with their image
+or video tools; hosted Atlas Chat currently attaches exact Atlas observations,
+not arbitrary report screenshot URLs, and cannot inspect transition clips.
 
 Network tools default to 50 compact requests, omitting headers and body previews
 and removing URL credentials, query strings and fragments. `matched` is the total

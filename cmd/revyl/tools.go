@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,6 +57,7 @@ func newToolsCommand() *cobra.Command {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(tool)
 	}})
 	call := &cobra.Command{Use: "call <tool> <json|->", Short: "Execute a validated tool call; '-' reads JSON from stdin", Args: cobra.ExactArgs(2), RunE: runInvestigationTool}
+	call.Flags().Int("max-output-bytes", toolOutputLimitBytes, "Maximum result bytes (4096..120000); lower for a model context budget")
 	call.Flags().Bool("read-only", false, "Reject tools that change remote state")
 	call.Flags().Bool("view", false, "Return data with a replayable native view recipe")
 	command.AddCommand(call)
@@ -97,7 +99,20 @@ func newToolsCommand() *cobra.Command {
 	for _, child := range command.Commands() {
 		run := child.RunE
 		child.RunE = func(cmd *cobra.Command, args []string) error {
-			return analytics.WithSafeDiagnostic(run(cmd, args), "investigation command failed")
+			err := run(cmd, args)
+			if err != nil && (cmd.Name() == "call" || cmd.Name() == "hydrate") {
+				var failure *investigationError
+				if !errors.As(err, &failure) {
+					failure = &investigationError{Code: "invalid_arguments", Message: "Invalid tool call. Use tools search and tools describe to check the operation, required arguments, and read-only policy.", Recovery: []toolRecovery{}}
+				}
+				if encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+					SchemaVersion int                 `json:"schema_version"`
+					Error         *investigationError `json:"error"`
+				}{1, failure}); encodeErr != nil {
+					return encodeErr
+				}
+			}
+			return analytics.WithSafeDiagnostic(err, "investigation command failed")
 		}
 	}
 	return command
@@ -166,9 +181,16 @@ func readToolInput(cmd *cobra.Command, value string) ([]byte, error) {
 }
 
 func executeInvestigationTool(cmd *cobra.Command, tool toolcatalog.Definition, input map[string]any, view *toolcatalog.View) error {
+	outputLimit := toolOutputLimitBytes
+	if cmd.Flags().Lookup("max-output-bytes") != nil {
+		outputLimit, _ = cmd.Flags().GetInt("max-output-bytes")
+	}
+	if outputLimit < 4096 || outputLimit > toolOutputLimitBytes {
+		return fmt.Errorf("max-output-bytes must be 4096..120000")
+	}
 	argv, err := tool.Arguments(input)
 	if err != nil {
-		return analytics.WithSafeDiagnostic(err, "invalid investigation tool arguments")
+		return toolFailure(tool, input, "invalid_arguments", "Invalid arguments; use tools describe "+tool.Name+" to check parameter names, types, and limits.")
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	if devMode {
@@ -191,33 +213,60 @@ func executeInvestigationTool(cmd *cobra.Command, tool toolcatalog.Definition, i
 	}
 	child.WaitDelay = 2 * time.Second
 	child.Env = append(os.Environ(), "REVYL_TELEMETRY_DISABLED=1")
-	stdout := &boundedToolOutput{limit: toolOutputLimitBytes, cancel: cancel}
+	stdout := &boundedToolOutput{limit: outputLimit, cancel: cancel}
 	stderr := &boundedToolOutput{limit: 16000, cancel: cancel}
 	child.Stdout, child.Stderr = stdout, stderr
 	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "investigation." + tool.Name, DomainStatus: "attempted"})
 	if err = child.Run(); err != nil {
 		if !tool.ReadOnly {
-			return fmt.Errorf("tool %s did not return a confirmed result; the write may have completed. Inspect the thread or run history before retrying; preserve client_request_id when supported", tool.Name)
+			return toolFailure(tool, input, "write_outcome_unknown", "The write did not return a confirmed result and may have completed. Inspect existing results before retrying; preserve client_request_id when supported.")
 		}
 		if stdout.exceeded || stderr.exceeded {
-			return fmt.Errorf("tool output exceeded its budget; narrow the query or filter diagnostics")
+			failure := toolFailure(tool, input, "result_too_large", "")
+			failure.LimitBytes = outputLimit
+			return failure
 		}
 		if ctx.Err() != nil {
-			return fmt.Errorf("tool cancelled or exceeded 60 seconds; narrow the query")
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return toolFailure(tool, input, "cancelled", "Tool cancelled; no result was accepted.")
+			}
+			return toolFailure(tool, input, "timeout", "Tool exceeded 60 seconds; narrow the query or use another evidence source.")
 		}
-		return fmt.Errorf("tool %s: %s", tool.Name, investigationFailureHint(stderr.String()))
+		if tool.Name == "reports.inspect" {
+			var envelope struct {
+				SchemaVersion int                 `json:"schema_version"`
+				Error         *investigationError `json:"error"`
+			}
+			if json.Unmarshal(stdout.Bytes(), &envelope) == nil && envelope.SchemaVersion == 1 && envelope.Error != nil && envelope.Error.Tool == tool.Name {
+				return envelope.Error
+			}
+		}
+		code, hint := classifyInvestigationFailure(stderr.String())
+		return toolFailure(tool, input, code, hint)
 	}
 	if !json.Valid(stdout.Bytes()) {
-		return fmt.Errorf("tool returned invalid JSON; no result was accepted")
+		return toolFailure(tool, input, "invalid_response", "Tool returned invalid JSON; no result was accepted.")
 	}
-	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "investigation." + tool.Name, DomainStatus: "completed"})
+	payload := stdout.Bytes()
 	if view != nil {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+		viewPayload, marshalErr := json.Marshal(struct {
 			View *toolcatalog.View `json:"view"`
 			Data json.RawMessage   `json:"data"`
 		}{view, stdout.Bytes()})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if len(viewPayload)+1 > outputLimit {
+			failure := toolFailure(tool, input, "result_too_large", "")
+			failure.LimitBytes = outputLimit
+			return failure
+		}
+		payload = append(viewPayload, '\n')
 	}
-	_, err = cmd.OutOrStdout().Write(stdout.Bytes())
+	_, err = cmd.OutOrStdout().Write(payload)
+	if err == nil {
+		analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "investigation." + tool.Name, DomainStatus: "completed"})
+	}
 	return err
 }
 
@@ -232,10 +281,10 @@ func investigationFailureHint(stderr string) string {
 		return "backend unavailable; check the configured backend connection before retrying"
 	case strings.Contains(message, "not authenticated"), strings.Contains(message, "auth login"), strings.Contains(message, "401"):
 		return "authentication unavailable; authenticate the CLI for the selected environment"
-	case strings.Contains(message, "403"), strings.Contains(message, "404"), strings.Contains(message, "not found"):
-		return "resource unavailable; verify the exact identifier and organization"
 	case strings.Contains(message, "no device logs"), strings.Contains(message, "not yet available"), strings.Contains(message, "no hardware metrics"), strings.Contains(message, "no network"), strings.Contains(message, "no device state"):
 		return "this diagnostic was not captured or is not available yet; inspect report capture availability"
+	case strings.Contains(message, "403"), strings.Contains(message, "404"), strings.Contains(message, "not found"):
+		return "resource unavailable; verify the exact identifier and organization"
 	default:
 		return "the underlying read failed; narrow the query or inspect the command shown by tools describe"
 	}

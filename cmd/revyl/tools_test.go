@@ -357,3 +357,38 @@ func TestSessionDiagnosticsKeepTheirReferenceKind(t *testing.T) {
 		}
 	}
 }
+
+func TestReportRecoveryTargetsExecutableBoundedRead(t *testing.T) {
+	tool, err := findInvestigationTool(rootCmd, "sessions.report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := toolFailure(tool, map[string]any{"session_id": "00000000-0000-4000-8000-000000000001"}, "result_too_large", "")
+	if failure.RetryUnchanged || len(failure.Recovery) != 1 {
+		t.Fatalf("invalid recovery: %+v", failure)
+	}
+	next := failure.Recovery[0]
+	target, err := findInvestigationTool(rootCmd, next.Tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.Arguments(next.Arguments); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"reports.logs", "sessions.logs"} {
+		target, err := findInvestigationTool(rootCmd, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := map[string]any{target.Positionals[0]: "00000000-0000-4000-8000-000000000001", "limit": 5, "context": 3}
+		args, err := target.Arguments(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "--tail=") {
+				t.Fatal("tail silently narrows a forward page")
+			}
+		}
+	}
+}
