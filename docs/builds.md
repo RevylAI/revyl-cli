@@ -33,6 +33,115 @@ files. Never track secrets: `.gitignore` does not exclude already-tracked
 files. Store credentials with `revyl build secret set NAME` and reference
 their names in the recipe's `secrets` or with `--secret NAME`.
 
+## Private dependencies
+
+Upload credentials as build secrets and configure authentication before the
+command that downloads private dependencies. The same setup commands run for
+CLI uploads and GitHub-triggered builds.
+
+### Private Git dependencies and submodules
+
+For HTTPS Git downloads, add an entry to `$HOME/.netrc`. Choose the example for
+your Git host. Create the secret with the masked prompt:
+
+```bash
+revyl build secret set GITHUB_TOKEN
+# For GitLab instead:
+revyl build secret set GITLAB_TOKEN
+```
+
+Select the name under `build.secrets` (or the recipe's `secrets`):
+
+```yaml
+secrets:
+  - GITHUB_TOKEN
+```
+
+For GitLab, select `GITLAB_TOKEN` instead. Use a token with read access to each
+dependency repository. A GitLab personal access token needs `read_repository`;
+a deploy token needs its assigned username instead of `oauth2` below.
+
+Add the matching setup command to the recipe before dependency installation.
+These examples add a new host without erasing entries for other services. If
+that host already has an entry, update it instead of appending a duplicate.
+
+**GitHub:**
+
+```yaml
+setup_commands:
+  - name: Configure GitHub credentials
+    run: |
+      set -eu
+      set +x
+      umask 077
+      touch "$HOME/.netrc"
+      chmod 600 "$HOME/.netrc"
+      printf '\nmachine github.com\nlogin x-access-token\npassword %s\n' \
+        "$GITHUB_TOKEN" >> "$HOME/.netrc"
+```
+
+**GitLab:**
+
+```yaml
+setup_commands:
+  - name: Configure GitLab credentials
+    run: |
+      set -eu
+      set +x
+      umask 077
+      touch "$HOME/.netrc"
+      chmod 600 "$HOME/.netrc"
+      printf '\nmachine gitlab.com\nlogin oauth2\npassword %s\n' \
+        "$GITLAB_TOKEN" >> "$HOME/.netrc"
+```
+
+These entries authenticate subsequent HTTPS Git commands to the matching host.
+SSH URLs such as `git@github.com:company/sdk.git` require SSH authentication.
+Submodules are separate repositories recorded in `.gitmodules`; with a Git
+checkout available on the runner, download them after configuring credentials:
+
+```bash
+git submodule update --init --recursive
+```
+
+Xcode Swift Package dependencies are a separate mechanism. To use system Git's
+authentication when resolving their Git repositories, use
+`xcodebuild -resolvePackageDependencies -scmProvider system` with your project's
+workspace/project and scheme arguments. Ensure Xcode is actually using system
+Git: an explicit `IDEPackageSupportUseBuiltinSCM=false` preference can prevent
+this on Xcode 26.3. This does not configure authentication for package registries
+or binary artifact downloads.
+
+### Private npm packages
+
+Upload and select an npm token:
+
+```bash
+revyl build secret set NPM_TOKEN
+```
+
+```yaml
+secrets:
+  - NPM_TOKEN
+setup_commands:
+  - npm ci
+```
+
+Add this literal line to the project's `.npmrc`, preserving existing settings:
+
+```ini
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+```
+
+Commit the variable reference, never the token value. npm reads `NPM_TOKEN`
+from the build environment. For another registry, configure its hostname and
+any required package scope in `.npmrc`.
+
+**Using SSH instead:** Store a dedicated SSH private key as a build secret and
+configure SSH before fetching Git dependencies. Register the public key with
+the Git host, use SSH repository URLs, and configure verified host keys in
+`~/.ssh/known_hosts`. npm registry downloads still need registry credentials.
+
 ## Build controls
 
 Read exactly attributed executions with `revyl build runs <BUILD_UUID>
