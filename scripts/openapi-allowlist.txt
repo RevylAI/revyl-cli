@@ -178,3 +178,9 @@ PUT /api/v1/workflows/update_run_config/{workflow_id}
 PUT /api/v1/workflows/update_tests/{workflow_id}
 POST /api/v1/atlas/v2/apps/{app_id}/annotation-attachments/uploads
 POST /api/v1/atlas/v2/apps/{app_id}/annotation-attachments/{attachment_id}/complete
+
+GET /api/v1/apps/{app_id}/branches
+GET /api/v1/apps/{app_id}/branches/{branch_id}
+POST /api/v1/apps/{app_id}/branches
+PATCH /api/v1/apps/{app_id}/branches/{branch_id}
+POST /api/v1/apps/resolve

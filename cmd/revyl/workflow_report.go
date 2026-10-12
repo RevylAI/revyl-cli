@@ -607,6 +607,7 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 					"task_id": ct.TaskID,
 					"status":  ct.Status,
 				}
+				addBuildIdentity(test, ct.BuildID, ct.BuildVersion, ct.BranchID, ct.BranchName)
 				if ct.TestName != "" {
 					test["test_name"] = ct.TestName
 				}
@@ -788,6 +789,9 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 			line += fmt.Sprintf("  %s", ui.DimStyle.Render(durationStr))
 
 			fmt.Println(line)
+			if ct.BranchName != "" || ct.BuildID != "" {
+				ui.PrintDim("    Branch: %s  Build: %s", ct.BranchName, ct.BuildID)
+			}
 
 			// Error message for failed tests
 			if ct.ErrorMessage != "" && ct.Success != nil && !*ct.Success {

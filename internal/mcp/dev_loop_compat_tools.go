@@ -18,6 +18,8 @@ type BuildPreflightInfo struct {
 
 // StartDevLoopOutput preserves the flat core/full MCP startup contract.
 type StartDevLoopOutput struct {
+	BranchID           string              `json:"branch_id,omitempty"`
+	BranchName         string              `json:"branch_name,omitempty"`
 	Success            bool                `json:"success"`
 	SessionID          string              `json:"session_id,omitempty"`
 	SessionIndex       int                 `json:"session_index"`
@@ -32,6 +34,8 @@ type StartDevLoopOutput struct {
 
 // StartDevLoopCoreOutput adds structured setup recovery to the flat core/full contract.
 type StartDevLoopCoreOutput struct {
+	BranchID           string              `json:"branch_id,omitempty"`
+	BranchName         string              `json:"branch_name,omitempty"`
 	Success            bool                `json:"success"`
 	SessionID          string              `json:"session_id,omitempty"`
 	SessionIndex       int                 `json:"session_index"`
@@ -73,6 +77,7 @@ func (s *Server) handleStartDevLoopCompat(
 ) (*mcp.CallToolResult, StartDevLoopOutput, error) {
 	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
 	output := StartDevLoopOutput{
+		BranchID: canonical.Result.BranchID, BranchName: canonical.Result.BranchName,
 		Success:      canonical.Success,
 		SessionID:    canonical.Result.SessionID,
 		SessionIndex: canonical.Result.SessionIndex,
@@ -98,6 +103,7 @@ func (s *Server) handleStartDevLoopCoreCompat(
 ) (*mcp.CallToolResult, StartDevLoopCoreOutput, error) {
 	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
 	output := StartDevLoopCoreOutput{
+		BranchID: canonical.Result.BranchID, BranchName: canonical.Result.BranchName,
 		Success:      canonical.Success,
 		SessionID:    canonical.Result.SessionID,
 		SessionIndex: canonical.Result.SessionIndex,

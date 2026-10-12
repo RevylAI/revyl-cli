@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/launcharguments"
 )
 
@@ -60,6 +61,8 @@ type StartRequest struct {
 	// New requests must use Profile; CommandRunner rejects this field.
 	PlatformKey                string
 	AppID                      string
+	BranchName                 string
+	BuildSelection             string
 	BuildVersionID             string
 	LaunchVars                 []string
 	LaunchArgSets              []string
@@ -179,6 +182,8 @@ func (s *BuildStatus) UnmarshalJSON(data []byte) error {
 
 // StartResult is the structured detach handshake returned by the canonical CLI.
 type StartResult struct {
+	BranchID      string      `json:"branch_id,omitempty"`
+	BranchName    string      `json:"branch_name,omitempty"`
 	Context       string      `json:"context"`
 	State         string      `json:"state"`
 	PID           int         `json:"pid"`
@@ -195,6 +200,8 @@ type StartResult struct {
 
 // StatusResult is the stable subset of revyl dev status consumed by MCP.
 type StatusResult struct {
+	BranchID          string                 `json:"branch_id,omitempty"`
+	BranchName        string                 `json:"branch_name,omitempty"`
 	Running           bool                   `json:"running"`
 	Context           string                 `json:"context"`
 	State             string                 `json:"state"`
@@ -274,6 +281,12 @@ type CommandRunner struct {
 
 // Start runs the detached CLI handshake and returns as soon as the viewer is ready.
 func (r *CommandRunner) Start(ctx context.Context, workDir string, request StartRequest) (StartResult, error) {
+	if err := (api.BuildSelection{BranchName: request.BranchName, Mode: api.BuildSelectionMode(request.BuildSelection), BuildID: request.BuildVersionID}).Validate(); err != nil {
+		return StartResult{}, err
+	}
+	if request.SeedLatest && (request.BuildVersionID != "" || (request.BuildSelection != "" && request.BuildSelection != "latest")) {
+		return StartResult{}, fmt.Errorf("seed_latest requires latest selection without an exact build")
+	}
 	if err := ValidateStartProfileSelection(request); err != nil {
 		return StartResult{}, err
 	}
@@ -290,6 +303,8 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 	args = appendStringFlag(args, "--platform", request.Platform)
 	args = appendStringFlag(args, "--app-id", request.AppID)
 	args = appendStringFlag(args, "--build-version-id", request.BuildVersionID)
+	args = appendStringFlag(args, "--branch", request.BranchName)
+	args = appendStringFlag(args, "--build-selection", request.BuildSelection)
 	for _, launchVar := range request.LaunchVars {
 		args = appendStringFlag(args, "--launch-var", launchVar)
 	}

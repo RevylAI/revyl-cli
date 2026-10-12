@@ -29,11 +29,23 @@ test:
       - "regression"
   build:
     name: "app-name"            # Required: App name from Revyl
-    pinned_version: "1.0.0"     # Optional: Pin to specific version
+    branch_id: "branch-uuid"   # Optional: saved Revyl branch; omission is Default branch
+    build_selection: inherit   # inherit (Automatic: the branch's default build), latest, or pinned
+    # pinned_build_id: "build-uuid" # Required with pinned; must belong to branch_id
+    # pinned_version: "1.0.0"  # Legacy alternative; do not mix with the selector above
   blocks:                       # Required: At least one block
     - type: "instructions"
       step_description: "..."
 ` + "```" + `
+
+## Build Selection
+
+New tests use Default branch when no selector is supplied. A saved branch uses its stable
+ID, so renaming the branch does not break the test. ` + "`inherit`" + ` (Automatic) uses the
+branch's default build; ` + "`latest`" + ` bypasses its pin; ` + "`pinned`" + ` fixes the exact build ID.
+On updates, omitting all selector keys preserves the saved selection. To reset it,
+set ` + "`build_selection: inherit`" + ` and remove both IDs. Runs may override selection
+without editing this file or the saved test. Legacy version pins remain accepted.
 
 ## Block Types
 
@@ -321,6 +333,14 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			"autoAppOpen":        true,
 			"supportedPlatforms": []string{"ios", "android"},
 			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "set_orientation", "set_appearance", "download_file", "end"},
+		},
+		"buildSelection": map[string]interface{}{
+			"fields":         []string{"branch_id", "build_selection", "pinned_build_id"},
+			"modes":          []string{"inherit", "latest", "pinned"},
+			"automatic":      "No branch ID: Default branch, which follows the app default branch",
+			"updateOmission": "Omitted selector keys preserve saved settings; explicit inherit with no IDs resets to Default branch",
+			"pinned":         "Requires an exact pinned_build_id and its branch_id",
+			"legacy":         "pinned_version remains accepted alone; older mixed exact pins are verified against their app, branch and version by the server",
 		},
 		"blockTypes": map[string]interface{}{
 			"instructions": map[string]interface{}{

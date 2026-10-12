@@ -300,6 +300,9 @@ build:
 	if captured.BuildVersionID != "uploaded-build-id" {
 		t.Fatalf("BuildVersionID = %q, want uploaded-build-id", captured.BuildVersionID)
 	}
+	if captured.ContextBranchName != "" {
+		t.Fatalf("exact build continuation inferred again: %+v", captured)
+	}
 	if setAsCurrent, ok := createRequest["set_as_current"].(bool); !ok || setAsCurrent {
 		t.Fatalf("set_as_current = %#v, want false", createRequest["set_as_current"])
 	}
@@ -517,6 +520,8 @@ func runWorkflowBuildArtifactCase(t *testing.T, noWait bool) {
 	t.Setenv("HOME", t.TempDir())
 	const builtAppID = "00000000-0000-4000-8000-000000000123"
 	const oppositeAppID = "00000000-0000-4000-8000-000000000456"
+	const uploadedBuildID = "00000000-0000-4000-8000-000000000789"
+	const uploadedBranchID = "00000000-0000-4000-8000-000000000abc"
 	const oppositeVersion = "existing-ios-version"
 
 	var queuedRequest api.ExecuteWorkflowRequest
@@ -547,7 +552,18 @@ func runWorkflowBuildArtifactCase(t *testing.T, noWait bool) {
 				t.Fatalf("Decode create build request: %v", err)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"uploaded-build-id","version":"uploaded-android-version"}`))
+			_, _ = w.Write([]byte(`{"id":"` + uploadedBuildID + `","version":"uploaded-android-version","branch_id":"` + uploadedBranchID + `"}`))
+		case "/api/v1/apps/resolve":
+			var req map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req["pinned_build_id"] != uploadedBuildID {
+				t.Fatalf("exact build handoff=%v", req)
+			}
+			_, _ = w.Write([]byte(`{"version_id":"` + uploadedBuildID + `","branch_id":"` + uploadedBranchID + `","download_url":"https://example.invalid/build"}`))
+		case "/api/v1/apps/builds/" + uploadedBuildID:
+			_, _ = w.Write([]byte(`{"id":"` + uploadedBuildID + `","app_id":"` + builtAppID + `","branch_id":"` + uploadedBranchID + `","version":"uploaded-android-version"}`))
 		case "/api/v1/workflow-executions":
 			if err := json.NewDecoder(r.Body).Decode(&queuedRequest); err != nil {
 				t.Fatalf("Decode workflow request: %v", err)
@@ -626,14 +642,17 @@ build:
 	}
 
 	if noWait {
+		if queuedRequest.ContextBranchName != "" {
+			t.Fatalf("queued exact build continuation inferred again: %+v", queuedRequest)
+		}
 		if queuedRequest.BuildConfig == nil || queuedRequest.BuildConfig.AndroidBuild == nil || queuedRequest.BuildConfig.IosBuild == nil {
 			t.Fatalf("queued build config = %+v", queuedRequest.BuildConfig)
 		}
 		if got := queuedRequest.BuildConfig.AndroidBuild.AppId.String(); got != builtAppID {
 			t.Fatalf("queued Android app = %q, want %q", got, builtAppID)
 		}
-		if queuedRequest.BuildConfig.AndroidBuild.PinnedVersion == nil || *queuedRequest.BuildConfig.AndroidBuild.PinnedVersion != "uploaded-android-version" {
-			t.Fatalf("queued Android version = %#v", queuedRequest.BuildConfig.AndroidBuild.PinnedVersion)
+		if queuedRequest.BuildConfig.AndroidBuild.PinnedBuildId == nil || queuedRequest.BuildConfig.AndroidBuild.PinnedBuildId.String() != uploadedBuildID {
+			t.Fatalf("queued Android build = %#v", queuedRequest.BuildConfig.AndroidBuild.PinnedBuildId)
 		}
 		if got := queuedRequest.BuildConfig.IosBuild.AppId.String(); got != oppositeAppID {
 			t.Fatalf("queued iOS app = %q, want %q", got, oppositeAppID)
@@ -644,8 +663,11 @@ build:
 		return
 	}
 
-	if waitedParams.AndroidAppID != builtAppID || waitedParams.AndroidBuild != "uploaded-android-version" {
-		t.Fatalf("waited Android override = %q/%q", waitedParams.AndroidAppID, waitedParams.AndroidBuild)
+	if waitedParams.AndroidAppID != builtAppID || waitedParams.AndroidBuildID != uploadedBuildID {
+		t.Fatalf("waited Android override = %q/%q", waitedParams.AndroidAppID, waitedParams.AndroidBuildID)
+	}
+	if waitedParams.ContextBranchName != "" {
+		t.Fatalf("waiting exact build continuation inferred again: %+v", waitedParams)
 	}
 	if waitedParams.IOSAppID != oppositeAppID || waitedParams.IOSBuild != oppositeVersion {
 		t.Fatalf("waited iOS override = %q/%q", waitedParams.IOSAppID, waitedParams.IOSBuild)

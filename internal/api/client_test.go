@@ -749,6 +749,9 @@ func TestCreateBuildFromURL_Success(t *testing.T) {
 	if headers, ok := capturedBody["headers"].(map[string]interface{}); !ok || headers["Authorization"] != "Bearer secret" {
 		t.Fatalf("headers = %v, want Authorization header", capturedBody["headers"])
 	}
+	if setAsCurrent, ok := capturedBody["set_as_current"].(bool); !ok || !setAsCurrent {
+		t.Fatalf("set_as_current = %v, want true", capturedBody["set_as_current"])
+	}
 }
 
 func TestCreateBuildFromURL_IdempotentReuse(t *testing.T) {
@@ -804,7 +807,7 @@ func TestCreateBuildFromURL_BackendFetchFailure(t *testing.T) {
 	}
 }
 
-func TestCreateBuildFromURL_NoHeaders(t *testing.T) {
+func TestCreateBuildFromURL_NoHeadersAndNoSetCurrent(t *testing.T) {
 	var capturedBody map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -821,9 +824,10 @@ func TestCreateBuildFromURL_NoHeaders(t *testing.T) {
 
 	client := NewClientWithBaseURL("test-key", server.URL)
 	_, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
-		AppID:   "app-1",
-		FromURL: "https://public.example.com/app.apk",
-		Version: "2.0.0",
+		AppID:        "app-1",
+		FromURL:      "https://public.example.com/app.apk",
+		Version:      "2.0.0",
+		SetAsCurrent: false,
 	})
 	if err != nil {
 		t.Fatalf("CreateBuildFromURL() error = %v", err)
@@ -831,6 +835,9 @@ func TestCreateBuildFromURL_NoHeaders(t *testing.T) {
 	// Headers should be omitted from the JSON body when nil.
 	if _, exists := capturedBody["headers"]; exists {
 		t.Fatalf("headers should be omitted when nil, got: %v", capturedBody["headers"])
+	}
+	if setAsCurrent, ok := capturedBody["set_as_current"].(bool); !ok || setAsCurrent {
+		t.Fatalf("set_as_current = %v, want explicit false", capturedBody["set_as_current"])
 	}
 }
 

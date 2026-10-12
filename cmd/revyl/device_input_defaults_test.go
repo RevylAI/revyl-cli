@@ -187,7 +187,7 @@ func TestDeviceStartArtifactSelectors(t *testing.T) {
 		wantErr    string
 	}{
 		{name: "build version belongs to the app", buildOwner: appID},
-		{name: "build version belongs to another app", buildOwner: "app-2", wantErr: "--build-version-id build-1 belongs to app app-2, not --app-id app-1. Pass only --build-version-id to start that build, or only --app-id to start the latest build of app-1"},
+		{name: "build version belongs to another app", buildOwner: "app-2", wantErr: "--build-version-id build-1 belongs to app app-2, not --app-id app-1. Pass only --build-version-id to start that build, or only --app-id to start the default build of app-1"},
 		{name: "owner unknown", wantErr: "Revyl did not report its app"},
 	}
 	for _, tc := range testCases {

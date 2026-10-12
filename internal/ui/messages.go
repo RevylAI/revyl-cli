@@ -735,7 +735,7 @@ func printChildTestLines(children []ChildTestInfo) {
 		if ct.Duration != "" {
 			line += fmt.Sprintf("  %s", ct.Duration)
 		}
-		fmt.Println(line)
+		fmt.Fprintln(stderrW, line)
 	}
 }
 

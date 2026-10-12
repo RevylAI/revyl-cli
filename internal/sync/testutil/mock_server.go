@@ -2,8 +2,10 @@
 package testutil
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +33,7 @@ type MockApp struct {
 
 // APICall records a single API request received by the mock server.
 type APICall struct {
+	Body   json.RawMessage
 	Method string
 	Path   string
 }
@@ -43,12 +46,14 @@ type MockServer struct {
 	Server *httptest.Server
 	Client *api.Client
 
-	tests  map[string]MockTest
-	apps   map[string]MockApp
-	calls  []APICall
-	errors map[string]int // path prefix -> forced HTTP status code
-	nextID int
-	mu     sync.Mutex
+	tests map[string]MockTest
+	apps  map[string]MockApp
+	calls []APICall
+	// globals maps a global variable's name to its plaintext value.
+	globals map[string]string
+	errors  map[string]int // path prefix -> forced HTTP status code
+	nextID  int
+	mu      sync.Mutex
 }
 
 // NewMockServer creates and starts a new mock API server with all
@@ -58,16 +63,24 @@ type MockServer struct {
 //   - *MockServer: A running mock server ready for use in tests
 func NewMockServer() *MockServer {
 	m := &MockServer{
-		tests:  make(map[string]MockTest),
-		apps:   make(map[string]MockApp),
-		errors: make(map[string]int),
-		nextID: 1,
+		tests:   make(map[string]MockTest),
+		apps:    make(map[string]MockApp),
+		globals: make(map[string]string),
+		errors:  make(map[string]int),
+		nextID:  1,
 	}
 
 	m.Server = httptest.NewServer(http.HandlerFunc(m.handler))
 	m.Client = api.NewClientWithBaseURL("test-key", m.Server.URL)
 
 	return m
+}
+
+// SeedGlobalVariable adds a plaintext org global variable.
+func (m *MockServer) SeedGlobalVariable(name, value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.globals[name] = value
 }
 
 // SeedTest adds a test to the mock server's in-memory store.
@@ -156,8 +169,18 @@ func (m *MockServer) Close() {
 }
 
 func (m *MockServer) handler(w http.ResponseWriter, r *http.Request) {
+	var body []byte
+	if r.Body != nil {
+		var err error
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body", http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+	}
 	m.mu.Lock()
-	m.calls = append(m.calls, APICall{Method: r.Method, Path: r.URL.Path})
+	m.calls = append(m.calls, APICall{Method: r.Method, Path: r.URL.Path, Body: body})
 
 	for prefix, code := range m.errors {
 		if strings.HasPrefix(r.URL.Path, prefix) {
@@ -203,6 +226,8 @@ func (m *MockServer) handler(w http.ResponseWriter, r *http.Request) {
 		m.handleListApps(w, r)
 	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/"):
 		writeJSON(w, http.StatusOK, map[string]string{"message": "deleted all"})
+	case r.Method == "GET" && r.URL.Path == "/api/v1/variables/global":
+		m.handleListGlobalVariables(w)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/read_variables"):
 		writeJSON(w, http.StatusOK, map[string]interface{}{"result": []interface{}{}})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/org_launch_env/test-attachments"):
@@ -232,6 +257,23 @@ func (m *MockServer) handleGetTest(w http.ResponseWriter, r *http.Request) {
 		"version":  t.Version,
 		"app_id":   t.AppID,
 	})
+}
+
+func (m *MockServer) handleListGlobalVariables(w http.ResponseWriter) {
+	m.mu.Lock()
+	rows := make([]map[string]interface{}, 0, len(m.globals))
+	for name, value := range m.globals {
+		rows = append(rows, map[string]interface{}{
+			"id":             "00000000-0000-4000-8000-000000000001",
+			"org_id":         "00000000-0000-4000-8000-000000000002",
+			"variable_name":  name,
+			"variable_value": value,
+			"created_at":     "2026-01-01T00:00:00Z",
+			"updated_at":     "2026-01-01T00:00:00Z",
+		})
+	}
+	m.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]interface{}{"message": "ok", "result": rows})
 }
 
 func (m *MockServer) handleListApps(w http.ResponseWriter, r *http.Request) {

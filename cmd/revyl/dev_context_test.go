@@ -28,6 +28,67 @@ func createTestContext(t *testing.T, root string, ctx *DevContext) {
 	}
 }
 
+func TestRunningDevContextBranchCompatibility(t *testing.T) {
+	for _, test := range []struct {
+		name, recordedBranch string
+		choose               func()
+		wantRunning          bool
+		wantWarning          bool
+	}{
+		{name: "recorded matching branch", recordedBranch: "branch-id", wantRunning: true},
+		{name: "recorded different branch", recordedBranch: "other-branch"},
+		{name: "legacy without selection", wantRunning: true, wantWarning: true},
+		{name: "legacy with explicit branch", choose: func() { devStartBranch = "staging" }},
+		{name: "legacy with explicit branch id", choose: func() { devStartBranchID = "branch-id" }},
+		{name: "legacy with explicit build", choose: func() { devStartBuildVerID = "build-id" }},
+		{name: "legacy with explicit selection", choose: func() { devStartBuildSelection = "latest" }},
+		{name: "legacy with latest seed", choose: func() { devStartSeedLatest = true }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetDevSelectionFlags(t)
+			if test.choose != nil {
+				test.choose()
+			}
+			root := setupTestRepo(t)
+			ctx := &DevContext{
+				Name:          "running",
+				Platform:      "ios",
+				BranchID:      test.recordedBranch,
+				SessionID:     "existing-session",
+				ViewerURL:     "https://example.test/sessions/existing-session",
+				PID:           os.Getpid(),
+				StartedAtNano: time.Now().UnixNano(),
+				State:         devContextStateRunning,
+			}
+			createTestContext(t, root, ctx)
+			if err := writeDevCtxPIDFile(devCtxPIDPath(root, ctx.Name), ctx.PID, ctx.StartedAtNano); err != nil {
+				t.Fatal(err)
+			}
+			contextPath := filepath.Join(devCtxDir(root, ctx.Name), devContextMetaFile)
+			before, err := os.ReadFile(contextPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, stderr := captureStdoutAndStderrSeparate(t, func() {
+				running, err := printIfDevStartContextAlreadyRunning(root, ctx.Name, "branch-id")
+				if running != test.wantRunning || (err == nil) != test.wantRunning {
+					t.Fatalf("running = %t, error = %v", running, err)
+				}
+			})
+			if strings.Contains(stderr, "without a recorded branch") != test.wantWarning {
+				t.Fatalf("unexpected compatibility warning: %s", stderr)
+			}
+			if test.wantRunning && !strings.Contains(stderr, ctx.ViewerURL) {
+				t.Fatalf("missing existing viewer URL: %s", stderr)
+			}
+			after, err := os.ReadFile(contextPath)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("reattach modified the recorded context: %v", err)
+			}
+		})
+	}
+}
+
 func initTestGitBranch(t *testing.T, root, branch string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {

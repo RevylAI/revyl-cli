@@ -9,6 +9,7 @@ See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the R
 - [Use Revyl as device infrastructure](device-infrastructure.md)
 - [Explore from the CLI](explore.md)
 - [Upload existing builds](build-uploads.md)
+- [Choose build branches and defaults](build-branches.md)
 - [Check GitHub connection status](github-status.md)
 - [Understand an app with Atlas](atlas.md)
 - [Compose agent investigations and query-backed views](agent-investigations.md)

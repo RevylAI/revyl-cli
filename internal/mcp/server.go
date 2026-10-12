@@ -151,7 +151,11 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 			return nil, fmt.Errorf("resolve MCP working directory: %w", err)
 		}
 	} else {
-		workDir = filepath.Clean(workDir)
+		var err error
+		workDir, err = filepath.Abs(workDir)
+		if err != nil {
+			return nil, fmt.Errorf("resolve MCP project directory: %w", err)
+		}
 	}
 
 	project, projectErr := config.ResolveProjectContext(workDir, "")
@@ -356,15 +360,20 @@ func (s *Server) requireCanonicalProject() (*config.ProjectContext, error) {
 }
 
 func (s *Server) resolveOptionalCanonicalProject() (*config.ProjectContext, error) {
-	if s.project != nil {
+	return s.resolveOptionalCanonicalProjectAt("")
+}
+
+func (s *Server) resolveOptionalCanonicalProjectAt(projectDirectory string) (*config.ProjectContext, error) {
+	if projectDirectory == "" && s.project != nil {
 		return s.project, nil
 	}
-	status := resolveSetupProjectStateForMode(s.workDir, s.devMode)
+	workDir := s.toolProjectDirectory(projectDirectory)
+	status := resolveSetupProjectStateForMode(workDir, s.devMode)
 	if projectStateHasConfig(status.State) {
-		return s.requireCanonicalProject()
+		return s.resolveCanonicalProject(workDir)
 	}
 	if status.State == projectStateNotInitialized ||
-		(status.State == projectStateOutsideGit && localProjectConfigAbsent(s.workDir)) {
+		(status.State == projectStateOutsideGit && localProjectConfigAbsent(workDir)) {
 		return nil, nil
 	}
 	return nil, &projectSetupError{status: status}
@@ -485,7 +494,7 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	// NEW: list_builds tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_builds",
-		Description: "List available build versions for the project.",
+		Description: "List build versions across all branches of an app, or narrow by an explicit branch selector. Without app_id, list app summaries in the organization.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "List Builds",
 			ReadOnlyHint: true,
@@ -992,9 +1001,13 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 
 // RunTestInput defines the input parameters for the run_test tool.
 type RunTestInput struct {
+	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory; omitted uses REVYL_PROJECT_DIR when configured"`
 	TestName                   string   `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
 	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
+	BranchID                   string   `json:"branch_id,omitempty" jsonschema:"Explicit Revyl branch ID; omit to preserve the saved test selection"`
+	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Explicit Revyl branch name; omitted preserves saved selection"`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned (requires build_version_id)"`
 	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 	DeviceModel                string   `json:"device_model,omitempty" jsonschema:"Override device model (e.g. iPhone 16, Pixel 7)"`
 	OsVersion                  string   `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
@@ -1044,7 +1057,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	} else if retries == 0 {
 		retries = 1 // Default to 1 if not specified
 	}
-	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+	if mismatchMsg := s.orgMismatchMessageForProject(ctx, input.ProjectDir); mismatchMsg != "" {
 		return nil, RunTestOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
 
@@ -1081,6 +1094,9 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		TestNameOrID:               input.TestName,
 		Retries:                    retries,
 		BuildVersionID:             input.BuildVersionID,
+		BranchID:                   input.BranchID,
+		BranchName:                 input.BranchName,
+		BuildSelection:             input.BuildSelection,
 		Timeout:                    execution.DefaultRunTimeoutSeconds,
 		DevMode:                    s.devMode,
 		OnProgress:                 onProgress,
@@ -1092,7 +1108,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
-	project, projectErr := s.resolveOptionalCanonicalProject()
+	project, projectErr := s.resolveOptionalCanonicalProjectAt(input.ProjectDir)
 	if projectErr != nil {
 		if s.profile == ProfileCore || s.profile == ProfileFull {
 			return nil, RunTestOutput{}, projectErr
@@ -1112,7 +1128,6 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		params.HasLocation = true
 	}
 
-	// Use shared execution logic
 	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), nil, params)
 	if err != nil {
 		return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
@@ -1159,10 +1174,15 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 
 // RunWorkflowInput defines the input parameters for the run_workflow tool.
 type RunWorkflowInput struct {
+	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory; omitted uses REVYL_PROJECT_DIR when configured"`
 	WorkflowName               string   `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
 	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 	IOSAppID                   string   `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
 	AndroidAppID               string   `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
+	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name resolved separately for each effective app; omitted preserves saved selections"`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice for every app: inherit (Automatic: the branch's default build) or latest; omit when passing exact platform build IDs"`
+	IOSBuildID                 string   `json:"ios_build_id,omitempty" jsonschema:"Exact iOS build ID for this run"`
+	AndroidBuildID             string   `json:"android_build_id,omitempty" jsonschema:"Exact Android build ID for this run"`
 	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs for every child test."`
 	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs for iOS child tests."`
@@ -1210,7 +1230,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	} else if retries == 0 {
 		retries = 1 // Default to 1 if not specified
 	}
-	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+	if mismatchMsg := s.orgMismatchMessageForProject(ctx, input.ProjectDir); mismatchMsg != "" {
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
 
@@ -1255,6 +1275,10 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		OnProgress:                 onProgress,
 		IOSAppID:                   input.IOSAppID,
 		AndroidAppID:               input.AndroidAppID,
+		BranchName:                 input.BranchName,
+		BuildSelection:             input.BuildSelection,
+		IOSBuildID:                 input.IOSBuildID,
+		AndroidBuildID:             input.AndroidBuildID,
 		LaunchVars:                 input.LaunchVars,
 		LaunchArgSets:              input.LaunchArgSets,
 		LaunchArguments:            input.LaunchArguments,
@@ -1270,7 +1294,6 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		wfParams.HasLocation = true
 	}
 
-	// Use shared execution logic
 	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), nil, wfParams)
 	if err != nil {
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
@@ -1446,6 +1469,10 @@ type CreateTestInput struct {
 	Platform         string   `json:"platform" jsonschema:"Target platform (ios or android)"`
 	YAMLContent      string   `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition to create with real blocks"`
 	AppID            string   `json:"app_id,omitempty" jsonschema:"Optional explicit app ID to associate with the test"`
+	BranchID         string   `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omitted follows the app default"`
+	BranchName       string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name to resolve and save as a stable ID"`
+	BuildSelection   string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned"`
+	PinnedBuildID    string   `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to pin; never falls back when unavailable"`
 	ModuleNamesOrIDs []string `json:"module_names_or_ids,omitempty" jsonschema:"Optional ordered module names or IDs to prepend as module_import blocks"`
 	Tags             []string `json:"tags,omitempty" jsonschema:"Optional tag names to assign to the test after creation"`
 }
@@ -1512,6 +1539,10 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 		Platform:         platform,
 		YAMLContent:      input.YAMLContent,
 		AppID:            appID,
+		BranchID:         input.BranchID,
+		BranchName:       input.BranchName,
+		BuildSelection:   input.BuildSelection,
+		PinnedBuildID:    input.PinnedBuildID,
 		ModuleNamesOrIDs: input.ModuleNamesOrIDs,
 		Tags:             input.Tags,
 		Config:           nil,
@@ -1694,16 +1725,24 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 
 // ListBuildsInput defines input for list_builds tool.
 type ListBuildsInput struct {
-	AppID    string `json:"app_id,omitempty" jsonschema:"App UUID to list build versions for; omit to list apps"`
-	Platform string `json:"platform,omitempty" jsonschema:"Filter by platform (ios or android)"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"Maximum number of builds to return (default 20)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory; omitted uses REVYL_PROJECT_DIR when configured"`
+	Platform   string `json:"platform,omitempty" jsonschema:"Filter app summaries by platform (ios or android)"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum number of entries to return (default 20, maximum 100)"`
+	AppID      string `json:"app_id,omitempty" jsonschema:"List actual build versions across all branches of this app instead of app summaries"`
+	BranchID   string `json:"branch_id,omitempty" jsonschema:"Filter versions by this Revyl branch ID; requires app_id"`
+	BranchName string `json:"branch_name,omitempty" jsonschema:"Filter versions by exact Revyl branch name; requires app_id; omitting both branch selectors includes all branches"`
+	Page       int    `json:"page,omitempty" jsonschema:"Build version page (default 1)"`
 }
 
 type ListedBuildVersion struct {
-	ID         string `json:"id"`
-	Version    string `json:"version"`
-	UploadedAt string `json:"uploaded_at"`
-	IsCurrent  bool   `json:"is_current"`
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	UploadedAt  string `json:"uploaded_at"`
+	IsCurrent   bool   `json:"is_current"`
+	BranchID    string `json:"branch_id,omitempty"`
+	BranchName  string `json:"branch_name,omitempty"`
+	PackageName string `json:"package_name,omitempty"`
+	PackageID   string `json:"package_id,omitempty"`
 }
 
 // BuildInfo contains information about an app.
@@ -1718,10 +1757,15 @@ type BuildInfo struct {
 // ListBuildsOutput defines output for list_builds tool.
 type ListBuildsOutput struct {
 	Builds       []BuildInfo          `json:"builds"`
-	Versions     []ListedBuildVersion `json:"versions,omitempty"`
-	HasMore      bool                 `json:"has_more,omitempty"`
 	Total        int                  `json:"total"`
 	ErrorMessage string               `json:"error_message,omitempty"`
+	Versions     []ListedBuildVersion `json:"versions,omitempty"`
+	AppID        string               `json:"app_id,omitempty"`
+	BranchID     string               `json:"branch_id,omitempty"`
+	BranchName   string               `json:"branch_name,omitempty"`
+	Page         int                  `json:"page,omitempty"`
+	HasNext      bool                 `json:"has_next,omitempty"`
+	HasMore      bool                 `json:"has_more,omitempty"`
 }
 
 // handleListBuilds handles the list_builds tool call.
@@ -1730,29 +1774,58 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 	if limit == 0 {
 		limit = 20
 	}
+	failure := func(err error) (*mcp.CallToolResult, ListBuildsOutput, error) {
+		return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: err.Error()}, nil
+	}
+	if input.AppID == "" && (input.BranchID != "" || input.BranchName != "") {
+		return failure(fmt.Errorf("app_id is required when selecting a branch"))
+	}
 	if input.AppID != "" {
 		if len(input.AppID) != 36 || uuid.Validate(input.AppID) != nil {
-			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: "app_id must be a hyphenated UUID"}, nil
+			return failure(fmt.Errorf("app_id must be a hyphenated UUID"))
 		}
 		if limit < 1 || limit > 100 {
-			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: "limit must be between 1 and 100"}, nil
+			return failure(fmt.Errorf("limit must be between 1 and 100"))
 		}
-		app, err := s.apiClient.GetApp(ctx, input.AppID)
+		if input.Platform != "" {
+			app, err := s.apiClient.GetApp(ctx, input.AppID)
+			if err != nil {
+				return failure(fmt.Errorf("failed to get app: %w", err))
+			}
+			if !strings.EqualFold(input.Platform, app.Platform) {
+				return failure(fmt.Errorf("app platform does not match the requested platform"))
+			}
+		}
+		branchID, branchName := "", ""
+		if input.BranchID != "" || input.BranchName != "" {
+			branch, err := s.apiClient.ResolveBranch(ctx, input.AppID, input.BranchID, input.BranchName)
+			if err != nil {
+				return failure(fmt.Errorf("failed to resolve branch: %w", err))
+			}
+			branchID, branchName = branch.ID, branch.Name
+		}
+		page, err := s.apiClient.ListBuildVersionsWithOptions(ctx, input.AppID, api.BuildListOptions{
+			Page: input.Page, PageSize: limit, BranchID: branchID,
+		})
 		if err != nil {
-			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: fmt.Sprintf("failed to get app: %v", err)}, nil
-		}
-		if input.Platform != "" && !strings.EqualFold(input.Platform, app.Platform) {
-			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: "app platform does not match the requested platform"}, nil
-		}
-		page, err := s.apiClient.ListBuildVersionsPage(ctx, input.AppID, 1, limit)
-		if err != nil {
-			return nil, ListBuildsOutput{Builds: []BuildInfo{}, ErrorMessage: fmt.Sprintf("failed to list build versions: %v", err)}, nil
+			return failure(fmt.Errorf("failed to list build versions: %w", err))
 		}
 		versions := make([]ListedBuildVersion, 0, len(page.Items))
 		for _, version := range page.Items {
-			versions = append(versions, ListedBuildVersion{ID: version.ID, Version: version.Version, UploadedAt: version.UploadedAt, IsCurrent: version.IsCurrent})
+			versions = append(versions, ListedBuildVersion{
+				ID: version.ID, Version: version.Version, UploadedAt: version.UploadedAt, IsCurrent: version.IsCurrent,
+				BranchID: version.BranchID, BranchName: version.BranchName,
+				PackageName: version.PackageName, PackageID: version.PackageID,
+			})
 		}
-		return nil, ListBuildsOutput{Builds: []BuildInfo{}, Versions: versions, Total: page.Total, HasMore: page.HasNext}, nil
+		return nil, ListBuildsOutput{
+			Builds: []BuildInfo{}, Versions: versions, Total: page.Total,
+			AppID: input.AppID, BranchID: branchID, BranchName: branchName,
+			Page: page.Page, HasNext: page.HasNext, HasMore: page.HasNext,
+		}, nil
+	}
+	if limit > 100 {
+		limit = 100
 	}
 
 	result, err := s.apiClient.ListApps(ctx, input.Platform, 1, limit)
@@ -3197,7 +3270,11 @@ func (s *Server) handleDeleteFile(ctx context.Context, req *mcp.CallToolRequest,
 // org binding differs from the authenticated org. Returns empty string when the
 // mismatch guard is not active.
 func (s *Server) orgMismatchMessage(ctx context.Context) string {
-	result := orgguard.Check(ctx, s.workDir, s.devMode)
+	return s.orgMismatchMessageForProject(ctx, "")
+}
+
+func (s *Server) orgMismatchMessageForProject(ctx context.Context, projectDirectory string) string {
+	result := orgguard.Check(ctx, s.toolProjectDirectory(projectDirectory), s.devMode)
 	if result == nil || result.Mismatch == nil {
 		return ""
 	}
@@ -3654,9 +3731,17 @@ func (s *Server) handleClearWorkflowLocation(ctx context.Context, req *mcp.CallT
 
 // SetWorkflowAppInput defines input for set_workflow_app tool.
 type SetWorkflowAppInput struct {
-	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
-	IOSAppID         string `json:"ios_app_id,omitempty" jsonschema:"iOS app ID to override"`
-	AndroidAppID     string `json:"android_app_id,omitempty" jsonschema:"Android app ID to override"`
+	WorkflowNameOrID      string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+	IOSAppID              string `json:"ios_app_id,omitempty" jsonschema:"iOS app ID to override"`
+	AndroidAppID          string `json:"android_app_id,omitempty" jsonschema:"Android app ID to override"`
+	IOSBranchID           string `json:"ios_branch_id,omitempty" jsonschema:"Saved iOS Revyl branch ID"`
+	IOSBranchName         string `json:"ios_branch_name,omitempty" jsonschema:"Exact iOS Revyl branch name to resolve and save"`
+	IOSBuildSelection     string `json:"ios_build_selection,omitempty" jsonschema:"iOS build choice: inherit (Automatic: the branch's default build), latest, or pinned; inherit alone resets to Default branch"`
+	IOSPinnedBuildID      string `json:"ios_pinned_build_id,omitempty" jsonschema:"Exact iOS build ID to pin"`
+	AndroidBranchID       string `json:"android_branch_id,omitempty" jsonschema:"Saved Android Revyl branch ID"`
+	AndroidBranchName     string `json:"android_branch_name,omitempty" jsonschema:"Exact Android Revyl branch name to resolve and save"`
+	AndroidBuildSelection string `json:"android_build_selection,omitempty" jsonschema:"Android build choice: inherit (Automatic: the branch's default build), latest, or pinned; inherit alone resets to Default branch"`
+	AndroidPinnedBuildID  string `json:"android_pinned_build_id,omitempty" jsonschema:"Exact Android build ID to pin"`
 }
 
 func (s *Server) handleSetWorkflowApp(ctx context.Context, req *mcp.CallToolRequest, input SetWorkflowAppInput) (*mcp.CallToolResult, SimpleSuccessOutput, error) {
@@ -3675,31 +3760,52 @@ func (s *Server) handleSetWorkflowApp(ctx context.Context, req *mcp.CallToolRequ
 		return nil, SimpleSuccessOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Validate app IDs exist
-	if input.IOSAppID != "" {
-		_, err := s.apiClient.GetApp(ctx, input.IOSAppID)
-		if err != nil {
-			return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("iOS app '%s' not found", input.IOSAppID)}, nil
+	if input.IOSAppID == "" && (input.IOSBranchID != "" || input.IOSBranchName != "" || input.IOSBuildSelection != "" || input.IOSPinnedBuildID != "") {
+		return nil, SimpleSuccessOutput{Error: "ios_app_id is required for an iOS build selection"}, nil
+	}
+	if input.AndroidAppID == "" && (input.AndroidBranchID != "" || input.AndroidBranchName != "" || input.AndroidBuildSelection != "" || input.AndroidPinnedBuildID != "") {
+		return nil, SimpleSuccessOutput{Error: "android_app_id is required for an Android build selection"}, nil
+	}
+	wf, err := s.apiClient.GetWorkflow(ctx, wfID)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Error: fmt.Sprintf("failed to read existing app config: %v", err)}, nil
+	}
+	buildConfig := wf.BuildConfig
+	if buildConfig == nil {
+		buildConfig = map[string]interface{}{}
+	}
+	for _, platform := range []struct {
+		key, appID, branchID, branchName, mode, buildID string
+	}{
+		{"ios_build", input.IOSAppID, input.IOSBranchID, input.IOSBranchName, input.IOSBuildSelection, input.IOSPinnedBuildID},
+		{"android_build", input.AndroidAppID, input.AndroidBranchID, input.AndroidBranchName, input.AndroidBuildSelection, input.AndroidPinnedBuildID},
+	} {
+		if platform.appID == "" {
+			continue
 		}
-	}
-	if input.AndroidAppID != "" {
-		_, err := s.apiClient.GetApp(ctx, input.AndroidAppID)
-		if err != nil {
-			return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("Android app '%s' not found", input.AndroidAppID)}, nil
+		selection, selectionErr := execution.ResolveSavedBuildSelection(ctx, s.apiClient, platform.appID, platform.branchName, platform.branchID, platform.mode, platform.buildID)
+		if selectionErr != nil {
+			return nil, SimpleSuccessOutput{Error: fmt.Sprintf("invalid %s selection: %v", platform.key, selectionErr)}, nil
 		}
-	}
-
-	// Fetch existing config to merge (don't clobber the other platform)
-	buildConfig := map[string]interface{}{}
-	wf, wfErr := s.apiClient.GetWorkflow(ctx, wfID)
-	if wfErr == nil && wf.BuildConfig != nil {
-		buildConfig = wf.BuildConfig
-	}
-	if input.IOSAppID != "" {
-		buildConfig["ios_build"] = map[string]interface{}{"app_id": input.IOSAppID}
-	}
-	if input.AndroidAppID != "" {
-		buildConfig["android_build"] = map[string]interface{}{"app_id": input.AndroidAppID}
+		current, _ := buildConfig[platform.key].(map[string]interface{})
+		if current == nil || current["app_id"] != platform.appID {
+			current = map[string]interface{}{"app_id": platform.appID}
+		}
+		if selection != nil {
+			encoded, encodeErr := json.Marshal(selection)
+			if encodeErr != nil {
+				return nil, SimpleSuccessOutput{}, fmt.Errorf("encode workflow build selection: %w", encodeErr)
+			}
+			var fields map[string]interface{}
+			if decodeErr := json.Unmarshal(encoded, &fields); decodeErr != nil {
+				return nil, SimpleSuccessOutput{}, fmt.Errorf("normalize workflow build selection: %w", decodeErr)
+			}
+			for key, value := range fields {
+				current[key] = value
+			}
+			current["pinned_version"] = nil
+		}
+		buildConfig[platform.key] = current
 	}
 
 	err = s.apiClient.UpdateWorkflowBuildConfig(ctx, wfID, buildConfig, true)
@@ -3919,18 +4025,23 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 
 // UploadBuildInput defines input for upload_build tool.
 type UploadBuildInput struct {
-	FilePath string `json:"file_path" jsonschema:"Absolute path to the build file (.apk, .ipa, or .zip)"`
-	AppID    string `json:"app_id" jsonschema:"App ID to upload the build to"`
-	Version  string `json:"version,omitempty" jsonschema:"Version string (auto-generated from timestamp if not provided)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory; omitted uses REVYL_PROJECT_DIR when configured"`
+	FilePath   string `json:"file_path" jsonschema:"Absolute path to the build file (.apk, .ipa, or .zip)"`
+	AppID      string `json:"app_id" jsonschema:"App ID to upload the build to"`
+	Version    string `json:"version,omitempty" jsonschema:"Version string (auto-generated from timestamp if not provided)"`
+	BranchID   string `json:"branch_id,omitempty" jsonschema:"Existing Revyl destination branch ID; omitted uses app default"`
+	BranchName string `json:"branch_name,omitempty" jsonschema:"Exact Revyl destination branch name; creates it if needed and freezes it for this upload"`
 }
 
 // UploadBuildOutput defines output for upload_build tool.
 type UploadBuildOutput struct {
-	Success   bool   `json:"success"`
-	VersionID string `json:"version_id,omitempty"`
-	Version   string `json:"version,omitempty"`
-	PackageID string `json:"package_id,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Success    bool   `json:"success"`
+	VersionID  string `json:"version_id,omitempty"`
+	Version    string `json:"version,omitempty"`
+	PackageID  string `json:"package_id,omitempty"`
+	BranchID   string `json:"branch_id,omitempty"`
+	BranchName string `json:"branch_name,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // handleUploadBuild handles the upload_build tool call.
@@ -3965,19 +4076,23 @@ func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	resp, err := s.apiClient.UploadBuild(ctx, &api.UploadBuildRequest{
-		AppID:    input.AppID,
-		Version:  version,
-		FilePath: input.FilePath,
+		AppID:      input.AppID,
+		Version:    version,
+		FilePath:   input.FilePath,
+		BranchID:   input.BranchID,
+		BranchName: input.BranchName,
 	})
 	if err != nil {
 		return nil, UploadBuildOutput{Success: false, Error: fmt.Sprintf("upload failed: %v", err)}, nil
 	}
 
 	return nil, UploadBuildOutput{
-		Success:   true,
-		VersionID: resp.VersionID,
-		Version:   resp.Version,
-		PackageID: resp.PackageID,
+		Success:    true,
+		VersionID:  resp.VersionID,
+		Version:    resp.Version,
+		PackageID:  resp.PackageID,
+		BranchID:   resp.BranchID,
+		BranchName: resp.BranchName,
 	}, nil
 }
 
@@ -3985,10 +4100,14 @@ func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest
 
 // UpdateTestInput defines input for update_test tool.
 type UpdateTestInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-	YAMLContent  string `json:"yaml_content" jsonschema:"Full YAML test definition with updated blocks"`
-	AppID        string `json:"app_id,omitempty" jsonschema:"Optional app ID to associate with the test"`
-	Force        bool   `json:"force,omitempty" jsonschema:"Force update even if remote has a newer version"`
+	TestNameOrID   string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	YAMLContent    string `json:"yaml_content" jsonschema:"Full YAML test definition with updated blocks"`
+	AppID          string `json:"app_id,omitempty" jsonschema:"Optional app ID to associate with the test"`
+	BranchID       string `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omitted preserves the existing selection"`
+	BranchName     string `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name to resolve and save as a stable ID"`
+	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned; inherit without branch/build resets to Default branch"`
+	PinnedBuildID  string `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to pin"`
+	Force          bool   `json:"force,omitempty" jsonschema:"Force update even if remote has a newer version"`
 }
 
 // UpdateTestOutput defines output for update_test tool.
@@ -4038,6 +4157,23 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 		Force:  input.Force,
 	}
 
+	if input.BranchID != "" || input.BranchName != "" || input.BuildSelection != "" || input.PinnedBuildID != "" {
+		appID := input.AppID
+		if appID == "" {
+			test, readErr := s.apiClient.GetTest(ctx, testID)
+			if readErr != nil {
+				return nil, UpdateTestOutput{Error: fmt.Sprintf("failed to read test app: %v", readErr)}, nil
+			}
+			appID = test.AppID
+		}
+		updateReq.SavedBuildSelection, err = execution.ResolveSavedBuildSelection(ctx, s.apiClient, appID, input.BranchName, input.BranchID, input.BuildSelection, input.PinnedBuildID)
+	} else {
+		updateReq.SavedBuildSelection, err = execution.SavedBuildSelectionFromConfig(testDef.Test.Build)
+		updateReq.PinnedVersionID = testDef.Test.Build.PinnedVersion
+	}
+	if err != nil {
+		return nil, UpdateTestOutput{Error: fmt.Sprintf("invalid saved build selection: %v", err)}, nil
+	}
 	resp, err := s.apiClient.UpdateTest(ctx, updateReq)
 	if err != nil {
 		if apiErr, ok := err.(*api.APIError); ok && apiErr.IsTestVersionConflict() {

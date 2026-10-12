@@ -7,6 +7,26 @@ revyl build upload --file ./Clip.app.zip --platform ios --app <app-id>
 revyl build upload --url "https://example.com/build.gz" --platform ios --app <app-id>
 ```
 
+Add `--branch staging` to select a Revyl destination branch; otherwise the upload
+uses the app default. A named destination can create the branch. Version
+labels do not select the destination.
+The destination stays fixed
+through upload finalization. An upload pins its branch to the new build, even
+when the branch was following Latest; add `--no-set-current` to leave the
+branch's pin unchanged.
+Results include `branch_id`, `branch_name`, and the exact uploaded build ID.
+See [Build branches](build-branches.md) for selection and listing commands.
+After a successful command exit, read the JSON for the upload mode:
+
+- `build upload --file ... --json`: require `.success == true` and `.count == 1`,
+  then use `.build.build_id`.
+- `build upload --url ... --json`: require a non-empty `.version_id` and use that
+  exact build ID. URL uploads return a flat object without `success`, `count`, or
+  `build` fields.
+
+Pass that exact ID to downstream Explore or test runs. Uploading alone does not
+populate Atlas; see [maintaining main or staging](explore.md#keep-main-or-staging-current).
+
 For staged local uploads, the CLI allows up to 90 seconds per request
 attempt for the server to validate and finalize the build. Ordinary API calls
 retain their 30-second timeout. Existing retry limits and cancellation still

@@ -197,3 +197,19 @@ func TestPrintDetachHandshakeReportsBuildingDuringDetailedBuildPhase(t *testing.
 		t.Fatalf("handshake build = %+v, want running", handshake.Build)
 	}
 }
+
+func TestProjectDetachArgsFreezesBranchIdentity(t *testing.T) {
+	got := projectDetachArgs([]string{"dev", "--branch", "main", "--branch-id=old", "--detach", "--build-selection", "latest"}, projectDevInvocation{Profile: "development", Platform: "ios", BranchID: "frozen-id", BranchName: "main"})
+	want := []string{"dev", "--build-selection", "latest", "--branch-id", "frozen-id", "--profile", "development", "--platform", "ios"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("child selectors = %v, want %v", got, want)
+	}
+}
+
+func TestProjectDetachArgsLetsChildResolveUnnamedBranch(t *testing.T) {
+	got := projectDetachArgs([]string{"dev", "--detach"}, projectDevInvocation{Profile: "development", Platform: "ios", BranchID: "default-id", BranchName: "base"})
+	want := []string{"dev", "--profile", "development", "--platform", "ios"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("child selectors = %v, want %v", got, want)
+	}
+}

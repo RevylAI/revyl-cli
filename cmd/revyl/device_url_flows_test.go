@@ -172,7 +172,7 @@ func TestDeviceStartCommand_RejectsMultipleArtifactFlags(t *testing.T) {
 	if err == nil {
 		t.Fatal("device start error = nil, want artifact conflict")
 	}
-	if got := err.Error(); got != "--app-url and --app-id conflict: --app-url installs the file at that URL, while --app-id installs that app's latest build. Pass one of them, for example 'revyl device start --app-id <value>'" {
+	if got := err.Error(); got != "--app-url and --app-id conflict: --app-url installs the file at that URL, while --app-id installs that app's selected branch build. Pass one of them, for example 'revyl device start --app-id <value>'" {
 		t.Fatalf("device start error = %q, want conflict guidance", got)
 	}
 }

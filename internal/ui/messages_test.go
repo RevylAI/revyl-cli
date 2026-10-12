@@ -111,3 +111,23 @@ func TestPrintInfoSuppressedInQuietMode(t *testing.T) {
 		t.Errorf("PrintInfo wrote to stderr in quiet mode: %q", stderr)
 	}
 }
+
+func TestWorkflowProgressKeepsStdoutForJSON(t *testing.T) {
+	passed := true
+	children := []ChildTestInfo{{TestName: "Login", Platform: "ios", Status: "completed", Success: &passed}}
+	for name, print := range map[string]func(){
+		"basic":   func() { PrintBasicWorkflowStatus("running", 1, 2, children) },
+		"verbose": func() { PrintVerboseWorkflowStatus("running", 1, 2, 1, 0, "4s", children) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			SetQuietMode(false)
+			stdout, stderr := captureStdoutAndStderr(t, print)
+			if stdout != "" {
+				t.Errorf("workflow progress wrote to stdout: %q", stdout)
+			}
+			if !strings.Contains(stderr, "Login (ios)") {
+				t.Errorf("workflow progress missing its test line on stderr; got %q", stderr)
+			}
+		})
+	}
+}

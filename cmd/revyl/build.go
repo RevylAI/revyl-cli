@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--profile <name>] [--platform ios|android] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Use:   "build [--profile <name>] [--platform ios|android] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--detach] [--no-cache] [--no-set-current] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -78,18 +78,19 @@ var buildRemoteCmd = &cobra.Command{
 var buildListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List uploaded build versions",
-	Long: `List all uploaded build versions.
+	Long: `List an app's uploaded builds, newest first.
 
-If an app is configured locally, lists builds for that app.
-Otherwise, shows all apps in your organization.
+With --app, lists builds across all branches. Pass --branch <name> to narrow
+the list; --all-branches explicitly keeps the default scope. --branch HEAD means
+your current Git branch. When no Revyl branch has the name you pass, the list
+shows the app's builds uploaded from a Git branch with that name.
 
-Examples:
-  revyl build list                           # List builds (or show org apps)
-  revyl build list --app <id>               # List builds for specific app
-  revyl build list --platform android        # Filter org apps by platform`,
-	Example: `  revyl build list
-  revyl build list --app <id> --json
-  revyl build list --platform android`,
+Without --app, lists the apps in your organization.`,
+	Example: `  revyl build list --app <id>                    # Builds across all branches
+  revyl build list --app <id> --branch staging   # Builds on another branch
+  revyl build list --app <id> --branch HEAD      # Builds for your current Git branch
+  revyl build list --app <id> --all-branches --json
+  revyl build list --platform android            # Apps for one platform`,
 	RunE: runBuildList,
 }
 
@@ -175,6 +176,11 @@ var (
 var buildHostGOOS = runtime.GOOS
 
 func init() {
+	buildCmd.Flags().String("branch", "", "Revyl destination branch (defaults to the app default)")
+	buildUploadCmd.Flags().String("branch", "", "Revyl destination branch (defaults to the app default)")
+	buildListCmd.Flags().Bool("all-branches", false, "List builds across all branches (the default)")
+	buildListCmd.Flags().IntVar(&buildListPage, "page", 1, "Build version page (requires --app)")
+	buildListCmd.Flags().Int("page-size", 20, "Builds per page (maximum 100)")
 	buildCmd.AddCommand(buildStatusCmd)
 	buildCmd.AddCommand(buildListCmd)
 	buildCmd.AddCommand(buildCancelCmd)
@@ -196,7 +202,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
 	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run a cold remote build with all caches disabled")
-	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
+	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Add the build without making it the branch's default build; a branch on Latest build still uses it")
 	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
 	analytics.MarkFlagValue(buildCmd, "profile")
 	analytics.MarkFlagValue(buildCmd, "platform")
@@ -210,7 +216,7 @@ func init() {
 	analytics.MarkFlagValue(buildCmd, "json")
 
 	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the uploaded artifact (default: auto-generated)")
-	buildUploadCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
+	buildUploadCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Add the build without making it the branch's default build; a branch on Latest build still uses it")
 	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App name or ID to upload to")
 	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Mobile platform (ios or android)")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
@@ -231,7 +237,7 @@ func init() {
 	_ = buildUploadCmd.Flags().MarkHidden("clean")
 	buildUploadCmd.Flags().BoolVar(&uploadIncludeDirtyFlag, "include-dirty", false, "Deprecated")
 	_ = buildUploadCmd.Flags().MarkHidden("include-dirty")
-	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", true, "Deprecated")
+	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", true, "Pin the branch to the new build (the default)")
 	_ = buildUploadCmd.Flags().MarkHidden("set-current")
 	analytics.MarkFlagValue(buildUploadCmd, "platform")
 	analytics.MarkFlagValue(buildUploadCmd, "yes")
@@ -243,7 +249,7 @@ func init() {
 	buildRemoteCmd.Flags().StringVar(&remotePlatformFlag, "platform", "", "Deprecated")
 	buildRemoteCmd.Flags().StringVar(&remoteAppFlag, "app", "", "Deprecated")
 	buildRemoteCmd.Flags().StringVar(&remoteVersionFlag, "version", "", "Deprecated")
-	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", true, "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", true, "Pin the branch to the new build (the default)")
 	buildRemoteCmd.Flags().BoolVar(&remoteJSONFlag, "json", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Deprecated")
@@ -260,9 +266,10 @@ func init() {
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
-	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Filter builds by git branch (use HEAD for current branch)")
-	buildListCmd.Flags().IntVar(&buildListPage, "page", 1, "Build version page (requires --app)")
+	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Revyl branch to list (defaults to all branches); a name with no Revyl branch lists builds from that Git branch, and HEAD is your current Git branch")
+	buildListCmd.MarkFlagsMutuallyExclusive("branch", "all-branches")
 	buildListCmd.Flags().IntVar(&buildListLimit, "limit", 20, "Build versions per page (1-100; requires --app)")
+	buildListCmd.MarkFlagsMutuallyExclusive("limit", "page-size")
 	analytics.MarkFlagValue(buildListCmd, "platform")
 	analytics.MarkFlagValue(buildListCmd, "json")
 
@@ -274,6 +281,16 @@ func init() {
 
 func runBuild(cmd *cobra.Command, args []string) error {
 	return runProjectConfiguredBuild(cmd)
+}
+
+func buildUploadSetsCurrent(cmd *cobra.Command) (bool, error) {
+	if !cmd.Flags().Changed("set-current") {
+		return !buildNoSetCurrent, nil
+	}
+	if cmd.Flags().Changed("no-set-current") {
+		return false, fmt.Errorf("use either --set-current or --no-set-current, not both")
+	}
+	return cmd.Flags().GetBool("set-current")
 }
 
 // runBuildUpload executes the build upload command.
@@ -294,7 +311,11 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
 		buildUploadJSON = true
 	}
-	buildSetCurr = !buildNoSetCurrent
+	setCurrent, err := buildUploadSetsCurrent(cmd)
+	if err != nil {
+		return err
+	}
+	buildSetCurr = setCurrent
 	if buildUploadJSON {
 		ui.SetQuietMode(true)
 		defer ui.SetQuietMode(false)
@@ -509,6 +530,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	ui.StartSpinner("Uploading artifact...")
 
 	result, uploadErr := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
+		BranchName:   commandBuildBranch(cmd),
 		AppID:        appID,
 		Version:      versionStr,
 		FilePath:     artifactPath,
@@ -530,6 +552,10 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	ui.PrintInfo("App:             %s", appID)
 	ui.PrintInfo("Build Version:   %s", result.Version)
 	ui.PrintInfo("Build ID:        %s", result.VersionID)
+	printUploadedBuildBranch(cmd.Context(), client, "Branch:          %s", uploadedBuild{
+		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
+		BuildID: result.VersionID, BuildVersion: result.Version, DefaultBuildChanged: buildSetCurr,
+	})
 	if result.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageID)
 	}
@@ -696,6 +722,7 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	ui.StartSpinner("Ingesting artifact from URL...")
 
 	result, uploadErr := client.CreateBuildFromURL(cmd.Context(), &api.CreateBuildFromURLRequest{
+		BranchName:   commandBuildBranch(cmd),
 		AppID:        appID,
 		FromURL:      uploadURLFlag,
 		Headers:      headers,
@@ -722,6 +749,10 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	ui.PrintInfo("App:             %s", appID)
 	ui.PrintInfo("Build Version:   %s", result.Version)
 	ui.PrintInfo("Build ID:        %s", result.ID)
+	printUploadedBuildBranch(cmd.Context(), client, "Branch:          %s", uploadedBuild{
+		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
+		BuildID: result.ID, BuildVersion: result.Version, DefaultBuildChanged: buildSetCurr && !result.WasReused,
+	})
 	if result.PackageName != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageName)
 	}
@@ -735,6 +766,8 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 			AppID:       appID,
 			Version:     result.Version,
 			VersionID:   result.ID,
+			BranchID:    result.BranchID,
+			BranchName:  result.BranchName,
 			PackageName: result.PackageName,
 			WasReused:   result.WasReused,
 			SourceURL:   uploadURLFlag,
@@ -994,6 +1027,8 @@ func createNewApp(cmd *cobra.Command, client *api.Client, projectName, platform 
 
 // BuildUploadJSONBuild represents one uploaded build in machine-readable output.
 type BuildUploadJSONBuild struct {
+	BranchID             string   `json:"branch_id,omitempty"`
+	BranchName           string   `json:"branch_name,omitempty"`
 	Profile              string   `json:"profile,omitempty"`
 	PlatformKey          string   `json:"platform_key"`
 	Platform             string   `json:"platform"`
@@ -1032,6 +1067,8 @@ func newBuildUploadJSONBuild(
 	if uploadResult != nil {
 		build.BuildVersion = uploadResult.Version
 		build.BuildID = uploadResult.VersionID
+		build.BranchID = uploadResult.BranchID
+		build.BranchName = uploadResult.BranchName
 		build.PackageID = uploadResult.PackageID
 		build.Warnings = uploadResult.Warnings
 	}
@@ -1489,6 +1526,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.StartSpinner("Uploading artifact...")
 
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
+		BranchName:   commandBuildBranch(cmd),
 		AppID:        appID,
 		Version:      versionStr,
 		FilePath:     artifactPath,
@@ -1513,6 +1551,10 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.PrintInfo("App:             %s", appID)
 	ui.PrintInfo("Build Version:   %s", result.Version)
 	ui.PrintInfo("Build ID:        %s", result.VersionID)
+	printUploadedBuildBranch(cmd.Context(), client, "Branch:          %s", uploadedBuild{
+		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
+		BuildID: result.VersionID, BuildVersion: result.Version, DefaultBuildChanged: buildSetCurr,
+	})
 	if result.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageID)
 	}
@@ -1584,8 +1626,14 @@ func runBuildList(cmd *cobra.Command, args []string) error {
 		return listBuildVersions(cmd, client, appID)
 	}
 
+	if commandBuildBranch(cmd) != "" {
+		return fmt.Errorf("--branch requires --app")
+	}
+	if allBranches, _ := cmd.Flags().GetBool("all-branches"); allBranches {
+		return fmt.Errorf("--all-branches requires --app")
+	}
 	// Otherwise, show all apps in the organization
-	if cmd.Flags().Changed("page") || cmd.Flags().Changed("limit") {
+	if cmd.Flags().Changed("page") || cmd.Flags().Changed("limit") || cmd.Flags().Changed("page-size") {
 		return fmt.Errorf("build pagination requires --app")
 	}
 	return listOrgApps(cmd, client)
@@ -1610,36 +1658,57 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	if !jsonOutput {
 		ui.StartSpinner("Fetching builds...")
 	}
-	if buildListPage < 1 || buildListPage > 10000 || buildListLimit < 1 || buildListLimit > 100 {
-		return fmt.Errorf("build page must be 1-10000 and limit 1-100")
+	page, _ := cmd.Flags().GetInt("page")
+	pageSize, _ := cmd.Flags().GetInt("limit")
+	if cmd.Flags().Changed("page-size") {
+		pageSize, _ = cmd.Flags().GetInt("page-size")
 	}
-	page, err := client.ListBuildVersionsPage(cmd.Context(), appID, buildListPage, buildListLimit)
-	if !jsonOutput {
+	if page < 1 || page > 10000 || pageSize < 1 || pageSize > 100 {
 		ui.StopSpinner()
+		return fmt.Errorf("build page must be 1-10000 and limit/page-size 1-100")
 	}
-
-	if err != nil {
-		ui.PrintError("Failed to list builds: %v", err)
-		return err
-	}
-
-	// Resolve --branch flag (HEAD = current git branch)
-	versions := page.Items
-	branchFilter := strings.TrimSpace(buildListBranch)
+	allBranches, _ := cmd.Flags().GetBool("all-branches")
+	branchFilter := strings.TrimSpace(commandBuildBranch(cmd))
+	explicitBranch := branchFilter != ""
 	if strings.EqualFold(branchFilter, "HEAD") {
 		cwd, _ := os.Getwd()
 		branchFilter = buildselection.CurrentBranch(cwd)
+		if branchFilter == "" {
+			ui.StopSpinner()
+			return usageErrorf("--branch HEAD needs a checked-out Git branch; pass --branch <name>, or omit it to list every branch")
+		}
 	}
-
-	// Filter by branch when requested
-	if branchFilter != "" {
-		filtered := make([]api.BuildVersion, 0, len(versions))
-		for _, v := range versions {
-			if buildselection.ExtractBranch(v.Metadata) == branchFilter {
-				filtered = append(filtered, v)
+	branchID, gitBranchFilter, buildBranchArgument := "", "", ""
+	if !allBranches && explicitBranch {
+		branch, err := client.ResolveBranch(cmd.Context(), appID, "", branchFilter)
+		switch {
+		case err == nil:
+			if branchFilter != "" && (branch.IsDefault == nil || !*branch.IsDefault) {
+				buildBranchArgument = " --branch " + quoteCLIRecoveryArgument(branch.Name)
+			}
+			branchID, branchFilter = branch.ID, branch.Name
+		case branchFilter != "" && errors.Is(err, api.ErrBranchNotFound):
+			gitBranchFilter = branchFilter
+		default:
+			ui.StopSpinner()
+			return err
+		}
+	}
+	result, err := client.ListBuildVersionsWithOptions(cmd.Context(), appID, api.BuildListOptions{BranchID: branchID, Page: page, PageSize: pageSize})
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
+	if err != nil {
+		return err
+	}
+	versions := result.Items
+	if gitBranchFilter != "" {
+		versions = make([]api.BuildVersion, 0, len(result.Items))
+		for _, version := range result.Items {
+			if buildListGitBranch(version.Metadata) == gitBranchFilter {
+				versions = append(versions, version)
 			}
 		}
-		versions = filtered
 	}
 
 	if jsonOutput {
@@ -1647,28 +1716,35 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 			"app_id":        appID,
 			"versions":      versions,
 			"count":         len(versions),
-			"page":          page.Page,
-			"page_size":     page.PageSize,
-			"total":         page.Total,
-			"has_next":      page.HasNext,
-			"scanned_count": len(page.Items),
+			"total":         result.Total,
+			"page":          result.Page,
+			"page_size":     result.PageSize,
+			"has_next":      result.HasNext,
+			"scanned_count": len(result.Items),
 		}
 		if branchFilter != "" {
 			output["branch_filter"] = branchFilter
+			output["branch_filter_kind"] = "revyl_branch"
+			if gitBranchFilter != "" {
+				output["branch_filter_kind"] = "git_branch"
+			}
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
 
+	if gitBranchFilter != "" {
+		ui.PrintDim("No Revyl branch is named %q; showing builds uploaded from that Git branch.", gitBranchFilter)
+	}
 	if len(versions) == 0 {
-		if page.HasNext {
-			ui.PrintInfo("No matching builds on this page; continue with --page %d", page.Page+1)
+		if result.HasNext {
+			ui.PrintInfo("No matching builds on this page; continue with --page %d", result.Page+1)
 			return nil
 		}
 		if branchFilter != "" {
 			ui.PrintInfo("No builds on this page match branch %q", branchFilter)
-			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android")
+			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android%s", buildBranchArgument)
 		} else {
 			ui.PrintInfo("No builds on this page")
 		}
@@ -1676,39 +1752,49 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	}
 
 	ui.Println()
-	if branchFilter != "" {
-		ui.PrintInfo("Builds (branch: %s):", branchFilter)
-	} else {
+	switch {
+	case gitBranchFilter != "":
+		ui.PrintInfo("Builds (Git branch: %s):", gitBranchFilter)
+	case branchFilter != "":
+		ui.PrintInfo("Builds (Revyl branch: %s):", branchFilter)
+	default:
 		ui.PrintInfo("Builds:")
 	}
 	ui.Println()
 
-	// Create table with dynamic column widths
-	table := ui.NewTable("VERSION", "BUILD ID", "UPLOADED", "BRANCH", "COMMIT", "PACKAGE ID", "CURRENT")
+	columns := []string{"VERSION", "BUILD ID", "UPLOADED", "GIT BRANCH", "COMMIT", "PACKAGE ID"}
+	if branchID == "" {
+		columns = append(columns, "REVYL BRANCH")
+	}
+	table := ui.NewTable(columns...)
 	table.SetMinWidth(0, 10) // VERSION
 	table.SetMinWidth(1, 36) // BUILD ID - UUIDs are 36 chars
 	table.SetMinWidth(2, 12) // UPLOADED
 
 	for _, v := range versions {
-		current := ""
-		if v.IsCurrent {
-			current = "✓"
-		}
-		branch := buildselection.ExtractBranch(v.Metadata)
-		if branch == "" {
-			branch = "-"
+		gitBranch := buildListGitBranch(v.Metadata)
+		if gitBranch == "" {
+			gitBranch = "-"
 		}
 		commit := extractBuildCommit(v.Metadata)
 		if commit == "" {
 			commit = "-"
 		}
-		table.AddRow(v.Version, v.ID, v.UploadedAt, branch, commit, v.PackageID, current)
+		row := []string{v.Version, v.ID, v.UploadedAt, gitBranch, commit, v.PackageID}
+		if branchID == "" {
+			revylBranch := v.BranchName
+			if revylBranch == "" {
+				revylBranch = "-"
+			}
+			row = append(row, revylBranch)
+		}
+		table.AddRow(row...)
 	}
 
 	table.Render()
 
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Build and upload:", Command: "revyl build"},
+		{Label: "Build and upload:", Command: "revyl build" + buildBranchArgument},
 	})
 
 	return nil
@@ -1953,7 +2039,16 @@ func extractBuildCommit(metadata map[string]interface{}) string {
 		}
 	}
 
-	return ""
+	return abbreviateCommit(readMetadataString(metadata, "scm_head_sha"))
+}
+
+// buildListGitBranch is the Git branch a build was made from. GitHub App builds
+// record it as scm_branch rather than in their git metadata.
+func buildListGitBranch(metadata map[string]interface{}) string {
+	if branch := buildselection.ExtractBranch(metadata); branch != "" {
+		return branch
+	}
+	return readMetadataString(metadata, "scm_branch")
 }
 
 func toMetadataMap(raw interface{}) map[string]interface{} {
@@ -1988,4 +2083,9 @@ func abbreviateCommit(commit string) string {
 		return commit[:12]
 	}
 	return commit
+}
+
+func commandBuildBranch(cmd *cobra.Command) string {
+	branch, _ := cmd.Flags().GetString("branch")
+	return branch
 }

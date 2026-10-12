@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,6 +25,10 @@ import (
 // DefaultRunTimeoutSeconds is the default execution timeout for test and workflow runs.
 const DefaultRunTimeoutSeconds = 60 * 60
 
+// testRunBuildReadTimeout bounds the read of the build a finished run used, so
+// a slow report never holds the command's exit.
+const testRunBuildReadTimeout = 10 * time.Second
+
 // RunTestParams contains parameters for running a test.
 //
 // Fields:
@@ -37,14 +42,18 @@ const DefaultRunTimeoutSeconds = 60 * 60
 //   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 //   - LaunchURL: Optional deep link URL for hot reload mode
 type RunTestParams struct {
-	TestNameOrID   string
-	TestsDir       string
-	Retries        int
-	BuildVersionID string
-	Timeout        int
-	DevMode        bool
-	MonitoringMode sse.MonitoringMode
-	OnProgress     func(status *sse.TestStatus)
+	TestNameOrID      string
+	TestsDir          string
+	Retries           int
+	BuildVersionID    string
+	BranchID          string
+	BranchName        string
+	ContextBranchName string
+	BuildSelection    string
+	Timeout           int
+	DevMode           bool
+	MonitoringMode    sse.MonitoringMode
+	OnProgress        func(status *sse.TestStatus)
 	// OnTaskStarted is called immediately after the test execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
@@ -107,6 +116,9 @@ type RunTestResult struct {
 	Duration     string `json:"duration"`
 	ReportURL    string `json:"report_url"`
 	ErrorMessage string `json:"error_message,omitempty"`
+	BuildID      string `json:"build_id,omitempty"`
+	BuildVersion string `json:"build_version,omitempty"`
+	BranchName   string `json:"branch_name,omitempty"`
 }
 
 // RunTest executes a test and returns structured results.
@@ -127,6 +139,9 @@ type RunTestResult struct {
 //   - *RunTestResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
 func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params RunTestParams) (*RunTestResult, error) {
+	if err := ValidateRuntimeBuildSelection(params.BranchID, params.BranchName, params.BuildSelection, params.BuildVersionID); err != nil {
+		return nil, err
+	}
 	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
 		return nil, err
 	}
@@ -171,6 +186,10 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		TestID:            testID,
 		Retries:           retries,
 		BuildVersionID:    params.BuildVersionID,
+		BranchID:          params.BranchID,
+		BranchName:        params.BranchName,
+		ContextBranchName: params.ContextBranchName,
+		BuildSelection:    api.BuildSelectionMode(params.BuildSelection),
 		LaunchURL:         params.LaunchURL,
 		LaunchEnvVarIds:   launchConfigurationIDs,
 		DeviceModel:       params.DeviceModel,
@@ -203,6 +222,7 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 	if err != nil {
 		return &RunTestResult{
 			Success:      false,
+			TestID:       testID,
 			ErrorMessage: err.Error(),
 		}, nil
 	}
@@ -231,7 +251,7 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		// prefer using it over reporting a generic error
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
 			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
-			return &RunTestResult{
+			result := &RunTestResult{
 				Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 				TaskID:       resp.TaskID,
 				TestID:       testID,
@@ -240,7 +260,9 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 				Duration:     finalStatus.Duration,
 				ReportURL:    reportURL,
 				ErrorMessage: finalStatus.ErrorMessage,
-			}, nil
+			}
+			attachTestRunBuild(ctx, client, result)
+			return result, nil
 		}
 		return &RunTestResult{
 			Success:      false,
@@ -252,7 +274,7 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 
 	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
-	return &RunTestResult{
+	result := &RunTestResult{
 		Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 		TaskID:       resp.TaskID,
 		TestID:       testID,
@@ -261,7 +283,32 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		Duration:     finalStatus.Duration,
 		ReportURL:    reportURL,
 		ErrorMessage: finalStatus.ErrorMessage,
-	}, nil
+	}
+	attachTestRunBuild(ctx, client, result)
+	return result, nil
+}
+
+// attachTestRunBuild records the branch and build a finished test run used,
+// read from its report. A failed read leaves them empty; the run result stands.
+// The read outlives a cancelled run context, so a run stopped from the
+// dashboard still reports its build, within testRunBuildReadTimeout.
+func attachTestRunBuild(ctx context.Context, client *api.Client, result *RunTestResult) {
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testRunBuildReadTimeout)
+	defer cancel()
+	envelope, err := client.GetReportContextByExecution(readCtx, result.TaskID, false, false, false)
+	if err != nil {
+		return
+	}
+	report := envelope.Report
+	if report.ResolvedBuildId != nil {
+		result.BuildID = *report.ResolvedBuildId
+	}
+	if report.BuildVersion != nil {
+		result.BuildVersion = *report.BuildVersion
+	}
+	if report.BranchName != nil {
+		result.BranchName = *report.BranchName
+	}
 }
 
 // RunWorkflowParams contains parameters for running a workflow.
@@ -275,14 +322,22 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 //   - OnProgress: Optional callback for progress updates
 //   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 type RunWorkflowParams struct {
-	WorkflowNameOrID string
-	Retries          int
-	Timeout          int
-	DevMode          bool
-	IOSAppID         string // Optional iOS app ID override
-	AndroidAppID     string // Optional Android app ID override
-	IOSBuild         string // Optional iOS build version to pin (requires IOSAppID)
-	AndroidBuild     string // Optional Android build version to pin (requires AndroidAppID)
+	WorkflowNameOrID  string
+	Retries           int
+	Timeout           int
+	DevMode           bool
+	IOSAppID          string // Optional iOS app ID override
+	AndroidAppID      string // Optional Android app ID override
+	IOSBuild          string // Optional iOS build version to pin (requires IOSAppID)
+	AndroidBuild      string // Optional Android build version to pin (requires AndroidAppID)
+	IOSBuildID        string
+	AndroidBuildID    string
+	IOSBranchID       string
+	AndroidBranchID   string
+	BranchName        string
+	ContextBranchName string
+	BuildSelection    string
+	NoWait            bool
 	// Location fields for initial GPS location override.
 	Latitude    float64
 	Longitude   float64
@@ -319,6 +374,10 @@ type RunWorkflowParams struct {
 //   - Duration: Execution duration as a human-readable string
 //   - ErrorMessage: Error message if the test failed
 type WorkflowTestResult struct {
+	BuildID      string `json:"build_id,omitempty"`
+	BuildVersion string `json:"build_version,omitempty"`
+	BranchID     string `json:"branch_id,omitempty"`
+	BranchName   string `json:"branch_name,omitempty"`
 	TestName     string `json:"test_name"`
 	Platform     string `json:"platform"`
 	Status       string `json:"status"`
@@ -377,6 +436,24 @@ type RunWorkflowResult struct {
 //   - *RunWorkflowResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
 func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, params RunWorkflowParams) (*RunWorkflowResult, error) {
+	if err := ValidateRuntimeBuildSelection("", params.BranchName, params.BuildSelection, ""); err != nil {
+		return nil, err
+	}
+	if params.IOSBranchID != "" && params.IOSBuildID == "" || params.AndroidBranchID != "" && params.AndroidBuildID == "" {
+		return nil, fmt.Errorf("a frozen workflow branch requires its exact build ID")
+	}
+	if params.IOSBuildID != "" && params.IOSBuild != "" || params.AndroidBuildID != "" && params.AndroidBuild != "" {
+		return nil, fmt.Errorf("choose an exact build ID or legacy version for each platform, not both")
+	}
+	if (params.IOSBuildID != "" || params.IOSBuild != "") && params.IOSAppID == "" {
+		return nil, fmt.Errorf("an iOS build override requires an iOS app")
+	}
+	if (params.AndroidBuildID != "" || params.AndroidBuild != "") && params.AndroidAppID == "" {
+		return nil, fmt.Errorf("an Android build override requires an Android app")
+	}
+	if params.BuildSelection != "" && (params.IOSBuildID != "" || params.AndroidBuildID != "" || params.IOSBuild != "" || params.AndroidBuild != "") {
+		return nil, fmt.Errorf("a workflow build mode cannot be combined with exact build or version overrides")
+	}
 	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
 		return nil, err
 	}
@@ -418,6 +495,9 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		LaunchEnvVarIds:   launchConfigurationIDs,
 		LaunchEnvVars:     params.LaunchEnvVars,
 		LaunchArguments:   params.LaunchArguments,
+		BranchName:        params.BranchName,
+		ContextBranchName: params.ContextBranchName,
+		BuildSelection:    api.BuildSelectionMode(params.BuildSelection),
 	}
 	if params.IOSAppID != "" || params.AndroidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}
@@ -431,6 +511,9 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 			if params.IOSBuild != "" {
 				iosApp.PinnedVersion = &params.IOSBuild
 			}
+			if err := applyWorkflowExactBuild(ctx, client, iosApp, params.IOSBuildID, params.IOSBuild, params.BranchName, params.IOSBranchID); err != nil {
+				return nil, err
+			}
 			req.BuildConfig.IosBuild = iosApp
 		}
 		if params.AndroidAppID != "" {
@@ -441,6 +524,9 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 			androidApp := &api.PlatformApp{AppId: androidUUID}
 			if params.AndroidBuild != "" {
 				androidApp.PinnedVersion = &params.AndroidBuild
+			}
+			if err := applyWorkflowExactBuild(ctx, client, androidApp, params.AndroidBuildID, params.AndroidBuild, params.BranchName, params.AndroidBranchID); err != nil {
+				return nil, err
 			}
 			req.BuildConfig.AndroidBuild = androidApp
 		}
@@ -456,6 +542,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 	if err != nil {
 		return &RunWorkflowResult{
 			Success:      false,
+			WorkflowID:   workflowID,
 			ErrorMessage: err.Error(),
 		}, nil
 	}
@@ -463,6 +550,15 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 	// Notify caller of task ID immediately for cancellation support
 	if params.OnTaskStarted != nil {
 		params.OnTaskStarted(resp.TaskID)
+	}
+	if params.NoWait {
+		return &RunWorkflowResult{
+			Success:    true,
+			TaskID:     resp.TaskID,
+			WorkflowID: workflowID,
+			Status:     "queued",
+			ReportURL:  fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID)),
+		}, nil
 	}
 
 	// Monitor execution
@@ -562,6 +658,7 @@ func enrichWithTestResults(ctx context.Context, client *api.Client, result *RunW
 	}
 	for _, child := range report.ChildTasks {
 		tr := WorkflowTestResult{
+			BuildID: child.BuildID, BuildVersion: child.BuildVersion, BranchID: child.BranchID, BranchName: child.BranchName,
 			TestName: child.TestName,
 			Platform: child.Platform,
 			Status:   child.Status,

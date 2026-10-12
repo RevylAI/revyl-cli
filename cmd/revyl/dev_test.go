@@ -1051,12 +1051,12 @@ type fakeDevRebuildBuildResolver struct {
 	requestedVersionIDs []string
 }
 
-func (f *fakeDevRebuildBuildResolver) GetLatestBuildVersion(
-	context.Context,
-	string,
-) (*api.BuildVersion, error) {
+func (f *fakeDevRebuildBuildResolver) ResolveBuildSelection(context.Context, string, api.BuildSelection) (*api.BuildVersionDetail, error) {
 	f.latestCalls++
-	return f.latestVersion, nil
+	if f.latestVersion == nil {
+		return nil, nil
+	}
+	return f.buildDetails[f.latestVersion.ID], nil
 }
 
 func (f *fakeDevRebuildBuildResolver) GetBuildVersionDownloadURL(

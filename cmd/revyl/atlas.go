@@ -33,7 +33,11 @@ Start with:
   revyl atlas brief --app "My App"
   revyl atlas graph --app "My App"
   revyl atlas search "checkout error" --app "My App"
-  revyl atlas screen <screen-id> --app "My App" --screenshots --screenshot-dir /tmp/atlas-shots`,
+  revyl atlas screen <screen-id> --app "My App" --screenshots --screenshot-dir /tmp/atlas-shots
+
+Reads include all branches by default. Use --branch or --branch-id to narrow
+the scope, or --build to select one build. --build latest selects the latest
+eligible build on the selected branch, or the app default branch.`,
 	Args: cobra.NoArgs,
 	RunE: runAtlasGuide,
 }
@@ -197,8 +201,9 @@ func init() {
 		addAtlasScopeFlags(cmd, cmd == atlasObservationsCmd)
 		addAtlasOutputFlags(cmd)
 	}
+	addAtlasBranchFlags(atlasOpenCmd)
 	atlasOpenCmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
-	atlasOpenCmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
+	atlasOpenCmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, or latest; defaults to all builds in the branch scope")
 	atlasOpenCmd.Flags().StringVar(&atlasSince, "since", "", "Product range: 1d, 7d, or 30d")
 	atlasOpenCmd.Flags().StringVar(&atlasDeviceModel, "device-model", "", "Filter by device model")
 	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "runtime", "", "Filter by OS runtime")
@@ -227,9 +232,9 @@ func init() {
 }
 
 func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
-	cmd.Flags().String("branch-id", "", "Filter Atlas evidence to a Revyl branch ID")
+	addAtlasBranchFlags(cmd)
 	cmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
-	cmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
+	cmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, or latest; defaults to all builds in the branch scope")
 	cmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp)")
 	cmd.Flags().StringVar(&atlasTo, "to", "", "End time filter (ISO timestamp)")
 	cmd.Flags().StringVar(&atlasSince, "since", "", "Relative start time, such as 7d")
@@ -331,48 +336,69 @@ func resolveAtlasApp(cmd *cobra.Command, client *api.Client, app string) (*api.A
 	return nil, fmt.Errorf("app not found")
 }
 
-func resolveAtlasBuild(cmd *cobra.Command, client *api.Client, appID string, build string) (string, error) {
-	if build == "" || build == "latest" {
-		latest, err := client.GetLatestBuildVersion(cmd.Context(), appID)
-		if err != nil {
-			return "", err
-		}
-		if latest == nil {
-			return "", nil
-		}
-		return latest.ID, nil
-	}
-	if build == "all" {
-		return "", nil
-	}
-	versions, err := client.ListBuildVersions(cmd.Context(), appID)
-	if err != nil {
-		return "", err
-	}
-	for _, version := range versions {
-		if version.ID == build || version.Version == build {
-			return version.ID, nil
-		}
-	}
-	return build, nil
+func addAtlasBranchFlags(cmd *cobra.Command) {
+	cmd.Flags().String("branch", "", "Revyl branch name (reads default to all branches)")
+	cmd.Flags().String("branch-id", "", "Revyl branch ID")
+	cmd.Flags().Bool("all-branches", false, "Include evidence from all branches (the default)")
+	cmd.MarkFlagsMutuallyExclusive("branch", "branch-id", "all-branches")
 }
 
 func resolveAtlasScope(cmd *cobra.Command, client *api.Client, app *api.App) (string, string, error) {
-	branchID, _ := cmd.Flags().GetString("branch-id")
-	if branchID == "" {
-		buildID, err := resolveAtlasBuild(cmd, client, app.ID, atlasBuild)
-		return "", buildID, err
+	name, _ := cmd.Flags().GetString("branch")
+	id, _ := cmd.Flags().GetString("branch-id")
+	all, _ := cmd.Flags().GetBool("all-branches")
+	explicitBranch := name != "" || id != ""
+	explicitBuild := cmd.Flags().Changed("build")
+	if all && explicitBuild && atlasBuild != "all" {
+		return "", "", fmt.Errorf("--all-branches cannot be combined with a specific --build")
 	}
-	if _, err := uuid.Parse(branchID); err != nil {
-		return "", "", fmt.Errorf("branch ID must be a UUID")
+	if explicitBuild && atlasBuild == "all" && explicitBranch {
+		return "", "", fmt.Errorf("--build all cannot be combined with a branch; omit --build to show that branch")
 	}
-	if !cmd.Flags().Changed("build") {
-		return branchID, "", nil
+	if all || (explicitBuild && atlasBuild == "all") {
+		return "", "", nil
 	}
-	if _, err := uuid.Parse(atlasBuild); err != nil {
-		return "", "", fmt.Errorf("with --branch-id, omit --build for branch evidence or pass an exact build UUID")
+	if id != "" {
+		if _, err := uuid.Parse(id); err != nil {
+			return "", "", fmt.Errorf("branch ID must be a UUID")
+		}
 	}
-	return branchID, atlasBuild, nil
+	if name != "" || (!explicitBranch && explicitBuild && (atlasBuild == "latest" || atlasBuild == "")) {
+		if !explicitBranch {
+			id = app.DefaultBranchID
+		}
+		branch, err := client.ResolveBranch(cmd.Context(), app.ID, id, name)
+		if err != nil {
+			return "", "", err
+		}
+		id = branch.ID
+	}
+	if !explicitBuild {
+		return id, "", nil
+	}
+	if atlasBuild == "latest" || atlasBuild == "" {
+		build, err := client.ResolveBuildSelection(cmd.Context(), app.ID, api.BuildSelection{BranchID: id, Mode: api.BuildSelectionModeLatest})
+		if err != nil {
+			return "", "", err
+		}
+		return id, build.ID, nil
+	}
+	if _, err := uuid.Parse(atlasBuild); err == nil {
+		return id, atlasBuild, nil
+	}
+	result, err := client.ListBuildVersionsWithOptions(cmd.Context(), app.ID, api.BuildListOptions{
+		BranchID:     id,
+		ExactVersion: atlasBuild,
+		Page:         1,
+		PageSize:     1,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if len(result.Items) > 0 && result.Items[0].Version == atlasBuild {
+		return id, result.Items[0].ID, nil
+	}
+	return "", "", fmt.Errorf("build version not found in the selected scope; pass an exact build ID")
 }
 
 func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api.App, error) {
@@ -947,6 +973,11 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 	base := strings.TrimRight(config.GetAppURL(devMode), "/")
 	viewerURL := fmt.Sprintf("%s/apps/%s/atlas", base, query.AppID)
 	params := url.Values{}
+	if query.BranchID != "" {
+		params.Set("branchId", query.BranchID)
+	} else if query.BuildID == "" {
+		params.Set("branchId", "all")
+	}
 	if query.BuildID != "" {
 		params.Set("buildId", query.BuildID)
 	}
@@ -1804,6 +1835,9 @@ func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
 	if branchID != "" {
 		result["branch_id"] = branchID
 	}
+	if recentBuildLimit := atlasInt(projection["recent_build_limit"]); recentBuildLimit > 0 {
+		result["recent_build_limit"] = recentBuildLimit
+	}
 	for _, key := range []string{
 		"requested_build_id",
 		"from_time",
@@ -1825,6 +1859,9 @@ func atlasEvidenceProjection(query api.AtlasQuery) map[string]interface{} {
 	}
 	if query.BranchID != "" {
 		result["branch_id"] = query.BranchID
+	}
+	if query.RecentBuildLimit > 0 {
+		result["recent_build_limit"] = query.RecentBuildLimit
 	}
 	if query.DeviceModel != "" {
 		result["device_model"] = query.DeviceModel
@@ -1862,6 +1899,9 @@ func atlasScopeFlagSuffix(graph api.AtlasResponse) string {
 			flags = append(flags, item.flag+" "+strconv.Quote(value))
 		}
 	}
+	if atlasString(projection, "branch_id") == "" && atlasString(projection, "requested_build_id") == "" {
+		flags = append(flags, "--all-branches")
+	}
 	if len(flags) == 0 {
 		return ""
 	}
@@ -1873,11 +1913,19 @@ func atlasScopedNextActions(graph api.AtlasResponse, actions []string) []string 
 	if suffix == "" {
 		return actions
 	}
+	recentBuildLimit := atlasInt(atlasProjectionContract(graph)["recent_build_limit"])
 	result := make([]string, len(actions))
 	for index, action := range actions {
 		result[index] = action
 		if strings.HasPrefix(action, "revyl atlas ") {
 			result[index] += suffix
+			if recentBuildLimit > 0 {
+				name, _, _ := strings.Cut(strings.TrimPrefix(action, "revyl atlas "), " ")
+				command, _, err := atlasCmd.Find([]string{name})
+				if err == nil && command.Flags().Lookup("recent-build-limit") != nil {
+					result[index] += " --recent-build-limit " + strconv.Itoa(recentBuildLimit)
+				}
+			}
 		}
 	}
 	return result

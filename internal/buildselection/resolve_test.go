@@ -9,255 +9,105 @@ import (
 )
 
 type fakeClient struct {
-	pages      map[int]*api.BuildVersionsPage
-	errByPage  map[int]error
-	emptyPages bool
+	selection api.BuildSelection
+	err       error
 }
 
-func (f *fakeClient) ListBuildVersionsPage(_ context.Context, _ string, page int, _ int) (*api.BuildVersionsPage, error) {
-	if err, ok := f.errByPage[page]; ok {
-		return nil, err
-	}
-	if result, ok := f.pages[page]; ok {
-		return result, nil
-	}
-	if f.emptyPages {
-		return &api.BuildVersionsPage{Items: []api.BuildVersion{}}, nil
-	}
-	return &api.BuildVersionsPage{Items: []api.BuildVersion{}, Page: page}, nil
+func (f *fakeClient) ResolveBuildSelection(_ context.Context, _ string, s api.BuildSelection) (*api.BuildVersionDetail, error) {
+	f.selection = s
+	return &api.BuildVersionDetail{ID: "resolved", BranchID: "branch", BranchName: "main"}, f.err
 }
 
-func TestSelectPreferredBuildVersionForBranch_PrefersBranchMatchFromLaterPage(t *testing.T) {
-	client := &fakeClient{
-		pages: map[int]*api.BuildVersionsPage{
-			1: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "latest-overall",
-						Version: "v2",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "main",
-							},
-						},
-					},
-				},
-				Page:       1,
-				TotalPages: 2,
-				HasNext:    true,
-			},
-			2: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "branch-match",
-						Version: "v1",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "feature/new-login",
-							},
-						},
-					},
-				},
-				Page:       2,
-				TotalPages: 2,
-				HasNext:    false,
-			},
-		},
+func TestSelectPreferredUsesAppDefaultWithoutGitInference(t *testing.T) {
+	client := &fakeClient{}
+	selected, source, warnings, err := SelectPreferredBuildVersion(context.Background(), client, "app-id", t.TempDir())
+	if err != nil || selected.ID != "resolved" || source != "default_branch" || len(warnings) != 0 || client.selection.BranchName != "" {
+		t.Fatalf("unexpected result: %v %s %v %v", selected, source, warnings, err)
 	}
-
-	selected, source, warnings, err := SelectPreferredBuildVersionForBranch(
-		context.Background(),
-		client,
-		"app-id",
-		"feature/new-login",
-	)
-	if err != nil {
-		t.Fatalf("SelectPreferredBuildVersionForBranch() error = %v", err)
-	}
-	if selected == nil {
-		t.Fatal("selected build is nil")
-	}
-	if selected.ID != "branch-match" {
-		t.Fatalf("selected.ID = %q, want %q", selected.ID, "branch-match")
-	}
-	if source != "branch:feature/new-login" {
-		t.Fatalf("source = %q, want %q", source, "branch:feature/new-login")
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
+}
+func TestExplicitBranchDoesNotFallback(t *testing.T) {
+	for _, name := range []string{"main", "HEAD", "all"} {
+		client := &fakeClient{err: api.ErrBranchHasNoBuilds}
+		selected, _, _, err := SelectPreferredBuildVersionForBranch(context.Background(), client, "app-id", name)
+		if !errors.Is(err, api.ErrBranchHasNoBuilds) || selected != nil || client.selection.BranchName != name {
+			t.Fatalf("unexpected result for %s", name)
+		}
 	}
 }
 
-func TestSelectPreferredBuildVersionForBranch_FallsBackToLatestAcrossPages(t *testing.T) {
-	client := &fakeClient{
-		pages: map[int]*api.BuildVersionsPage{
-			1: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "latest-overall",
-						Version: "v2",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "main",
-							},
-						},
-					},
-				},
-				Page:       1,
-				TotalPages: 2,
-				HasNext:    true,
-			},
-			2: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "other-branch",
-						Version: "v1",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "release/candidate",
-							},
-						},
-					},
-				},
-				Page:       2,
-				TotalPages: 2,
-				HasNext:    false,
-			},
+type fakeBranchBuildsClient struct {
+	fakeClient
+	resolved   api.BuildVersionDetail
+	pages      []api.BuildVersionsPage
+	listedWith []api.BuildListOptions
+}
+
+func (f *fakeBranchBuildsClient) ResolveBuildSelection(_ context.Context, _ string, s api.BuildSelection) (*api.BuildVersionDetail, error) {
+	f.selection = s
+	if f.err != nil {
+		return nil, f.err
+	}
+	resolved := f.resolved
+	return &resolved, nil
+}
+
+func (f *fakeBranchBuildsClient) ListBuildVersionsWithOptions(_ context.Context, _ string, opts api.BuildListOptions) (*api.BuildVersionsPage, error) {
+	f.listedWith = append(f.listedWith, opts)
+	return &f.pages[opts.Page-1], nil
+}
+
+func gitBuild(id, gitBranch string) api.BuildVersion {
+	return api.BuildVersion{ID: id, Metadata: map[string]interface{}{"git": map[string]interface{}{"branch": gitBranch}}}
+}
+
+var latestOnBase = api.BuildSelection{BranchID: "base-id", Mode: api.BuildSelectionModeLatest}
+
+func TestSelectLatestPreferringGitBranchPicksNewestMatchingBuildOnTheBranch(t *testing.T) {
+	client := &fakeBranchBuildsClient{
+		resolved: api.BuildVersionDetail{ID: "newest", BranchName: "base"},
+		pages: []api.BuildVersionsPage{
+			{Items: []api.BuildVersion{gitBuild("newest", "main"), gitBuild("other", "release")}, HasNext: true},
+			{Items: []api.BuildVersion{gitBuild("feature-new", "feature/login"), gitBuild("feature-old", "feature/login")}},
 		},
 	}
-
-	selected, source, warnings, err := SelectPreferredBuildVersionForBranch(
-		context.Background(),
-		client,
-		"app-id",
-		"feature/new-login",
-	)
-	if err != nil {
-		t.Fatalf("SelectPreferredBuildVersionForBranch() error = %v", err)
+	selected, source, warnings, err := SelectLatestBuildVersionPreferringGitBranch(context.Background(), client, "app-id", "base-id", "feature/login")
+	if err != nil || selected.ID != "feature-new" || source != "git_branch" || len(warnings) != 0 {
+		t.Fatalf("unexpected result: %v %s %v %v", selected, source, warnings, err)
 	}
-	if selected == nil {
-		t.Fatal("selected build is nil")
-	}
-	if selected.ID != "latest-overall" {
-		t.Fatalf("selected.ID = %q, want %q", selected.ID, "latest-overall")
-	}
-	if source != "latest" {
-		t.Fatalf("source = %q, want %q", source, "latest")
-	}
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %v, want exactly one warning", warnings)
+	if len(client.listedWith) != 2 || client.listedWith[0].BranchID != "base-id" || client.listedWith[1].Page != 2 {
+		t.Fatalf("scanned %+v", client.listedWith)
 	}
 }
 
-func TestSelectPreferredBuildVersionForBranch_ErrorsWhenLaterPageFails(t *testing.T) {
-	client := &fakeClient{
-		pages: map[int]*api.BuildVersionsPage{
-			1: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "latest-overall",
-						Version: "v2",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "main",
-							},
-						},
-					},
-				},
-				Page:       1,
-				TotalPages: 2,
-				HasNext:    true,
-			},
-		},
-		errByPage: map[int]error{
-			2: errors.New("page 2 fetch failed"),
-		},
+func TestSelectLatestPreferringGitBranchFallsBackToTheBranchLatestBuild(t *testing.T) {
+	client := &fakeBranchBuildsClient{
+		resolved: api.BuildVersionDetail{ID: "newest-usable", BranchName: "base"},
+		pages:    []api.BuildVersionsPage{{Items: []api.BuildVersion{gitBuild("preview", "main"), gitBuild("newest-usable", "main"), gitBuild("pinned", "main")}}},
 	}
-
-	selected, source, warnings, err := SelectPreferredBuildVersionForBranch(
-		context.Background(),
-		client,
-		"app-id",
-		"feature/new-login",
-	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	selected, _, warnings, err := SelectLatestBuildVersionPreferringGitBranch(context.Background(), client, "app-id", "base-id", "feature/login")
+	if err != nil || selected.ID != "newest-usable" || client.selection != latestOnBase {
+		t.Fatalf("unexpected result: %v %+v %v", selected, client.selection, err)
 	}
-	if selected != nil || source != "" || warnings != nil {
-		t.Fatalf("expected no result tuple on error, got selected=%v source=%q warnings=%v", selected, source, warnings)
+	if len(warnings) != 1 || warnings[0] != `No builds found for current branch "feature/login"; using latest available build instead.` {
+		t.Fatalf("warnings = %q", warnings)
 	}
 }
 
-// TestSelectPreferredBuildVersionForBranch_EmptyBranchReturnsLatestOverall locks
-// the --seed-latest contract: empty branch picks page-1 item-0 immediately and
-// does not scan later pages for a branch match.
-func TestSelectPreferredBuildVersionForBranch_EmptyBranchReturnsLatestOverall(t *testing.T) {
-	client := &fakeClient{
-		pages: map[int]*api.BuildVersionsPage{
-			1: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "latest-overall",
-						Version: "v2",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "main",
-							},
-						},
-					},
-					{
-						ID:      "older-on-feature",
-						Version: "v1",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "feature/new-login",
-							},
-						},
-					},
-				},
-				Page:       1,
-				TotalPages: 2,
-				HasNext:    true,
-			},
-			2: {
-				Items: []api.BuildVersion{
-					{
-						ID:      "should-not-reach",
-						Version: "v0",
-						Metadata: map[string]interface{}{
-							"git": map[string]interface{}{
-								"branch": "feature/new-login",
-							},
-						},
-					},
-				},
-				Page:       2,
-				TotalPages: 2,
-				HasNext:    false,
-			},
-		},
+func TestSelectLatestPreferringGitBranchUsesLatestWithoutGitBranch(t *testing.T) {
+	client := &fakeBranchBuildsClient{resolved: api.BuildVersionDetail{ID: "resolved"}}
+	selected, _, warnings, err := SelectLatestBuildVersionPreferringGitBranch(context.Background(), client, "app-id", "base-id", "")
+	if err != nil || selected.ID != "resolved" || len(warnings) != 0 || len(client.listedWith) != 0 || client.selection != latestOnBase {
+		t.Fatalf("unexpected result: %v %v %v %+v %+v", selected, warnings, err, client.listedWith, client.selection)
 	}
+}
 
-	selected, source, warnings, err := SelectPreferredBuildVersionForBranch(
-		context.Background(),
-		client,
-		"app-id",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("SelectPreferredBuildVersionForBranch() error = %v", err)
-	}
-	if selected == nil {
-		t.Fatal("selected build is nil")
-	}
-	if selected.ID != "latest-overall" {
-		t.Fatalf("selected.ID = %q, want %q", selected.ID, "latest-overall")
-	}
-	if source != "latest" {
-		t.Fatalf("source = %q, want %q", source, "latest")
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
+func TestSelectLatestPreferringGitBranchReportsNothingToInstallWithoutWarning(t *testing.T) {
+	for _, missing := range []error{api.ErrBranchHasNoBuilds, api.ErrBranchHasNoCompatibleBuild} {
+		client := &fakeBranchBuildsClient{fakeClient: fakeClient{err: missing}, pages: []api.BuildVersionsPage{{}}}
+		selected, _, warnings, err := SelectLatestBuildVersionPreferringGitBranch(context.Background(), client, "app-id", "base-id", "feature/login")
+		if !errors.Is(err, missing) || selected != nil || len(warnings) != 0 {
+			t.Fatalf("unexpected result for %v: %v %v %v", missing, selected, warnings, err)
+		}
 	}
 }
 

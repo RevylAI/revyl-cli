@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,11 +17,51 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
 const devProjectID = "11111111-1111-4111-8111-111111111111"
+
+func TestDevNoBuildResolvesAnUnboundApp(t *testing.T) {
+	resetDevSelectionFlags(t)
+	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("REVYL_API_KEY", "test-key")
+	root := initDevRepository(t)
+	t.Chdir(root)
+	writeProjectDevConfig(t, root, `project:
+  id: `+devProjectID+`
+build:
+  framework: ios
+  profiles:
+    development:
+      ios:
+        build_commands: [build-ios]
+`)
+	previousNoBuild, previousBuild, previousRemote := devStartNoBuild, devStartBuild, devStartRemote
+	previousApp, previousProfile, previousPlatform := devStartAppID, devStartProfile, devStartPlatform
+	previousSelector := selectOrCreateBuildAppForInvocation
+	t.Cleanup(func() {
+		devStartNoBuild, devStartBuild, devStartRemote = previousNoBuild, previousBuild, previousRemote
+		devStartAppID, devStartProfile, devStartPlatform = previousApp, previousProfile, previousPlatform
+		selectOrCreateBuildAppForInvocation = previousSelector
+	})
+	devStartNoBuild, devStartBuild, devStartRemote = true, false, false
+	devStartAppID, devStartProfile, devStartPlatform = "", "", ""
+	selectionErr := errors.New("app selection reached")
+	selectOrCreateBuildAppForInvocation = func(_ *cobra.Command, _ *api.Client, invocation projectBuildInvocation) (string, error) {
+		if invocation.AppID != "" || invocation.Platform != "ios" {
+			t.Fatalf("unexpected app selection: %+v", invocation)
+		}
+		return "", selectionErr
+	}
+	cmd := newLeafCommand("dev", runDevStart)
+	if err := runDevStart(cmd, nil); !errors.Is(err, selectionErr) {
+		t.Fatalf("dev --no-build error = %v, want app selection", err)
+	}
+}
 
 func TestProjectDevContextProviderPreservesRuntimeLabels(t *testing.T) {
 	testCases := map[string]string{
@@ -470,5 +514,44 @@ func writeProjectDevConfig(t *testing.T, projectRoot, source string) {
 	}
 	if err := os.WriteFile(filepath.Join(configDirectory, "config.yaml"), []byte(source), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDevDestinationRemainsFrozenWhenDefaultChanges(t *testing.T) {
+	const appID = "11111111-1111-4111-8111-111111111111"
+	const branchID = "22222222-2222-4222-8222-222222222222"
+	defaultReads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/apps/" + appID:
+			defaultReads++
+			if defaultReads > 1 {
+				t.Error("continuation re-resolved the app default")
+			}
+			_, _ = fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, appID, branchID)
+		case "/api/v1/apps/" + appID + "/branches/" + branchID:
+			_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q,"name":"renamed"}`, branchID, appID)
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := api.NewClientWithBaseURL("test", server.URL)
+	initial, err := resolveDevDestination(context.Background(), client, projectDevInvocation{AppID: appID}, "", "", "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	continued, err := resolveDevDestination(context.Background(), client, initial, initial.BranchID, "", "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if continued.BranchID != branchID || defaultReads != 1 {
+		t.Fatalf("destination drifted: %+v; reads=%d", continued, defaultReads)
+	}
+	build := projectBuildInvocationFromDev(continued)
+	if build.BranchID != branchID || build.BranchName != "" {
+		t.Fatalf("upload must receive ID only: %+v", build)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/launchvars"
 )
 
@@ -50,27 +51,12 @@ func TestQueueWorkflowExecutionMergesTypedInheritedLaunchConfigurations(t *testi
 	t.Setenv("REVYL_APP_URL", "https://app.example")
 	t.Setenv(launchvars.InheritedIDsEnv, inheritedEnvID+","+inheritedArgsID)
 
-	_, err := queueWorkflowExecution(
-		context.Background(),
-		"token",
-		"workflow-123",
-		"Smoke Tests",
-		1,
-		false,
-		"",
-		"",
-		"",
-		"",
-		false,
-		0,
-		0,
-		nil,
-		[]string{"API_URL"},
-		[]string{"RouteArgs"},
-		false,
-		map[string]string{"API_URL": "https://inline.example"},
-		[]string{"--uitesting"},
-	)
+	_, err := queueWorkflowExecution(context.Background(), "token", "Smoke Tests", execution.RunWorkflowParams{
+		WorkflowNameOrID: "workflow-123", Retries: 1,
+		LaunchVars: []string{"API_URL"}, LaunchArgSets: []string{"RouteArgs"},
+		LaunchEnvVars:   map[string]string{"API_URL": "https://inline.example"},
+		LaunchArguments: []string{"--uitesting"},
+	})
 	if err != nil {
 		t.Fatalf("queueWorkflowExecution() error = %v", err)
 	}

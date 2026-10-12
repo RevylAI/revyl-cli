@@ -14,6 +14,8 @@ import (
 
 // urlUploadJSON is the machine-readable payload for `revyl build upload --url --json`.
 type urlUploadJSON struct {
+	BranchID    string `json:"branch_id,omitempty"`
+	BranchName  string `json:"branch_name,omitempty"`
 	Platform    string `json:"platform"`
 	AppID       string `json:"app_id"`
 	Version     string `json:"version"`

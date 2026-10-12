@@ -2,7 +2,11 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -16,11 +20,15 @@ type stubArtifactResolver struct {
 	detailErr     error
 }
 
-func (s stubArtifactResolver) GetLatestBuildVersion(ctx context.Context, appID string) (*api.BuildVersion, error) {
+func (s stubArtifactResolver) ResolveBuildSelection(ctx context.Context, appID string, selection api.BuildSelection) (*api.BuildVersionDetail, error) {
 	if s.latestErr != nil {
 		return nil, s.latestErr
 	}
-	return s.latestByApp[appID], nil
+	build := s.latestByApp[appID]
+	if build == nil {
+		return nil, nil
+	}
+	return s.detailByBuild[build.ID], nil
 }
 
 func (s stubArtifactResolver) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error) {
@@ -467,5 +475,80 @@ func TestResolveLaunchConfigurationSelectionPreservesTypedSourceOrder(t *testing
 	want := "env-inherited,args-inherited,env-explicit,args-explicit-2,args-explicit"
 	if strings.Join(ids, ",") != want {
 		t.Fatalf("ResolveLaunchConfigurationSelection() = %v, want %s", ids, want)
+	}
+}
+
+func TestResolveStartArtifactUsesCanonicalBranchSelection(t *testing.T) {
+	const appID = "00000000-0000-4000-8000-000000000001"
+	const buildID = "00000000-0000-4000-8000-000000000002"
+	const branchID = "00000000-0000-4000-8000-000000000003"
+	for _, mode := range []string{"", "latest"} {
+		t.Run(mode, func(t *testing.T) {
+			var requested map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/apps/resolve":
+					if err := json.NewDecoder(r.Body).Decode(&requested); err != nil {
+						t.Fatal(err)
+					}
+					_, _ = fmt.Fprintf(w, `{"version_id":%q,"branch_id":%q,"branch_name":"main","download_url":"https://artifact.example/app.apk"}`, buildID, branchID)
+				case "/api/v1/apps/builds/" + buildID:
+					_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q,"branch_id":%q,"package_name":"com.example.app"}`, buildID, appID, branchID)
+				default:
+					t.Errorf("unexpected fallback request: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			artifact, err := ResolveStartArtifact(context.Background(), api.NewClientWithBaseURL("test", server.URL), StartArtifactOptions{AppID: appID, BranchName: "main", BuildSelection: mode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if artifact.BuildID != buildID || artifact.BranchID != branchID || artifact.AppURL != "https://artifact.example/app.apk" {
+				t.Fatalf("artifact = %+v", artifact)
+			}
+			if requested["branch_name"] != "main" || requested["build_var_id"] != appID {
+				t.Fatalf("selector = %+v", requested)
+			}
+			if mode == "" {
+				if _, ok := requested["build_selection"]; ok {
+					t.Fatal("Automatic must omit mode")
+				}
+			} else if requested["build_selection"] != mode {
+				t.Fatalf("mode = %v", requested["build_selection"])
+			}
+		})
+	}
+}
+
+func TestResolveStartArtifactRejectsContradictoryScopeBeforeLookup(t *testing.T) {
+	for _, opts := range []StartArtifactOptions{
+		{BranchName: "main"},
+		{AppURL: "https://artifact.example/app.apk", BranchName: "main"},
+		{AppID: "app", BuildSelection: "anything"},
+		{BuildVersionID: "00000000-0000-4000-8000-000000000002", BuildSelection: "latest"},
+	} {
+		if _, err := ResolveStartArtifact(context.Background(), stubArtifactResolver{}, opts); err == nil {
+			t.Fatalf("accepted contradictory inputs %+v", opts)
+		}
+	}
+}
+
+func TestResolveStartArtifactDoesNotFallbackFromUnavailablePin(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/api/v1/apps/resolve" {
+			t.Errorf("unexpected fallback %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"detail":"branch pin is unavailable"}`))
+	}))
+	defer server.Close()
+	_, err := ResolveStartArtifact(context.Background(), api.NewClientWithBaseURL("test", server.URL), StartArtifactOptions{AppID: "app"})
+	if err == nil || !strings.Contains(err.Error(), "unavailable") || calls != 1 {
+		t.Fatalf("err=%v, calls=%d", err, calls)
 	}
 }

@@ -126,6 +126,54 @@ func TestCreateRemoteTest_FallsBackToValidatedOrgIDAndNormalizesEmptyTasks(t *te
 	}
 }
 
+func TestCreateForceFailsWhenSavedSelectionUpdateIsRejected(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	projectRoot := t.TempDir()
+	gitInitCreateRepository(t, projectRoot)
+	writeCanonicalCreateConfig(t, projectRoot, "project:\n  id: 00000000-0000-4000-8000-000000000001\n")
+	t.Chdir(projectRoot)
+	oldPlatform, oldAppID, oldMode := createTestPlatform, createTestAppID, createTestBuildSelection
+	oldForce, oldNoOpen := createTestForce, createTestNoOpen
+	t.Cleanup(func() {
+		createTestPlatform, createTestAppID, createTestBuildSelection = oldPlatform, oldAppID, oldMode
+		createTestForce, createTestNoOpen = oldForce, oldNoOpen
+	})
+	createTestPlatform, createTestAppID, createTestBuildSelection = "ios", "app", "latest"
+	createTestForce, createTestNoOpen = true, true
+	updated := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/tests/get_simple_tests":
+			_, _ = w.Write([]byte(`{"tests":[{"id":"test","name":"Existing"}]}`))
+		case "/api/v1/tests/update/test":
+			updated = true
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if body["build_selection"] != "latest" || body["branch_id"] != nil || body["pinned_build_id"] != nil {
+				t.Errorf("selection=%v", body)
+			}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"detail":"Selected app is unavailable"}`))
+		default:
+			t.Errorf("unexpected request after failed update: %s", r.URL.Path)
+			http.Error(w, "unexpected", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_API_KEY", "key")
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	err := runCreateTest(newLeafCommand("create", runCreateTest), []string{"Existing"})
+	if !updated || err == nil || !strings.Contains(err.Error(), "update existing test app and build selection") {
+		t.Fatalf("updated=%t err=%v", updated, err)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".revyl", "tests", "Existing.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("failed update created local success state: %v", err)
+	}
+}
+
 func TestResolveWorkflowCreateTestIDs_UsesNearestCanonicalProject(t *testing.T) {
 	repository := t.TempDir()
 	gitInitCreateRepository(t, repository)

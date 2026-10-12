@@ -21,6 +21,8 @@ import (
 
 // executionModel manages the state of a running test execution.
 type executionModel struct {
+	buildSelection api.BuildSelection
+	overrideAppID  string
 	// testID is the UUID of the test being executed.
 	testID string
 
@@ -111,7 +113,7 @@ func newExecutionModel(testID, testName, apiKey string, devMode bool, width, hei
 
 // startMonitoredExecutionCmd starts the test execution with real-time SSE progress updates.
 // Unlike startExecutionCmd, this sends incremental progress messages to the TUI.
-func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool) tea.Cmd {
+func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, selections ...testExecutionBuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -127,9 +129,22 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool) t
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		choice := testExecutionBuildSelection{}
+		if len(selections) > 0 {
+			choice = selections[0]
+		}
+		selection, err := prepareTestRunBuildSelection(ctx, client, choice)
+		if err != nil {
+			return ExecutionDoneMsg{Err: err}
+		}
 		resp, err := client.ExecuteTest(ctx, &api.ExecuteTestRequest{
-			TestID:  testID,
-			Retries: 1,
+			TestID:            testID,
+			Retries:           1,
+			BranchID:          selection.BranchID,
+			BranchName:        selection.BranchName,
+			BuildSelection:    selection.Mode,
+			BuildVersionID:    selection.BuildID,
+			ContextBranchName: selection.ContextBranchName,
 		})
 		if err != nil {
 			return ExecutionDoneMsg{Err: fmt.Errorf("failed to start test: %w", err)}
@@ -294,7 +309,7 @@ func (m executionModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		tickCmd(),
-		startMonitoredExecutionCmd(m.testID, m.testName, m.apiKey, m.devMode),
+		startMonitoredExecutionCmd(m.testID, m.testName, m.apiKey, m.devMode, testExecutionBuildSelection{Selection: m.buildSelection, OverrideAppID: m.overrideAppID}),
 	)
 }
 

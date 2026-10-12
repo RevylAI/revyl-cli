@@ -57,6 +57,7 @@ func TestRunInitHandsWrittenCanonicalConfigToGithubSetup(t *testing.T) {
 	}
 
 	cmd := &cobra.Command{Use: "init"}
+	cmd.SetContext(context.Background())
 	cmd.Flags().Bool("dev", false, "")
 	output := captureStdoutAndStderr(t, func() {
 		withStdin(t, "1\n4\n2\n", func() {

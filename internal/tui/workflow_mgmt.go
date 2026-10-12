@@ -43,6 +43,7 @@ var workflowDetailActions = []workflowDetailAction{
 	{Key: "x", Desc: "Delete workflow"},
 	{Key: "s", Desc: "Settings"},
 	{Key: "y", Desc: "Sync tests"},
+	{Key: "B", Desc: "Run with branch override"},
 }
 
 // --- Commands ---
@@ -150,13 +151,20 @@ func fetchWorkflowDetailCmd(client *api.Client, workflowID string) tea.Cmd {
 //
 // Returns:
 //   - tea.Cmd: command producing WorkflowExecStartedMsg
-func executeWorkflowCmd(client *api.Client, workflowID string) tea.Cmd {
+func executeWorkflowCmd(client *api.Client, workflowID string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		selection := api.BuildSelection{}
+		if len(selections) > 0 {
+			selection = selections[0]
+		}
 		resp, err := client.ExecuteWorkflow(ctx, &api.ExecuteWorkflowRequest{
-			WorkflowID: workflowID,
+			WorkflowID:        workflowID,
+			BranchName:        selection.BranchName,
+			BuildSelection:    selection.Mode,
+			ContextBranchName: selection.ContextBranchName,
 		})
 		if err != nil {
 			return WorkflowExecStartedMsg{Err: err}
@@ -636,6 +644,14 @@ func executeWorkflowDetailActionByIndex(m hubModel, idx int) (tea.Model, tea.Cmd
 
 func executeWorkflowDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "B":
+		if m.selectedWfDetail != nil && m.client != nil {
+			picker := newBuildPicker(m.client, "", "Workflow branch override (blank keeps saved settings)")
+			picker.workflow, picker.loading, picker.step = true, false, buildPickerName
+			picker.nameInput.Focus()
+			m.buildPicker, m.buildPickerTarget = &picker, "workflow-run"
+			return m, textinput.Blink
+		}
 	case "r":
 		if m.selectedWfDetail != nil && m.client != nil {
 			m.currentView = viewWorkflowExecution
@@ -1318,41 +1334,34 @@ func fetchWorkflowSettingsCmd(client *api.Client, workflowID string) tea.Cmd {
 			allApps = appsResp.Items
 		}
 
-		return WorkflowSettingsMsg{Workflow: wf, AllTests: allTests, AllApps: allApps}
+		labels := map[string]string{}
+		for _, key := range []string{"ios_build", "android_build"} {
+			row, ok := wf.BuildConfig[key].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			labels[key] = workflowBuildSelectionLabel(row)
+			appID, _ := row["app_id"].(string)
+			branchID, _ := row["branch_id"].(string)
+			if appID != "" && branchID != "" {
+				branch, err := client.ResolveBranch(ctx, appID, branchID, "")
+				if err == nil {
+					labels[key] = strings.Replace(labels[key], branchID, branch.Name, 1)
+				}
+			}
+		}
+		return WorkflowSettingsMsg{Workflow: wf, AllTests: allTests, AllApps: allApps, BranchLabels: labels}
 	}
 }
 
-// saveWorkflowSettingsCmd persists the updated test list for a workflow.
-//
-// Parameters:
-//   - client: the API client
-//   - workflowID: the workflow to update
-//   - testIDs: the new test list
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowSettingsSavedMsg
-func saveWorkflowSettingsCmd(client *api.Client, workflowID string, testIDs []string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		err := client.UpdateWorkflowTests(ctx, workflowID, testIDs)
-		return WorkflowSettingsSavedMsg{Err: err}
-	}
-}
-
-// saveWorkflowOverridesCmd persists app/location/run config overrides.
-//
-// Parameters:
-//   - client: the API client
-//   - workflowID: the workflow to update
-//   - wf: the current workflow state with overrides
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowSettingsSavedMsg
-func saveWorkflowOverridesCmd(client *api.Client, workflowID string, wf *api.Workflow) tea.Cmd {
+func saveWorkflowSettingsCmd(client *api.Client, workflowID string, wf *api.Workflow, testIDs []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+
+		if err := client.UpdateWorkflowTests(ctx, workflowID, testIDs); err != nil {
+			return WorkflowSettingsSavedMsg{Err: err}
+		}
 
 		if err := client.UpdateWorkflowBuildConfig(ctx, workflowID, wf.BuildConfig, wf.OverrideBuildConfig); err != nil {
 			return WorkflowSettingsSavedMsg{Err: err}
@@ -1464,6 +1473,9 @@ func refreshAppMatches(m *hubModel) {
 }
 
 func handleWorkflowSettingsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.wfSettingsLoading {
+		return m, nil
+	}
 	if m.wfSettingsEditing {
 		if isAppEditField(m.wfSettingsEditField) {
 			switch msg.String() {
@@ -1518,6 +1530,27 @@ func handleWorkflowSettingsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.currentView = viewWorkflowDetail
 		m.wfSettingsWorkflow = nil
 		return m, nil
+	case "e":
+		if m.wfSettingsSection == wfSettingsSectionApp && m.wfSettingsWorkflow != nil {
+			m.wfSettingsWorkflow.OverrideBuildConfig = !m.wfSettingsWorkflow.OverrideBuildConfig
+			m.wfSettingsDirty = true
+		}
+		return m, nil
+	case "b":
+		if m.wfSettingsSection == wfSettingsSectionApp && m.wfSettingsWorkflow != nil {
+			key, target := "ios_build", "workflow-ios"
+			if m.wfSettingsCursor == 1 {
+				key, target = "android_build", "workflow-android"
+			}
+			if row, ok := m.wfSettingsWorkflow.BuildConfig[key].(map[string]interface{}); ok {
+				if appID, ok := row["app_id"].(string); ok {
+					currentBranchID, _ := row["branch_id"].(string)
+					return m.beginBuildPicker(appID, "Workflow platform branch/build", target, currentBranchID)
+				}
+			}
+			m.err = fmt.Errorf("choose the platform app before its branch/build")
+		}
+		return m, nil
 	case "tab":
 		m.wfSettingsSection = (m.wfSettingsSection + 1) % wfSettingsSectionCount
 		m.wfSettingsCursor = 0
@@ -1548,10 +1581,7 @@ func handleWorkflowSettingsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		if m.wfSettingsDirty && m.selectedWfDetail != nil && m.client != nil {
 			m.wfSettingsLoading = true
 			testIDs := collectToggledTestIDs(m)
-			return m, tea.Batch(
-				saveWorkflowSettingsCmd(m.client, m.selectedWfDetail.ID, testIDs),
-				saveWorkflowOverridesCmd(m.client, m.selectedWfDetail.ID, m.wfSettingsWorkflow),
-			)
+			return m, saveWorkflowSettingsCmd(m.client, m.selectedWfDetail.ID, m.wfSettingsWorkflow, testIDs)
 		}
 	}
 	return m, nil
@@ -1690,7 +1720,11 @@ func applySettingsEdit(m *hubModel) {
 			appID = m.wfSettingsAppMatches[m.wfSettingsAppCursor].ID
 		}
 		if appID != "" {
-			wf.BuildConfig["ios_build"] = map[string]interface{}{"app_id": appID}
+			row, _ := wf.BuildConfig["ios_build"].(map[string]interface{})
+			if row == nil || row["app_id"] != appID {
+				delete(m.wfSettingsBranchLabels, "ios_build")
+				wf.BuildConfig["ios_build"] = map[string]interface{}{"app_id": appID}
+			}
 			wf.OverrideBuildConfig = true
 		} else {
 			delete(wf.BuildConfig, "ios_build")
@@ -1706,7 +1740,11 @@ func applySettingsEdit(m *hubModel) {
 			appID = m.wfSettingsAppMatches[m.wfSettingsAppCursor].ID
 		}
 		if appID != "" {
-			wf.BuildConfig["android_build"] = map[string]interface{}{"app_id": appID}
+			row, _ := wf.BuildConfig["android_build"].(map[string]interface{})
+			if row == nil || row["app_id"] != appID {
+				delete(m.wfSettingsBranchLabels, "android_build")
+				wf.BuildConfig["android_build"] = map[string]interface{}{"app_id": appID}
+			}
 			wf.OverrideBuildConfig = true
 		} else {
 			delete(wf.BuildConfig, "android_build")
@@ -1763,6 +1801,9 @@ func applySettingsEdit(m *hubModel) {
 //   - string: rendered output
 func renderWorkflowSettings(m hubModel) string {
 	var b strings.Builder
+	if m.err != nil {
+		b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n")
+	}
 	w := m.width
 	if w == 0 {
 		w = 80
@@ -1828,17 +1869,20 @@ func renderWorkflowSettings(m hubModel) string {
 	}
 	b.WriteString("  " + separator(innerW) + "\n")
 
+	if wf != nil && !wf.OverrideBuildConfig {
+		b.WriteString("  " + dimStyle.Render("Disabled: using saved test selections") + "\n")
+	}
 	iosApp := dimStyle.Render("(not set)")
 	androidApp := dimStyle.Render("(not set)")
-	if wf != nil && wf.OverrideBuildConfig && wf.BuildConfig != nil {
+	if wf != nil && wf.BuildConfig != nil {
 		if iosBuild, ok := wf.BuildConfig["ios_build"].(map[string]interface{}); ok {
 			if appID, ok := iosBuild["app_id"].(string); ok && appID != "" {
-				iosApp = normalStyle.Render(resolveAppName(m.wfSettingsApps, appID))
+				iosApp = normalStyle.Render(resolveAppName(m.wfSettingsApps, appID)) + " · " + workflowSettingsBuildLabel(m, "ios_build", iosBuild)
 			}
 		}
 		if androidBuild, ok := wf.BuildConfig["android_build"].(map[string]interface{}); ok {
 			if appID, ok := androidBuild["app_id"].(string); ok && appID != "" {
-				androidApp = normalStyle.Render(resolveAppName(m.wfSettingsApps, appID))
+				androidApp = normalStyle.Render(resolveAppName(m.wfSettingsApps, appID)) + " · " + workflowSettingsBuildLabel(m, "android_build", androidBuild)
 			}
 		}
 	}
@@ -1951,6 +1995,8 @@ func renderWorkflowSettings(m hubModel) string {
 		helpKeyRender("space", "toggle"),
 		helpKeyRender("tab", "section"),
 		helpKeyRender("enter", "edit"),
+		helpKeyRender("b", "branch/build"),
+		helpKeyRender("e", "enable/disable app overrides"),
 	}
 	if m.wfSettingsDirty {
 		keys = append(keys, helpKeyRender("s", "save"))

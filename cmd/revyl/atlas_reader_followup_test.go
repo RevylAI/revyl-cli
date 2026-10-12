@@ -13,6 +13,76 @@ import (
 	"github.com/spf13/pflag"
 )
 
+func TestAtlasReaderCommandsDefaultToAllBranches(t *testing.T) {
+	atlasGraphCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		value := flag.Value.String()
+		t.Cleanup(func() { _ = flag.Value.Set(value) })
+	})
+	const appID = "11111111-1111-4111-8111-111111111111"
+	const branchID = "22222222-2222-4222-8222-222222222222"
+	requests := 0
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/apps/"+appID {
+			_ = json.NewEncoder(w).Encode(api.App{ID: appID, DefaultBranchID: branchID})
+			return
+		}
+		requests++
+		query := r.URL.Query()
+		if query.Has("branch_id") || query.Has("build_id") || query.Get("recent_build_limit") != "2" || query.Get("from_time") != "2026-01-01T00:00:00Z" {
+			t.Errorf("Atlas request changed All scope or limits: %s", r.URL)
+		}
+		switch r.URL.Path {
+		case "/api/v1/atlas/v2/apps/" + appID + "/graph":
+			graph := atlasContractFixture()
+			graph["app_id"] = appID
+			_ = json.NewEncoder(w).Encode(graph)
+		case "/api/v1/atlas/v2/apps/" + appID + "/entities/home/observations":
+			_ = json.NewEncoder(w).Encode(api.AtlasResponse{"observations": []interface{}{}, "total": 0})
+		default:
+			t.Errorf("unexpected lookup: %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer backend.Close()
+	t.Setenv("REVYL_API_KEY", "fixture-key")
+	t.Setenv("REVYL_BACKEND_URL", backend.URL)
+	for _, test := range []struct {
+		name string
+		args []string
+		run  func(*cobra.Command, []string) error
+	}{
+		{"brief", nil, runAtlasBrief},
+		{"graph", nil, runAtlasGraph},
+		{"map", nil, runAtlasMap},
+		{"search", []string{"expense"}, runAtlasSearch},
+		{"screen", []string{"home"}, runAtlasScreen},
+		{"observations", []string{"home"}, runAtlasObservations},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := requests
+			cmd := &cobra.Command{Use: test.name, RunE: test.run, SilenceUsage: true, SilenceErrors: true}
+			addAtlasScopeFlags(cmd, true)
+			addAtlasOutputFlags(cmd)
+			cmd.SetArgs(append(test.args, "--app", appID, "--recent-build-limit", "2", "--from", "2026-01-01T00:00:00Z", "--json"))
+			var runErr error
+			output := captureStdout(t, func() { runErr = cmd.Execute() })
+			if runErr != nil || requests != before+1 {
+				t.Fatalf("All read failed: err=%v requests=%d", runErr, requests-before)
+			}
+			var result api.AtlasResponse
+			if err := json.Unmarshal([]byte(output), &result); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if test.name == "graph" || test.name == "map" {
+				if atlasInt(atlasMap(result["returned"])["nodes"]) != 2 {
+					t.Fatalf("All read discarded graph nodes: %s", output)
+				}
+			}
+		})
+	}
+}
+
 func TestAtlasReaderCommandsPreserveBranchInFollowups(t *testing.T) {
 	atlasGraphCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		value := flag.Value.String()

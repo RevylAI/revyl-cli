@@ -33,6 +33,9 @@ var remoteBuildPollInterval = 3 * time.Second
 const sourceArchiveGitTimeout = 15 * time.Minute
 
 type remoteBuildOptions struct {
+	BranchID            string
+	BranchName          string
+	ContextBranchName   string
 	Profile             string
 	ProjectRoot         string
 	WorktreeRoot        string
@@ -301,6 +304,10 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		return fmt.Errorf("failed to trigger build: %w", err)
 	}
 
+	branchID := ""
+	if triggerResp.BranchId != nil {
+		branchID = triggerResp.BranchId.String()
+	}
 	jobID := triggerResp.BuildJobId
 	if interactiveOutput {
 		if !debugOutput {
@@ -316,6 +323,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		if opts.JSON {
 			printRemoteBuildJSON(remoteBuildJSONResult{
 				Status:     "pending",
+				BranchID:   branchID,
 				Profile:    opts.Profile,
 				Platform:   resolved.Platform,
 				BuildJobID: jobID,
@@ -350,11 +358,21 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 
 	if !opts.JSON {
+		if status.BranchName != nil {
+			branchID := ""
+			if status.BranchId != nil {
+				branchID = status.BranchId.String()
+			}
+			printUploadedBuildBranch(ctx, client, "Branch: %s", uploadedBuild{
+				AppID: appID.String(), BranchID: branchID, BranchName: *status.BranchName,
+				BuildID: stringValue(status.VersionId), BuildVersion: stringValue(status.Version), DefaultBuildChanged: opts.SetCurrent,
+			})
+		}
 		testsDir := filepath.Join(projectRoot, ".revyl", "tests")
 		var steps []ui.NextStep
 		steps = append(steps, ui.NextStep{
 			Label:   "Start a device with this build:",
-			Command: fmt.Sprintf("revyl device start --platform %s --app-id %s", resolved.Platform, resolved.AppID),
+			Command: remoteBuildStartDeviceCommand(resolved, status),
 		})
 		if aliases := config.ListLocalTestAliases(testsDir); len(aliases) > 0 {
 			steps = append(steps, ui.NextStep{
@@ -378,8 +396,25 @@ func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uu
 	if err != nil {
 		return nil, err
 	}
+	if err := (api.BuildSelection{BranchID: opts.BranchID, BranchName: opts.BranchName, ContextBranchName: opts.ContextBranchName}).Validate(); err != nil {
+		return nil, err
+	}
+	var branchID *uuid.UUID
+	if opts.BranchID != "" {
+		parsed, err := uuid.Parse(opts.BranchID)
+		if err != nil {
+			return nil, err
+		}
+		branchID = &parsed
+	}
 	setCurrent := opts.SetCurrent
+	var contextBranchName *string
+	if opts.ContextBranchName != "" {
+		contextBranchName = &opts.ContextBranchName
+	}
 	return &api.RemoteBuildRequest{
+		BranchId: branchID, BranchName: stringPtrOrNil(opts.BranchName),
+		ContextBranchName:   contextBranchName,
 		BuildDefinitionHash: stringPtrOrNil(opts.BuildDefinitionHash),
 		Source:              source,
 		Recipe:              &recipe,
@@ -846,6 +881,8 @@ func defaultRemoteArtifactType(platform string) string {
 }
 
 type remoteBuildJSONResult struct {
+	BranchName         string                       `json:"branch_name,omitempty"`
+	BranchID           string                       `json:"branch_id,omitempty"`
 	Status             string                       `json:"status"`
 	Profile            string                       `json:"profile,omitempty"`
 	Platform           string                       `json:"platform,omitempty"`
@@ -873,6 +910,12 @@ func remoteBuildSuccessJSON(resolved remoteBuildPlatformConfig, jobID string, st
 	}
 	if status == nil {
 		return result
+	}
+	if status.BranchName != nil {
+		result.BranchName = *status.BranchName
+	}
+	if status.BranchId != nil {
+		result.BranchID = status.BranchId.String()
 	}
 	if status.VersionId != nil {
 		result.BuildVersionID = strings.TrimSpace(*status.VersionId)
@@ -1557,4 +1600,12 @@ func checkDirtyTree(cwd string) (bool, int) {
 	}
 	lines := strings.Split(trimmed, "\n")
 	return true, len(lines)
+}
+
+func remoteBuildStartDeviceCommand(resolved remoteBuildPlatformConfig, status *api.RemoteBuildStatusResponse) string {
+	command := fmt.Sprintf("revyl device start --platform %s --app-id %s", resolved.Platform, resolved.AppID)
+	if status != nil && status.VersionId != nil && *status.VersionId != "" {
+		return command + " --build-version-id " + *status.VersionId
+	}
+	return command
 }

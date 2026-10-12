@@ -181,6 +181,9 @@ func runTestStatus(cmd *cobra.Command, args []string) error {
 			"has_report": hasReport,
 			"report_url": reportURL,
 		}
+		if task != nil {
+			addBuildIdentity(output, task.BuildID, task.BuildVersion, task.BranchID, task.BranchName)
+		}
 		if stepsCompleted > 0 || totalSteps > 0 {
 			output["steps_completed"] = stepsCompleted
 			output["total_steps"] = totalSteps
@@ -201,6 +204,14 @@ func runTestStatus(cmd *cobra.Command, args []string) error {
 	// Display status summary
 	ui.PrintKeyValue("Test:", displayName)
 	ui.PrintKeyValue("Status:", status)
+	if task != nil {
+		if task.BranchName != "" {
+			ui.PrintKeyValue("Branch:", task.BranchName)
+		}
+		if task.BuildID != "" {
+			ui.PrintKeyValue("Build ID:", task.BuildID)
+		}
+	}
 	if duration != "" {
 		ui.PrintKeyValue("Duration:", duration)
 	}
@@ -314,6 +325,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 				entry["duration_formatted"] = formatDurationSecs(*item.Duration)
 			}
 			if item.EnhancedTask != nil {
+				addBuildIdentity(entry, item.EnhancedTask.BuildID, item.EnhancedTask.BuildVersion, item.EnhancedTask.BranchID, item.EnhancedTask.BranchName)
 				entry["task_id"] = item.EnhancedTask.ID
 				entry["steps_completed"] = item.EnhancedTask.StepsCompleted
 				entry["total_steps"] = item.EnhancedTask.TotalSteps
@@ -341,7 +353,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Execution history for \"%s\" (%d total)", displayName, history.TotalCount)
 	ui.Println()
 
-	table := ui.NewTable("#", "STATUS", "DURATION", "STEPS", "DATE")
+	table := ui.NewTable("#", "STATUS", "DURATION", "STEPS", "DATE", "BRANCH", "BUILD")
 	table.SetMinWidth(0, 3)  // #
 	table.SetMinWidth(1, 10) // STATUS
 	table.SetMinWidth(2, 8)  // DURATION
@@ -366,12 +378,25 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 			dateStr = formatAbsoluteTime(item.EnhancedTask.StartedAt)
 		}
 
+		branch, build := "-", "-"
+		if item.EnhancedTask != nil {
+			if item.EnhancedTask.BranchName != "" {
+				branch = item.EnhancedTask.BranchName
+			}
+			if item.EnhancedTask.BuildVersion != "" {
+				build = item.EnhancedTask.BuildVersion
+			} else if item.EnhancedTask.BuildID != "" {
+				build = item.EnhancedTask.BuildID
+			}
+		}
 		table.AddRow(
 			fmt.Sprintf("%d", i+1),
 			strings.ToLower(status),
 			duration,
 			steps,
 			dateStr,
+			branch,
+			build,
 		)
 	}
 
@@ -389,4 +414,12 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 	})
 
 	return nil
+}
+
+func addBuildIdentity(output map[string]interface{}, buildID, buildVersion, branchID, branchName string) {
+	for key, value := range map[string]string{"build_id": buildID, "build_version": buildVersion, "branch_id": branchID, "branch_name": branchName} {
+		if value != "" {
+			output[key] = value
+		}
+	}
 }

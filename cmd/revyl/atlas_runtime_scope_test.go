@@ -22,6 +22,7 @@ func TestAtlasRuntimeBranchScope(t *testing.T) {
 		branch, build string
 		wantError     bool
 	}{
+		{name: "all branches by default"},
 		{name: "branch aggregate", args: []string{"--branch-id=" + branchID}, branch: branchID},
 		{name: "branch exact build", args: []string{"--branch-id=" + branchID, "--build=" + buildID}, branch: branchID, build: buildID},
 		{name: "explicit all", args: []string{"--build=all"}},
@@ -46,7 +47,7 @@ func TestAtlasRuntimeBranchScope(t *testing.T) {
 			cmd := &cobra.Command{Use: "graph"}
 			cmd.SetContext(context.Background())
 			cmd.Flags().String("branch-id", "", "")
-			cmd.Flags().StringVar(&atlasBuild, "build", "all", "")
+			cmd.Flags().StringVar(&atlasBuild, "build", "", "")
 			if err := cmd.ParseFlags(tc.args); err != nil {
 				t.Fatal(err)
 			}

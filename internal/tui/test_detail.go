@@ -37,6 +37,8 @@ var testDetailActions = []testDetailAction{
 	{Key: "t", Desc: "Manage tags"},
 	{Key: "x", Desc: "Delete test"},
 	{Key: "n", Desc: "Rename test"},
+	{Key: "b", Desc: "Saved branch/build"},
+	{Key: "B", Desc: "Run with branch/build override"},
 }
 
 // --- Commands ---
@@ -62,6 +64,24 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 			Name:       testName,
 			Platform:   platform,
 			SyncStatus: "unknown",
+		}
+		test, err := client.GetTest(ctx, testID)
+		if err != nil {
+			return TestDetailMsg{Err: err}
+		}
+		detail.AppID, detail.Version = test.AppID, test.Version
+		detail.BuildSelection = api.BuildSelection{BranchID: test.BranchID, Mode: test.BuildSelection, BuildID: test.PinnedBuildID}
+		detail.BuildLabel = buildSelectionLabel(detail.BuildSelection)
+		if test.PinnedVersion != "" {
+			detail.BuildLabel = "Pinned version " + test.PinnedVersion
+		}
+		if test.BranchID != "" && test.AppID != "" {
+			branch, branchErr := client.ResolveBranch(ctx, test.AppID, test.BranchID, "")
+			if branchErr == nil {
+				display := detail.BuildSelection
+				display.BranchName = branch.Name
+				detail.BuildLabel = buildSelectionLabel(display)
+			}
 		}
 
 		// Fetch last run from history
@@ -402,6 +422,14 @@ func executeTestDetailActionByIndex(m hubModel, idx int) (tea.Model, tea.Cmd) {
 
 func executeTestDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "b", "B":
+		if m.selectedTestDetail != nil {
+			target, title, currentBranchID := "test-save", "Saved test branch/build", m.selectedTestDetail.BuildSelection.BranchID
+			if key == "B" {
+				target, title, currentBranchID = "test-run", "Run override (saved settings stay unchanged)", ""
+			}
+			return m.beginBuildPicker(m.selectedTestDetail.AppID, title, target, currentBranchID)
+		}
 	case "r":
 		if m.selectedTestDetail != nil {
 			return startTestExecution(m, m.selectedTestDetail.ID, m.selectedTestDetail.Name)
@@ -507,6 +535,9 @@ func renderTestDetail(m hubModel) string {
 
 	detail := m.selectedTestDetail
 	if detail == nil {
+		if m.err != nil {
+			return "  " + errorStyle.Render("Could not load test: "+m.err.Error()) + "\n  esc back\n"
+		}
 		b.WriteString("  " + m.spinner.View() + " Loading test detail...\n")
 		return b.String()
 	}
@@ -521,6 +552,12 @@ func renderTestDetail(m hubModel) string {
 	headerLine := bannerContent + strings.Repeat(" ", max(1, innerW-lipgloss.Width(bannerContent)-lipgloss.Width(idBadge)+4)) + idBadge
 	banner := headerBannerStyle.Width(innerW).Render(headerLine)
 	b.WriteString(banner + "\n")
+	if m.err != nil {
+		b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n")
+	}
+	if detail.BuildLabel != "" {
+		b.WriteString("  Build: " + dimStyle.Render(detail.BuildLabel) + "\n")
+	}
 
 	// Status section
 	b.WriteString(sectionStyle.Render("  STATUS") + "\n")

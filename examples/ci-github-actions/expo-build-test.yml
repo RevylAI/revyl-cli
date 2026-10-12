@@ -24,7 +24,9 @@ jobs:
         run: npm ci
 
       - name: Install Revyl CLI
-        run: curl -fsSL https://revyl.com/install.sh | sh
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       - name: Build with EAS
         id: eas-build
@@ -43,8 +45,11 @@ jobs:
             --app "$REVYL_IOS_APP_ID" \
             --platform ios \
             --version "$REVYL_PR_HEAD_SHA" \
+            --no-set-current \
             --yes \
-            --json
+            --json > revyl-build.json
+          BUILD_ID=$(jq -er '.version_id | select(type == "string" and length > 0)' revyl-build.json)
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
           REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
@@ -52,8 +57,9 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Run Tests
-        run: revyl workflow run "$REVYL_WORKFLOW_ID" --ios-app "$REVYL_IOS_APP_ID"
+        run: revyl workflow run "$REVYL_WORKFLOW_ID" --ios-app "$REVYL_IOS_APP_ID" --ios-build-id "$REVYL_BUILD_ID"
         env:
+          REVYL_BUILD_ID: ${{ steps.upload.outputs.build_id }}
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
           REVYL_WORKFLOW_ID: ${{ vars.REVYL_WORKFLOW_ID }}
           REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}

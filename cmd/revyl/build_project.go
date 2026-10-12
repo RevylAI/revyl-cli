@@ -23,6 +23,8 @@ import (
 // canonical configuration. Runtime adapters do not reread it; the one explicit
 // exception is the existing post-build prompt that may CAS-bind a selected app.
 type projectBuildInvocation struct {
+	BranchID            string
+	BranchName          string
 	ProjectRoot         string
 	WorktreeRoot        string
 	ConfigPath          string
@@ -44,10 +46,11 @@ type buildProgress struct {
 }
 
 type localBuildResult struct {
-	Invocation   projectBuildInvocation
-	ArtifactPath string
-	Duration     time.Duration
-	Upload       *api.UploadBuildResponse
+	Invocation          projectBuildInvocation
+	ArtifactPath        string
+	Duration            time.Duration
+	Upload              *api.UploadBuildResponse
+	DefaultBuildChanged bool
 }
 
 var remoteCompilationCacheEnvironmentNames = []string{
@@ -142,6 +145,10 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 	)
 	if err != nil {
 		return actionableBuildConfigError(err)
+	}
+	invocation.BranchName, _ = cmd.Flags().GetString("branch")
+	if err := (api.BuildSelection{BranchName: invocation.BranchName}).Validate(); err != nil {
+		return err
 	}
 	analyticsProperties["build_platform"] = invocation.Platform
 	analyticsProperties["selection_source"] = invocation.SelectionSource
@@ -357,7 +364,8 @@ func runLocalBuild(cmd *cobra.Command, invocation projectBuildInvocation, apiKey
 	if err != nil {
 		return err
 	}
-	return renderLocalBuildResult(result, jsonOutput, true)
+	devMode, _ := cmd.Flags().GetBool("dev")
+	return renderLocalBuildResult(cmd.Context(), api.NewClientWithDevMode(apiKey, devMode), result, jsonOutput, true)
 }
 
 func performLocalBuild(
@@ -425,7 +433,7 @@ func performLocalBuild(
 	if err != nil {
 		return localBuildResult{}, err
 	}
-	return localBuildResult{Invocation: invocation, ArtifactPath: artifactPath, Duration: duration, Upload: upload}, nil
+	return localBuildResult{Invocation: invocation, ArtifactPath: artifactPath, Duration: duration, Upload: upload, DefaultBuildChanged: setAsCurrent}, nil
 }
 
 func selectOrCreateBuildApp(cmd *cobra.Command, client *api.Client, invocation projectBuildInvocation) (string, error) {
@@ -573,6 +581,9 @@ func performLocalArtifactUpload(
 	setAsCurrent bool,
 	artifactProducedByRecipe bool,
 ) (*api.UploadBuildResponse, error) {
+	if invocation.BranchID == "" && invocation.BranchName == "" {
+		invocation.BranchName, _ = cmd.Flags().GetString("branch")
+	}
 	preparedArtifact, cleanup, err := prepareLocalArtifact(artifactPath)
 	if err != nil {
 		return nil, err
@@ -589,6 +600,7 @@ func performLocalArtifactUpload(
 		return nil, err
 	}
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
+		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
 		AppID: invocation.AppID, Version: versionString, FilePath: preparedArtifact,
 		Metadata:     metadata,
 		SetAsCurrent: setAsCurrent,
@@ -621,7 +633,7 @@ func localArtifactMetadata(
 	return metadata, nil
 }
 
-func renderLocalBuildResult(result localBuildResult, jsonOutput, showNextSteps bool) error {
+func renderLocalBuildResult(ctx context.Context, client *api.Client, result localBuildResult, jsonOutput, showNextSteps bool) error {
 	invocation := result.Invocation
 	if jsonOutput {
 		buildResult := newBuildUploadJSONBuild(
@@ -640,6 +652,10 @@ func renderLocalBuildResult(result localBuildResult, jsonOutput, showNextSteps b
 	ui.PrintInfo("App:             %s", invocation.AppID)
 	ui.PrintInfo("Build Version:   %s", result.Upload.Version)
 	ui.PrintInfo("Build ID:        %s", result.Upload.VersionID)
+	printUploadedBuildBranch(ctx, client, "Branch:          %s", uploadedBuild{
+		AppID: invocation.AppID, BranchID: result.Upload.BranchID, BranchName: result.Upload.BranchName,
+		BuildID: result.Upload.VersionID, BuildVersion: result.Upload.Version, DefaultBuildChanged: result.DefaultBuildChanged,
+	})
 	if result.Upload.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.Upload.PackageID)
 	}
@@ -664,6 +680,9 @@ func resolveBuildContinuation(cwd, profile, platform string, quiet bool) (projec
 }
 
 func runBuildContinuation(cmd *cobra.Command, invocation projectBuildInvocation, apiKey string, quiet bool) (localBuildResult, error) {
+	if invocation.BranchID == "" && invocation.BranchName == "" {
+		invocation.BranchName, _ = cmd.Flags().GetString("branch")
+	}
 	interactive := ui.IsInteractive() && !quiet
 	result, err := performLocalBuild(
 		cmd,
@@ -744,6 +763,7 @@ func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation
 	invocation.BuildDefinitionHash = definitionHash
 	resolved := remoteBuildPlatformConfigForWorktree(invocation)
 	err = runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
+		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
 		Profile: invocation.Profile, ProjectRoot: invocation.ProjectRoot, WorktreeRoot: invocation.WorktreeRoot, Resolved: &resolved,
 		Platform: invocation.Platform, Version: buildVersion,
 		SetCurrent: !buildNoSetCurrent, Clean: buildNoCacheFlag, JSON: jsonOutput,

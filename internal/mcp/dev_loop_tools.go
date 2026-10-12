@@ -50,13 +50,15 @@ func (s *Server) registerDevLoopTools() {
 
 // StartDevLoopInput contains the focused canonical dev-loop inputs.
 type StartDevLoopInput struct {
+	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`
 	Context                    string   `json:"context,omitempty" jsonschema:"Optional named dev context."`
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Optional project or monorepo root. Nested Revyl projects are detected automatically."`
 	Profile                    string   `json:"profile,omitempty" jsonschema:"Optional named build profile. When omitted, Revyl applies deterministic development-profile selection."`
 	Platform                   string   `json:"platform,omitempty" jsonschema:"Optional target platform for the cloud device (ios or android). Revyl infers it when only one eligible recipe remains."`
 	PlatformKey                string   `json:"platform_key,omitempty" jsonschema:"Deprecated and rejected. Use profile to select a named build profile."`
-	AppID                      string   `json:"app_id,omitempty" jsonschema:"Optional app ID override used to resolve latest build."`
-	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Optional explicit build version ID. Skips latest-build resolution."`
+	AppID                      string   `json:"app_id,omitempty" jsonschema:"Optional app ID override. Without a branch or build, the newest build from the current Git branch is used, otherwise the newest build on the app default branch."`
+	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Optional explicit build version ID. Preserves that exact uploaded artifact."`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs."`
 	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs."`
 	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
@@ -64,5 +66,5 @@ type StartDevLoopInput struct {
 	Port                       int      `json:"port,omitempty" jsonschema:"Optional hot reload dev-server port override."`
 	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Device idle timeout in seconds (default 300)."`
 	Remote                     bool     `json:"remote,omitempty" jsonschema:"Build native changes on a remote Revyl build runner."`
-	SeedLatest                 bool     `json:"seed_latest,omitempty" jsonschema:"Install the latest existing build while a remote build runs."`
+	SeedLatest                 bool     `json:"seed_latest,omitempty" jsonschema:"Install latest from the selected branch while a remote build runs."`
 }

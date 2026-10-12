@@ -81,7 +81,7 @@ func TestRunCreateTestFromSessionCompilesAndCreatesTest(t *testing.T) {
 			if metadata["name"] != "CLI Checkout" || metadata["platform"] != "ios" || metadata["app_id"] != "app-1" {
 				t.Fatalf("metadata = %#v", metadata)
 			}
-			if metadata["pinned_version"] != "1.2.3" {
+			if metadata["pinned_version"] != nil || metadata["pinned_build_id"] != nil {
 				t.Fatalf("pinned_version = %#v", metadata["pinned_version"])
 			}
 			blocks, ok := req["blocks"].([]any)
@@ -135,7 +135,7 @@ func TestRunCreateTestFromSessionCompilesAndCreatesTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", localPath, err)
 	}
-	if got := string(content); !containsAll(got, "remote_id: test-1", "name: CLI Checkout", "platform: ios", "pinned_version: 1.2.3", "Tap the checkout button") {
+	if got := string(content); !containsAll(got, "remote_id: test-1", "name: CLI Checkout", "platform: ios", "Tap the checkout button") {
 		t.Fatalf("local YAML missing expected content:\n%s", got)
 	}
 }

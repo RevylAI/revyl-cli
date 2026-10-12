@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
@@ -126,15 +127,26 @@ type hubModel struct {
 	reportFilterInput textinput.Model // filter input for report views
 
 	// Manage apps state
-	apps            []api.App          // cached app list
-	appCursor       int                // cursor for app list
-	selectedAppID   string             // app selected for detail view
-	selectedAppName string             // name of selected app
-	appBuilds       []api.BuildVersion // build versions for the selected app
-	appBuildCursor  int                // cursor for build versions list
-	appsLoading     bool               // loading indicator for app views
-	confirmDelete   bool               // whether a delete confirmation is pending
-	deleteTarget    string             // ID of the item pending deletion ("app" or version ID)
+	apps                 []api.App          // cached app list
+	appCursor            int                // cursor for app list
+	selectedAppID        string             // app selected for detail view
+	selectedAppName      string             // name of selected app
+	appBuilds            []api.BuildVersion // build versions for the selected app
+	appBuildCursor       int                // cursor for build versions list
+	appBuildScope        appBuildQuery
+	appBuildRequestID    string
+	appBuildPage         int
+	appBuildHasNext      bool
+	appBuildSearching    bool
+	appBuildSearchInput  textinput.Model
+	appBuildBranch       *api.BuildBranch
+	buildPicker          *buildPickerModel
+	buildPickerTarget    string
+	deviceBuildSelection api.BuildSelection
+	deviceBuildLabel     string
+	appsLoading          bool   // loading indicator for app views
+	confirmDelete        bool   // whether a delete confirmation is pending
+	deleteTarget         string // ID of the item pending deletion ("app" or version ID)
 
 	// Help & status state
 	healthChecks        []HealthCheck       // results from the last health check
@@ -280,19 +292,20 @@ type hubModel struct {
 	wfExecStartTime  time.Time
 	wfExecReturnView view
 	// Workflow settings screen
-	wfSettingsSection    int
-	wfSettingsCursor     int
-	wfSettingsAllTests   []TestItem
-	wfSettingsTestToggle map[string]bool
-	wfSettingsWorkflow   *api.Workflow
-	wfSettingsLoading    bool
-	wfSettingsDirty      bool
-	wfSettingsEditing    bool
-	wfSettingsEditField  string
-	wfSettingsInput      textinput.Model
-	wfSettingsApps       []api.App
-	wfSettingsAppMatches []api.App
-	wfSettingsAppCursor  int
+	wfSettingsSection      int
+	wfSettingsCursor       int
+	wfSettingsAllTests     []TestItem
+	wfSettingsTestToggle   map[string]bool
+	wfSettingsWorkflow     *api.Workflow
+	wfSettingsBranchLabels map[string]string
+	wfSettingsLoading      bool
+	wfSettingsDirty        bool
+	wfSettingsEditing      bool
+	wfSettingsEditField    string
+	wfSettingsInput        textinput.Model
+	wfSettingsApps         []api.App
+	wfSettingsAppMatches   []api.App
+	wfSettingsAppCursor    int
 
 	// Shared state
 	loading bool
@@ -352,6 +365,10 @@ func newHubModel(version string, devMode bool) hubModel {
 	rfi := textinput.New()
 	rfi.Placeholder = "filter..."
 	rfi.CharLimit = 64
+
+	absi := textinput.New()
+	absi.CharLimit = 255
+	absi.Placeholder = "Search, then Enter (empty clears)"
 
 	tni := textinput.New()
 	tni.Placeholder = "tag name..."
@@ -421,6 +438,7 @@ func newHubModel(version string, devMode bool) hubModel {
 		spinner:                   newSpinner(),
 		filterInput:               ti,
 		reportFilterInput:         rfi,
+		appBuildSearchInput:       absi,
 		tagNameInput:              tni,
 		wfCreateNameInput:         wfni,
 		wfCreateTestFilterInput:   wctfi,
@@ -865,23 +883,50 @@ func fetchAppsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchAppBuildsCmd fetches build versions for a specific app.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - appID: the app to fetch builds for
-//
-// Returns:
-//   - tea.Cmd: command that produces an AppBuildVersionsMsg
-func fetchAppBuildsCmd(client *api.Client, appID string) tea.Cmd {
+func (m *hubModel) startAppBuildFetch(page int, branch *api.BuildBranch) tea.Cmd {
+	m.appBuildRequestID = uuid.NewString()
+	m.appsLoading, m.err = true, nil
+	requestID := m.appBuildRequestID
+	cmd := fetchAppBuildPageCmd(m.client, m.selectedAppID, m.appBuildScope, page, branch)
+	return func() tea.Msg {
+		msg := cmd().(AppBuildVersionsMsg)
+		msg.RequestID = requestID
+		return msg
+	}
+}
+
+func fetchAppBuildsCmd(client *api.Client, appID string, queries ...appBuildQuery) tea.Cmd {
+	query := appBuildQuery{}
+	if len(queries) > 0 {
+		query = queries[0]
+	}
+	return fetchAppBuildPageCmd(client, appID, query, 1, nil)
+}
+
+func fetchAppBuildPageCmd(client *api.Client, appID string, query appBuildQuery, page int, branch *api.BuildBranch) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		versions, err := client.ListBuildVersions(ctx, appID)
-		if err != nil {
-			return AppBuildVersionsMsg{Err: fmt.Errorf("failed to fetch builds: %w", err)}
+		msg := AppBuildVersionsMsg{AppID: appID, Query: query, Page: page}
+		branchID := query.BranchID
+		if branchID != "" {
+			if branch == nil {
+				var err error
+				branch, err = client.ResolveBranch(ctx, appID, branchID, "")
+				if err != nil {
+					msg.Err = fmt.Errorf("resolve build branch: %w", err)
+					return msg
+				}
+			}
+			msg.Branch, branchID = branch, branch.ID
 		}
-		return AppBuildVersionsMsg{Versions: versions}
+		result, err := client.ListBuildVersionsWithOptions(ctx, appID, api.BuildListOptions{BranchID: branchID, Page: page, PageSize: 100, Search: query.Search})
+		if err != nil {
+			msg.Err = fmt.Errorf("failed to fetch builds: %w", err)
+			return msg
+		}
+		msg.Versions, msg.HasNext = result.Items, result.HasNext
+		return msg
 	}
 }
 
@@ -1032,6 +1077,23 @@ func (m hubModel) Init() tea.Cmd {
 
 // Update handles all incoming messages and key events.
 func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.buildPicker != nil {
+		switch msg.(type) {
+		case tea.KeyMsg, buildPickerDataMsg:
+			return m.updateHubBuildPicker(msg)
+		}
+	}
+	if saved, ok := msg.(testBuildSavedMsg); ok {
+		if saved.err != nil {
+			m.testSyncResult = "Build selection failed: " + saved.err.Error()
+			return m, nil
+		}
+		m.testSyncResult = "Build selection saved"
+		if m.selectedTestDetail != nil {
+			return m, fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
+		}
+		return m, nil
+	}
 	// Delegate to sub-models when active
 	if m.currentView == viewExecution && m.executionModel != nil {
 		return m.updateExecution(msg)
@@ -1302,9 +1364,21 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AppBuildVersionsMsg:
+		if msg.RequestID != m.appBuildRequestID {
+			return m, nil
+		}
+		if msg.AppID != "" && (msg.AppID != m.selectedAppID || msg.Query != m.appBuildScope) {
+			return m, nil
+		}
 		m.appsLoading = false
+		m.err = msg.Err
 		if msg.Err == nil {
-			m.appBuilds = msg.Versions
+			if msg.Page <= 1 {
+				m.appBuilds, m.appBuildCursor = nil, 0
+			}
+			m.appBuilds = append(m.appBuilds, msg.Versions...)
+			m.appBuildBranch = msg.Branch
+			m.appBuildPage, m.appBuildHasNext = max(1, msg.Page), msg.HasNext
 		}
 		return m, nil
 
@@ -1324,7 +1398,8 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deleteTarget = ""
 		if msg.Err == nil && m.client != nil && m.selectedAppID != "" {
 			m.appsLoading = true
-			return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
+			cmd := m.startAppBuildFetch(1, nil)
+			return m, cmd
 		}
 		return m, nil
 
@@ -1332,6 +1407,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TestDetailMsg:
 		m.testDetailLoading = false
+		m.err = msg.Err
 		if msg.Err == nil {
 			m.selectedTestDetail = msg.Detail
 		}
@@ -1769,6 +1845,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.wfSettingsWorkflow = msg.Workflow
+		m.wfSettingsBranchLabels = msg.BranchLabels
 		m.wfSettingsAllTests = msg.AllTests
 		m.wfSettingsApps = msg.AllApps
 		m.wfSettingsTestToggle = make(map[string]bool)
@@ -1787,6 +1864,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case WorkflowSettingsSavedMsg:
 		m.wfSettingsLoading = false
+		m.err = msg.Err
 		if msg.Err == nil {
 			m.wfSettingsDirty = false
 			m.currentView = viewWorkflowDetail
@@ -2349,7 +2427,11 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 			m.err = err
 			return m, nil
 		}
-		return m, runDevLoopProcessCmd(m.devMode)
+		picker := newBuildPicker(m.client, "", "Dev loop branch (blank uses app default)")
+		picker.workflow, picker.branchOnly, picker.loading, picker.step = true, true, false, buildPickerName
+		picker.nameInput.Focus()
+		m.buildPicker, m.buildPickerTarget = &picker, "dev-loop"
+		return m, textinput.Blink
 
 	case "integrations":
 		return m.enterIntegrationsView()
@@ -2393,8 +2475,8 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func runDevLoopProcessCmd(devMode bool) tea.Cmd {
-	cmd := devLoopExecCmd(devMode)
+func runDevLoopProcessCmd(devMode bool, branches ...string) tea.Cmd {
+	cmd := devLoopExecCmd(devMode, branches...)
 	wrapper := &devLoopExec{cmd: cmd}
 	return tea.Exec(wrapper, func(err error) tea.Msg {
 		detail := wrapper.lastStderrLine()
@@ -2460,12 +2542,15 @@ func (d *devLoopExec) lastStderrLine() string {
 	return ""
 }
 
-func devLoopExecCmd(devMode bool) *exec.Cmd {
+func devLoopExecCmd(devMode bool, branches ...string) *exec.Cmd {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "revyl"
 	}
 	args := []string{"dev"}
+	if len(branches) > 0 && branches[0] != "" {
+		args = append(args, "--branch", branches[0])
+	}
 	if devMode {
 		args = append([]string{"--dev"}, args...)
 	}
@@ -2708,7 +2793,7 @@ func (m hubModel) updateExecution(msg tea.Msg) (tea.Model, tea.Cmd) {
 // updateCreate delegates messages to the create model and handles navigation back.
 func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-		if m.createModel != nil && !m.createModel.creating {
+		if m.createModel != nil && !m.createModel.creating && m.createModel.buildPicker == nil {
 			m.currentView = viewDashboard
 			m.createModel = nil
 			return m, nil
@@ -2835,9 +2920,11 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.createAppModel = nil
 			m.selectedAppID = appID
+			m.appBuildScope, m.appBuildBranch = appBuildQuery{}, nil
 			m.selectedAppName = appName
 			m.appBuildCursor = 0
 			m.appBuilds = nil
+			m.appBuildPage, m.appBuildHasNext, m.appBuildSearching = 0, false, false
 			um := newUploadBuildModel(m.client, appID, appName, m.width, m.height)
 			m.uploadBuildModel = &um
 			m.currentView = viewUploadBuild
@@ -2857,13 +2944,16 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.createAppModel = nil
 			m.selectedAppID = appID
+			m.appBuildScope, m.appBuildBranch = appBuildQuery{}, nil
 			m.selectedAppName = appName
 			m.appBuildCursor = 0
 			m.appBuilds = nil
+			m.appBuildPage, m.appBuildHasNext, m.appBuildSearching = 0, false, false
 			m.appsLoading = true
 			m.currentView = viewAppDetail
 			if m.client != nil {
-				return m, tea.Batch(fetchAppBuildsCmd(m.client, appID), fetchAppsCmd(m.client))
+				cmd := m.startAppBuildFetch(1, nil)
+				return m, tea.Batch(cmd, fetchAppsCmd(m.client))
 			}
 			return m, nil
 		}
@@ -2877,7 +2967,7 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 // updateUploadBuild delegates messages to the upload-build model and handles navigation back.
 func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-		if m.uploadBuildModel != nil && !m.uploadBuildModel.uploading {
+		if m.uploadBuildModel != nil && !m.uploadBuildModel.uploading && m.uploadBuildModel.buildPicker == nil {
 			appID := m.uploadBuildModel.appID
 			appName := m.uploadBuildModel.appName
 			if appID != "" {
@@ -2888,10 +2978,14 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.currentView = viewAppDetail
 			m.uploadBuildModel = nil
+			m.appBuildScope, m.appBuildBranch = appBuildQuery{}, nil
+			m.appBuildCursor = 0
 			m.appsLoading = true
 			m.appBuilds = nil
+			m.appBuildPage, m.appBuildHasNext, m.appBuildSearching = 0, false, false
 			if m.client != nil && m.selectedAppID != "" {
-				return m, tea.Batch(fetchAppBuildsCmd(m.client, m.selectedAppID), fetchAppsCmd(m.client))
+				cmd := m.startAppBuildFetch(1, nil)
+				return m, tea.Batch(cmd, fetchAppsCmd(m.client))
 			}
 			return m, nil
 		}
@@ -2911,8 +3005,10 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.uploadBuildModel.done && m.uploadBuildModel.uploadMore {
 			appID := m.uploadBuildModel.appID
 			appName := m.uploadBuildModel.appName
+			selection, label := m.uploadBuildModel.branchSelection, m.uploadBuildModel.branchLabel
 			m.uploadBuildModel = nil
 			newUM := newUploadBuildModel(m.client, appID, appName, m.width, m.height)
+			newUM.branchSelection, newUM.branchLabel = selection, label
 			m.uploadBuildModel = &newUM
 			return m, m.uploadBuildModel.Init()
 		}
@@ -2920,11 +3016,15 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// If upload completed and user chose "Back to builds"
 		if m.uploadBuildModel.done && !m.uploadBuildModel.uploadMore {
 			m.uploadBuildModel = nil
+			m.appBuildScope, m.appBuildBranch = appBuildQuery{}, nil
+			m.appBuildCursor = 0
 			m.appsLoading = true
 			m.appBuilds = nil
+			m.appBuildPage, m.appBuildHasNext, m.appBuildSearching = 0, false, false
 			m.currentView = viewAppDetail
 			if m.client != nil {
-				return m, tea.Batch(fetchAppBuildsCmd(m.client, m.selectedAppID), fetchAppsCmd(m.client))
+				cmd := m.startAppBuildFetch(1, nil)
+				return m, tea.Batch(cmd, fetchAppsCmd(m.client))
 			}
 			return m, nil
 		}
@@ -3391,6 +3491,9 @@ func statusIcon(status string) string {
 
 // View renders the current screen.
 func (m hubModel) View() string {
+	if m.buildPicker != nil {
+		return m.buildPicker.View()
+	}
 	switch m.currentView {
 	case viewExecution:
 		if m.executionModel != nil {
@@ -4605,12 +4708,15 @@ func (m hubModel) handleAppListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := filtered[m.appCursor]
 			m.selectedAppID = selected.ID
 			m.selectedAppName = selected.Name
+			m.appBuildScope, m.appBuildBranch = appBuildQuery{}, nil
 			m.appBuildCursor = 0
 			m.appBuilds = nil
+			m.appBuildPage, m.appBuildHasNext, m.appBuildSearching = 0, false, false
 			m.appsLoading = true
 			m.currentView = viewAppDetail
 			if m.client != nil {
-				return m, fetchAppBuildsCmd(m.client, selected.ID)
+				cmd := m.startAppBuildFetch(1, nil)
+				return m, cmd
 			}
 		}
 	case "d":
@@ -4656,6 +4762,32 @@ func (m *hubModel) filteredApps() []api.App {
 
 // handleAppDetailKey processes key events on the app detail (build versions) screen.
 func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.appBuildSearching && msg.String() != "ctrl+c" {
+		switch msg.String() {
+		case "esc":
+			m.appBuildSearching = false
+			m.appBuildSearchInput.Blur()
+			return m, nil
+		case "enter":
+			m.appBuildSearching = false
+			m.appBuildSearchInput.Blur()
+			query := strings.TrimSpace(m.appBuildSearchInput.Value())
+			if query != m.appBuildScope.Search {
+				m.appBuilds, m.appBuildCursor, m.appBuildPage, m.appBuildHasNext = nil, 0, 0, false
+			}
+			m.appBuildScope.Search = query
+			m.appsLoading, m.err = true, nil
+			cmd := m.startAppBuildFetch(1, m.appBuildBranch)
+			return m, cmd
+		default:
+			var cmd tea.Cmd
+			m.appBuildSearchInput, cmd = m.appBuildSearchInput.Update(msg)
+			return m, cmd
+		}
+	}
+	if m.appsLoading && msg.String() != "esc" && msg.String() != "ctrl+c" && msg.String() != "q" {
+		return m, nil
+	}
 	if m.confirmDelete {
 		switch msg.String() {
 		case "y", "Y":
@@ -4678,6 +4810,21 @@ func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = viewAppList
 		m.confirmDelete = false
 		return m, nil
+	case "b":
+		return m.beginBuildPicker(m.selectedAppID, "Filter builds by branch", "app-filter", "")
+	case "/":
+		if m.client != nil {
+			m.appBuildSearchInput.SetValue(m.appBuildScope.Search)
+			m.appBuildSearchInput.Focus()
+			m.appBuildSearching = true
+			return m, textinput.Blink
+		}
+	case "m":
+		if m.appBuildHasNext && m.client != nil {
+			m.appsLoading, m.err = true, nil
+			cmd := m.startAppBuildFetch(m.appBuildPage+1, m.appBuildBranch)
+			return m, cmd
+		}
 	case "up", "k":
 		if m.appBuildCursor > 0 {
 			m.appBuildCursor--
@@ -4693,9 +4840,9 @@ func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "R":
 		if m.client != nil && m.selectedAppID != "" {
-			m.appsLoading = true
-			m.appBuilds = nil
-			return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
+			m.appsLoading, m.err = true, nil
+			cmd := m.startAppBuildFetch(1, nil)
+			return m, cmd
 		}
 	case "u":
 		um := newUploadBuildModel(m.client, m.selectedAppID, m.selectedAppName, m.width, m.height)
@@ -4740,7 +4887,7 @@ func (m hubModel) renderAppList() string {
 	} else if len(apps) == 0 {
 		b.WriteString("  " + dimStyle.Render("No apps found") + "\n")
 	} else {
-		maxVisible := m.height - 12
+		maxVisible := (m.height - 12) / 2
 		if maxVisible < 5 {
 			maxVisible = 5
 		}
@@ -4761,7 +4908,7 @@ func (m hubModel) renderAppList() string {
 				platBadge = platformStyle.Render(" [" + a.Platform + "]")
 			}
 			versions := dimStyle.Render(fmt.Sprintf("  %d versions", a.VersionsCount))
-			b.WriteString("  " + cur + nameStyle.Render(a.Name) + platBadge + versions + "\n")
+			b.WriteString("  " + cur + nameStyle.Render(a.Name) + platBadge + versions + "\n" + "      " + dimStyle.Render(appBranchLabel(a)) + "\n")
 		}
 		if end < len(apps) {
 			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
@@ -4795,6 +4942,22 @@ func (m hubModel) renderAppDetail() string {
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
 
+	scopeLabel := "All branches"
+	if m.appBuildScope.BranchID != "" {
+		scopeLabel = m.appBuildScope.BranchID
+		if m.appBuildBranch != nil {
+			scopeLabel = m.appBuildBranch.Name + " · " + branchDefaultBuildLabel(*m.appBuildBranch)
+		}
+	}
+	b.WriteString("  " + dimStyle.Render(scopeLabel) + "\n")
+	if m.appBuildSearching {
+		b.WriteString("  / " + m.appBuildSearchInput.View() + "\n")
+	} else if m.appBuildScope.Search != "" {
+		b.WriteString("  Search: " + m.appBuildScope.Search + "\n")
+	}
+	if m.err != nil {
+		b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n")
+	}
 	b.WriteString(sectionStyle.Render("  Build Versions") + " " + dimStyle.Render(fmt.Sprintf("%d", len(m.appBuilds))) + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
@@ -4804,13 +4967,47 @@ func (m hubModel) renderAppDetail() string {
 
 	if m.appsLoading {
 		b.WriteString("  " + m.spinner.View() + " Loading builds...\n")
-	} else if len(m.appBuilds) == 0 {
-		b.WriteString("  " + dimStyle.Render("No builds found") + "\n")
-	} else {
-		maxVisible := m.height - 10
-		if maxVisible < 5 {
-			maxVisible = 5
+	}
+	var footer strings.Builder
+	if m.appBuildHasNext {
+		footer.WriteString("\n  More builds available. Press m to load more.\n")
+	}
+	footer.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("u", "upload"),
+		helpKeyRender("b", "branch"),
+		helpKeyRender("/", "search"),
+		helpKeyRender("m", "load more"),
+		helpKeyRender("d", "delete"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	footer.WriteString("  ")
+	helpLineWidth := 2
+	for index, key := range keys {
+		keyWidth := lipgloss.Width(key)
+		if index > 0 {
+			if helpLineWidth+2+keyWidth > w {
+				footer.WriteString("\n  ")
+				helpLineWidth = 2
+			} else {
+				footer.WriteString("  ")
+				helpLineWidth += 2
+			}
 		}
+		footer.WriteString(key)
+		helpLineWidth += keyWidth
+	}
+	footer.WriteString("\n")
+
+	if len(m.appBuilds) == 0 {
+		if !m.appsLoading {
+			b.WriteString("  " + dimStyle.Render("No builds found") + "\n")
+		}
+	} else {
+		scrollIndicatorLines := 2
+		maxVisible := max(1, m.height-lipgloss.Height(b.String())-lipgloss.Height(footer.String())-scrollIndicatorLines)
 		start, end := scrollWindow(m.appBuildCursor, len(m.appBuilds), maxVisible)
 		if start > 0 {
 			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
@@ -4825,8 +5022,11 @@ func (m hubModel) renderAppDetail() string {
 			}
 			version := nameStyle.Render(bv.Version)
 			currentBadge := ""
-			if bv.IsCurrent {
-				currentBadge = successStyle.Render(" (current)")
+			if m.appBuildBranch != nil && m.appBuildBranch.PinnedBuildID != nil && bv.ID == *m.appBuildBranch.PinnedBuildID {
+				currentBadge = successStyle.Render(" (default build)")
+			}
+			if bv.BranchName != "" {
+				currentBadge += dimStyle.Render(" [" + bv.BranchName + "]")
 			}
 			var ts time.Time
 			if bv.UploadedAt != "" {
@@ -4840,15 +5040,7 @@ func (m hubModel) renderAppDetail() string {
 		}
 	}
 
-	b.WriteString("\n  " + separator(innerW) + "\n")
-	keys := []string{
-		helpKeyRender("u", "upload"),
-		helpKeyRender("d", "delete"),
-		helpKeyRender("R", "refresh"),
-		helpKeyRender("esc", "back"),
-		helpKeyRender("q", "quit"),
-	}
-	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	b.WriteString(footer.String())
 	return b.String()
 }
 
@@ -5005,9 +5197,9 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			buildFound := false
 			for _, appID := range appIDs {
 				bCtx, bCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				versions, bErr := client.ListBuildVersions(bCtx, appID)
+				resolved, bErr := client.ResolveBuildSelection(bCtx, appID, api.BuildSelection{})
 				bCancel()
-				if bErr == nil && len(versions) > 0 {
+				if bErr == nil && resolved != nil {
 					buildFound = true
 					break
 				}
@@ -5016,13 +5208,13 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 				checks = append(checks, HealthCheck{
 					Name:    "Build Uploaded",
 					Status:  "ok",
-					Message: "Build available",
+					Message: "Build available on app default branch",
 				})
 			} else {
 				checks = append(checks, HealthCheck{
 					Name:    "Build Uploaded",
 					Status:  "warning",
-					Message: "No builds — run 'revyl build'",
+					Message: "No available build on app default branch; upload a build or check its pin",
 				})
 			}
 		} else if !appLinked {

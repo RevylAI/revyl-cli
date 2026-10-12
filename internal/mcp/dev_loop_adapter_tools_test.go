@@ -491,7 +491,8 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 		context.Background(),
 		nil,
 		StartDevLoopInput{
-			Profile:                    "development",
+			Profile:    "development",
+			BranchName: "main", BuildSelection: "latest",
 			Remote:                     true,
 			LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
 			LaunchArgSets:              []string{"AuthArgs", "RouteArgs"},
@@ -504,6 +505,9 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 	}
 	if !output.Success || output.Result.ViewerURL != "https://viewer.example" {
 		t.Fatalf("start output = %+v", output)
+	}
+	if runner.startRequest.BranchName != "main" || runner.startRequest.BuildSelection != "latest" {
+		t.Fatalf("branch intent lost: %+v", runner.startRequest)
 	}
 	if runner.startRequest.Profile != "development" {
 		t.Fatalf("start request profile = %q, want development", runner.startRequest.Profile)

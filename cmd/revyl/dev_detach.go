@@ -38,6 +38,8 @@ func isDetachedDevChild() bool {
 // the background loop has a live device session. The build may still be
 // running; poll `revyl dev status` for build progress and install completion.
 type devDetachHandshake struct {
+	BranchID     string            `json:"branch_id,omitempty"`
+	BranchName   string            `json:"branch_name,omitempty"`
 	Context      string            `json:"context"`
 	State        string            `json:"state"`
 	PID          int               `json:"pid"`
@@ -108,9 +110,17 @@ func filterDetachArgs(args []string) []string {
 func projectDetachArgs(args []string, invocation projectDevInvocation) []string {
 	filtered := filterDetachArgs(args)
 	result := make([]string, 0, len(filtered)+4)
+	namedBranch := false
 	for index := 0; index < len(filtered); index++ {
 		arg := filtered[index]
 		switch {
+		case arg == "--branch" || arg == "--branch-id":
+			namedBranch = true
+			index++
+			continue
+		case strings.HasPrefix(arg, "--branch=") || strings.HasPrefix(arg, "--branch-id="):
+			namedBranch = true
+			continue
 		case arg == "-C" || arg == "--chdir" || arg == "--profile" || arg == "--platform":
 			index++
 			continue
@@ -119,6 +129,9 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 			continue
 		}
 		result = append(result, arg)
+	}
+	if namedBranch && invocation.BranchID != "" {
+		result = append(result, "--branch-id", invocation.BranchID)
 	}
 	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)
 }
@@ -275,11 +288,12 @@ func findDevContextByPID(cwd string, pid int) *DevContext {
 
 func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, logPath privateRuntimePath) {
 	handshake := devDetachHandshake{
-		Context:      devCtx.Name,
-		State:        "ready",
-		PID:          devCtx.PID,
-		Platform:     devCtx.Platform,
-		Profile:      devCtx.Profile,
+		Context:  devCtx.Name,
+		State:    "ready",
+		PID:      devCtx.PID,
+		Platform: devCtx.Platform,
+		Profile:  devCtx.Profile,
+		BranchID: devCtx.BranchID, BranchName: devCtx.BranchName,
 		SessionID:    devCtx.SessionID,
 		SessionIndex: devCtx.SessionIndex,
 		ViewerURL:    devCtx.ViewerURL,

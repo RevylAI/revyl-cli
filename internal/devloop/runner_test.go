@@ -449,3 +449,20 @@ func writeFakeRevyl(t *testing.T, content string) string {
 	}
 	return path
 }
+
+func TestCommandRunnerForwardsBranchWithoutGitInference(t *testing.T) {
+	binary := writeFakeRevyl(t, `#!/bin/sh
+case "$*" in
+  *"--branch feature/mobile --build-selection latest"*) printf '%s\n' '{"context":"default","branch_id":"branch-id","branch_name":"feature/mobile"}' ;;
+  *) exit 4 ;;
+esac
+`)
+	runner := &CommandRunner{BinaryPath: binary}
+	result, err := runner.Start(context.Background(), t.TempDir(), StartRequest{BranchName: "feature/mobile", BuildSelection: "latest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.BranchID != "branch-id" || result.BranchName != "feature/mobile" {
+		t.Fatalf("branch output lost: %+v", result)
+	}
+}

@@ -45,6 +45,8 @@ func TestInvestigationTools(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{"app_id": app, "nodes": nodes, "edges": []any{}, "projection": map[string]any{"truncated": q.Get("limit") == "1", "data_source": "evidence"}})
 		case r.URL.Path == "/api/v1/apps/builds/"+base+"/runs":
 			json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"execution_id": execution, "status": "failed", "success": false}}, "total": 2, "page": 1, "page_size": 1, "total_pages": 2, "has_next": true, "has_previous": false})
+		case r.URL.Path == "/api/v1/apps/"+app+"/branches":
+			json.NewEncoder(w).Encode(map[string]any{"branches": []any{}})
 		case r.URL.Path == "/api/v1/apps/"+app+"/builds":
 			if r.URL.Query().Get("page") != "2" {
 				t.Error("build pagination scope lost")

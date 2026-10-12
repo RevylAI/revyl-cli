@@ -348,8 +348,14 @@ type AppListMsg struct {
 
 // AppBuildVersionsMsg carries the fetched build versions for an app.
 type AppBuildVersionsMsg struct {
-	Versions []api.BuildVersion
-	Err      error
+	RequestID string
+	Page      int
+	HasNext   bool
+	AppID     string
+	Query     appBuildQuery
+	Branch    *api.BuildBranch
+	Versions  []api.BuildVersion
+	Err       error
 }
 
 // AppDeletedMsg signals that an app has been deleted.
@@ -364,6 +370,7 @@ type BuildDeletedMsg struct {
 
 // BuildUploadedMsg signals that a build has been uploaded via the TUI.
 type BuildUploadedMsg struct {
+	Branch    *api.BuildBranch
 	VersionID string
 	Version   string
 	Err       error
@@ -408,9 +415,13 @@ type ProjectConfigMigrationDoneMsg struct {
 
 // TestDetail bundles fetched information for the test detail screen.
 type TestDetail struct {
-	ID       string
-	Name     string
-	Platform string
+	AppID          string
+	Version        int
+	BuildSelection api.BuildSelection
+	BuildLabel     string
+	ID             string
+	Name           string
+	Platform       string
 	// Sync
 	SyncStatus  string // "synced", "modified", "outdated", "conflict", "local-only", "remote-only", "unknown"
 	SyncVersion string // e.g. "v3"
@@ -540,10 +551,11 @@ type WorkflowCancelledMsg struct {
 
 // WorkflowSettingsMsg carries the loaded data for the workflow settings screen.
 type WorkflowSettingsMsg struct {
-	Workflow *api.Workflow
-	AllTests []TestItem
-	AllApps  []api.App
-	Err      error
+	BranchLabels map[string]string
+	Workflow     *api.Workflow
+	AllTests     []TestItem
+	AllApps      []api.App
+	Err          error
 }
 
 // WorkflowSettingsSavedMsg signals that workflow settings were saved.

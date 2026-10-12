@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -24,6 +26,8 @@ type projectDevInvocation struct {
 	Profile             string
 	Platform            string
 	AppID               string
+	BranchID            string
+	BranchName          string
 	Recipe              config.EffectiveBuildRecipe
 	BuildDefinitionHash string
 	SelectionSource     string
@@ -38,6 +42,7 @@ func projectBuildInvocationFromDev(invocation projectDevInvocation) projectBuild
 		Profile:             invocation.Profile,
 		Platform:            invocation.Platform,
 		AppID:               invocation.AppID,
+		BranchID:            invocation.BranchID,
 		Recipe:              cloneEffectiveBuildRecipe(invocation.Recipe),
 		BuildDefinitionHash: invocation.BuildDefinitionHash,
 		SelectionSource:     invocation.SelectionSource,
@@ -252,4 +257,71 @@ func cloneDevSession(session config.AuthoredSession) config.AuthoredSession {
 		}
 	}
 	return cloned
+}
+
+func resolveDevDestination(ctx context.Context, client *api.Client, invocation projectDevInvocation, branchID, branchName, buildID, mode string, allowCreate bool) (projectDevInvocation, error) {
+	selection := api.BuildSelection{BranchID: branchID, BranchName: branchName, BuildID: buildID, Mode: api.BuildSelectionMode(mode)}
+	if err := selection.Validate(); err != nil {
+		return invocation, err
+	}
+	if buildID != "" {
+		if invocation.AppID == "" {
+			detail, err := client.GetBuildVersionDownloadURL(ctx, buildID)
+			if err != nil {
+				return invocation, fmt.Errorf("resolve development app: %w", err)
+			}
+			invocation.AppID = detail.AppID
+		}
+		detail, err := client.ResolveBuildSelection(ctx, invocation.AppID, selection)
+		if err != nil {
+			return invocation, fmt.Errorf("resolve development seed: %w", err)
+		}
+		invocation.AppID, invocation.BranchID, invocation.BranchName = detail.AppID, detail.BranchID, detail.BranchName
+		return invocation, nil
+	}
+	var branch *api.BuildBranch
+	var err error
+	if allowCreate {
+		branch, err = client.ResolveUploadBranch(ctx, invocation.AppID, branchID, branchName)
+	} else {
+		branch, err = client.ResolveBranch(ctx, invocation.AppID, branchID, branchName)
+	}
+	if err != nil {
+		return invocation, fmt.Errorf("resolve development branch: %w", err)
+	}
+	invocation.BranchID, invocation.BranchName = branch.ID, branch.Name
+	return invocation, nil
+}
+
+func devSelectionIsAppDefault() bool {
+	return devStartBranch == "" && devStartBranchID == "" && devStartBuildSelection == "" && !devStartSeedLatest && strings.TrimSpace(devStartBuildVerID) == ""
+}
+
+func devBuildSelection(invocation projectDevInvocation) api.BuildSelection {
+	mode := api.BuildSelectionMode(devStartBuildSelection)
+	if devStartSeedLatest || devSelectionIsAppDefault() {
+		mode = api.BuildSelectionModeLatest
+	}
+	return api.BuildSelection{BranchID: invocation.BranchID, Mode: mode, BuildID: strings.TrimSpace(devStartBuildVerID)}
+}
+
+func devResolveErrorNeedsBuild(err error) bool {
+	return errors.Is(err, api.ErrBranchHasNoBuilds) ||
+		(devSelectionIsAppDefault() && errors.Is(err, api.ErrBranchHasNoCompatibleBuild))
+}
+
+func selectDevStartBuild(ctx context.Context, client buildselection.BranchBuildsClient, appID string, invocation projectDevInvocation) (*api.BuildVersion, string, []string, error) {
+	var selected *api.BuildVersion
+	var source string
+	var warnings []string
+	var err error
+	if devSelectionIsAppDefault() {
+		selected, source, warnings, err = buildselection.SelectLatestBuildVersionPreferringGitBranch(ctx, client, appID, invocation.BranchID, buildselection.CurrentBranch(invocation.ProjectRoot))
+	} else {
+		selected, source, warnings, err = buildselection.SelectBuildVersion(ctx, client, appID, devBuildSelection(invocation))
+	}
+	if devResolveErrorNeedsBuild(err) {
+		return nil, "", nil, nil
+	}
+	return selected, source, warnings, err
 }

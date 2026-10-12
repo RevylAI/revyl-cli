@@ -141,7 +141,7 @@ func TestWorkflowAppSubcommands(t *testing.T) {
 		t.Fatal("expected 'workflow app' command to exist")
 	}
 
-	expected := []string{"set", "clear", "show"}
+	expected := []string{"set", "clear", "disable", "enable", "show"}
 	for _, name := range expected {
 		found := false
 		for _, cmd := range appCmd.Commands() {

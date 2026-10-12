@@ -10,7 +10,7 @@ import (
 
 // ArtifactResolver resolves app and build metadata needed to provision a device.
 type ArtifactResolver interface {
-	GetLatestBuildVersion(ctx context.Context, appID string) (*api.BuildVersion, error)
+	ResolveBuildSelection(ctx context.Context, appID string, selection api.BuildSelection) (*api.BuildVersionDetail, error)
 	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
 }
 
@@ -27,16 +27,22 @@ type LaunchVarResolver interface {
 
 // StartArtifactOptions contains optional app-selection inputs for device start.
 type StartArtifactOptions struct {
-	AppID          string
-	BuildVersionID string
-	AppURL         string
-	AppPackage     string
+	AppID             string
+	BranchID          string
+	BranchName        string
+	ContextBranchName string
+	BuildSelection    string
+	BuildVersionID    string
+	AppURL            string
+	AppPackage        string
 }
 
 // ResolvedStartArtifact is the concrete app artifact payload sent to start_device.
 type ResolvedStartArtifact struct {
 	AppID      string
 	BuildID    string
+	BranchID   string
+	BranchName string
 	AppURL     string
 	AppPackage string
 }
@@ -54,49 +60,67 @@ func ResolveStartArtifact(
 		AppPackage: strings.TrimSpace(opts.AppPackage),
 	}
 
-	buildVersionID := strings.TrimSpace(opts.BuildVersionID)
-	if artifact.AppURL == "" && buildVersionID != "" {
-		detail, err := resolver.GetBuildVersionDownloadURL(ctx, buildVersionID)
-		if err != nil {
-			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve build version %s: %w", buildVersionID, err)
-		}
-		if detail == nil || strings.TrimSpace(detail.DownloadURL) == "" {
-			return ResolvedStartArtifact{}, fmt.Errorf("build version %s has no download URL", buildVersionID)
-		}
-		artifact.AppURL = strings.TrimSpace(detail.DownloadURL)
-		if detailAppID := strings.TrimSpace(detail.AppID); detailAppID != "" {
-			artifact.AppID = detailAppID
-		}
-		if artifact.AppPackage == "" {
-			artifact.AppPackage = strings.TrimSpace(detail.PackageName)
+	selection := api.BuildSelection{
+		BranchID: opts.BranchID, BranchName: opts.BranchName,
+		Mode: api.BuildSelectionMode(opts.BuildSelection), BuildID: artifact.BuildID,
+	}
+	if artifact.BuildID == "" && selection.BranchID == "" && selection.BranchName == "" {
+		selection.ContextBranchName = opts.ContextBranchName
+	}
+	if selection.BranchID != "" || selection.BranchName != "" || selection.Mode != "" {
+		if err := selection.Validate(); err != nil {
+			return ResolvedStartArtifact{}, err
 		}
 	}
-
-	appID := strings.TrimSpace(opts.AppID)
-	if artifact.AppURL == "" && appID != "" {
-		latest, err := resolver.GetLatestBuildVersion(ctx, appID)
+	if artifact.BuildID == "" && artifact.AppID == "" {
+		if selection.BranchID != "" || selection.BranchName != "" || selection.Mode != "" {
+			return ResolvedStartArtifact{}, fmt.Errorf("branch and build selection require an app ID or build version ID")
+		}
+		return artifact, nil
+	}
+	if artifact.AppURL != "" && artifact.BuildID == "" {
+		if selection.BranchID != "" || selection.BranchName != "" || selection.Mode != "" {
+			return ResolvedStartArtifact{}, fmt.Errorf("a raw app URL cannot be combined with branch or build selection")
+		}
+		return artifact, nil
+	}
+	var detail *api.BuildVersionDetail
+	var err error
+	if artifact.BuildID != "" {
+		detail, err = resolver.GetBuildVersionDownloadURL(ctx, artifact.BuildID)
 		if err != nil {
-			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve latest build for app %s: %w", appID, err)
+			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve build version %s: %w", artifact.BuildID, err)
 		}
-		if latest == nil || strings.TrimSpace(latest.ID) == "" {
-			return ResolvedStartArtifact{}, fmt.Errorf("no builds found for app %s", appID)
+		if detail == nil {
+			return ResolvedStartArtifact{}, fmt.Errorf("build version %s has no download URL", artifact.BuildID)
 		}
-
-		artifact.BuildID = strings.TrimSpace(latest.ID)
-		detail, err := resolver.GetBuildVersionDownloadURL(ctx, artifact.BuildID)
+		if artifact.AppID != "" && detail.AppID != artifact.AppID {
+			return ResolvedStartArtifact{}, fmt.Errorf("selected build does not belong to app %s", artifact.AppID)
+		}
+		artifact.AppID = detail.AppID
+		if selection.Mode != "" && selection.Mode != "pinned" {
+			return ResolvedStartArtifact{}, fmt.Errorf("an exact build version requires pinned build selection")
+		}
+	}
+	if detail == nil || selection.BranchID != "" || selection.BranchName != "" {
+		detail, err = resolver.ResolveBuildSelection(ctx, artifact.AppID, selection)
 		if err != nil {
-			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve latest build artifact for app %s: %w", appID, err)
+			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve build for app %s: %w", artifact.AppID, err)
 		}
-		if detail == nil || strings.TrimSpace(detail.DownloadURL) == "" {
-			return ResolvedStartArtifact{}, fmt.Errorf("latest build for app %s has no download URL", appID)
-		}
-		artifact.AppURL = strings.TrimSpace(detail.DownloadURL)
-		if detailAppID := strings.TrimSpace(detail.AppID); detailAppID != "" {
-			artifact.AppID = detailAppID
-		}
-		if artifact.AppPackage == "" {
-			artifact.AppPackage = strings.TrimSpace(detail.PackageName)
-		}
+	}
+	if detail == nil || strings.TrimSpace(detail.ID) == "" {
+		return ResolvedStartArtifact{}, fmt.Errorf("no builds found for app %s", artifact.AppID)
+	}
+	if strings.TrimSpace(detail.DownloadURL) == "" {
+		return ResolvedStartArtifact{}, fmt.Errorf("selected build for app %s has no download URL", artifact.AppID)
+	}
+	artifact.BuildID = detail.ID
+	artifact.AppID = detail.AppID
+	artifact.BranchID = detail.BranchID
+	artifact.BranchName = detail.BranchName
+	artifact.AppURL = strings.TrimSpace(detail.DownloadURL)
+	if artifact.AppPackage == "" {
+		artifact.AppPackage = strings.TrimSpace(detail.PackageName)
 	}
 
 	return artifact, nil

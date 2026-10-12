@@ -31,6 +31,22 @@ uncertain writes have separate codes. Raw child stderr is not forwarded.
 and routing. Specify the intended environment through the existing CLI
 configuration before investigating. Permissions remain enforced by the backend.
 
+Atlas aggregate tools read All branches when both `branch_id` and `build` are
+omitted. Supply `branch_id` without `build` to query that branch's evidence, or
+pass an exact build UUID to constrain both. Branch-only calls and
+native view recipes do not add the unscoped `build=all` default. Chat queries
+using the current view inherit its branch/build scope; custom queries retain
+their explicit selectors. Atlas JSON projections and suggested follow-up commands
+retain branch identity.
+
+`builds.list` uses the same All branches default as `revyl build list --app`.
+Supply `branch` to filter by a Revyl branch name; when no Revyl branch has that
+name, it filters each fetched
+page by the Git branch the builds came from, and `branch_filter_kind` reports
+which filter applied. Its `page` and `limit` arguments preserve server-side
+pagination; keep following `has_next` when a filtered page is empty. Unfiltered
+lists retain each build's branch identity without a top-level `branch_filter`.
+
 Atlas scope-aware tools accept `device_model` and `runtime`, independently or
 together, mapping to `--device-model` and `--runtime`. The tool argument is
 `runtime`, not the backend field name `device_runtime`:

@@ -12,6 +12,10 @@ revyl workflow run <workflow-name>
 
 Exit code `0` = pass, `1` = fail. That's all your CI system needs.
 
+Saved branches and exact builds stay fixed, and Default branch uses the app's default branch.
+Pass `--branch <name>`, such as `--branch base`, to keep a job on one branch even
+if the default changes. See [build branches](../../docs/build-branches.md).
+
 Set `REVYL_INSTALL_DIR=/usr/local/bin` to place the binary on PATH without shell profile sourcing (recommended for CI).
 
 ## Fire-and-forget (async)
@@ -37,10 +41,19 @@ This is useful when you want to:
 ## Build-to-test
 
 ```bash
+set -e
 curl -fsSL https://revyl.com/install.sh | sh
-revyl build upload --file ./app.apk --app <app-id>
-revyl workflow run <workflow-name>
+export PATH="$HOME/.revyl/bin:$PATH"
+APP_ID="<your-android-app-id>"
+revyl build upload --file ./app.apk --app "$APP_ID" --yes --json > build.json
+BUILD_ID=$(jq -er 'select(.success == true and .count == 1) | .build.build_id | select(type == "string" and length > 0)' build.json)
+revyl workflow run smoke-tests --android-app "$APP_ID" --android-build-id "$BUILD_ID"
 ```
+
+Install `jq` for JSON extraction. The workflow uses the exact uploaded Android
+build. A runtime app override replaces the workflow’s saved app configuration;
+unspecified platforms use each test’s saved selection. To refresh shared Atlas
+branches, use [branch maintenance](../branch-maintenance/).
 
 ## JSON output
 
@@ -75,13 +88,17 @@ these suffixes also work. The same formats work with `--file`.
 See [upload existing builds](../../docs/build-uploads.md) for App Clip uploads.
 
 ```bash
+set -e
 curl -fsSL https://revyl.com/install.sh | sh
+export PATH="$HOME/.revyl/bin:$PATH"
+APP_ID="<your-ios-app-id>"
 revyl build upload \
   --url "https://expo.dev/artifacts/eas/..." \
   --header "Authorization: Bearer $EXPO_TOKEN" \
   --platform ios \
-  --app <app-id>
-revyl workflow run smoke-tests
+  --app "$APP_ID" --yes --json > build.json
+BUILD_ID=$(jq -er '.version_id | select(type == "string" and length > 0)' build.json)
+revyl workflow run smoke-tests --ios-app "$APP_ID" --ios-build-id "$BUILD_ID"
 ```
 
 ## Platform configs

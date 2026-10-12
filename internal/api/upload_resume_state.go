@@ -167,3 +167,21 @@ func (c *Client) deleteResumableUploadState(key string) {
 	}
 	_ = os.Remove(filepath.Join(dir, key+".json"))
 }
+
+func uploadDestinationStateKey(appID, version, filePath string, fileSize int64, branchID, branchName string) string {
+	base := uploadStateKey(appID, version, filePath, fileSize)
+	if branchID == "" && branchName == "" {
+		return base
+	}
+	sum := sha256.Sum256([]byte(base + "\x00" + branchID + "\x00" + branchName))
+	return hex.EncodeToString(sum[:])
+}
+
+func uploadDestinationStateKeyWithContext(appID, version, filePath string, fileSize int64, branchID, branchName, contextBranchName string) string {
+	base := uploadDestinationStateKey(appID, version, filePath, fileSize, branchID, branchName)
+	if branchID != "" || branchName != "" || contextBranchName == "" {
+		return base
+	}
+	sum := sha256.Sum256([]byte(base + "\x00context\x00" + contextBranchName))
+	return hex.EncodeToString(sum[:])
+}

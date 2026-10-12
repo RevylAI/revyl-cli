@@ -37,8 +37,12 @@ jobs:
   build-and-test:
     requires: [~commit]
     steps:
-      - install-deps: apk add --no-cache curl
+      - install-deps: apk add --no-cache curl jq
       - install: curl -fsSL https://revyl.com/install.sh | sh
       - build: ./gradlew assembleDebug   # <-- replace with your build command
-      - upload: revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app your-app-id
-      - test: revyl workflow run smoke-tests
+      - upload-and-test: |
+          set -e
+          APP_ID="your-android-app-id"
+          revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app "$APP_ID" --yes --json > build.json
+          BUILD_ID=$(jq -er 'select(.success == true and .count == 1) | .build.build_id | select(type == "string" and length > 0)' build.json)
+          revyl workflow run smoke-tests --android-app "$APP_ID" --android-build-id "$BUILD_ID"

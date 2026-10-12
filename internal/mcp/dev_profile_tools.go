@@ -70,6 +70,9 @@ type DevProfileActionOutput struct {
 
 // DeviceSessionInput selects one device-session lifecycle operation.
 type DeviceSessionInput struct {
+	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
+	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`
 	Action                     string   `json:"action" jsonschema:"required,Session action: start stop list switch info doctor"`
 	Platform                   string   `json:"platform,omitempty" jsonschema:"Platform for start: ios or android."`
 	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID for start."`
@@ -497,7 +500,9 @@ func (s *Server) handleDeviceSession(
 	switch action {
 	case "start":
 		return dispatchDevProfileAction(ctx, req, action, StartDeviceSessionInput{
-			Platform: input.Platform, AppID: input.AppID, BuildVersionID: input.BuildVersionID,
+			ProjectDir: input.ProjectDir,
+			Platform:   input.Platform, AppID: input.AppID, BuildVersionID: input.BuildVersionID,
+			BranchName: input.BranchName, BuildSelection: input.BuildSelection,
 			AppURL: input.AppURL, AppLink: input.AppLink, LaunchVars: input.LaunchVars,
 			LaunchArgSets: input.LaunchArgSets, LaunchArguments: input.LaunchArguments,
 			DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,

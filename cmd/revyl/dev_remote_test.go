@@ -121,7 +121,7 @@ func TestInstallRemoteDevBuild_OrdersSeedAndFreshInstalls(t *testing.T) {
 		context.Background(),
 		installer,
 		session,
-		&api.BuildVersionDetail{DownloadURL: "https://example.test/seed.zip"},
+		&api.BuildVersionDetail{ID: "seed-id", DownloadURL: "https://example.test/seed.zip"},
 		"",
 	)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestInstallRemoteDevBuild_OrdersSeedAndFreshInstalls(t *testing.T) {
 		context.Background(),
 		installer,
 		session,
-		&api.BuildVersionDetail{DownloadURL: "https://example.test/fresh.zip"},
+		&api.BuildVersionDetail{ID: "fresh-id", DownloadURL: "https://example.test/fresh.zip"},
 		seedBundleID,
 	)
 	if err != nil {
@@ -141,6 +141,9 @@ func TestInstallRemoteDevBuild_OrdersSeedAndFreshInstalls(t *testing.T) {
 
 	if len(installer.requests) != 2 {
 		t.Fatalf("install requests = %d, want 2", len(installer.requests))
+	}
+	if installer.requests[0].BuildID != "seed-id" || installer.requests[1].BuildID != "fresh-id" {
+		t.Fatalf("exact install identity lost: %+v", installer.requests)
 	}
 	if installer.requests[0].AppURL != "https://example.test/seed.zip" {
 		t.Fatalf("seed AppURL = %q", installer.requests[0].AppURL)

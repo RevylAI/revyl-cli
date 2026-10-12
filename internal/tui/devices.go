@@ -118,7 +118,7 @@ func fetchDeviceStartAppsCmd(client *api.Client, platform string) tea.Cmd {
 //
 // Returns:
 //   - tea.Cmd: async command that sends DeviceStartedMsg on completion
-func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osVersion string, launchVarIDs []string) tea.Cmd {
+func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osVersion string, launchVarIDs []string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 		defer cancel()
@@ -131,14 +131,25 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 			LaunchEnvVarIds: launchVarIDs,
 		}
 		if strings.TrimSpace(appID) != "" {
+			selection := api.BuildSelection{}
+			if len(selections) > 0 {
+				selection = selections[0]
+			}
 			resolved, err := startdevice.ResolveStartArtifact(ctx, client, startdevice.StartArtifactOptions{
-				AppID: appID,
+				AppID:             appID,
+				BranchID:          selection.BranchID,
+				BranchName:        selection.BranchName,
+				BuildSelection:    string(selection.Mode),
+				BuildVersionID:    selection.BuildID,
+				ContextBranchName: selection.ContextBranchName,
 			})
 			if err != nil {
 				return DeviceStartedMsg{Err: fmt.Errorf("failed to start device: %w", err)}
 			}
 			req.AppURL = resolved.AppURL
 			req.AppPackage = resolved.AppPackage
+			req.AppID = resolved.AppID
+			req.BuildID = resolved.BuildID
 		}
 
 		resp, err := client.StartDevice(ctx, req)
@@ -396,6 +407,10 @@ func (m hubModel) handleDeviceStartAppKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.deviceStartDeviceCursor = 0
 		m.deviceStartDeviceModel = ""
 		m.deviceStartOsVersion = ""
+		m.deviceBuildSelection, m.deviceBuildLabel = api.BuildSelection{}, ""
+		if app := m.selectedDeviceStartApp(); app != nil {
+			return m.beginBuildPicker(app.ID, "Session build", "device", "")
+		}
 		return m, nil
 	default:
 		return m, nil
@@ -540,10 +555,12 @@ func (m hubModel) beginDeviceStartLaunch() (tea.Model, tea.Cmd) {
 		m.deviceStartDeviceModel,
 		m.deviceStartOsVersion,
 		launchVarIDs,
+		m.deviceBuildSelection,
 	)
 }
 
 func (m hubModel) beginDeviceStart() hubModel {
+	m.deviceBuildSelection, m.deviceBuildLabel = api.BuildSelection{}, ""
 	m.deviceStartPicking = true
 	m.deviceStartStep = int(deviceStartStepPlatform)
 	m.devicePlatformCursor = 0
@@ -873,6 +890,13 @@ func (m hubModel) renderDeviceStartOverlay(innerW int) string {
 			appLabel = selectedApp.Name
 		}
 		b.WriteString("  " + dimStyle.Render("App: ") + normalStyle.Render(appLabel) + "\n")
+		if selectedApp != nil {
+			label := m.deviceBuildLabel
+			if label == "" {
+				label = buildSelectionLabel(m.deviceBuildSelection)
+			}
+			b.WriteString("  Build: " + label + "\n")
+		}
 
 		if m.deviceStarting {
 			b.WriteString("\n  " + m.spinner.View() + " Starting device...\n")
@@ -917,6 +941,13 @@ func (m hubModel) renderDeviceStartOverlay(innerW int) string {
 			appLabel = selectedApp.Name
 		}
 		b.WriteString("  " + dimStyle.Render("App: ") + normalStyle.Render(appLabel) + "\n")
+		if selectedApp != nil {
+			label := m.deviceBuildLabel
+			if label == "" {
+				label = buildSelectionLabel(m.deviceBuildSelection)
+			}
+			b.WriteString("  Build: " + label + "\n")
+		}
 
 		if m.deviceStarting {
 			b.WriteString("\n  " + m.spinner.View() + " Starting device...\n")

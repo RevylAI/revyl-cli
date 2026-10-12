@@ -865,10 +865,15 @@ type CLILocation struct {
 // ExecuteTestRequest represents a test execution request.
 // Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
 type ExecuteTestRequest struct {
-	TestID         string        `json:"test_id"`
-	Retries        int           `json:"retries,omitempty"`
-	BuildVersionID string        `json:"build_version_id,omitempty"`
-	RunConfig      *CLIRunConfig `json:"run_config,omitempty"`
+	ContextBranchName string             `json:"context_branch_name,omitempty"`
+	BranchID          string             `json:"branch_id,omitempty"`
+	BranchName        string             `json:"branch_name,omitempty"`
+	BuildSelection    BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildID     string             `json:"pinned_build_id,omitempty"`
+	TestID            string             `json:"test_id"`
+	Retries           int                `json:"retries,omitempty"`
+	BuildVersionID    string             `json:"build_version_id,omitempty"`
+	RunConfig         *CLIRunConfig      `json:"run_config,omitempty"`
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string `json:"launch_url,omitempty"`
@@ -928,6 +933,12 @@ func (c *Client) GetBillingPlan(ctx context.Context) (*BillingPlanResponse, erro
 //   - *ExecuteTestResponse: The execution response with task ID
 //   - error: Any error that occurred
 func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*ExecuteTestResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("test execution request is nil")
+	}
+	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+		return nil, err
+	}
 	// Dispatch has no idempotency key; retrying an uncertain response can launch twice.
 	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/execution/api/execute_test_id_async", req)
 	if err != nil {
@@ -952,6 +963,9 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 // BuildConfig and OverrideBuildConfig use the generated WorkflowAppConfig and
 // PlatformApp types from generated.go.
 type ExecuteWorkflowRequest struct {
+	ContextBranchName   string             `json:"context_branch_name,omitempty"`
+	BranchName          string             `json:"branch_name,omitempty"`
+	BuildSelection      BuildSelectionMode `json:"build_selection,omitempty"`
 	WorkflowID          string             `json:"workflow_id"`
 	Retries             int                `json:"retries,omitempty"`
 	BuildConfig         *WorkflowAppConfig `json:"build_config,omitempty"`
@@ -981,6 +995,12 @@ type ExecuteWorkflowResponse struct {
 //   - *ExecuteWorkflowResponse: The execution response with task ID
 //   - error: Any error that occurred
 func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowRequest) (*ExecuteWorkflowResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("workflow execution request is nil")
+	}
+	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+		return nil, err
+	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/workflow-executions", req)
 	if err != nil {
 		return nil, err
@@ -996,19 +1016,24 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 
 // UploadBuildRequest represents a build upload request.
 type UploadBuildRequest struct {
-	AppID        string                 `json:"build_var_id"`
-	Version      string                 `json:"version"`
-	FilePath     string                 `json:"-"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	SetAsCurrent bool                   `json:"set_as_current,omitempty"`
+	ContextBranchName string                 `json:"context_branch_name,omitempty"`
+	BranchID          string                 `json:"branch_id,omitempty"`
+	BranchName        string                 `json:"branch_name,omitempty"`
+	AppID             string                 `json:"build_var_id"`
+	Version           string                 `json:"version"`
+	FilePath          string                 `json:"-"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+	SetAsCurrent      bool                   `json:"set_as_current,omitempty"`
 }
 
 // UploadBuildResponse represents a build upload response.
 type UploadBuildResponse struct {
-	VersionID string   `json:"version_id"`
-	Version   string   `json:"version"`
-	PackageID string   `json:"package_id,omitempty"`
-	Warnings  []string `json:"warnings,omitempty"`
+	BranchID   string   `json:"branch_id,omitempty"`
+	BranchName string   `json:"branch_name,omitempty"`
+	VersionID  string   `json:"version_id"`
+	Version    string   `json:"version"`
+	PackageID  string   `json:"package_id,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 
 const maxUploadErrorBodyBytes = 16 * 1024
@@ -1017,6 +1042,8 @@ const androidSplitAPKError = "Android split APKs and APK Set archives are not su
 
 // uploadSessionResponse mirrors the backend BuildUploadSessionResponse.
 type uploadSessionResponse struct {
+	BranchID    string `json:"branch_id,omitempty"`
+	BranchName  string `json:"branch_name,omitempty"`
 	UploadID    string `json:"upload_id"`
 	UploadURL   string `json:"upload_url"`
 	ContentType string `json:"content_type"`
@@ -1024,6 +1051,8 @@ type uploadSessionResponse struct {
 
 // buildCreatedResponse mirrors the subset of BuildVersionResponse the CLI uses.
 type buildCreatedResponse struct {
+	BranchID    string                 `json:"branch_id,omitempty"`
+	BranchName  string                 `json:"branch_name,omitempty"`
 	ID          string                 `json:"id"`
 	Version     string                 `json:"version"`
 	PackageName string                 `json:"package_name,omitempty"`
@@ -1049,6 +1078,12 @@ type extractBuildPackageIDResponse struct {
 //   - *UploadBuildResponse: The upload response
 //   - error: Any error that occurred
 func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*UploadBuildResponse, error) {
+	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+		return nil, err
+	}
+	if err := validateBranchSelector(req.BranchID, req.BranchName); err != nil {
+		return nil, err
+	}
 	if err := validateLocalBuildArtifact(req.FilePath, req.Metadata); err != nil {
 		return nil, err
 	}
@@ -1071,16 +1106,19 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 func (c *Client) uploadBuildViaSession(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64) (*UploadBuildResponse, error) {
 	sessionResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds/upload-session?source=cli_upload", req.AppID),
-		map[string]interface{}{
+		uploadDestinationPayload(req, map[string]interface{}{
 			"version":   req.Version,
 			"file_name": fileName,
-		})
+		}))
 	if err != nil {
 		return nil, err
 	}
 	var session uploadSessionResponse
 	if err := parseResponse(sessionResp, &session); err != nil {
 		if isUploadSessionUnsupported(err) {
+			if req.BranchID != "" || req.BranchName != "" || req.ContextBranchName != "" {
+				return nil, fmt.Errorf("this backend does not support branch upload destinations: %w", err)
+			}
 			return c.uploadBuildLegacyPresigned(ctx, req, fileName)
 		}
 		return nil, err
@@ -1129,10 +1167,12 @@ func (c *Client) createBuildFromStagedUpload(ctx context.Context, req *UploadBui
 	}
 
 	return &UploadBuildResponse{
-		VersionID: created.ID,
-		Version:   created.Version,
-		PackageID: created.PackageName,
-		Warnings:  artifactValidationWarnings(created.Metadata),
+		BranchID:   created.BranchID,
+		BranchName: created.BranchName,
+		VersionID:  created.ID,
+		Version:    created.Version,
+		PackageID:  created.PackageName,
+		Warnings:   artifactValidationWarnings(created.Metadata),
 	}, nil
 }
 
@@ -1394,7 +1434,7 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
-	stateKey := uploadStateKey(req.AppID, req.Version, req.FilePath, fileSize)
+	stateKey := uploadDestinationStateKeyWithContext(req.AppID, req.Version, req.FilePath, fileSize, req.BranchID, req.BranchName, req.ContextBranchName)
 
 	if st := c.loadResumableUploadState(stateKey); st != nil {
 		if !st.matches(fileSize, fileHash) {
@@ -1431,17 +1471,20 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 
 	startResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds/multipart-upload/start?source=cli_upload", req.AppID),
-		map[string]interface{}{
+		uploadDestinationPayload(req, map[string]interface{}{
 			"version":   req.Version,
 			"file_name": fileName,
 			"file_size": fileSize,
-		})
+		}))
 	if err != nil {
 		return nil, err
 	}
 	var start multipartUploadStartResponse
 	if err := parseResponse(startResp, &start); err != nil {
 		if isUploadSessionUnsupported(err) {
+			if req.BranchID != "" || req.BranchName != "" || req.ContextBranchName != "" {
+				return nil, fmt.Errorf("this backend does not support branch upload destinations: %w", err)
+			}
 			// Older backends without multipart support: the single PUT still
 			// works below S3's 5 GiB PUT cap, it is just less resilient for
 			// large artifacts. Above the cap the PUT can never succeed, so
@@ -2170,6 +2213,9 @@ func resolveUploadPlatform(metadata map[string]interface{}) string {
 // The backend downloads the artifact directly from the provided URL, so the CLI
 // never needs the binary on disk.
 type CreateBuildFromURLRequest struct {
+	ContextBranchName string `json:"context_branch_name,omitempty"`
+	BranchID          string `json:"branch_id,omitempty"`
+	BranchName        string `json:"branch_name,omitempty"`
 	// AppID is the target Revyl app to store the build under.
 	AppID string `json:"-"`
 
@@ -2186,11 +2232,13 @@ type CreateBuildFromURLRequest struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 
 	// SetAsCurrent marks this version as the current/default version for the app.
-	SetAsCurrent bool `json:"set_as_current,omitempty"`
+	SetAsCurrent bool `json:"set_as_current"`
 }
 
 // CreateBuildFromURLResponse represents the server response after a URL-based build ingestion.
 type CreateBuildFromURLResponse struct {
+	BranchID   string `json:"branch_id,omitempty"`
+	BranchName string `json:"branch_name,omitempty"`
 	// ID is the unique identifier of the created build version.
 	ID string `json:"id"`
 
@@ -2222,6 +2270,12 @@ type CreateBuildFromURLResponse struct {
 //   - *CreateBuildFromURLResponse: The created build version info
 //   - error: Any error (502 if the backend cannot fetch the URL, 409 if version exists and is not idempotent)
 func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
+	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+		return nil, err
+	}
+	if err := validateBranchSelector(req.BranchID, req.BranchName); err != nil {
+		return nil, err
+	}
 	path := fmt.Sprintf("/api/v1/apps/%s/builds/from-url", req.AppID)
 
 	// A timeout can leave the backend ingest running, so repeating this request
@@ -2382,6 +2436,8 @@ func (c *Client) uploadFileWithHeadersAndRetry(ctx context.Context, uploadURL st
 // BuildVersion represents a build version.
 // Matches backend BuildVersionResponse schema.
 type BuildVersion struct {
+	BranchID    string                 `json:"branch_id,omitempty"`
+	BranchName  string                 `json:"branch_name,omitempty"`
 	ID          string                 `json:"id"`
 	Version     string                 `json:"version"`
 	UploadedAt  string                 `json:"uploaded_at"`
@@ -2437,31 +2493,7 @@ func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVe
 //   - *BuildVersionsPage: Paginated build versions
 //   - error: Any error that occurred
 func (c *Client) ListBuildVersionsPage(ctx context.Context, appID string, page int, pageSize int) (*BuildVersionsPage, error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = defaultBuildVersionsPageSize
-	}
-	if pageSize > maxBuildVersionsPageSize {
-		pageSize = maxBuildVersionsPageSize
-	}
-
-	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/apps/%s/builds?page=%d&page_size=%d", appID, page, pageSize), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result BuildVersionsPage
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-	if result.Items == nil {
-		result.Items = []BuildVersion{}
-	}
-
-	return &result, nil
+	return c.ListBuildVersionsWithOptions(ctx, appID, BuildListOptions{Page: page, PageSize: pageSize})
 }
 
 // GetTest retrieves a test by ID.
@@ -2498,6 +2530,9 @@ type MobileTargetEntry struct {
 // Renamed from `Test` to avoid colliding with the generated
 // ActionBlockVariableScope enum constant `Test`.
 type TestSummary struct {
+	BranchID       string                 `json:"branch_id,omitempty"`
+	BuildSelection BuildSelectionMode     `json:"build_selection,omitempty"`
+	PinnedBuildID  string                 `json:"pinned_build_id,omitempty"`
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
 	Platform       string                 `json:"platform"`
@@ -2518,6 +2553,7 @@ type TestSummary struct {
 
 // UpdateTestRequest represents a test update request.
 type UpdateTestRequest struct {
+	*SavedBuildSelection
 	TestID          string      `json:"-"`
 	Name            string      `json:"name,omitempty"`
 	Description     string      `json:"description,omitempty"`
@@ -2548,6 +2584,9 @@ type UpdateTestResponse struct {
 //   - *UpdateTestResponse: The update response
 //   - error: Any error that occurred
 func (c *Client) UpdateTest(ctx context.Context, req *UpdateTestRequest) (*UpdateTestResponse, error) {
+	if err := req.SavedBuildSelection.Validate(); err != nil {
+		return nil, err
+	}
 	resp, err := c.doRequest(ctx, "PUT",
 		fmt.Sprintf("/api/v1/tests/update/%s", req.TestID), req)
 	if err != nil {
@@ -2564,11 +2603,13 @@ func (c *Client) UpdateTest(ctx context.Context, req *UpdateTestRequest) (*Updat
 
 // CreateTestRequest represents a test creation request.
 type CreateTestRequest struct {
-	Name     string      `json:"name"`
-	Platform string      `json:"platform"`
-	Tasks    interface{} `json:"tasks"`
-	AppID    string      `json:"app_id,omitempty"`
-	OrgID    string      `json:"org_id,omitempty"`
+	*SavedBuildSelection
+	PinnedVersionID string      `json:"pinned_version,omitempty"`
+	Name            string      `json:"name"`
+	Platform        string      `json:"platform"`
+	Tasks           interface{} `json:"tasks"`
+	AppID           string      `json:"app_id,omitempty"`
+	OrgID           string      `json:"org_id,omitempty"`
 }
 
 // CreateTestResponse represents a test creation response.
@@ -2599,12 +2640,17 @@ func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*Creat
 		)
 	}
 
+	if err := req.SavedBuildSelection.Validate(); err != nil {
+		return nil, err
+	}
 	normalizedReq := &CreateTestRequest{
-		Name:     req.Name,
-		Platform: normalizePlatform(req.Platform),
-		Tasks:    req.Tasks,
-		AppID:    req.AppID,
-		OrgID:    req.OrgID,
+		SavedBuildSelection: req.SavedBuildSelection,
+		PinnedVersionID:     req.PinnedVersionID,
+		Name:                req.Name,
+		Platform:            normalizePlatform(req.Platform),
+		Tasks:               req.Tasks,
+		AppID:               req.AppID,
+		OrgID:               req.OrgID,
 	}
 
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/create", normalizedReq)
@@ -3078,14 +3124,17 @@ func (c *Client) ListOrgTestsWithTags(ctx context.Context, limit, offset int) (*
 // App represents an app in the organization.
 // This is a CLI-specific type that's simpler than the generated API response types.
 type App struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Platform       string `json:"platform"`
-	Description    string `json:"description,omitempty"`
-	SystemPrompt   string `json:"system_prompt,omitempty"`
-	CurrentVersion string `json:"current_version,omitempty"`
-	LatestVersion  string `json:"latest_version,omitempty"`
-	VersionsCount  int    `json:"versions_count"`
+	DefaultBranchID            string `json:"default_branch_id,omitempty"`
+	DefaultBranchName          string `json:"default_branch_name,omitempty"`
+	DefaultBranchPinnedBuildID string `json:"default_branch_pinned_build_id,omitempty"`
+	ID                         string `json:"id"`
+	Name                       string `json:"name"`
+	Platform                   string `json:"platform"`
+	Description                string `json:"description,omitempty"`
+	SystemPrompt               string `json:"system_prompt,omitempty"`
+	CurrentVersion             string `json:"current_version,omitempty"`
+	LatestVersion              string `json:"latest_version,omitempty"`
+	VersionsCount              int    `json:"versions_count"`
 }
 
 // AtlasQuery carries the shared filters supported by Atlas inspection endpoints.
@@ -3422,6 +3471,9 @@ func (c *Client) hydrateSingleAppVersionSummary(ctx context.Context, app App) Ap
 }
 
 func appNeedsVersionSummaryHydration(app App) bool {
+	if app.DefaultBranchID != "" {
+		return false
+	}
 	if strings.TrimSpace(app.ID) == "" {
 		return false
 	}
@@ -3438,6 +3490,10 @@ func appNeedsVersionSummaryHydration(app App) bool {
 //   - *App: The app data
 //   - error: Any error that occurred
 func (c *Client) GetApp(ctx context.Context, appID string) (*App, error) {
+	return c.getApp(ctx, appID, true)
+}
+
+func (c *Client) getApp(ctx context.Context, appID string, hydrate bool) (*App, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/apps/%s", appID), nil)
 	if err != nil {
@@ -3448,7 +3504,9 @@ func (c *Client) GetApp(ctx context.Context, appID string) (*App, error) {
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
-	result = c.hydrateSingleAppVersionSummary(ctx, result)
+	if hydrate {
+		result = c.hydrateSingleAppVersionSummary(ctx, result)
+	}
 
 	return &result, nil
 }
@@ -3467,6 +3525,7 @@ type CreateAppRequest struct {
 
 // CreateAppResponse represents the response from creating an app.
 type CreateAppResponse struct {
+	DefaultBranchID string `json:"default_branch_id,omitempty"`
 	// ID is the unique identifier for the created app.
 	ID string `json:"id"`
 
@@ -4072,22 +4131,21 @@ func (c *Client) FindDevClientBuilds(ctx context.Context, platform string) ([]Ap
 //   - *BuildVersion: The latest build version, or nil if none exist
 //   - error: Any error that occurred
 func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*BuildVersion, error) {
-	versions, err := c.ListBuildVersions(ctx, appID)
+	detail, err := c.ResolveBuildSelection(ctx, appID, BuildSelection{Mode: BuildSelectionModeLatest})
+	if errors.Is(err, ErrBranchHasNoBuilds) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-
-	if len(versions) == 0 {
-		return nil, nil
-	}
-
-	// Return the first version (API returns sorted by most recent)
-	return &versions[0], nil
+	return detail.BuildVersion(), nil
 }
 
 // BuildVersionDetail represents a build version with an optional download URL.
 // Returned by GetBuildVersionDownloadURL.
 type BuildVersionDetail struct {
+	BranchID    string                 `json:"branch_id,omitempty"`
+	BranchName  string                 `json:"branch_name,omitempty"`
 	ID          string                 `json:"id"`
 	AppID       string                 `json:"app_id,omitempty"`
 	Version     string                 `json:"version"`
@@ -4106,27 +4164,32 @@ type BuildVersionDetail struct {
 //   - *BuildVersionDetail: The build version with download URL
 //   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*BuildVersionDetail, error) {
-	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/apps/builds/%s?include_download_url=true", versionID), nil)
+	return c.GetBuildVersionDetail(ctx, versionID, true)
+}
+
+func (c *Client) GetBuildVersionDetail(ctx context.Context, versionID string, includeDownloadURL bool) (*BuildVersionDetail, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/apps/builds/%s?include_download_url=%t", url.PathEscape(versionID), includeDownloadURL), nil)
 	if err != nil {
 		return nil, err
 	}
-
 	var result BuildVersionDetail
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
-
-	if result.DownloadURL == "" {
+	if includeDownloadURL && result.DownloadURL == "" {
 		return nil, fmt.Errorf("build version %s has no downloadable artifact", versionID)
 	}
-
 	return &result, nil
 }
 
 // StartDeviceRequest represents a request to start a device session.
 // Used for interactive test creation mode.
 type StartDeviceRequest struct {
+	ContextBranchName string             `json:"context_branch_name,omitempty"`
+	BranchID          string             `json:"branch_id,omitempty"`
+	BranchName        string             `json:"branch_name,omitempty"`
+	BuildSelection    BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildID     string             `json:"pinned_build_id,omitempty"`
 	// Platform is the target platform (ios or android).
 	Platform string `json:"platform"`
 
@@ -4222,6 +4285,9 @@ type DeviceExecutionModeConfig struct {
 func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*StartDeviceResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("start device request is nil")
+	}
+	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+		return nil, err
 	}
 	requestID := newTraceRequestID()
 	headers := map[string]string{traceRequestIDHeader: requestID}
@@ -4395,6 +4461,10 @@ func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*Ac
 
 // DeviceSessionDetail is the response shape for GET /device-sessions/{session_id}.
 type DeviceSessionDetail struct {
+	AppID           string                 `json:"app_id,omitempty"`
+	BuildID         string                 `json:"build_id,omitempty"`
+	BranchID        string                 `json:"branch_id,omitempty"`
+	BranchName      string                 `json:"branch_name,omitempty"`
 	ID              string                 `json:"id"`
 	OrgID           string                 `json:"org_id"`
 	Source          *string                `json:"source"`
@@ -5114,6 +5184,12 @@ func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsReque
 
 // CLIEnhancedTask represents the task details within an enhanced history item.
 type CLIEnhancedTask struct {
+	AppID                string  `json:"app_id,omitempty"`
+	BuildID              string  `json:"build_id,omitempty"`
+	ResolvedBuildID      string  `json:"resolved_build_id,omitempty"`
+	BuildVersion         string  `json:"build_version,omitempty"`
+	BranchID             string  `json:"branch_id,omitempty"`
+	BranchName           string  `json:"branch_name,omitempty"`
 	ID                   string  `json:"id"`
 	TestID               string  `json:"test_id"`
 	Success              *bool   `json:"success"`
@@ -5450,6 +5526,10 @@ type CLIWorkflowTestInfo struct {
 
 // CLIChildTaskReportInfo contains individual test execution data within a workflow.
 type CLIChildTaskReportInfo struct {
+	BuildID              string   `json:"build_id,omitempty"`
+	BuildVersion         string   `json:"build_version,omitempty"`
+	BranchID             string   `json:"branch_id,omitempty"`
+	BranchName           string   `json:"branch_name,omitempty"`
 	TaskID               string   `json:"task_id"`
 	TestID               string   `json:"test_id,omitempty"`
 	TestName             string   `json:"test_name,omitempty"`
@@ -5687,6 +5767,8 @@ type CLIDeviceSessionHistoryItem struct {
 	Status          string  `json:"status"`
 	CreatedAt       string  `json:"created_at"`
 	Duration        float64 `json:"duration_seconds,omitempty"`
+	BranchID        string  `json:"branch_id,omitempty"`
+	BranchName      string  `json:"branch_name,omitempty"`
 }
 
 // GetDeviceSessionHistory retrieves paginated device session history.
@@ -5703,7 +5785,27 @@ func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int)
 	return c.QueryDeviceSessionHistory(ctx, url.Values{"limit": {fmt.Sprint(limit)}, "offset": {fmt.Sprint(offset)}})
 }
 
+func (c *Client) GetDeviceSessionHistoryWithOptions(ctx context.Context, limit, offset int, appID, branchID, branchName string) (*CLIDeviceSessionHistoryResponse, error) {
+	values := url.Values{"limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}}
+	if appID != "" {
+		values.Set("app_id", appID)
+	}
+	if branchID != "" {
+		values.Set("branch_id", branchID)
+	}
+	if branchName != "" {
+		values.Set("branch_name", branchName)
+	}
+	return c.QueryDeviceSessionHistory(ctx, values)
+}
+
 func (c *Client) QueryDeviceSessionHistory(ctx context.Context, filters url.Values) (*CLIDeviceSessionHistoryResponse, error) {
+	if err := validateBranchSelector(filters.Get("branch_id"), filters.Get("branch_name")); err != nil {
+		return nil, err
+	}
+	if (filters.Get("branch_id") != "" || filters.Get("branch_name") != "") && filters.Get("app_id") == "" {
+		return nil, errors.New("a branch filter requires an app ID")
+	}
 	path := "/api/v1/execution/device-sessions/history?" + filters.Encode()
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {

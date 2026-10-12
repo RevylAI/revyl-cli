@@ -14,6 +14,33 @@ revyl atlas graph --app "My App"
 revyl atlas graph --app "My App" --device-model "Pixel 7" --runtime "Android 14"
 ```
 
+## Branch scope
+
+Atlas reads and `atlas open` show **All branches** by default. Pass
+`--branch <name>` or `--branch-id <id>` to narrow the evidence to one branch,
+including a branch with no runnable build. `--all-branches` remains an explicit
+way to select All. `--build latest` selects the newest usable build in the chosen
+branch, or the app's default branch when no branch is given, bypassing its pin.
+An exact `--build <id>` keeps that build's scope. Legacy `--build all` means All
+and cannot be combined with a branch.
+
+All remains within the selected app and organization, with the same pagination,
+time windows, and recent-build limits. A recent-build limit counts builds across
+the selected scope: 20 means 20 total in All, not 20 per branch.
+
+A version string passed to `--build <version>` selects the newest upload whose
+version matches exactly, within an explicit branch when provided and across
+branches otherwise. Package names and partial version matches are excluded.
+An unavailable version fails; it never falls back to another build.
+
+Branches filter observed evidence. Screen merges, hiding, and identity-root
+choices remain app-wide; evidence without a known build is visible only in All.
+See [Build branches](build-branches.md) for defaults, pins, and saved selections.
+PR merges do not move existing evidence between branches. To keep a shared
+`main` or `staging` map current, [build and explore that source explicitly](explore.md#keep-main-or-staging-current).
+
+## Read the graph
+
 `brief` is a bounded orientation: product areas, starting anchors, highly
 connected screens, and a representative visual sample. Anchors explain why a
 node is a useful place to begin (`curated_entry`, `semantic_entry`, or
@@ -97,7 +124,11 @@ is an alias for `--runtime`. Values match the model and OS runtime recorded on
 Atlas evidence exactly, including case, and combined filters use AND semantics.
 The active criteria are returned in `projection`, available choices are returned
 in `facets.device_targets`, and suggested Atlas follow-up commands preserve the
-active branch, build, time, device, and runtime scope.
+active branch, build, time, device, and runtime scope. Branch-scoped responses
+include `projection.branch_id`; follow-ups use that immutable `--branch-id`.
+Follow-ups from All branches use `--all-branches` when no exact build is selected.
+Graph and capture-listing follow-ups retain an active `--recent-build-limit`;
+exact observation and report reads remain exact evidence.
 
 Graph-backed reads accept `--recent-build-limit 20` to match the product's
 Recent view (the latest 20 builds, not the latest build or a rolling date window).

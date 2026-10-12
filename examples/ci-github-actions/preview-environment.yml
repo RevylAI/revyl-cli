@@ -46,7 +46,7 @@ jobs:
       - name: Upload build to Revyl
         id: upload
         run: |
-          OUTPUT=$(revyl build upload -f build/app.tar.gz --app "your-app-id" --yes --preview --json)
+          OUTPUT=$(revyl build upload -f build/app.tar.gz --app "your-app-id" --no-set-current --yes --preview --json)
           echo "$OUTPUT"
           BUILD_ID=$(echo "$OUTPUT" | python3 -c "
           import sys, json

@@ -492,6 +492,27 @@ func (e BuildRecipePlatform) Valid() bool {
 	}
 }
 
+// Defines values for BuildResolutionResponseResolutionStatus.
+const (
+	BuildResolutionResponseResolutionStatusBranchHasNoBuilds BuildResolutionResponseResolutionStatus = "branch_has_no_builds"
+	BuildResolutionResponseResolutionStatusNoCompatibleBuild BuildResolutionResponseResolutionStatus = "no_compatible_build"
+	BuildResolutionResponseResolutionStatusResolved          BuildResolutionResponseResolutionStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the BuildResolutionResponseResolutionStatus enum.
+func (e BuildResolutionResponseResolutionStatus) Valid() bool {
+	switch e {
+	case BuildResolutionResponseResolutionStatusBranchHasNoBuilds:
+		return true
+	case BuildResolutionResponseResolutionStatusNoCompatibleBuild:
+		return true
+	case BuildResolutionResponseResolutionStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildSelectionMode.
 const (
 	BuildSelectionModeInherit BuildSelectionMode = "inherit"
@@ -3252,6 +3273,79 @@ type BuildArtifactRejectionResponse struct {
 	Detail BuildArtifactRejectionDetail `json:"detail"`
 }
 
+// BuildBranchCreateRequest defines model for BuildBranchCreateRequest.
+type BuildBranchCreateRequest struct {
+	Name string `json:"name"`
+}
+
+// BuildBranchLatestBuild The build a run following Latest would use on a branch.
+type BuildBranchLatestBuild struct {
+	Id         openapi_types.UUID `json:"id"`
+	UploadedAt time.Time          `json:"uploaded_at"`
+	Version    string             `json:"version"`
+}
+
+// BuildBranchListItem One branch in a page of an app's branches.
+type BuildBranchListItem struct {
+	AppId     openapi_types.UUID `json:"app_id"`
+	CreatedAt *time.Time         `json:"created_at,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// IsDefault Whether this is the app's default branch, which the list puts first
+	IsDefault bool `json:"is_default"`
+
+	// LatestBuild The build a run following Latest would use on a branch.
+	LatestBuild          *BuildBranchLatestBuild `json:"latest_build,omitempty"`
+	Name                 string                  `json:"name"`
+	PinnedBuildAvailable *bool                   `json:"pinned_build_available,omitempty"`
+	PinnedBuildId        *openapi_types.UUID     `json:"pinned_build_id,omitempty"`
+	PinnedBuildVersion   *string                 `json:"pinned_build_version,omitempty"`
+}
+
+// BuildBranchListResponse One page of an app's branches.
+//
+// The app's default branch comes first, then the rest newest created first,
+// ties broken by id, so pages never overlap or skip a branch. A search
+// narrows the pages and the counts alike.
+type BuildBranchListResponse struct {
+	Branches *[]BuildBranchListItem `json:"branches,omitempty"`
+
+	// HasNext Whether a later page exists
+	HasNext bool `json:"has_next"`
+
+	// HasPrevious Whether an earlier page exists
+	HasPrevious bool `json:"has_previous"`
+
+	// Page Current page number (1-indexed)
+	Page *int `json:"page,omitempty"`
+
+	// PageSize Branches per page
+	PageSize *int `json:"page_size,omitempty"`
+
+	// Total Branches matching the request
+	Total *int `json:"total,omitempty"`
+
+	// TotalPages Total number of pages
+	TotalPages *int `json:"total_pages,omitempty"`
+}
+
+// BuildBranchResponse defines model for BuildBranchResponse.
+type BuildBranchResponse struct {
+	AppId                openapi_types.UUID  `json:"app_id"`
+	CreatedAt            *time.Time          `json:"created_at,omitempty"`
+	Id                   openapi_types.UUID  `json:"id"`
+	Name                 string              `json:"name"`
+	PinnedBuildAvailable *bool               `json:"pinned_build_available,omitempty"`
+	PinnedBuildId        *openapi_types.UUID `json:"pinned_build_id,omitempty"`
+	PinnedBuildVersion   *string             `json:"pinned_build_version,omitempty"`
+}
+
+// BuildBranchUpdateRequest defines model for BuildBranchUpdateRequest.
+type BuildBranchUpdateRequest struct {
+	Name          *string             `json:"name,omitempty"`
+	PinnedBuildId *openapi_types.UUID `json:"pinned_build_id,omitempty"`
+}
+
 // BuildCache Cache archive definition stored on a sandbox build configuration.
 type BuildCache struct {
 	// Key Org-local cache key. The build runner prefixes it with the org ID.
@@ -3539,6 +3633,42 @@ type BuildRecipe struct {
 
 // BuildRecipePlatform defines model for BuildRecipe.Platform.
 type BuildRecipePlatform string
+
+// BuildResolutionRequest Request to resolve a build for a test.
+type BuildResolutionRequest struct {
+	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName        *string             `json:"branch_name,omitempty"`
+	BuildSelection    *BuildSelectionMode `json:"build_selection,omitempty"`
+	BuildVarId        openapi_types.UUID  `json:"build_var_id"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+
+	// Filters Optional resolution filters matched against build metadata (e.g., pr_number, commit_sha)
+	Filters *map[string]interface{} `json:"filters,omitempty"`
+
+	// OrgId Organization context for service-auth resolution requests
+	OrgId         *openapi_types.UUID `json:"org_id,omitempty"`
+	PinnedBuildId *openapi_types.UUID `json:"pinned_build_id,omitempty"`
+	PinnedVersion *string             `json:"pinned_version,omitempty"`
+}
+
+// BuildResolutionResponse Response with resolved build information.
+type BuildResolutionResponse struct {
+	ArtifactUrl      *string                                  `json:"artifact_url,omitempty"`
+	BranchId         *openapi_types.UUID                      `json:"branch_id,omitempty"`
+	BranchName       *string                                  `json:"branch_name,omitempty"`
+	BuildVarId       openapi_types.UUID                       `json:"build_var_id"`
+	DownloadUrl      *string                                  `json:"download_url,omitempty"`
+	Platform         string                                   `json:"platform"`
+	ResolutionStatus *BuildResolutionResponseResolutionStatus `json:"resolution_status,omitempty"`
+	StaticUrl        *string                                  `json:"static_url,omitempty"`
+	Version          *string                                  `json:"version,omitempty"`
+
+	// VersionId Resolved build row ID for fetching build details
+	VersionId *openapi_types.UUID `json:"version_id,omitempty"`
+}
+
+// BuildResolutionResponseResolutionStatus defines model for BuildResolutionResponse.ResolutionStatus.
+type BuildResolutionResponseResolutionStatus string
 
 // BuildResponse Response model for a build (specific artifact/version of an app).
 type BuildResponse struct {
@@ -7841,6 +7971,27 @@ type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
 	Accept    *string `json:"accept,omitempty"`
 }
 
+// ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
+type ResolveBuildApiV1AppsResolvePostParams struct {
+	// IncludeDownloadUrl Include presigned download URL
+	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// ListBranchesApiV1AppsAppIdBranchesGetParams defines parameters for ListBranchesApiV1AppsAppIdBranchesGet.
+type ListBranchesApiV1AppsAppIdBranchesGetParams struct {
+	// Page Page number (1-indexed)
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Branches per page (max 100)
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// Name Only the branch with exactly this name
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// Search Only branches whose name contains this text (case-insensitive)
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+}
+
 // ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
 type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	BranchId   *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
@@ -8533,6 +8684,15 @@ type TriggerRemoteBuildApiV1AppsRemotePostJSONRequestBody = RemoteBuildRequest
 
 // GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody defines body for GetSourceUploadUrlApiV1AppsRemoteUploadUrlPost for application/json ContentType.
 type GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody = RemoteBuildSourceUploadRequest
+
+// ResolveBuildApiV1AppsResolvePostJSONRequestBody defines body for ResolveBuildApiV1AppsResolvePost for application/json ContentType.
+type ResolveBuildApiV1AppsResolvePostJSONRequestBody = BuildResolutionRequest
+
+// CreateBranchApiV1AppsAppIdBranchesPostJSONRequestBody defines body for CreateBranchApiV1AppsAppIdBranchesPost for application/json ContentType.
+type CreateBranchApiV1AppsAppIdBranchesPostJSONRequestBody = BuildBranchCreateRequest
+
+// UpdateBranchApiV1AppsAppIdBranchesBranchIdPatchJSONRequestBody defines body for UpdateBranchApiV1AppsAppIdBranchesBranchIdPatch for application/json ContentType.
+type UpdateBranchApiV1AppsAppIdBranchesBranchIdPatchJSONRequestBody = BuildBranchUpdateRequest
 
 // CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody defines body for CreateBuildFromUploadApiV1AppsAppIdBuildsPost for application/json ContentType.
 type CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody = BuildCreateFromUploadRequest

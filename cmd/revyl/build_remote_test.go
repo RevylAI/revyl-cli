@@ -649,12 +649,13 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 	const appID = "00000000-0000-4000-8000-000000000001"
 	prHeadSHA := strings.Repeat("a", 40)
 	for _, test := range []struct {
-		name   string
-		source config.BuildSource
+		name        string
+		source      config.BuildSource
+		wantContext string
 	}{
 		{name: "working tree archive"},
 		{name: "git commit", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: prHeadSHA}},
-		{name: "git branch", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: "main"}},
+		{name: "git branch", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: "refs/heads/main"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repoRoot := t.TempDir()
@@ -662,6 +663,7 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 			writeFile(t, filepath.Join(repoRoot, "main.txt"), "committed")
 			runGit(t, repoRoot, "add", ".")
 			runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+			runGit(t, repoRoot, "branch", "-m", "local-source")
 			writeFile(t, filepath.Join(repoRoot, "main.txt"), "generated modification")
 			writeFile(t, filepath.Join(repoRoot, "build-info.json"), "{}")
 			eventPath := filepath.Join(t.TempDir(), "event.json")
@@ -720,6 +722,9 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 			assertJSONString(t, parseJSON(t, output), "build_job_id", "job-1")
 			if submitted == nil {
 				t.Fatal("remote build was not submitted")
+			}
+			if stringValue(submitted.ContextBranchName) != test.wantContext || submitted.BranchName != nil {
+				t.Fatalf("remote source context = %q, want %q", stringValue(submitted.ContextBranchName), test.wantContext)
 			}
 			if test.source.Type == "git" {
 				source, err := submitted.Source.AsRemoteBuildGitSource()

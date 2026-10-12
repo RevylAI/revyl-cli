@@ -47,6 +47,9 @@ var (
 	devStartNoBuild               bool
 	devStartRemote                bool
 	devStartSeedLatest            bool
+	devStartBranch                string
+	devStartBranchID              string
+	devStartBuildSelection        string
 	devStartTunnelURL             string
 	devStartLaunchVars            []string
 	devStartLaunchArgSets         []string
@@ -89,7 +92,7 @@ var devCmd = &cobra.Command{
 	Long: `Start and manage local development loops backed by cloud device sessions.
 
 Auto-detects your project type (Expo, React Native, Swift, Android),
-starts hot reload, provisions a cloud device, installs the latest
+starts hot reload, provisions a cloud device, installs the selected branch's
 dev build, and opens a live viewer.
 
 Run revyl dev for the common path. Dev contexts are worktree-local:
@@ -179,14 +182,18 @@ func init() {
 }
 
 func registerDevStartFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&devStartBranch, "branch", "", "Revyl branch for the initial build and every rebuild")
+	cmd.Flags().StringVar(&devStartBranchID, "branch-id", "", "Stable Revyl branch ID for continuation")
+	_ = cmd.Flags().MarkHidden("branch-id")
+	cmd.Flags().StringVar(&devStartBuildSelection, "build-selection", "", "Initial build: inherit (Automatic: the branch's default build), latest, or pinned with --build-version-id")
 	cmd.Flags().StringVar(&devStartProfile, "profile", "", "Named build profile to use")
 	cmd.Flags().StringVar(&devStartPlatform, "platform", "", "Device platform to start (ios or android)")
-	cmd.Flags().StringVar(&devStartAppID, "app-id", "", "App ID to resolve latest build from")
+	cmd.Flags().StringVar(&devStartAppID, "app-id", "", "App ID to resolve the initial build from")
 	cmd.Flags().StringVar(&devStartBuildVerID, "build-version-id", "", "Specific build version ID to use")
 	cmd.Flags().BoolVar(&devStartBuild, "build", false, "Force build+upload before starting")
 	cmd.Flags().BoolVar(&devStartNoBuild, "no-build", false, "Never run build commands; require a pre-existing build")
 	cmd.Flags().BoolVar(&devStartRemote, "remote", false, "Build native iOS changes on a remote Revyl build runner")
-	cmd.Flags().BoolVar(&devStartSeedLatest, "seed-latest", false, "With --remote, install the latest existing build immediately (seed) so the app is interactive within seconds, then hot-swap the fresh build when it lands")
+	cmd.Flags().BoolVar(&devStartSeedLatest, "seed-latest", false, "With --remote, install latest from the selected branch immediately (seed) so the app is interactive within seconds, then hot-swap the fresh build when it lands")
 	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external Expo tunnel URL or dev-client deep link instead of the Revyl relay")
 	cmd.Flags().StringArrayVar(&devStartLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply when starting the device session (repeatable)")
 	cmd.Flags().StringArrayVar(&devStartLaunchArgSets, "launch-arg-set", nil, "Stored iOS argument-set name or ID to apply when starting the session (repeatable)")
@@ -481,6 +488,42 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	analyticsProperties["selection_source"] = invocation.SelectionSource
 	cwd = invocation.ProjectRoot
 
+	if devStartNoBuild && devStartBuild {
+		return fmt.Errorf("use either --no-build or --build, not both")
+	}
+	if devStartRemote {
+		if err := validateRemoteDevStartFlags(); err != nil {
+			return err
+		}
+	}
+	if !devStartRemote && devStartBuild && strings.TrimSpace(devStartBuildVerID) != "" {
+		return fmt.Errorf("use either --build-version-id or --build, not both")
+	}
+	if devStartSeedLatest && strings.TrimSpace(devStartBuildVerID) != "" {
+		return fmt.Errorf("use either --seed-latest or --build-version-id, not both")
+	}
+	if devStartSeedLatest && devStartBuildSelection != "" && devStartBuildSelection != "latest" {
+		return fmt.Errorf("--seed-latest requires latest build selection")
+	}
+	if appID := strings.TrimSpace(devStartAppID); appID != "" {
+		invocation = invocation.withAppID(appID)
+	}
+	selectionDevMode, _ := cmd.Flags().GetBool("dev")
+	selectionClient := api.NewClientWithDevMode(apiKey, selectionDevMode)
+	if invocation.AppID == "" && strings.TrimSpace(devStartBuildVerID) == "" {
+		if devStartRemote {
+			return fmt.Errorf("app_id is required for this development profile")
+		}
+		invocation, err = ensureDevApp(cmd, selectionClient, invocation)
+		if err != nil {
+			return err
+		}
+	}
+	invocation, err = resolveDevDestination(cmd.Context(), selectionClient, invocation, devStartBranchID, devStartBranch, strings.TrimSpace(devStartBuildVerID), devStartBuildSelection, !devStartNoBuild)
+	if err != nil {
+		return err
+	}
+
 	if devStartDetach && !isDetachedDevChild() {
 		return spawnDetachedProjectDevLoop(cmd, invocation)
 	}
@@ -559,8 +602,17 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	if printIfDevStartContextAlreadyRunning(cwd, ctxName) {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation.BranchID); err != nil {
+		return err
+	} else if running {
 		return nil
+	}
+	previousContext, _ := loadDevContext(cwd, ctxName)
+	branchChanged := previousContext == nil || previousContext.BranchID != invocation.BranchID
+	if branchChanged {
+		if err := removeManagedRuntimeFile(devCtxManifestPath(cwd, ctxName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("clear native cache for changed branch: %w", err)
+		}
 	}
 
 	timeout := devIdleTimeoutSeconds(cmd, invocation)
@@ -576,7 +628,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	selectedAppID := invocation.AppID
 	buildSelectionSource := ""
 	var selectedVersion *api.BuildVersion
-	if buildVersionID == "" {
+	if buildVersionID == "" && !devStartBuild {
 		if selectedAppID == "" {
 			invocation, err = ensureDevApp(cmd, client, invocation)
 			if err != nil {
@@ -588,14 +640,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		var source string
 		var warnings []string
 		var latestErr error
-		selectedVersion, source, warnings, latestErr = buildselection.SelectPreferredBuildVersion(
-			cmd.Context(),
-			client,
-			selectedAppID,
-			cwd,
-		)
+		selectedVersion, source, warnings, latestErr = selectDevStartBuild(cmd.Context(), client, selectedAppID, invocation)
 		if latestErr != nil {
-			return fmt.Errorf("failed to resolve latest build for app %s: %w", selectedAppID, latestErr)
+			return fmt.Errorf("failed to resolve branch build for app %s: %w", selectedAppID, latestErr)
 		}
 		for _, warning := range warnings {
 			ui.PrintWarning("%s", warning)
@@ -876,6 +923,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	// worker dev cache for later delta installs.
 	installBody := map[string]string{
 		"app_url":      strings.TrimSpace(buildDetail.DownloadURL),
+		"build_id":     buildDetail.ID,
 		"install_mode": "fast",
 	}
 	if bundleID := strings.TrimSpace(buildDetail.PackageName); bundleID != "" {
@@ -1031,6 +1079,8 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	devCtx := &DevContext{
 		Name:          ctxName,
 		Profile:       invocation.Profile,
+		BranchID:      invocation.BranchID,
+		BranchName:    invocation.BranchName,
 		Platform:      devicePlatform,
 		PlatformKey:   platformKey,
 		Provider:      provider.Name(),
@@ -1097,6 +1147,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	hrTransport := devpush.NewTransport(client, deviceMgr)
 	hrManifestPath := devCtxManifestPath(cwd, ctxName)
 	hrCachedManifest, manifestLoadErr := build.LoadManifest(hrManifestPath.trustedRoot, hrManifestPath.relativePath)
+	if branchChanged {
+		hrCachedManifest = nil
+	}
 	if manifestLoadErr != nil {
 		ui.PrintDim("  Could not load cached manifest: %v", manifestLoadErr)
 	}
@@ -1606,9 +1659,12 @@ func printDevPreflight(
 	buildBranch := ""
 	if ver != nil {
 		buildBranch = buildselection.ExtractBranch(ver.Metadata)
+		if ver.BranchName != "" {
+			rows = append(rows, ui.PreflightRow{Key: "Revyl branch:", Value: ver.BranchName})
+		}
 	}
 	currentBranch := buildselection.CurrentBranch(cwd)
-	branchRow := buildBranchRow(buildBranch, currentBranch, source)
+	branchRow := buildBranchRow(buildBranch, currentBranch)
 	if branchRow != nil {
 		rows = append(rows, *branchRow)
 	}
@@ -1660,23 +1716,19 @@ func printDevPreflight(
 	})
 }
 
-// buildBranchRow creates the "Branch:" row for the pre-flight box.
+// buildBranchRow creates the "Source Git:" row for the pre-flight box.
 // Returns nil if no meaningful branch info is available.
-func buildBranchRow(buildBranch, currentBranch, source string) *ui.PreflightRow {
-	if strings.HasPrefix(source, "branch:") {
-		display := buildBranch
-		if display == "" {
-			display = strings.TrimPrefix(source, "branch:")
-		}
-		return &ui.PreflightRow{Key: "Branch:", Value: display + " (matches current)", Icon: "✓"}
+func buildBranchRow(buildBranch, currentBranch string) *ui.PreflightRow {
+	if buildBranch != "" && buildBranch == currentBranch {
+		return &ui.PreflightRow{Key: "Source Git:", Value: buildBranch + " (matches current)", Icon: "✓"}
 	}
 
 	if currentBranch != "" && buildBranch != "" {
-		return &ui.PreflightRow{Key: "Branch:", Value: buildBranch + " (no match for " + currentBranch + ")", Icon: "⚠"}
+		return &ui.PreflightRow{Key: "Source Git:", Value: buildBranch + " (no match for " + currentBranch + ")", Icon: "⚠"}
 	}
 
 	if buildBranch != "" {
-		return &ui.PreflightRow{Key: "Branch:", Value: buildBranch}
+		return &ui.PreflightRow{Key: "Source Git:", Value: buildBranch}
 	}
 
 	return nil
@@ -2067,7 +2119,7 @@ func maskPresignedURL(rawURL string) string {
 }
 
 type devRebuildBuildResolver interface {
-	GetLatestBuildVersion(ctx context.Context, appID string) (*api.BuildVersion, error)
+	ResolveBuildSelection(ctx context.Context, appID string, selection api.BuildSelection) (*api.BuildVersionDetail, error)
 	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
 }
 
@@ -2076,21 +2128,23 @@ func resolveDevRebuildInitialBuild(
 	resolver devRebuildBuildResolver,
 	appID string,
 	uploadedVersionID string,
+	selections ...api.BuildSelection,
 ) (*api.BuildVersion, *api.BuildVersionDetail, error) {
 	versionID := strings.TrimSpace(uploadedVersionID)
-	var selectedVersion *api.BuildVersion
+	selectedVersion := &api.BuildVersion{ID: versionID}
 	if versionID == "" {
-		latestVersion, err := resolver.GetLatestBuildVersion(ctx, appID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not resolve uploaded build: %w", err)
+		selection := api.BuildSelection{}
+		if len(selections) > 0 {
+			selection = selections[0]
 		}
-		if latestVersion == nil {
+		detail, err := resolver.ResolveBuildSelection(ctx, appID, selection)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not resolve branch build: %w", err)
+		}
+		if detail == nil {
 			return nil, nil, fmt.Errorf("no builds found for app %s", appID)
 		}
-		selectedVersion = latestVersion
-		versionID = strings.TrimSpace(latestVersion.ID)
-	} else {
-		selectedVersion = &api.BuildVersion{ID: versionID}
+		return &api.BuildVersion{ID: detail.ID, Version: detail.Version, BranchID: detail.BranchID, BranchName: detail.BranchName}, detail, nil
 	}
 
 	buildDetail, err := resolver.GetBuildVersionDownloadURL(ctx, versionID)
@@ -2119,8 +2173,17 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	if err != nil {
 		return err
 	}
-	if printIfDevStartContextAlreadyRunning(cwd, ctxName) {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation.BranchID); err != nil {
+		return err
+	} else if running {
 		return nil
+	}
+	previousContext, _ := loadDevContext(cwd, ctxName)
+	branchChanged := previousContext == nil || previousContext.BranchID != invocation.BranchID
+	if branchChanged {
+		if err := removeManagedRuntimeFile(devCtxManifestPath(cwd, ctxName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("clear native cache for changed branch: %w", err)
+		}
 	}
 
 	timeout := devIdleTimeoutSeconds(cmd, invocation)
@@ -2142,16 +2205,20 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	}
 
 	appID := strings.TrimSpace(invocation.AppID)
-	uploadedVersionID := ""
-
-	// Only build if explicitly requested or no existing build is available.
+	uploadedVersionID := strings.TrimSpace(devStartBuildVerID)
 	needsBuild := devStartBuild
 	if !needsBuild {
-		existing, existErr := client.GetLatestBuildVersion(cmd.Context(), appID)
-		if existErr != nil || existing == nil {
+		existing, resolveErr := client.ResolveBuildSelection(cmd.Context(), appID, devBuildSelection(invocation))
+		if resolveErr != nil && !devResolveErrorNeedsBuild(resolveErr) {
+			return resolveErr
+		}
+		if resolveErr == nil {
+			uploadedVersionID = existing.ID
+		} else {
 			needsBuild = true
 		}
 	}
+
 	if devStartNoBuild {
 		needsBuild = false
 	}
@@ -2172,7 +2239,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			}
 			ui.StartSpinner("Uploading local simulator build...")
 			var uploadErr error
-			_, _, uploadedVersionID, uploadErr = uploadExistingArtifact(cmd.Context(), client, simBuild.Path, appID, cwd)
+			_, _, uploadedVersionID, uploadErr = uploadExistingArtifact(cmd.Context(), client, simBuild.Path, appID, cwd, invocation.BranchID)
 			ui.StopSpinner()
 			if uploadErr == nil {
 				needsBuild = false
@@ -2197,11 +2264,11 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	} else if usedLocalSimBuild {
 		ui.PrintDim("Using local simulator build for initial install")
 	} else if !devStartBuild {
-		ui.PrintDim("Using latest uploaded build (pass --build to force rebuild)")
+		ui.PrintDim("Using selected branch build (pass --build to force rebuild)")
 	}
 
 	selectedVersion, buildDetail, err := resolveDevRebuildInitialBuild(
-		cmd.Context(), client, appID, uploadedVersionID,
+		cmd.Context(), client, appID, uploadedVersionID, devBuildSelection(invocation),
 	)
 	if err != nil {
 		return err
@@ -2292,6 +2359,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	ui.PrintInfo("Installing app on device...")
 	installBody := map[string]string{
 		"app_url":      strings.TrimSpace(buildDetail.DownloadURL),
+		"build_id":     buildDetail.ID,
 		"install_mode": "fast",
 	}
 	if bundleID != "" {
@@ -2350,6 +2418,8 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	devCtx := &DevContext{
 		Name:          ctxName,
 		Profile:       invocation.Profile,
+		BranchID:      invocation.BranchID,
+		BranchName:    invocation.BranchName,
 		Platform:      devicePlatform,
 		PlatformKey:   platformKey,
 		Provider:      devContextProvider(invocation.Recipe.Framework),
@@ -2414,10 +2484,13 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	transport := devpush.NewTransport(client, deviceMgr)
 	manifestPath := devCtxManifestPath(cwd, ctxName)
 	cachedManifest, cachedManifestErr := build.LoadManifest(manifestPath.trustedRoot, manifestPath.relativePath)
+	if branchChanged {
+		cachedManifest = nil
+	}
 	if cachedManifestErr != nil {
 		ui.PrintDim("  Could not load cached manifest: %v", cachedManifestErr)
 	}
-	if cachedManifest == nil {
+	if cachedManifest == nil && (!branchChanged || needsBuild) {
 		outputPath := ""
 		if invocation.Recipe.OutputPath != nil {
 			outputPath = strings.TrimSpace(*invocation.Recipe.OutputPath)
@@ -3291,7 +3364,7 @@ func devBuildAndDeltaPush(
 		}
 	}
 	ui.StartSpinner("Uploading full artifact to cloud...")
-	downloadURL, detectedBID, _, uploadErr := uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, metadata)
+	downloadURL, detectedBID, uploadedBuildID, uploadErr := uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, metadata, invocation.BranchID)
 	ui.StopSpinner()
 	if uploadErr != nil {
 		result.pushErr = fmt.Errorf("full artifact upload failed: %w", uploadErr)
@@ -3305,6 +3378,7 @@ func devBuildAndDeltaPush(
 
 	installReq := mcppkg.DeviceInstallRequest{
 		AppURL:      downloadURL,
+		BuildID:     uploadedBuildID,
 		Platform:    devicePlatform,
 		InstallMode: mcppkg.DeviceInstallModeFast,
 	}
@@ -3429,6 +3503,7 @@ func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation p
 	}
 	_, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
 		AppID:    appID,
+		BranchID: invocation.BranchID,
 		Version:  versionStr,
 		FilePath: uploadPath,
 		Metadata: metadata,
@@ -3481,11 +3556,11 @@ func updateBgUploadStatus(statusPath privateRuntimePath, status string) {
 //   - bundleID: package name from the uploaded build (may be empty)
 //   - versionID: exact version created by the upload
 //   - error: upload or resolution failure
-func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string) (downloadURL, bundleID, versionID string, err error) {
-	return uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, nil)
+func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, branchIDs ...string) (downloadURL, bundleID, versionID string, err error) {
+	return uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, nil, branchIDs...)
 }
 
-func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, metadata map[string]interface{}) (downloadURL, bundleID, versionID string, err error) {
+func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, metadata map[string]interface{}, branchIDs ...string) (downloadURL, bundleID, versionID string, err error) {
 	uploadPath := artifactPath
 	var tmpZip string
 	if build.IsTarGz(artifactPath) {
@@ -3507,9 +3582,14 @@ func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client,
 		defer os.Remove(tmpZip)
 	}
 
+	branchID := ""
+	if len(branchIDs) > 0 {
+		branchID = branchIDs[0]
+	}
 	versionStr := build.GenerateVersionStringForWorkDir(cwd)
 	uploadResp, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
 		AppID:    appID,
+		BranchID: branchID,
 		Version:  versionStr,
 		FilePath: uploadPath,
 		Metadata: metadata,
@@ -3534,6 +3614,8 @@ func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client,
 // ---------------------------------------------------------------------------
 
 type devStatus struct {
+	BranchID            string               `json:"branch_id,omitempty"`
+	BranchName          string               `json:"branch_name,omitempty"`
 	State               string               `json:"state"`
 	PID                 int                  `json:"pid"`
 	Profile             string               `json:"profile,omitempty"`
@@ -3953,6 +4035,7 @@ func updateDevStatusSnapshot(statusPath privateRuntimePath, update func(*devStat
 func setDevStatusSelection(statusPath privateRuntimePath, invocation projectDevInvocation) {
 	updateDevStatusSnapshot(statusPath, func(status *devStatus) bool {
 		status.Profile = strings.TrimSpace(invocation.Profile)
+		status.BranchID, status.BranchName = invocation.BranchID, invocation.BranchName
 		status.BuildDefinitionHash = strings.TrimSpace(invocation.BuildDefinitionHash)
 		return true
 	})
@@ -3998,6 +4081,9 @@ func preserveDevStatusMetadata(statusPath privateRuntimePath, next *devStatus) {
 	}
 	if strings.TrimSpace(next.BuildDefinitionHash) == "" {
 		next.BuildDefinitionHash = strings.TrimSpace(current.BuildDefinitionHash)
+	}
+	if next.BranchID == "" {
+		next.BranchID, next.BranchName = current.BranchID, current.BranchName
 	}
 	preserveRecentDevRebuilds(current, next)
 	if next.LastRebuild != nil &&
@@ -4875,6 +4961,14 @@ func devStatusOutputReady(out map[string]interface{}) bool {
 }
 
 func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devStatus) map[string]interface{} {
+	branchID, branchName := "", ""
+	if ctxMeta != nil {
+		branchID, branchName = ctxMeta.BranchID, ctxMeta.BranchName
+	}
+	if ds != nil && ds.BranchID != "" {
+		branchID, branchName = ds.BranchID, ds.BranchName
+	}
+
 	sessionOwned := true
 	if ctxMeta != nil {
 		sessionOwned = ctxMeta.SessionOwned
@@ -4991,6 +5085,8 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"last_rebuild":             lastRebuild,
 		"auth_bypass":              devStatusAuthBypass(ds),
 		"seeded_version":           seededVersion,
+		"branch_id":                branchID,
+		"branch_name":              branchName,
 		"installed_seed":           installedSeed,
 		"build":                    buildStatus,
 	}

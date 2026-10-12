@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -366,11 +367,14 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
+	var failures []error
 	for _, r := range results {
 		if r.Error != nil {
 			ui.PrintError("%s: %v", r.Name, r.Error)
+			failures = append(failures, fmt.Errorf("%s: %w", r.Name, r.Error))
 		} else if r.Conflict {
 			ui.PrintWarning("%s: conflict detected (use --force to overwrite)", r.Name)
+			failures = append(failures, fmt.Errorf("%s: conflict detected (use --force to overwrite)", r.Name))
 		} else {
 			ui.PrintSuccess("%s: pushed to v%d", r.Name, r.NewVersion)
 			if r.TagSyncError != nil {
@@ -379,7 +383,7 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return nil
+	return errors.Join(failures...)
 }
 
 // runTestsPull pulls remote changes to local.

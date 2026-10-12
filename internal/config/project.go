@@ -904,7 +904,10 @@ type TestBuildConfig struct {
 	Name string `yaml:"name"`
 
 	// PinnedVersion is an optional pinned version.
-	PinnedVersion string `yaml:"pinned_version,omitempty"`
+	PinnedVersion  string `yaml:"pinned_version,omitempty"`
+	BranchID       string `yaml:"branch_id,omitempty"`
+	BuildSelection string `yaml:"build_selection,omitempty"`
+	PinnedBuildID  string `yaml:"pinned_build_id,omitempty"`
 
 	// SystemPrompt is the app-level system prompt for the LLM agent.
 	SystemPrompt string `yaml:"system_prompt,omitempty"`

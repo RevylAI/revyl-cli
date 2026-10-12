@@ -26,13 +26,7 @@ pipeline {
             }
         }
 
-        // Optional: build and upload
-        // stage('Build & Upload') {
-        //     steps {
-        //         sh './gradlew assembleDebug'
-        //         sh 'revyl build upload --file ./app.apk --app your-app-id'
-        //     }
-        // }
+        // To test a fresh artifact, use the exact-ID Build-to-test sequence in README.md.
 
         // Blocking: waits for tests to complete
         stage('Test') {

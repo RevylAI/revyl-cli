@@ -49,6 +49,9 @@ type createModel struct {
 	apps           []api.App
 	appsLoading    bool
 	noEligibleApps bool
+	buildPicker    *buildPickerModel
+	buildSelection api.BuildSelection
+	buildLabel     string
 
 	// API dependencies
 	apiKey  string
@@ -120,16 +123,24 @@ func newCurrentProjectCreateModel(apiKey string, devMode bool, client *api.Clien
 // --- Tea commands ---
 
 // createTestCmd calls the API to create a test.
-func createTestCmd(client *api.Client, name, platform, appID string) tea.Cmd {
+func createTestCmd(client *api.Client, name, platform, appID string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
+		selection := api.BuildSelection{}
+		if len(selections) > 0 {
+			selection = selections[0]
+		}
 		result, err := execution.CreateTestWithClient(ctx, client, execution.CreateTestParams{
-			Name:       name,
-			Platform:   platform,
-			AppID:      appID,
-			AllowEmpty: true,
+			Name:           name,
+			Platform:       platform,
+			AppID:          appID,
+			BranchID:       selection.BranchID,
+			BranchName:     selection.BranchName,
+			BuildSelection: string(selection.Mode),
+			PinnedBuildID:  selection.BuildID,
+			AllowEmpty:     true,
 		})
 		if err != nil {
 			return TestCreatedMsg{Err: err}
@@ -174,6 +185,17 @@ func (m createModel) Init() tea.Cmd {
 
 // Update handles messages for the create-test flow.
 func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.buildPicker != nil {
+		picker, cmd := m.buildPicker.Update(msg)
+		m.buildPicker = &picker
+		if picker.done {
+			m.buildPicker = nil
+			if !picker.cancelled {
+				m.buildSelection, m.buildLabel = picker.selection, picker.label
+			}
+		}
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -353,6 +375,7 @@ func (m createModel) handleAppKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.step = stepConfirm
+		m.buildSelection, m.buildLabel = api.BuildSelection{}, ""
 	case "backspace":
 		m.step = stepPlatform
 		m.appsLoading = false
@@ -366,6 +389,14 @@ func (m createModel) handleAppKey(key string) (tea.Model, tea.Cmd) {
 // handleConfirmKey processes keys during the confirm step.
 func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "b":
+		if app := m.selectedApp(); app != nil && m.client != nil {
+			picker := newBuildPicker(m.client, app.ID, "Saved test build")
+			picker.currentBranchID = m.buildSelection.BranchID
+			m.buildPicker = &picker
+			return m, picker.Init()
+		}
+		return m, nil
 	case "enter", "y":
 		if m.client == nil {
 			m.err = fmt.Errorf("not authenticated")
@@ -383,7 +414,7 @@ func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("select an app before creating the test")
 			return m, nil
 		}
-		return m, tea.Batch(m.spinner.Tick, createTestCmd(m.client, name, platform, selectedApp.ID))
+		return m, tea.Batch(m.spinner.Tick, createTestCmd(m.client, name, platform, selectedApp.ID, m.buildSelection))
 	case "backspace", "n":
 		m.step = stepApp
 		m.err = nil
@@ -457,26 +488,32 @@ func filterCreateApps(apps []api.App, platform string) []api.App {
 }
 
 func formatCreateAppDetails(appInfo api.App) string {
-	parts := make([]string, 0, 3)
-	if latest := strings.TrimSpace(appInfo.LatestVersion); latest != "" {
-		parts = append(parts, "latest "+latest)
-	}
-	if current := strings.TrimSpace(appInfo.CurrentVersion); current != "" && current != strings.TrimSpace(appInfo.LatestVersion) {
-		parts = append(parts, "current "+current)
-	}
+	parts := []string{appBranchLabel(appInfo)}
 	if appInfo.VersionsCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d builds", appInfo.VersionsCount))
 	}
-	if len(parts) == 0 {
-		return "build stream available"
+	return strings.Join(parts, " · ")
+}
+
+func appBranchLabel(app api.App) string {
+	branch := app.DefaultBranchName
+	if branch == "" {
+		branch = "app default"
 	}
-	return strings.Join(parts, " • ")
+	defaultBuild := "Latest build"
+	if app.DefaultBranchPinnedBuildID != "" {
+		defaultBuild = "Exact build"
+	}
+	return branch + " (default) · " + defaultBuild
 }
 
 // --- View rendering ---
 
 // View renders the create-test flow.
 func (m createModel) View() string {
+	if m.buildPicker != nil {
+		return m.buildPicker.View()
+	}
 	var b strings.Builder
 	w := m.width
 	if w == 0 {
@@ -559,13 +596,18 @@ func (m createModel) View() string {
 		b.WriteString("  " + normalStyle.Render("Review:") + "\n\n")
 		b.WriteString("  " + dimStyle.Render("Name:     ") + normalStyle.Render(name) + "\n")
 		b.WriteString("  " + dimStyle.Render("Platform: ") + normalStyle.Render(platform) + "\n")
+		label := m.buildLabel
+		if label == "" {
+			label = buildSelectionLabel(m.buildSelection)
+		}
+		b.WriteString("  Build: " + label + "\n")
 		if selectedApp != nil {
 			b.WriteString("  " + dimStyle.Render("App:      ") + normalStyle.Render(selectedApp.Name) + "\n")
 		}
 		if m.err != nil {
 			b.WriteString("\n  " + errorStyle.Render(m.err.Error()) + "\n")
 		}
-		b.WriteString("\n  " + helpStyle.Render("enter/y to create, backspace/n to go back, esc to cancel") + "\n")
+		b.WriteString("\n  " + helpStyle.Render("b to choose branch/build, enter/y to create, backspace/n to go back, esc to cancel") + "\n")
 
 	case stepCreating:
 		b.WriteString("  " + m.spinner.View() + " Creating test...\n")

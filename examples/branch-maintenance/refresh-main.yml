@@ -1,0 +1,42 @@
+name: Refresh Revyl main
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: revyl-atlas-${{ vars.REVYL_APP_ID }}-main
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    env:
+      REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+      REVYL_APP_ID: ${{ vars.REVYL_APP_ID }}
+      REVYL_DESTINATION: main
+      REVYL_PROFILE: preview
+      REVYL_PLATFORM: android
+      REVYL_LOGIN_VARIABLE: ${{ vars.REVYL_LOGIN_VARIABLE }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Install Revyl
+        run: |
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 60 https://revyl.com/install.sh -o /tmp/install-revyl.sh
+          REVYL_NO_MODIFY_PATH=1 bash /tmp/install-revyl.sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+      - name: Build and explore the selected head
+        run: |
+          export SOURCE_SHA="$(git rev-parse HEAD)"
+          python3 scripts/maintain-atlas.py
+      - name: Summarize
+        if: always()
+        run: |
+          if [ -f revyl-maintenance-result.json ]; then
+            printf '```json\n' >> "$GITHUB_STEP_SUMMARY"
+            cat revyl-maintenance-result.json >> "$GITHUB_STEP_SUMMARY"
+            printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+          fi

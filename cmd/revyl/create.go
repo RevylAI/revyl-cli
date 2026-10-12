@@ -27,6 +27,9 @@ import (
 var (
 	// Test creation flags
 	createTestPlatform       string
+	createTestBranch         string
+	createTestBuildSelection string
+	createTestBuildID        string
 	createTestAppID          string
 	createTestNoOpen         bool
 	createTestForce          bool
@@ -54,6 +57,7 @@ func createRemoteTest(
 	platform string,
 	tasks interface{},
 	appID string,
+	selectors ...*api.SavedBuildSelection,
 ) (*api.CreateTestResponse, error) {
 	if client == nil {
 		return nil, fmt.Errorf("not authenticated")
@@ -67,12 +71,17 @@ func createRemoteTest(
 		return nil, err
 	}
 
+	var saved *api.SavedBuildSelection
+	if len(selectors) > 0 {
+		saved = selectors[0]
+	}
 	return client.CreateTest(ctx, &api.CreateTestRequest{
-		Name:     name,
-		Platform: platform,
-		Tasks:    tasks,
-		AppID:    appID,
-		OrgID:    orgID,
+		SavedBuildSelection: saved,
+		Name:                name,
+		Platform:            platform,
+		Tasks:               tasks,
+		AppID:               appID,
+		OrgID:               orgID,
 	})
 }
 
@@ -272,6 +281,11 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
+	savedSelection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, appID, createTestBranch, "", createTestBuildSelection, createTestBuildID)
+	if err != nil {
+		return err
+	}
+
 	// Check if test with same name already exists in the organization
 	var existingTestID string
 	testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
@@ -300,14 +314,15 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		if appID != "" {
 			ui.StartSpinner("Updating test app...")
 			_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
-				TestID: existingTestID,
-				AppID:  appID,
-				Force:  true,
+				TestID:              existingTestID,
+				SavedBuildSelection: savedSelection,
+				AppID:               appID,
+				Force:               true,
 			})
 			ui.StopSpinner()
 
 			if err != nil {
-				ui.PrintWarning("Failed to update app: %v", err)
+				return fmt.Errorf("update existing test app and build selection: %w", err)
 			} else {
 				ui.PrintSuccess("Updated app")
 			}
@@ -367,7 +382,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	// Create test on server
 	ui.StartSpinner("Creating test on server...")
-	createResp, err := createRemoteTest(cmd.Context(), client, testName, platform, tasks, appID)
+	createResp, err := createRemoteTest(cmd.Context(), client, testName, platform, tasks, appID, savedSelection)
 	ui.StopSpinner()
 
 	if err != nil {
@@ -522,6 +537,9 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 		// Source IS the destination -- skip copy, just push
 		ui.PrintInfo("File is already at .revyl/tests/%s.yaml — pushing to remote...", testName)
 		testsForce = createTestForce
+		if err := applyCreateFileSelector(cmd, project, absSource); err != nil {
+			return err
+		}
 		return runTestsPush(cmd, []string{testName})
 	}
 
@@ -530,6 +548,9 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Source file is already in .revyl/tests/ — pushing to remote...")
 		srcName := strings.TrimSuffix(filepath.Base(absSource), ".yaml")
 		testsForce = createTestForce
+		if err := applyCreateFileSelector(cmd, project, absSource); err != nil {
+			return err
+		}
 		return runTestsPush(cmd, []string{srcName})
 	}
 
@@ -563,6 +584,9 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	// Set up the push flags
 	testsForce = createTestForce
 
+	if err := applyCreateFileSelector(cmd, project, destPath); err != nil {
+		return err
+	}
 	// Call the push function directly
 	return runTestsPush(cmd, []string{testName})
 }
@@ -802,6 +826,11 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	// Create API client
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
+	savedSelection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, appID, createTestBranch, "", createTestBuildSelection, createTestBuildID)
+	if err != nil {
+		return err
+	}
+
 	// Check if test with same name already exists in the organization
 	var existingTestID string
 	testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
@@ -836,14 +865,15 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		if appID != "" {
 			ui.StartSpinner("Updating test app...")
 			_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
-				TestID: existingTestID,
-				AppID:  appID,
-				Force:  true,
+				TestID:              existingTestID,
+				SavedBuildSelection: savedSelection,
+				AppID:               appID,
+				Force:               true,
 			})
 			ui.StopSpinner()
 
 			if err != nil {
-				ui.PrintWarning("Failed to update app: %v", err)
+				return fmt.Errorf("update existing test app and build selection: %w", err)
 			}
 		}
 	} else {
@@ -851,7 +881,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 		// Create test on server with empty tasks
 		ui.StartSpinner("Creating test on server...")
-		createResp, err := createRemoteTest(cmd.Context(), client, testName, platform, []interface{}{}, appID)
+		createResp, err := createRemoteTest(cmd.Context(), client, testName, platform, []interface{}{}, appID, savedSelection)
 		ui.StopSpinner()
 
 		if err != nil {
@@ -972,4 +1002,42 @@ func runHeadlessSession(ctx context.Context, session *interactive.Session) error
 
 	ui.PrintSuccess("Session stopped.")
 	return nil
+}
+
+func applyCreateFileSelector(cmd *cobra.Command, project *config.ProjectContext, path string) error {
+	if createTestBranch == "" && createTestBuildSelection == "" && createTestBuildID == "" {
+		return nil
+	}
+	local, err := config.LoadLocalTest(path)
+	if err != nil {
+		return err
+	}
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+	devMode, _ := cmd.Root().PersistentFlags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+	platform := local.Test.Metadata.Platform
+	if createTestPlatform != "" {
+		platform = createTestPlatform
+	}
+	app, err := execution.ResolveCreateTestApp(cmd.Context(), client, project, platform, createTestAppID, local.Test.Build.Name)
+	if err != nil {
+		return err
+	}
+	selection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, app.ID, createTestBranch, "", createTestBuildSelection, createTestBuildID)
+	if err != nil {
+		return err
+	}
+	local.Test.Build.PinnedVersion = ""
+	local.Test.Build.BranchID, local.Test.Build.PinnedBuildID = "", ""
+	local.Test.Build.BuildSelection = string(selection.BuildSelection)
+	if selection.BranchID != nil {
+		local.Test.Build.BranchID = *selection.BranchID
+	}
+	if selection.PinnedBuildID != nil {
+		local.Test.Build.PinnedBuildID = *selection.PinnedBuildID
+	}
+	return config.SaveLocalTest(path, local)
 }

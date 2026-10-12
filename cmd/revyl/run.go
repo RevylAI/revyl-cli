@@ -17,23 +17,23 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
-	"github.com/revyl/cli/internal/launcharguments"
-	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
 )
 
 var (
 	runRetries                    int
+	runBranchName                 string
+	runBuildSelection             string
+	runWorkflowIOSBuildID         string
+	runWorkflowAndroidBuildID     string
 	runBuildID                    string
 	runNoWait                     bool
 	runOpen                       bool
@@ -284,8 +284,15 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(runTestPlatform) != "" && !runTestBuild {
 		return fmt.Errorf("--platform requires --build")
 	}
+	if runTestBuild && runBuildSelection != "" {
+		return fmt.Errorf("--build cannot be used with --build-selection; the uploaded build is used exactly")
+	}
 	if runTestBuild && strings.TrimSpace(runBuildID) != "" {
 		return fmt.Errorf("--build cannot be used with --build-id")
+	}
+
+	if err := execution.ValidateRuntimeBuildSelection("", runBranchName, runBuildSelection, runBuildID); err != nil {
+		return err
 	}
 
 	// Honor global --json (root persistent) and local --json
@@ -406,6 +413,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	effectiveBuildVersionID := strings.TrimSpace(runBuildID)
+	effectiveBranchID, effectiveBranchName := "", runBranchName
 
 	// Handle --build flag: build and upload before running test
 	if runTestBuild {
@@ -421,6 +429,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("uploaded build did not return a build version ID")
 		}
 		effectiveBuildVersionID = strings.TrimSpace(buildResult.Upload.VersionID)
+		effectiveBranchID, effectiveBranchName = buildResult.Upload.BranchID, ""
 	}
 
 	// Use shared execution logic with CLI-specific progress callback
@@ -465,6 +474,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		TestsDir:                   testsDir,
 		Retries:                    runRetries,
 		BuildVersionID:             effectiveBuildVersionID,
+		BranchName:                 effectiveBranchName,
+		BranchID:                   effectiveBranchID,
+		BuildSelection:             runBuildSelection,
 		Timeout:                    effectiveTimeout,
 		DevMode:                    devMode,
 		NoWait:                     runNoWait,
@@ -519,6 +531,12 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 	if strings.TrimSpace(result.TestName) == "" {
 		result.TestName = resolvedTestName
+	}
+	if result.TaskID == "" && result.ErrorMessage != "" {
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(cmd, result, false)
+		}
+		return runNotStartedError(result.ErrorMessage)
 	}
 
 	ui.Println()
@@ -614,6 +632,9 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 		"duration":    result.Duration,
 		"error":       result.ErrorMessage,
 	}
+	output["branch_name"] = result.BranchName
+	output["build_version"] = result.BuildVersion
+	output["build_id"] = result.BuildID
 
 	var payload interface{} = output
 	if commandSucceeded {
@@ -676,104 +697,33 @@ func hasNextWorkflowBuildVersionsPage(resp *api.BuildVersionsPage, requestedPage
 	return false
 }
 
-func queueWorkflowExecution(
-	ctx context.Context,
-	apiKey string,
-	workflowID string,
-	workflowName string,
-	retries int,
-	devMode bool,
-	iosAppID string,
-	androidAppID string,
-	iosBuild string,
-	androidBuild string,
-	hasLocation bool,
-	latitude float64,
-	longitude float64,
-	variableOverrides map[string]string,
-	launchVars []string,
-	launchArgSets []string,
-	disableInheritedLaunchVars bool,
-	launchEnvVars map[string]string,
-	launchArguments []string,
-) (*execution.RunWorkflowResult, error) {
-	if err := launcharguments.Validate(launchArguments); err != nil {
-		return nil, err
-	}
-
-	client := api.NewClientWithDevMode(apiKey, devMode)
-	inheritedLaunchConfigurationIDs, err := launchvars.LoadInheritedIDs(
-		disableInheritedLaunchVars,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
-	}
-	launchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
-		ctx,
-		client,
-		inheritedLaunchConfigurationIDs,
-		launchVars,
-		launchArgSets,
-	)
+func queueWorkflowExecution(ctx context.Context, apiKey, workflowName string, params execution.RunWorkflowParams) (*execution.RunWorkflowResult, error) {
+	params.NoWait = true
+	result, err := execution.RunWorkflow(ctx, apiKey, nil, params)
 	if err != nil {
 		return nil, err
 	}
-	req := &api.ExecuteWorkflowRequest{
-		WorkflowID:        workflowID,
-		Retries:           retries,
-		VariableOverrides: variableOverrides,
-		LaunchEnvVarIds:   launchConfigurationIDs,
-		LaunchEnvVars:     launchEnvVars,
-		LaunchArguments:   launchArguments,
-	}
-	if iosAppID != "" || androidAppID != "" {
-		req.BuildConfig = &api.WorkflowAppConfig{}
-		req.OverrideBuildConfig = true
-		if iosAppID != "" {
-			iosUUID, err := uuid.Parse(iosAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid iOS app ID %q: %w", iosAppID, err)
-			}
-			iosApp := &api.PlatformApp{AppId: iosUUID}
-			if iosBuild != "" {
-				iosApp.PinnedVersion = &iosBuild
-			}
-			req.BuildConfig.IosBuild = iosApp
-		}
-		if androidAppID != "" {
-			androidUUID, err := uuid.Parse(androidAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Android app ID %q: %w", androidAppID, err)
-			}
-			androidApp := &api.PlatformApp{AppId: androidUUID}
-			if androidBuild != "" {
-				androidApp.PinnedVersion = &androidBuild
-			}
-			req.BuildConfig.AndroidBuild = androidApp
-		}
-	}
-	if hasLocation {
-		req.LocationConfig = &api.CLILocation{
-			Latitude:  latitude,
-			Longitude: longitude,
-		}
-		req.OverrideLocation = true
-	}
+	result.WorkflowName = workflowName
+	return result, nil
+}
 
-	resp, err := client.ExecuteWorkflow(ctx, req)
-	if err != nil {
-		return nil, err
+// workflowRunNotStarted returns the server's reason when it refused to start a
+// workflow run, after writing the JSON result when JSON output was requested.
+func workflowRunNotStarted(result *execution.RunWorkflowResult) error {
+	if result.TaskID != "" || result.ErrorMessage == "" {
+		return nil
 	}
+	if runOutputJSON || runGitHubActions {
+		outputWorkflowResultJSON(result)
+	}
+	return runNotStartedError(result.ErrorMessage)
+}
 
-	reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), resp.TaskID)
-	return &execution.RunWorkflowResult{
-		Success:      true,
-		TaskID:       resp.TaskID,
-		WorkflowID:   workflowID,
-		WorkflowName: workflowName,
-		Status:       "queued",
-		ReportURL:    reportURL,
-	}, nil
+// runNotStartedError carries the server's refusal as the command error.
+// Analytics gets a fixed diagnostic: the refusal can name customer apps and
+// branches.
+func runNotStartedError(serverMessage string) error {
+	return analytics.WithSafeDiagnostic(errors.New(serverMessage), "run was not started")
 }
 
 func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, iosBuild, androidBuild string) error {
@@ -811,6 +761,18 @@ func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, io
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runWorkflowExec(cmd *cobra.Command, args []string) error {
+	if runWorkflowBuild && runBuildSelection != "" {
+		return fmt.Errorf("--build cannot be used with --build-selection; the uploaded build is used exactly")
+	}
+	if err := execution.ValidateRuntimeBuildSelection("", runBranchName, runBuildSelection, ""); err != nil {
+		return err
+	}
+	if runWorkflowIOSBuildID != "" && (runWorkflowIOSAppID == "" || runWorkflowIOSBuild != "") {
+		return fmt.Errorf("--ios-build-id requires --ios-app and cannot be combined with --ios-build")
+	}
+	if runWorkflowAndroidBuildID != "" && (runWorkflowAndroidAppID == "" || runWorkflowAndroidBuild != "") {
+		return fmt.Errorf("--android-build-id requires --android-app and cannot be combined with --android-build")
+	}
 	// Validate retries range
 	if runRetries < minRetries || runRetries > maxRetries {
 		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
@@ -823,6 +785,10 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 	effectiveIOSAppID := strings.TrimSpace(runWorkflowIOSAppID)
 	effectiveAndroidAppID := strings.TrimSpace(runWorkflowAndroidAppID)
+	effectiveIOSBuildID := runWorkflowIOSBuildID
+	effectiveAndroidBuildID := runWorkflowAndroidBuildID
+	effectiveIOSBranchID, effectiveAndroidBranchID := "", ""
+	effectiveWorkflowBranchName := runBranchName
 	effectiveIOSBuild := strings.TrimSpace(runWorkflowIOSBuild)
 	effectiveAndroidBuild := strings.TrimSpace(runWorkflowAndroidBuild)
 
@@ -1003,45 +969,54 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if buildResult.Upload == nil || strings.TrimSpace(buildResult.Invocation.AppID) == "" || strings.TrimSpace(buildResult.Upload.Version) == "" {
-			return fmt.Errorf("uploaded %s build did not return an app ID and build version", buildResult.Invocation.Platform)
+		if buildResult.Upload == nil || strings.TrimSpace(buildResult.Invocation.AppID) == "" || strings.TrimSpace(buildResult.Upload.VersionID) == "" {
+			return fmt.Errorf("uploaded %s build did not return an app ID and exact build ID", buildResult.Invocation.Platform)
 		}
+		effectiveWorkflowBranchName = ""
 		switch buildResult.Invocation.Platform {
 		case "ios":
 			effectiveIOSAppID = strings.TrimSpace(buildResult.Invocation.AppID)
-			effectiveIOSBuild = strings.TrimSpace(buildResult.Upload.Version)
+			effectiveIOSBuildID = strings.TrimSpace(buildResult.Upload.VersionID)
+			effectiveIOSBranchID = buildResult.Upload.BranchID
 		case "android":
 			effectiveAndroidAppID = strings.TrimSpace(buildResult.Invocation.AppID)
-			effectiveAndroidBuild = strings.TrimSpace(buildResult.Upload.Version)
+			effectiveAndroidBuildID = strings.TrimSpace(buildResult.Upload.VersionID)
+			effectiveAndroidBranchID = buildResult.Upload.BranchID
 		default:
 			return fmt.Errorf("uploaded build returned unsupported platform %q", buildResult.Invocation.Platform)
 		}
 	}
 
 	if runNoWait {
-		queuedResult, err := queueWorkflowExecution(
-			cmd.Context(),
-			apiKey,
-			workflowID,
-			workflowDisplayName,
-			runRetries,
-			devMode,
-			effectiveIOSAppID,
-			effectiveAndroidAppID,
-			effectiveIOSBuild,
-			effectiveAndroidBuild,
-			wfHasLocation,
-			wfLat,
-			wfLng,
-			variableOverrides,
-			runLaunchVars,
-			runLaunchArgSets,
-			runDisableInheritedLaunchVars,
-			launchEnvVars,
-			runLaunchArguments,
-		)
+		queuedResult, err := queueWorkflowExecution(cmd.Context(), apiKey, workflowDisplayName, execution.RunWorkflowParams{
+			WorkflowNameOrID:           workflowID,
+			Retries:                    runRetries,
+			DevMode:                    devMode,
+			IOSAppID:                   effectiveIOSAppID,
+			AndroidAppID:               effectiveAndroidAppID,
+			IOSBuild:                   effectiveIOSBuild,
+			AndroidBuild:               effectiveAndroidBuild,
+			IOSBuildID:                 effectiveIOSBuildID,
+			IOSBranchID:                effectiveIOSBranchID,
+			AndroidBranchID:            effectiveAndroidBranchID,
+			AndroidBuildID:             effectiveAndroidBuildID,
+			BranchName:                 effectiveWorkflowBranchName,
+			BuildSelection:             runBuildSelection,
+			HasLocation:                wfHasLocation,
+			Latitude:                   wfLat,
+			Longitude:                  wfLng,
+			VariableOverrides:          variableOverrides,
+			LaunchVars:                 runLaunchVars,
+			LaunchArgSets:              runLaunchArgSets,
+			DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
+			LaunchEnvVars:              launchEnvVars,
+			LaunchArguments:            runLaunchArguments,
+		})
 		if err != nil {
 			ui.PrintError("Failed to queue workflow: %v", err)
+			return err
+		}
+		if err := workflowRunNotStarted(queuedResult); err != nil {
 			return err
 		}
 
@@ -1091,6 +1066,12 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		AndroidAppID:               effectiveAndroidAppID,
 		IOSBuild:                   effectiveIOSBuild,
 		AndroidBuild:               effectiveAndroidBuild,
+		IOSBuildID:                 effectiveIOSBuildID,
+		IOSBranchID:                effectiveIOSBranchID,
+		AndroidBranchID:            effectiveAndroidBranchID,
+		AndroidBuildID:             effectiveAndroidBuildID,
+		BranchName:                 effectiveWorkflowBranchName,
+		BuildSelection:             runBuildSelection,
 		Latitude:                   wfLat,
 		Longitude:                  wfLng,
 		HasLocation:                wfHasLocation,
@@ -1148,6 +1129,9 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 	if result != nil && result.WorkflowName == "" {
 		result.WorkflowName = workflowDisplayName
+	}
+	if err := workflowRunNotStarted(result); err != nil {
+		return err
 	}
 
 	ui.Println()
@@ -1238,6 +1222,9 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 			"success":       t.Success,
 			"duration":      t.Duration,
 			"error_message": t.ErrorMessage,
+			"branch_name":   t.BranchName,
+			"build_version": t.BuildVersion,
+			"build_id":      t.BuildID,
 		}
 		tests = append(tests, entry)
 	}

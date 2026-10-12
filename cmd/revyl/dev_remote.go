@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
-	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devloop"
 	mcppkg "github.com/revyl/cli/internal/mcp"
@@ -63,7 +63,7 @@ func validateRemoteDevStartFlags() error {
 
 // seedRequested reports whether the remote dev loop should install an existing
 // build immediately (before the fresh remote build lands). Seeding is opt-in:
-// either --seed-latest (newest build overall for the config app-id) or an
+// either --seed-latest (latest build in the selected branch) or an
 // explicit --build-version-id (that specific build) turns it on.
 func seedRequested() bool {
 	return devStartSeedLatest || strings.TrimSpace(devStartBuildVerID) != ""
@@ -90,7 +90,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	if err != nil {
 		return err
 	}
-	if printIfDevStartContextAlreadyRunning(cwd, ctxName) {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation.BranchID); err != nil {
+		return err
+	} else if running {
 		return nil
 	}
 
@@ -208,6 +210,8 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	devCtx := &DevContext{
 		Name:          ctxName,
 		Profile:       invocation.Profile,
+		BranchID:      invocation.BranchID,
+		BranchName:    invocation.BranchName,
 		Platform:      devicePlatform,
 		PlatformKey:   platformKey,
 		Provider:      "remote-xcode",
@@ -284,7 +288,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	if seedRequested() {
 		seededBundleID, seededVersion, seedErr := seedLatestDevBuild(
 			ctx, client, deviceMgr, session, devicePlatform, appID,
-			strings.TrimSpace(devStartBuildVerID),
+			strings.TrimSpace(devStartBuildVerID), devBuildSelection(invocation),
 		)
 		if seedErr != nil {
 			if stopper.IsUserCanceled(seedErr) {
@@ -559,7 +563,7 @@ type remoteDevBuildTrigger struct {
 //
 // Parameters:
 //   - explicitVersionID: a specific build version to seed; when empty the
-//     newest build overall for appID is resolved (not branch-aware).
+//     selected branch policy is resolved.
 //
 // Returns the installed bundle id and a human-readable version label, or
 // ("", "", nil) when there is no existing build to seed (a clean no-op so the
@@ -573,32 +577,23 @@ func seedLatestDevBuild(
 	devicePlatform string,
 	appID string,
 	explicitVersionID string,
+	selections ...api.BuildSelection,
 ) (string, string, error) {
-	versionID := strings.TrimSpace(explicitVersionID)
-	if versionID == "" {
-		// Seed uses latest-overall (empty branch), not branch-aware selection.
-		// TODO: For Expo/RN, skip CompatibleNo builds via ClassifyBuild so we
-		// do not seed production/preview EAS artifacts.
-		// TODO: Consider making latest-overall the default beyond --seed-latest
-		// once revyl run / normal revyl dev callers agree.
-		selected, _, warnings, err := buildselection.SelectPreferredBuildVersionForBranch(ctx, client, appID, "")
-		if err != nil {
-			return "", "", fmt.Errorf("could not resolve latest build to seed: %w", err)
-		}
-		for _, warning := range warnings {
-			ui.PrintWarning("%s", warning)
-		}
-		if selected == nil {
-			return "", "", nil
-		}
-		versionID = selected.ID
+	selection := api.BuildSelection{Mode: "latest", BuildID: strings.TrimSpace(explicitVersionID)}
+	if len(selections) > 0 {
+		selection = selections[0]
 	}
-
-	ui.PrintInfo("Seeding existing build on device (interactive while the fresh build runs)...")
-	buildDetail, err := client.GetBuildVersionDownloadURL(ctx, versionID)
+	if selection.BuildID != "" {
+		selection.Mode = "pinned"
+	}
+	buildDetail, err := client.ResolveBuildSelection(ctx, appID, selection)
+	if errors.Is(err, api.ErrBranchHasNoBuilds) {
+		return "", "", nil
+	}
 	if err != nil {
-		return "", "", fmt.Errorf("could not resolve seed build download URL: %w", err)
+		return "", "", fmt.Errorf("could not resolve seed build: %w", err)
 	}
+	ui.PrintInfo("Seeding selected branch build on device...")
 
 	bundleID := strings.TrimSpace(buildDetail.PackageName)
 	installedBundleID, _, err := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
@@ -804,6 +799,13 @@ func remoteDevTriggerRequestFromProject(
 		Source: source, Recipe: &recipe,
 		Version: stringPtrOrNil(version), SetAsCurrent: &setCurrent,
 		BuildDefinitionHash: stringPtrOrNil(invocation.BuildDefinitionHash),
+	}
+	if invocation.BranchID != "" {
+		branchID, err := uuid.Parse(invocation.BranchID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid development branch ID: %w", err)
+		}
+		request.BranchId = &branchID
 	}
 	return request, nil
 }
@@ -1174,6 +1176,7 @@ func installRemoteDevBuild(
 	start := time.Now()
 	request := mcppkg.DeviceInstallRequest{
 		AppURL:      strings.TrimSpace(buildDetail.DownloadURL),
+		BuildID:     buildDetail.ID,
 		BundleID:    strings.TrimSpace(bundleID),
 		InstallMode: mcppkg.DeviceInstallModeFast,
 	}

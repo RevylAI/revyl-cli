@@ -1,0 +1,312 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/revyl/cli/internal/analytics"
+	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/testutil"
+)
+
+func executionSourceCheckout(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	gitInitBuildRepository(t, directory)
+	if output, err := exec.Command("git", "-C", directory, "symbolic-ref", "HEAD", "refs/heads/Feature/branch-context").CombinedOutput(); err != nil {
+		t.Fatalf("set source branch: %v: %s", err, output)
+	}
+	return directory
+}
+
+func configureBranchContextRunFlags(t *testing.T) {
+	t.Helper()
+	previousRetries, previousNoWait, previousOpen := runRetries, runNoWait, runOpen
+	previousBranch, previousMode, previousBuild := runBranchName, runBuildSelection, runBuildID
+	previousTestBuild, previousWorkflowBuild, previousJSON := runTestBuild, runWorkflowBuild, runOutputJSON
+	t.Cleanup(func() {
+		runRetries, runNoWait, runOpen = previousRetries, previousNoWait, previousOpen
+		runBranchName, runBuildSelection, runBuildID = previousBranch, previousMode, previousBuild
+		runTestBuild, runWorkflowBuild, runOutputJSON = previousTestBuild, previousWorkflowBuild, previousJSON
+	})
+	runRetries, runNoWait, runOpen = 1, true, false
+	runBranchName, runBuildSelection, runBuildID = "", "", ""
+	runTestBuild, runWorkflowBuild, runOutputJSON = false, false, false
+}
+
+func TestRunConfiglessTestCarriesContextSeparatelyFromSelectors(t *testing.T) {
+	for _, scenario := range []struct{ name, branch, mode, build, wantContext string }{
+		{"automatic", "", "", "", ""},
+		{"latest", "", "latest", "", ""},
+		{"explicit branch", "main", "", "", ""},
+		{"exact build", "", "", "22222222-2222-4222-8222-222222222222", ""},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			withWorkingDir(t, executionSourceCheckout(t))
+			configureBranchContextRunFlags(t)
+			runBranchName, runBuildSelection, runBuildID = scenario.branch, scenario.mode, scenario.build
+			const testID = "11111111-1111-4111-8111-111111111111"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/tests/get_test_by_id/"+testID {
+					t.Errorf("unexpected request %s", r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(`{"id":"` + testID + `","name":"Saved test","branch_id":"saved-branch","build_selection":"pinned","pinned_build_id":"saved-build"}`))
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_API_KEY", "key")
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			previous := runTestExecution
+			t.Cleanup(func() { runTestExecution = previous })
+			var requested execution.RunTestParams
+			runTestExecution = func(_ context.Context, _ string, _ *config.ProjectConfig, params execution.RunTestParams) (*execution.RunTestResult, error) {
+				requested = params
+				return &execution.RunTestResult{TaskID: "task", Status: "queued"}, nil
+			}
+			if err := runTestExec(newWorkflowRunTestCommand(), []string{testID}); err != nil {
+				t.Fatal(err)
+			}
+			if requested.ContextBranchName != scenario.wantContext || requested.BranchName != scenario.branch || requested.BuildSelection != scenario.mode || requested.BuildVersionID != scenario.build || requested.TestsDir != "" {
+				t.Fatalf("context changed selector or required config: %+v", requested)
+			}
+		})
+	}
+}
+
+func TestWorkflowRunContextMatchesWaitingAndQueuedInvocations(t *testing.T) {
+	for _, scenario := range []struct {
+		name                               string
+		noWait, explicitBranch, mixedExact bool
+	}{
+		{name: "queued", noWait: true},
+		{name: "waiting"},
+		{name: "explicit branch", noWait: true, explicitBranch: true},
+		{name: "mixed exact and automatic", mixedExact: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			withWorkingDir(t, executionSourceCheckout(t))
+			configureBranchContextRunFlags(t)
+			runNoWait, runBuildSelection = scenario.noWait, "latest"
+			wantContext := ""
+			if scenario.explicitBranch {
+				runBranchName, wantContext = "main", ""
+			}
+			previousIOSApp, previousIOSBuild := runWorkflowIOSAppID, runWorkflowIOSBuildID
+			t.Cleanup(func() { runWorkflowIOSAppID, runWorkflowIOSBuildID = previousIOSApp, previousIOSBuild })
+			const appID = "33333333-3333-4333-8333-333333333333"
+			if scenario.mixedExact {
+				runWorkflowIOSAppID, runWorkflowIOSBuildID = appID, "22222222-2222-4222-8222-222222222222"
+				runBuildSelection = ""
+			}
+			const workflowID = "11111111-1111-4111-8111-111111111111"
+			var body map[string]interface{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/workflows/get_workflow_info":
+					_, _ = w.Write([]byte(`{"id":"` + workflowID + `","name":"Workflow"}`))
+				case "/api/v1/apps/" + appID:
+					_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"App","platform":"ios","versions_count":1,"latest_version":"1.0"}`))
+				case "/api/v1/workflow-executions":
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					_, _ = w.Write([]byte(`{"task_id":"task"}`))
+				default:
+					t.Errorf("unexpected saved-target lookup: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_API_KEY", "key")
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			previous := runWorkflowExecution
+			t.Cleanup(func() { runWorkflowExecution = previous })
+			var requested execution.RunWorkflowParams
+			runWorkflowExecution = func(_ context.Context, _ string, _ *config.ProjectConfig, params execution.RunWorkflowParams) (*execution.RunWorkflowResult, error) {
+				requested = params
+				return &execution.RunWorkflowResult{TaskID: "task", Success: true, Status: "completed"}, nil
+			}
+			if err := runWorkflowExec(newWorkflowRunTestCommand(), []string{workflowID}); err != nil {
+				t.Fatal(err)
+			}
+			if scenario.noWait {
+				if body["build_selection"] != "latest" {
+					t.Fatalf("queued request=%v", body)
+				}
+				if scenario.explicitBranch {
+					if _, present := body["context_branch_name"]; present || body["branch_name"] != "main" {
+						t.Fatalf("explicit branch detected context: %v", body)
+					}
+				} else if body["context_branch_name"] != nil || body["branch_name"] != nil {
+					t.Fatalf("context became explicit or was omitted: %v", body)
+				}
+			} else if requested.ContextBranchName != wantContext || requested.BranchName != "" || requested.BuildSelection != runBuildSelection || requested.IOSBuildID != runWorkflowIOSBuildID {
+				t.Fatalf("waiting request=%+v", requested)
+			}
+		})
+	}
+}
+
+const missingBranchDetail = `Branch "typo" doesn't exist for Shop iOS`
+
+func missingBranchServer(t *testing.T, startPath string) (*httptest.Server, *int) {
+	t.Helper()
+	starts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/tests/get_test_by_id/11111111-1111-4111-8111-111111111111":
+			_, _ = w.Write([]byte(`{"id":"11111111-1111-4111-8111-111111111111","name":"Smoke","app_id":"app"}`))
+		case "/api/v1/workflows/get_workflow_info":
+			_, _ = w.Write([]byte(`{"id":"11111111-1111-4111-8111-111111111111","name":"Smoke workflow"}`))
+		case startPath:
+			starts++
+			var request map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			if request["branch_name"] != "typo" {
+				t.Errorf("start request branch = %v", request["branch_name"])
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"detail": missingBranchDetail, "code": "invalid_request"})
+		case "/api/v1/telemetry/cli-analytics":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request after the server refused to start: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, &starts
+}
+
+func assertRunNotStarted(t *testing.T, runErr error, stdout, stderr string, jsonOutput bool, starts int) {
+	t.Helper()
+	if runErr == nil || runErr.Error() != missingBranchDetail {
+		t.Fatalf("error = %v, want the server's reason %q", runErr, missingBranchDetail)
+	}
+	var safe *analytics.SafeDiagnosticError
+	if !errors.As(runErr, &safe) {
+		t.Fatalf("analytics would record the app name: %T", runErr)
+	}
+	if starts != 1 {
+		t.Fatalf("start requests = %d, want 1", starts)
+	}
+	for _, unwanted := range []string{"Workflow failed", "Test failed", "test failed", "Report:"} {
+		if strings.Contains(stdout+stderr, unwanted) {
+			t.Fatalf("output says %q for a run that never started:\nstdout:\n%s\nstderr:\n%s", unwanted, stdout, stderr)
+		}
+	}
+	if !jsonOutput {
+		if stdout != "" {
+			t.Fatalf("human output wrote to stdout: %q", stdout)
+		}
+		return
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("JSON output %q: %v", stdout, err)
+	}
+	if result["error"] != missingBranchDetail || result["success"] != false || result["task_id"] != "" {
+		t.Fatalf("JSON result = %v", result)
+	}
+	id, _ := result["test_id"].(string)
+	if id == "" {
+		id, _ = result["workflow_id"].(string)
+	}
+	if id == "" {
+		t.Fatalf("JSON result names neither the test nor the workflow it refused: %v", result)
+	}
+}
+
+func TestRunTestRefusedBeforeStartReportsTheServerReason(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		t.Run(map[bool]string{false: "human", true: "json"}[jsonOutput], func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			withWorkingDir(t, t.TempDir())
+			configureBranchContextRunFlags(t)
+			runNoWait, runBranchName, runOutputJSON = false, "typo", jsonOutput
+			server, starts := missingBranchServer(t, "/api/v1/execution/api/execute_test_id_async")
+			t.Setenv("REVYL_API_KEY", "key")
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			var runErr error
+			stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+				runErr = runTestExec(newWorkflowRunTestCommand(), []string{"11111111-1111-4111-8111-111111111111"})
+			})
+			assertRunNotStarted(t, runErr, stdout, stderr, jsonOutput, *starts)
+		})
+	}
+}
+
+func TestWorkflowRunRefusedBeforeStartReportsTheServerReason(t *testing.T) {
+	for _, scenario := range []struct {
+		name               string
+		noWait, jsonOutput bool
+	}{
+		{"waiting human", false, false},
+		{"waiting json", false, true},
+		{"queued human", true, false},
+		{"queued json", true, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			withWorkingDir(t, t.TempDir())
+			configureBranchContextRunFlags(t)
+			runNoWait, runBranchName, runOutputJSON = scenario.noWait, "typo", scenario.jsonOutput
+			server, starts := missingBranchServer(t, "/api/v1/workflow-executions")
+			t.Setenv("REVYL_API_KEY", "key")
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			var runErr error
+			stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+				runErr = runWorkflowExec(newWorkflowRunTestCommand(), []string{"11111111-1111-4111-8111-111111111111"})
+			})
+			assertRunNotStarted(t, runErr, stdout, stderr, scenario.jsonOutput, *starts)
+		})
+	}
+}
+
+func TestRunJSONSaysWhichBuildEachRunUsed(t *testing.T) {
+	testOutput := captureStdout(t, func() {
+		outputTestResultJSON(newWorkflowRunTestCommand(), &execution.RunTestResult{
+			TaskID: "task", Status: "completed", Success: true,
+			BranchName: "main", BuildVersion: "v1.3", BuildID: "build-13",
+		}, false)
+	})
+	testResult := parseJSON(t, testOutput)
+	for key, want := range map[string]string{"branch_name": "main", "build_version": "v1.3", "build_id": "build-13"} {
+		if testResult[key] != want {
+			t.Fatalf("test run %s = %v, want %q", key, testResult[key], want)
+		}
+	}
+
+	workflowOutput := captureStdout(t, func() {
+		outputWorkflowResultJSON(&execution.RunWorkflowResult{TaskID: "workflow-task", Status: "completed", Tests: []execution.WorkflowTestResult{
+			{TestName: "Login", Platform: "ios", BranchName: "main", BuildVersion: "v1.3", BuildID: "build-13"},
+			{TestName: "Checkout", Platform: "android"},
+		}})
+	})
+	tests, _ := parseJSON(t, workflowOutput)["tests"].([]interface{})
+	if len(tests) != 2 {
+		t.Fatalf("tests = %v", tests)
+	}
+	first, second := tests[0].(map[string]interface{}), tests[1].(map[string]interface{})
+	if first["branch_name"] != "main" || first["build_version"] != "v1.3" || first["build_id"] != "build-13" {
+		t.Fatalf("first test entry = %v", first)
+	}
+	for _, key := range []string{"branch_name", "build_version", "build_id"} {
+		if value, present := second[key]; !present || value != "" {
+			t.Fatalf("a test without a resolved build must still carry %s as empty: %v", key, second)
+		}
+	}
+}

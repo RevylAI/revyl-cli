@@ -76,6 +76,8 @@ var exploreCancelCmd = &cobra.Command{
 }
 
 var (
+	exploreBranchName            string
+	exploreBuildSelection        string
 	exploreBuildID               string
 	explorePlatform              string
 	exploreExplorerCount         int
@@ -99,7 +101,7 @@ func init() {
 	configureExploreRunFlags(exploreRunCmd)
 
 	for _, flag := range []string{
-		"build-id", "platform", "explorers", "strategy", "instructions",
+		"build-id", "build-selection", "platform", "explorers", "strategy", "instructions",
 		"auth-instructions", "launch-var", "launch-env", "no-inherited-launch-vars",
 		"device-model", "os-version", "max-duration", "idle-timeout", "timeout",
 		"no-wait", "open",
@@ -109,7 +111,9 @@ func init() {
 }
 
 func configureExploreRunFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&exploreBuildID, "build-id", "", "Explore a specific build ID (default: latest)")
+	cmd.Flags().StringVar(&exploreBuildID, "build-id", "", "Explore an exact build ID (otherwise follows the selected branch's default build)")
+	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: app default)")
+	cmd.Flags().StringVar(&exploreBuildSelection, "build-selection", "", "Build choice: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
 	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios or android")
 	cmd.Flags().IntVar(&exploreExplorerCount, "explorers", 3, "Number of parallel explorers")
 	cmd.Flags().StringVar(&exploreStrategy, "strategy", "balanced", "Exploration strategy: balanced, surface-sweep, journey-focus, or hard-edges")
@@ -131,6 +135,8 @@ type exploreOutput struct {
 	RunID              string `json:"run_id"`
 	AppID              string `json:"app_id"`
 	BuildID            string `json:"build_id"`
+	BranchID           string `json:"branch_id,omitempty"`
+	BranchName         string `json:"branch_name,omitempty"`
 	ExecutionStatus    string `json:"execution_status"`
 	AtlasStatus        string `json:"atlas_status"`
 	CustomerStatus     string `json:"customer_status"`
@@ -300,6 +306,9 @@ func buildExploreLaunchRequest(
 	client exploreAPI,
 	args []string,
 ) (*api.ExplorationLaunchRequest, *api.App, error) {
+	if err := execution.ValidateRuntimeBuildSelection("", exploreBranchName, exploreBuildSelection, exploreBuildID); err != nil {
+		return nil, nil, err
+	}
 	platform, err := normalizeExplorePlatform(explorePlatform)
 	if err != nil {
 		return nil, nil, err
@@ -391,6 +400,13 @@ func buildExploreLaunchRequest(
 	}
 	if len(inlineEnv) > 0 {
 		request.EnvVars = &inlineEnv
+	}
+	if exploreBranchName != "" {
+		request.BranchName = &exploreBranchName
+	}
+	if exploreBuildSelection != "" {
+		mode := api.BuildSelectionMode(exploreBuildSelection)
+		request.BuildSelection = &mode
 	}
 	if value := strings.TrimSpace(exploreBuildID); value != "" {
 		parsed, parseErr := uuid.Parse(value)
@@ -636,6 +652,8 @@ func exploreOutputFromRun(
 		RunID:              run.Id,
 		AppID:              run.AppId,
 		BuildID:            buildID,
+		BranchID:           stringValue(run.BranchId),
+		BranchName:         stringValue(run.BranchName),
 		ExecutionStatus:    run.ExecutionStatus,
 		AtlasStatus:        run.AtlasStatus,
 		CustomerStatus:     run.CustomerStatus,
@@ -773,6 +791,12 @@ func writeExploreOutput(cmd *cobra.Command, output exploreOutput, jsonOutput boo
 	}
 	if output.RunID != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "Run: %s\n", output.RunID)
+	}
+	if output.BranchName != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", output.BranchName)
+	}
+	if output.BuildID != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Build: %s\n", output.BuildID)
 	}
 	if output.TotalExplorers > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "Explorers: %d/%d complete\n", output.CompletedExplorers, output.TotalExplorers)

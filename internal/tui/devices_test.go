@@ -330,7 +330,8 @@ func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
 	}
 }
 
-func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
+func TestStartDeviceSessionCmd_ResolvesBranchPolicyAndPreservesExactBuild(t *testing.T) {
+	selectBranchContextWorktree(t, "Feature/Customer")
 	const (
 		appID       = "app-1"
 		buildID     = "build-1"
@@ -339,6 +340,8 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 	)
 
 	var capturedReq struct {
+		AppID      string `json:"app_id"`
+		BuildID    string `json:"build_id"`
 		AppURL     string `json:"app_url"`
 		AppPackage string `json:"app_package"`
 	}
@@ -347,16 +350,20 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case handleTestCLITraceFallback(w, r):
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/"+appID+"/builds":
-			if got := r.URL.Query().Get("page_size"); got != "20" {
-				t.Fatalf("expected page_size=20, got %q", got)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/apps/resolve":
+			var selection map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&selection); err != nil {
+				t.Fatal(err)
 			}
-			_, _ = w.Write([]byte(`{"items":[{"id":"` + buildID + `","version":"1.0.0"}],"total":1,"page":1,"page_size":20,"total_pages":1,"has_next":false,"has_previous":false}`))
+			if selection["context_branch_name"] != nil || selection["branch_name"] != nil {
+				t.Errorf("device resolution lost separate context: %#v", selection)
+			}
+			_, _ = w.Write([]byte(`{"build_var_id":"` + appID + `","version_id":"` + buildID + `","download_url":"` + downloadURL + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/builds/"+buildID:
-			if got := r.URL.Query().Get("include_download_url"); got != "true" {
-				t.Fatalf("expected include_download_url=true, got %q", got)
+			if got := r.URL.Query().Get("include_download_url"); got != "false" {
+				t.Fatalf("expected include_download_url=false, got %q", got)
 			}
-			_, _ = w.Write([]byte(`{"id":"` + buildID + `","version":"1.0.0","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
+			_, _ = w.Write([]byte(`{"id":"` + buildID + `","app_id":"` + appID + `","version":"1.0.0","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
 			if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
 				t.Fatalf("decode start request: %v", err)
@@ -376,6 +383,9 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 	}
 	if msg.Err != nil {
 		t.Fatalf("startDeviceSessionCmd returned error: %v", msg.Err)
+	}
+	if capturedReq.AppID != appID || capturedReq.BuildID != buildID {
+		t.Fatalf("lost exact attribution: %#v", capturedReq)
 	}
 	if capturedReq.AppURL != downloadURL {
 		t.Fatalf("app_url = %q, want %q", capturedReq.AppURL, downloadURL)

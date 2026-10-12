@@ -3,114 +3,82 @@ package buildselection
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/revyl/cli/internal/api"
 )
 
-// ResolverClient describes the API surface required for build selection.
 type ResolverClient interface {
-	ListBuildVersionsPage(ctx context.Context, appID string, page int, pageSize int) (*api.BuildVersionsPage, error)
+	ResolveBuildSelection(ctx context.Context, appID string, selection api.BuildSelection) (*api.BuildVersionDetail, error)
 }
 
-// SelectPreferredBuildVersion selects a build for an app using branch-aware precedence.
-//
-// Precedence:
-//  1. Latest build matching the current git branch in build metadata
-//  2. Latest build overall
-//
-// TODO: --seed-latest already uses latest-overall via
-// SelectPreferredBuildVersionForBranch(..., ""). Consider making latest-overall
-// the default here once revyl run / normal revyl dev callers agree, and add
-// Expo/RN ClassifyBuild filtering so production/preview EAS builds are skipped.
-func SelectPreferredBuildVersion(
-	ctx context.Context,
-	client ResolverClient,
-	appID string,
-	workDir string,
-) (*api.BuildVersion, string, []string, error) {
-	return SelectPreferredBuildVersionForBranch(ctx, client, appID, CurrentBranch(workDir))
+type BranchBuildsClient interface {
+	ResolverClient
+	ListBuildVersionsWithOptions(ctx context.Context, appID string, opts api.BuildListOptions) (*api.BuildVersionsPage, error)
 }
 
-// SelectPreferredBuildVersionForBranch selects a build using an explicit branch value.
-// This is primarily useful for tests and call-sites that already know the branch.
-func SelectPreferredBuildVersionForBranch(
-	ctx context.Context,
-	client ResolverClient,
-	appID string,
-	currentBranch string,
-) (*api.BuildVersion, string, []string, error) {
+func SelectLatestBuildVersionPreferringGitBranch(ctx context.Context, client BranchBuildsClient, appID, branchID, gitBranch string) (*api.BuildVersion, string, []string, error) {
+	latest := api.BuildSelection{BranchID: branchID, Mode: api.BuildSelectionModeLatest}
+	if gitBranch == "" {
+		return SelectBuildVersion(ctx, client, appID, latest)
+	}
+	matched, err := findGitBranchBuild(ctx, client, appID, branchID, gitBranch)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if matched != nil {
+		return matched, "git_branch", nil, nil
+	}
+	selected, source, warnings, err := SelectBuildVersion(ctx, client, appID, latest)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	warning := fmt.Sprintf("No builds found for current branch %q; using latest available build instead.", gitBranch)
+	return selected, source, append(warnings, warning), nil
+}
+
+func findGitBranchBuild(ctx context.Context, client BranchBuildsClient, appID, branchID, gitBranch string) (*api.BuildVersion, error) {
 	const pageSize = 100
 	const maxPages = 500
-	trimmedAppID := strings.TrimSpace(appID)
-	branch := strings.TrimSpace(currentBranch)
-
-	var latestOverall *api.BuildVersion
 	for page := 1; page <= maxPages; page++ {
-		result, err := client.ListBuildVersionsPage(ctx, trimmedAppID, page, pageSize)
+		result, err := client.ListBuildVersionsWithOptions(ctx, appID, api.BuildListOptions{BranchID: branchID, Page: page, PageSize: pageSize})
 		if err != nil {
-			return nil, "", nil, err
+			return nil, err
 		}
-		if result == nil || len(result.Items) == 0 {
-			if page == 1 {
-				return nil, "", nil, nil
-			}
-			break
-		}
-
-		if latestOverall == nil {
-			selected := result.Items[0]
-			latestOverall = &selected
-			if branch == "" {
-				return latestOverall, "latest", nil, nil
-			}
-		}
-
 		for i := range result.Items {
-			buildBranch := strings.TrimSpace(ExtractBranch(result.Items[i].Metadata))
-			if buildBranch == "" || buildBranch != branch {
-				continue
+			if ExtractBranch(result.Items[i].Metadata) == gitBranch {
+				return &result.Items[i], nil
 			}
-			selected := result.Items[i]
-			return &selected, fmt.Sprintf("branch:%s", branch), nil, nil
 		}
-
-		if !hasNextBuildVersionsPage(result, page) {
+		if !result.HasNext {
 			break
 		}
 	}
-
-	if latestOverall == nil {
-		return nil, "", nil, nil
-	}
-
-	warnings := []string(nil)
-	if branch != "" {
-		warnings = []string{
-			fmt.Sprintf(
-				"No builds found for current branch %q; using latest available build instead.",
-				branch,
-			),
-		}
-	}
-	return latestOverall, "latest", warnings, nil
+	return nil, nil
 }
 
-func hasNextBuildVersionsPage(result *api.BuildVersionsPage, requestedPage int) bool {
-	if result == nil {
-		return false
+func SelectPreferredBuildVersion(ctx context.Context, client ResolverClient, appID, workDir string) (*api.BuildVersion, string, []string, error) {
+	return SelectBuildVersion(ctx, client, appID, api.BuildSelection{})
+}
+
+func SelectPreferredBuildVersionForBranch(ctx context.Context, client ResolverClient, appID, branchName string) (*api.BuildVersion, string, []string, error) {
+	return SelectBuildVersion(ctx, client, appID, api.BuildSelection{BranchName: branchName})
+}
+
+func SelectBuildVersion(ctx context.Context, client ResolverClient, appID string, selection api.BuildSelection) (*api.BuildVersion, string, []string, error) {
+	detail, err := client.ResolveBuildSelection(ctx, appID, selection)
+	if err != nil {
+		return nil, "", nil, err
 	}
-	if result.HasNext {
-		return true
+	source := "default_branch"
+	if selection.BuildID != "" {
+		source = "exact_build"
+	} else if selection.BranchID != "" || selection.BranchName != "" {
+		source = "explicit_branch"
+	} else if selection.ContextBranchName != "" {
+		source = "context_branch"
 	}
-	if result.TotalPages > 0 && requestedPage < result.TotalPages {
-		return true
-	}
-	if result.Page > 0 && result.TotalPages > result.Page {
-		return true
-	}
-	return false
+	return detail.BuildVersion(), source, nil, nil
 }
 
 // CurrentBranch returns the current git branch for the work directory.
@@ -120,17 +88,13 @@ func CurrentBranch(workDir string) string {
 		return ""
 	}
 
-	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
-	output, err := cmd.Output()
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), branchDetectionTimeout)
+	defer cancel()
+	branch, ok, _ := runContextGit(ctx, workDir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if !ok {
 		return ""
 	}
-
-	branch := strings.TrimSpace(string(output))
-	if branch == "" || strings.EqualFold(branch, "HEAD") {
-		return ""
-	}
-	return branch
+	return strings.TrimRight(branch, "\r\n")
 }
 
 // ExtractBranch reads a branch value from build metadata.

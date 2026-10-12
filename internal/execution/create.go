@@ -31,6 +31,10 @@ type CreateTestParams struct {
 	Platform         string
 	YAMLContent      string
 	AppID            string
+	BranchID         string
+	BranchName       string
+	BuildSelection   string
+	PinnedBuildID    string
 	OrgID            string
 	ModuleNamesOrIDs []string
 	Tags             []string
@@ -63,10 +67,8 @@ type createTestYAMLDefinition struct {
 			Platform string   `yaml:"platform"`
 			Tags     []string `yaml:"tags,omitempty"`
 		} `yaml:"metadata"`
-		Build struct {
-			Name string `yaml:"name"`
-		} `yaml:"build"`
-		Blocks []interface{} `yaml:"blocks"`
+		Build  config.TestBuildConfig `yaml:"build"`
+		Blocks []interface{}          `yaml:"blocks"`
 	} `yaml:"test"`
 }
 
@@ -165,7 +167,7 @@ func buildCreateTestRequest(ctx context.Context, client *api.Client, params Crea
 		return nil, fmt.Errorf("test content is required: provide yaml_content or module_names_or_ids, or use open_test_editor for manual authoring")
 	}
 
-	appInfo, err := resolveCreateTestApp(ctx, client, params.Project, platform, params.AppID, testDef.Test.Build.Name)
+	appInfo, err := ResolveCreateTestApp(ctx, client, params.Project, platform, params.AppID, testDef.Test.Build.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +190,25 @@ func buildCreateTestRequest(ctx context.Context, client *api.Client, params Crea
 		tasks = []interface{}{}
 	}
 
+	saved, err := SavedBuildSelectionFromConfig(testDef.Test.Build)
+	if err != nil {
+		return nil, err
+	}
+	if params.BranchName != "" || params.BranchID != "" || params.BuildSelection != "" || params.PinnedBuildID != "" {
+		saved, err = ResolveSavedBuildSelection(ctx, client, appInfo.ID, params.BranchName, params.BranchID, params.BuildSelection, params.PinnedBuildID)
+		if err != nil {
+			return nil, err
+		}
+		testDef.Test.Build.PinnedVersion = ""
+	}
 	return &api.CreateTestRequest{
-		Name:     name,
-		Platform: platform,
-		Tasks:    tasks,
-		AppID:    appInfo.ID,
-		OrgID:    orgID,
+		SavedBuildSelection: saved,
+		PinnedVersionID:     testDef.Test.Build.PinnedVersion,
+		Name:                name,
+		Platform:            platform,
+		Tasks:               tasks,
+		AppID:               appInfo.ID,
+		OrgID:               orgID,
 	}, nil
 }
 
@@ -326,11 +341,11 @@ func resolveCreateTestModule(ctx context.Context, client *api.Client, ref string
 	return "", "", fmt.Errorf("module %q not found; use an exact module name or UUID", ref)
 }
 
-func resolveCreateTestApp(ctx context.Context, client *api.Client, project *config.ProjectContext, platform, explicitAppID, yamlBuildName string) (*api.App, error) {
+func ResolveCreateTestApp(ctx context.Context, client *api.Client, project *config.ProjectContext, platform, explicitAppID, yamlBuildName string) (*api.App, error) {
 	explicitAppID = strings.TrimSpace(explicitAppID)
 	yamlBuildName = strings.TrimSpace(yamlBuildName)
 	if yamlBuildName != "" {
-		resolvedBuildName, err := resolveGlobalBuildNamePlaceholders(ctx, client, yamlBuildName)
+		resolvedBuildName, err := ResolveGlobalBuildNamePlaceholders(ctx, client, yamlBuildName)
 		if err != nil {
 			return nil, err
 		}
@@ -374,7 +389,9 @@ func resolveCreateTestApp(ctx context.Context, client *api.Client, project *conf
 	return nil, fmt.Errorf("could not resolve an app for platform %s: provide app_id, include yaml_content with test.build.name, or configure a default app in .revyl/config.yaml", platform)
 }
 
-func resolveGlobalBuildNamePlaceholders(ctx context.Context, client *api.Client, buildName string) (string, error) {
+// ResolveGlobalBuildNamePlaceholders replaces {{global.<name>}} placeholders in a
+// test's build.name with the org's plaintext global variable values.
+func ResolveGlobalBuildNamePlaceholders(ctx context.Context, client *api.Client, buildName string) (string, error) {
 	matches := globalBuildNamePattern.FindAllStringSubmatchIndex(buildName, -1)
 	if len(matches) == 0 {
 		return buildName, nil
@@ -424,9 +441,6 @@ func resolveAppByID(ctx context.Context, client *api.Client, appID, platform, so
 	if normalized := normalizeCreatePlatform(appInfo.Platform); normalized != "" && normalized != platform {
 		return nil, fmt.Errorf("%s %q targets platform %s, not %s", source, appID, normalized, platform)
 	}
-	if !appHasBuilds(appInfo) {
-		return nil, fmt.Errorf("app %q has no uploaded builds. Upload a build or choose another app", appInfo.Name)
-	}
 	return appInfo, nil
 }
 
@@ -468,9 +482,6 @@ func resolveAppByName(ctx context.Context, client *api.Client, platform, name st
 		return nil, fmt.Errorf("multiple %s apps match yaml build.name %q. Use app_id instead:\n%s", platform, name, strings.Join(lines, "\n"))
 	}
 
-	if !appHasBuilds(&matches[0]) {
-		return nil, fmt.Errorf("app %q has no uploaded builds. Upload a build or choose another app", matches[0].Name)
-	}
 	return &matches[0], nil
 }
 
@@ -491,15 +502,6 @@ func validateCreateTestContent(name, platform, appName string, tasks []interface
 		return fmt.Errorf("failed to marshal composed test content: %w", err)
 	}
 	return nil
-}
-
-func appHasBuilds(appInfo *api.App) bool {
-	if appInfo == nil {
-		return false
-	}
-	return appInfo.VersionsCount > 0 ||
-		strings.TrimSpace(appInfo.CurrentVersion) != "" ||
-		strings.TrimSpace(appInfo.LatestVersion) != ""
 }
 
 func canonicalAppName(name string) string {

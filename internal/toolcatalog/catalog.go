@@ -158,6 +158,11 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 }
 
 func (d Definition) parameterDefault(key string, parameter Parameter, input map[string]any) any {
+	if key == "all_branches" && d.Name == "builds.list" {
+		if branch, ok := input["branch"].(string); ok && branch != "" {
+			return nil
+		}
+	}
 	if key == "build" && strings.HasPrefix(d.Name, "atlas.") {
 		if branchID, ok := input["branch_id"].(string); ok && branchID != "" {
 			return nil

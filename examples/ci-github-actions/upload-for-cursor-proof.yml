@@ -45,6 +45,7 @@ jobs:
             --app "$REVYL_ANDROID_APP_ID" \
             --platform android \
             --version "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --no-set-current \
             --yes \
             --json
         env:
@@ -75,6 +76,7 @@ jobs:
   #           --app "$REVYL_ANDROID_APP_ID" \
   #           --platform android \
   #           --version "${{ github.event.pull_request.head.sha || github.sha }}" \
+  #           --no-set-current \
   #           --yes \
   #           --json
   #       env:

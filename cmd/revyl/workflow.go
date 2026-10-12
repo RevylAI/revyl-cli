@@ -68,11 +68,14 @@ var workflowRunCmd = &cobra.Command{
 	Short: "Run a workflow by name or ID",
 	Long: `Run a workflow by its exact organization name or UUID.
 
+Uses the saved workflow and test build selections. Default branch uses each
+app's default branch. Use --branch to choose a branch for this run only.
+
 Use --build to build and upload before running.
 Use --ios-app / --android-app to override the app for all tests in the
 workflow (useful for testing a specific app across platforms).
-Use --ios-build / --android-build to additionally pin a specific build
-version of that app (defaults to the app's current/latest build). A pinned
+Use --ios-build / --android-build to additionally pin an exact build
+version of that app (otherwise follows the selected branch's default build). A pinned
 build requires the matching app override.
 Use --launch-var to apply a stored organization launch variable to every test,
 or --launch-env to apply an inline launch value to every test in this run.
@@ -250,6 +253,10 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "no-inherited-launch-vars")
 	analytics.MarkFlagValue(workflowRunCmd, "var")
 
+	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for each effective app in this run")
+	workflowRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "Build choice for this run: inherit (Automatic: the branch's default build) or latest")
+	workflowRunCmd.Flags().StringVar(&runWorkflowIOSBuildID, "ios-build-id", "", "Exact iOS build ID (requires --ios-app)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidBuildID, "android-build-id", "", "Exact Android build ID (requires --android-app)")
 	// workflow delete flags
 	workflowDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
 

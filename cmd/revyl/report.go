@@ -324,6 +324,12 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 		}
 		ui.PrintKeyValue("App:", appInfo)
 	}
+	if stringValue(report.BranchName) != "" {
+		ui.PrintKeyValue("Branch:", stringValue(report.BranchName))
+	}
+	if stringValue(report.ResolvedBuildId) != "" {
+		ui.PrintKeyValue("Build ID:", stringValue(report.ResolvedBuildId))
+	}
 	if stringValue(report.DeviceModel) != "" {
 		deviceInfo := stringValue(report.DeviceModel)
 		if stringValue(report.OsVersion) != "" {

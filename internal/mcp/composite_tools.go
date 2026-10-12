@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,7 +38,7 @@ func addCompositeTool(server *mcp.Server, tool *mcp.Tool, handler mcp.ToolHandle
 		"type": "object", "required": []string{"action"}, "additionalProperties": false,
 		"properties": map[string]any{
 			"action": map[string]any{"type": "string", "description": "The operation to perform; see the tool description for allowed values"},
-			"params": map[string]any{"type": "object", "description": "Action-specific parameters", "additionalProperties": true},
+			"params": map[string]any{"type": []string{"object", "null"}, "description": "Action-specific parameters", "additionalProperties": true},
 		},
 	}
 	mcp.AddTool(server, tool, handler)
@@ -82,7 +83,9 @@ func dispatchComposite[I any, O any](
 ) (*mcp.CallToolResult, CompositeOutput, error) {
 	var typed I
 	if len(input.ActionParams) > 0 {
-		if err := json.Unmarshal(input.ActionParams, &typed); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(input.ActionParams))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&typed); err != nil {
 			return nil, CompositeOutput{Action: input.Action, Result: nil},
 				fmt.Errorf("invalid params for action %q: %w", input.Action, err)
 		}
@@ -127,11 +130,11 @@ func (s *Server) registerManageTestsTool() {
 		Description: `Manage Revyl tests. Use the "action" param to select an operation.
 
 Actions:
-  run          - Run a test by name or ID. Params: test_name (required), retries, build_version_id, location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
+  run          - Run a test by name or ID. Default branch uses the app's default branch; saved concrete selections remain unchanged. Params: test_name (required), project_dir, retries, build_version_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, or pinned), location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   list         - List tests from .revyl/config.yaml. No params required.
   list_remote  - List all tests in the organization. No params required.
-  create       - Create a test from YAML. Params: yaml_content (required), module_names_or_ids
-  update       - Update a test's YAML. Params: test_name (required), yaml_content (required)
+  create       - Create a test from YAML. Params: name (required), platform (required), yaml_content, app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, or pinned), pinned_build_id, module_names_or_ids
+  update       - Update a test's YAML. Params: test_name_or_id (required), yaml_content (required), app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, or pinned), pinned_build_id, force. Omitted selectors preserve the saved choice; inherit alone restores Default branch.
   delete       - Delete a test. Params: test_name (required)
   status       - Get execution status. Params: task_id (required)
   cancel       - Cancel a running test. Params: task_id (required)`,
@@ -176,8 +179,8 @@ func (s *Server) registerManageBuildsTool() {
 		Description: `Manage app builds. Use the "action" param to select an operation.
 
 Actions:
-  list       - List apps, or one app's build versions when app_id is provided. Params: app_id, platform, limit (default 20, max 100 for versions). Version results include id, uploaded_at, is_current and has_more; retain the selected version ID when pinning a session or test.
-  upload     - Upload a build file. Params: file_path (required), app_id (required), version
+  list       - List build versions for app_id, or app summaries when omitted. Params: app_id, project_dir, platform, branch_id, branch_name, page, limit (1-100). Branch filters require app_id; omitting both branch selectors includes all branches. Version results include id, uploaded_at, is_current, branch_id, branch_name and has_more; retain the selected version ID when pinning a session or test.
+  upload     - Upload a build file. Params: file_path (required), app_id (required), version, project_dir, branch_id, branch_name. An explicit missing branch is created. Omission uses the app default.
   create_app - Create a new app. Params: name (required), platform (required)
   delete_app - Delete an app. Params: app_id (required)`,
 		Annotations: &mcp.ToolAnnotations{
@@ -216,13 +219,13 @@ Actions:
   list          - List all workflows. No params required.
   create        - Create a workflow. Params: name (required)
   delete        - Delete a workflow. Params: workflow_name (required)
-  run           - Run a workflow. Params: workflow_name (required), retries, build_version_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
+  run           - Run a workflow. Default branch targets use the app's default branch; saved concrete selections remain unchanged. Params: workflow_name (required), project_dir, retries, branch_name, build_selection (inherit for Automatic, or latest), ios_app_id, android_app_id, ios_build_id, android_build_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   cancel        - Cancel a running workflow. Params: task_id (required)
   add_tests     - Add tests to a workflow. Params: workflow_name (required), test_names (required)
   remove_tests  - Remove tests from a workflow. Params: workflow_name (required), test_names (required)
-  get_settings  - Get workflow settings. Params: workflow_name (required)
+  get_settings  - Get workflow settings, including saved build selectors. Params: workflow_name_or_id (required)
   set_location  - Set GPS override. Params: workflow_name (required), location (required)
-  set_app       - Set app overrides. Params: workflow_name (required), ios_app_id, android_app_id
+  set_app       - Set app overrides. Params: workflow_name_or_id (required), ios_app_id, android_app_id, ios_branch_id, ios_branch_name, ios_build_selection, ios_pinned_build_id, android_branch_id, android_branch_name, android_build_selection, android_pinned_build_id. Build selection is inherit (Automatic), latest, or pinned; inherit alone restores Default branch for that platform.
   open_editor   - Get browser editor URL. Params: workflow_name (required)`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Manage Workflows",

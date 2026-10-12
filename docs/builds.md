@@ -166,6 +166,31 @@ Use `revyl build upload` to upload an artifact produced by your own pipeline.
 To associate it with a GitHub PR, see
 [Use your own CI](https://docs.revyl.ai/integrations/github#use-your-own-ci).
 
+## Build branches and defaults
+
+Builds upload to the app's default branch unless you pass `--branch <name>`.
+Pass it in automation that must keep uploading to one branch, such as
+`--branch base`, even if the default changes. Generated version labels don't
+choose the branch.
+A branch follows Latest, so runs use its newest build, or is pinned to one
+build. An upload pins its branch to the new build, even when the branch was
+following Latest. `--no-set-current` adds the build without changing a pin; a
+branch with no pin still uses it.
+To keep a build while uploads continue, pin it and upload with
+`--no-set-current`. For a reproducible run, pass the returned build ID.
+
+Apps created before branches start with `base` pinned to the app's current
+build, or on Latest when there was none, so runs keep using the same build.
+
+Run `revyl build which --app "My App"` to inspect app-level branch and build
+selection before a run. See [Inspect the selected build](build-branches.md#inspect-the-selected-build)
+for `--branch`, `--json`, and how this differs from saved test/workflow choices.
+
+See [Build branches](build-branches.md) for branch management, saved test and
+workflow selections, and Atlas scope.
+To keep `main` or `staging` mapped after merges or on a schedule, use the
+[build-and-explore recipes](explore.md#keep-main-or-staging-current).
+
 ## Migrating existing local builds
 
 If an existing script must keep building on the invoking machine, add

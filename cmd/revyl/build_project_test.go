@@ -486,7 +486,7 @@ func TestRemoteBuildAppReferenceErrorsExplainRepair(t *testing.T) {
 
 func TestRenderLocalBuildJSONPreservesUploadEnvelopeAndAddsProfile(t *testing.T) {
 	output := captureStdoutAndStderr(t, func() {
-		err := renderLocalBuildResult(localBuildResult{
+		err := renderLocalBuildResult(context.Background(), nil, localBuildResult{
 			Invocation: projectBuildInvocation{
 				Profile:  "development",
 				Platform: "android",

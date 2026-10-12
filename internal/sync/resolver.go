@@ -17,6 +17,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/util"
 )
@@ -334,11 +335,23 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 			if cached, ok := appIDCache[cacheKey]; ok {
 				resolvedAppID = cached
 			} else {
-				resolvedAppID = r.resolveBuildNameToAppID(ctx, localTest.Test.Build.Name, localTest.Test.Metadata.Platform)
+				appID, err := r.resolveBuildNameToAppID(ctx, localTest.Test.Build.Name, localTest.Test.Metadata.Platform)
+				if err != nil {
+					result.Error = err
+					results = append(results, result)
+					continue
+				}
+				resolvedAppID = appID
 				appIDCache[cacheKey] = resolvedAppID
 			}
 		}
 
+		saved, err := execution.SavedBuildSelectionFromConfig(localTest.Test.Build)
+		if err != nil {
+			result.Error = err
+			results = append(results, result)
+			continue
+		}
 		remoteID := localTest.Meta.RemoteID
 
 		if remoteID == "" {
@@ -363,11 +376,13 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 
 			// Create new test on remote
 			resp, err := r.client.CreateTest(ctx, &api.CreateTestRequest{
-				Name:     localTest.Test.Metadata.Name,
-				Platform: localTest.Test.Metadata.Platform,
-				Tasks:    resolvedBlocks,
-				AppID:    resolvedAppID,
-				OrgID:    createOrgID,
+				SavedBuildSelection: saved,
+				PinnedVersionID:     localTest.Test.Build.PinnedVersion,
+				Name:                localTest.Test.Metadata.Name,
+				Platform:            localTest.Test.Metadata.Platform,
+				Tasks:               resolvedBlocks,
+				AppID:               resolvedAppID,
+				OrgID:               createOrgID,
 			})
 			if err != nil {
 				result.Error = err
@@ -407,14 +422,15 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 			}
 
 			resp, err := r.client.UpdateTest(ctx, &api.UpdateTestRequest{
-				TestID:          remoteID,
-				Name:            localTest.Test.Metadata.Name,
-				Description:     localTest.Test.Metadata.Description,
-				Tasks:           updateBlocks,
-				AppID:           resolvedAppID,
-				PinnedVersionID: localTest.Test.Build.PinnedVersion,
-				ExpectedVersion: expectedVersion,
-				Force:           force,
+				SavedBuildSelection: saved,
+				TestID:              remoteID,
+				Name:                localTest.Test.Metadata.Name,
+				Description:         localTest.Test.Metadata.Description,
+				Tasks:               updateBlocks,
+				AppID:               resolvedAppID,
+				PinnedVersionID:     localTest.Test.Build.PinnedVersion,
+				ExpectedVersion:     expectedVersion,
+				Force:               force,
 			})
 			if err != nil {
 				if apiErr, ok := err.(*api.APIError); ok && apiErr.IsTestVersionConflict() {
@@ -451,23 +467,30 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	return results, nil
 }
 
-// resolveBuildNameToAppID looks up the app ID for a given build name and platform.
-// Paginates through all apps if needed. Returns empty string if not found (non-fatal).
-func (r *Resolver) resolveBuildNameToAppID(ctx context.Context, buildName, platform string) string {
+// resolveBuildNameToAppID looks up the app ID for a given build name and platform,
+// after resolving {{global.<name>}} placeholders the way test create does.
+// Paginates through all apps if needed. Returns empty string if no app matches
+// (non-fatal); a placeholder that can't be resolved is an error.
+func (r *Resolver) resolveBuildNameToAppID(ctx context.Context, buildName, platform string) (string, error) {
+	buildName, err := execution.ResolveGlobalBuildNamePlaceholders(ctx, r.client, strings.TrimSpace(buildName))
+	if err != nil {
+		return "", err
+	}
+	buildName = strings.TrimSpace(buildName)
 	if buildName == "" {
-		return ""
+		return "", nil
 	}
 
 	page := 1
 	for {
 		appsResp, err := r.client.ListApps(ctx, platform, page, 100)
 		if err != nil {
-			return ""
+			return "", nil
 		}
 
 		for _, app := range appsResp.Items {
 			if strings.EqualFold(app.Name, buildName) {
-				return app.ID
+				return app.ID, nil
 			}
 		}
 
@@ -477,7 +500,7 @@ func (r *Resolver) resolveBuildNameToAppID(ctx context.Context, buildName, platf
 		page++
 	}
 
-	return ""
+	return "", nil
 }
 
 // syncTagsForTest syncs tags for a test if tags are present.
@@ -674,8 +697,15 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 			}
 		}
 	}
-	if remoteTest.PinnedVersion != "" {
+	// With branch reads disabled, the API projects saved pins as inherit plus pinned_version.
+	legacyOnlyPin := remoteTest.PinnedVersion != "" && remoteTest.BranchID == "" && remoteTest.PinnedBuildID == "" &&
+		(remoteTest.BuildSelection == "" || remoteTest.BuildSelection == api.BuildSelectionModeInherit)
+	if legacyOnlyPin {
 		localTest.Test.Build.PinnedVersion = remoteTest.PinnedVersion
+	} else {
+		localTest.Test.Build.BranchID = remoteTest.BranchID
+		localTest.Test.Build.BuildSelection = string(remoteTest.BuildSelection)
+		localTest.Test.Build.PinnedBuildID = remoteTest.PinnedBuildID
 	}
 
 	tags, err := r.client.GetTestTags(ctx, remoteID)

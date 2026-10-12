@@ -82,6 +82,9 @@ func resolveIdleTimeout(d time.Duration) time.Duration {
 }
 
 type DeviceSession struct {
+	BuildID    string `json:"build_id,omitempty"`
+	BranchID   string `json:"branch_id,omitempty"`
+	BranchName string `json:"branch_name,omitempty"`
 	// Index is the local session index (tmux-style numbering, 0-based).
 	Index int `json:"index"`
 
@@ -345,10 +348,14 @@ type StartSessionOptions struct {
 	// Priority for app installation is:
 	//   1. AppURL
 	//   2. BuildVersionID (resolved to download URL)
-	//   3. AppID (latest build resolved to download URL)
-	AppID          string
-	BuildVersionID string
-	AppURL         string
+	//   3. AppID (selected branch policy resolved to download URL)
+	AppID             string
+	BranchID          string
+	BranchName        string
+	ContextBranchName string
+	BuildSelection    string
+	BuildVersionID    string
+	AppURL            string
 
 	// Optional app launch link and package hints.
 	AppLink       string
@@ -433,12 +440,17 @@ func (m *DeviceSessionManager) StartSession(
 
 	idleTimeout := resolveIdleTimeout(opts.IdleTimeout)
 
-	resolvedArtifact, err := startdevice.ResolveStartArtifact(ctx, m.apiClient, startdevice.StartArtifactOptions{
-		AppID:          opts.AppID,
-		BuildVersionID: opts.BuildVersionID,
-		AppURL:         opts.AppURL,
-		AppPackage:     opts.AppPackage,
-	})
+	artifactOptions := startdevice.StartArtifactOptions{
+		AppID: opts.AppID, BuildVersionID: opts.BuildVersionID, AppURL: opts.AppURL, AppPackage: opts.AppPackage,
+		BranchID: opts.BranchID, BranchName: opts.BranchName, BuildSelection: opts.BuildSelection,
+		ContextBranchName: opts.ContextBranchName,
+	}
+	testSelectsBuild := opts.TestID != "" && opts.AppID == "" && opts.BuildVersionID == "" && opts.AppURL == ""
+	if testSelectsBuild {
+		artifactOptions.BranchID, artifactOptions.BranchName, artifactOptions.BuildSelection = "", "", ""
+		artifactOptions.ContextBranchName = ""
+	}
+	resolvedArtifact, err := startdevice.ResolveStartArtifact(ctx, m.apiClient, artifactOptions)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -469,6 +481,11 @@ func (m *DeviceSessionManager) StartSession(
 	}
 	if resolvedArtifact.BuildID != "" {
 		req.BuildID = resolvedArtifact.BuildID
+	}
+	if testSelectsBuild {
+		req.BranchID, req.BranchName = opts.BranchID, opts.BranchName
+		req.BuildSelection = api.BuildSelectionMode(opts.BuildSelection)
+		req.ContextBranchName = opts.ContextBranchName
 	}
 	if resolvedArtifact.AppURL != "" {
 		req.AppURL = resolvedArtifact.AppURL
@@ -588,6 +605,7 @@ func (m *DeviceSessionManager) StartSession(
 
 	now := time.Now()
 	session := &DeviceSession{
+		BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName,
 		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,
 		TraceID:       traceID,
@@ -2166,6 +2184,7 @@ const (
 
 // DeviceInstallRequest is the canonical request body for asynchronous app installation.
 type DeviceInstallRequest struct {
+	BuildID      string            `json:"build_id,omitempty"`
 	AppURL       string            `json:"app_url,omitempty"`
 	AppPath      string            `json:"app_path,omitempty"`
 	BundleID     string            `json:"bundle_id,omitempty"`

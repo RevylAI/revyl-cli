@@ -25,21 +25,7 @@ func TestCompositeToolsAdvertiseObjectParameters(t *testing.T) {
 			continue
 		}
 		count++
-		encoded, err := json.Marshal(tool.InputSchema)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var schema struct {
-			Properties map[string]struct {
-				Type string `json:"type"`
-			} `json:"properties"`
-		}
-		if err := json.Unmarshal(encoded, &schema); err != nil {
-			t.Fatal(err)
-		}
-		if schema.Properties["params"].Type != "object" {
-			t.Errorf("%s advertises non-object params: %s", tool.Name, encoded)
-		}
+		requireSchemaPropertyType(t, tool.InputSchema, "params", []any{"object", "null"})
 	}
 	if count != 8 {
 		t.Fatalf("checked %d composite tools, want 8", count)
@@ -50,18 +36,22 @@ func TestCompositeBuildListHonorsAppID(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-key")
 	const appID = "12345678-1234-1234-1234-123456789abc"
+	const branchID = "22345678-1234-1234-1234-123456789abc"
 	versionRequests := 0
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/apps/" + appID:
-			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"Fixture","platform":"Android","versions_count":2,"latest_version":"v2"}`))
+			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"Fixture","platform":"Android","versions_count":2,"latest_version":"v2","default_branch_id":"` + branchID + `"}`))
 		case "/api/v1/apps/" + appID + "/builds":
 			versionRequests++
+			if r.URL.Query().Has("branch_id") || r.URL.Query().Has("branch_name") {
+				t.Errorf("unfiltered build list has a branch selector: %s", r.URL)
+			}
 			if r.URL.Query().Get("page_size") != "1" {
 				t.Errorf("page size = %s", r.URL.Query().Get("page_size"))
 			}
-			_, _ = w.Write([]byte(`{"items":[{"id":"version-id","version":"v2","uploaded_at":"2026-01-02T00:00:00Z","is_current":true,"metadata":{"private":"omit-me"}}],"total":2,"has_next":true}`))
+			_, _ = w.Write([]byte(`{"items":[{"id":"version-id","version":"v2","uploaded_at":"2026-01-02T00:00:00Z","is_current":true,"branch_id":"` + branchID + `","branch_name":"release","package_name":"Fixture","package_id":"com.example.fixture","metadata":{"private":"omit-me"}}],"total":2,"has_next":true}`))
 		default:
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -81,7 +71,7 @@ func TestCompositeBuildListHonorsAppID(t *testing.T) {
 		t.Fatalf("build lookup failed: %v, %+v", err, result)
 	}
 	encoded, _ := json.Marshal(result.StructuredContent)
-	for _, expected := range []string{`"id":"version-id"`, `"uploaded_at":"2026-01-02T00:00:00Z"`, `"is_current":true`, `"has_more":true`} {
+	for _, expected := range []string{`"id":"version-id"`, `"uploaded_at":"2026-01-02T00:00:00Z"`, `"is_current":true`, `"has_more":true`, `"has_next":true`, `"branch_id":"` + branchID + `"`, `"branch_name":"release"`, `"package_name":"Fixture"`, `"package_id":"com.example.fixture"`} {
 		if !strings.Contains(string(encoded), expected) {
 			t.Errorf("missing %s in %s", expected, encoded)
 		}

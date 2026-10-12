@@ -41,6 +41,9 @@ func TestRunTest_PollingModeCompletesWithoutSSE(t *testing.T) {
 		case "/api/v1/monitor/stream/unified":
 			sseRequested = true
 			http.Error(w, "unexpected SSE request", http.StatusInternalServerError)
+		case "/api/v1/reports-v3/reports/by-execution/task-test-123/context":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"branch_name":"main","build_version":"v1.3","resolved_build_id":"build-13"}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -78,6 +81,9 @@ func TestRunTest_PollingModeCompletesWithoutSSE(t *testing.T) {
 	}
 	if result.ReportURL != "https://app.example/tests/report?taskId=task-test-123" {
 		t.Fatalf("ReportURL = %q", result.ReportURL)
+	}
+	if result.BranchName != "main" || result.BuildVersion != "v1.3" || result.BuildID != "build-13" {
+		t.Fatalf("build the run used = %q %q %q, want main v1.3 build-13", result.BranchName, result.BuildVersion, result.BuildID)
 	}
 	if len(progressUpdates) == 0 {
 		t.Fatal("expected at least one progress update")
@@ -506,5 +512,40 @@ func TestRunWorkflow_SendsLaunchVars(t *testing.T) {
 	inline, ok := captured["launch_env_vars"].(map[string]interface{})
 	if !ok || inline["API_URL"] != "https://inline.example" {
 		t.Fatalf("launch_env_vars = %v", captured["launch_env_vars"])
+	}
+}
+
+func TestRunTestKeepsItsResultWhenTheReportIsUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/execution/api/execute_test_id_async":
+			_, _ = w.Write([]byte(`{"task_id":"task-test-123"}`))
+		case "/api/v1/tests/get_test_execution_task":
+			_, _ = w.Write([]byte(`{"status":"failed","success":false,"error_message":"Step 2 failed"}`))
+		case "/api/v1/reports-v3/reports/by-execution/task-test-123/context":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"Report not found"}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	result, err := RunTest(context.Background(), "token", nil, RunTestParams{
+		TestNameOrID:   "test-123",
+		Timeout:        5,
+		MonitoringMode: sse.MonitoringModePolling,
+	})
+	if err != nil {
+		t.Fatalf("RunTest() error = %v", err)
+	}
+	if result.Status != "failed" || result.ErrorMessage != "Step 2 failed" || result.TaskID != "task-test-123" {
+		t.Fatalf("run result changed: %+v", result)
+	}
+	if result.BranchName != "" || result.BuildVersion != "" || result.BuildID != "" {
+		t.Fatalf("build fields invented without a report: %+v", result)
 	}
 }

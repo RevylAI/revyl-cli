@@ -42,9 +42,14 @@ var validBuildExts = map[string]bool{
 // The user must provide a valid path to a .apk, .ipa, .zip, or .app file.
 // The version string is optional; if left blank it is auto-generated.
 type uploadBuildModel struct {
-	step          uploadStep
-	filePathInput textinput.Model
-	versionInput  textinput.Model
+	step            uploadStep
+	filePathInput   textinput.Model
+	versionInput    textinput.Model
+	buildPicker     *buildPickerModel
+	branchSelection api.BuildSelection
+	branchLabel     string
+	pendingBranch   *api.BuildBranch
+	pendingVersion  string
 
 	// Context: which app we're uploading to
 	appID   string
@@ -121,21 +126,31 @@ func newUploadBuildModel(client *api.Client, appID, appName string, width, heigh
 //
 // Returns:
 //   - tea.Cmd: async command that sends BuildUploadedMsg on completion
-func uploadBuildCmd(client *api.Client, appID, filePath, version string) tea.Cmd {
+func uploadBuildCmd(client *api.Client, appID, filePath, version string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
+		selection := api.BuildSelection{}
+		if len(selections) > 0 {
+			selection = selections[0]
+		}
+		branch, err := client.ResolveUploadBranchWithContext(ctx, appID, selection.BranchID, selection.BranchName, selection.ContextBranchName)
+		if err != nil {
+			return BuildUploadedMsg{Err: fmt.Errorf("resolve upload branch: %w", err)}
+		}
 		resp, err := client.UploadBuild(ctx, &api.UploadBuildRequest{
 			AppID:    appID,
+			BranchID: branch.ID,
 			Version:  version,
 			FilePath: filePath,
 		})
 		if err != nil {
-			return BuildUploadedMsg{Err: fmt.Errorf("upload failed: %w", err)}
+			return BuildUploadedMsg{Branch: branch, Err: fmt.Errorf("upload failed: %w", err)}
 		}
 
 		return BuildUploadedMsg{
+			Branch:    branch,
 			VersionID: resp.VersionID,
 			Version:   resp.Version,
 		}
@@ -151,6 +166,18 @@ func (m uploadBuildModel) Init() tea.Cmd {
 
 // Update handles messages for the upload-build flow.
 func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.buildPicker != nil {
+		picker, cmd := m.buildPicker.Update(msg)
+		m.buildPicker = &picker
+		if picker.done {
+			m.buildPicker = nil
+			if !picker.cancelled {
+				m.branchSelection, m.branchLabel = picker.selection, picker.label
+				m.pendingBranch, m.pendingVersion = nil, ""
+			}
+		}
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -170,6 +197,9 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case BuildUploadedMsg:
 		m.uploading = false
+		if msg.Branch != nil {
+			m.pendingBranch = msg.Branch
+		}
 		if msg.Err != nil {
 			m.err = msg.Err
 			m.step = uploadStepConfirm
@@ -299,6 +329,14 @@ func (m uploadBuildModel) handleVersionKey(key string, msg tea.KeyMsg) (tea.Mode
 // handleConfirmKey processes keys during the confirm step.
 func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "b":
+		if m.client == nil {
+			return m, nil
+		}
+		picker := newBuildPicker(m.client, m.appID, "Upload destination")
+		picker.branchOnly, picker.allowCreate, picker.currentBranchID = true, true, m.branchSelection.BranchID
+		m.buildPicker = &picker
+		return m, picker.Init()
 	case "enter", "y":
 		if m.client == nil {
 			m.err = fmt.Errorf("not authenticated")
@@ -310,11 +348,20 @@ func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 
 		version := strings.TrimSpace(m.versionInput.Value())
 		if version == "" {
-			version = fmt.Sprintf("tui-%d", time.Now().Unix())
+			version = m.pendingVersion
+			if version == "" {
+				version = fmt.Sprintf("tui-%d", time.Now().Unix())
+			}
+		}
+		m.pendingVersion = version
+		selection := m.branchSelection
+		if m.pendingBranch != nil {
+			selection.BranchID, selection.BranchName, selection.ContextBranchName = m.pendingBranch.ID, "", ""
 		}
 
-		return m, tea.Batch(m.spinner.Tick, uploadBuildCmd(m.client, m.appID, m.resolvedPath, version))
+		return m, tea.Batch(m.spinner.Tick, uploadBuildCmd(m.client, m.appID, m.resolvedPath, version, selection))
 	case "backspace", "n":
+		m.pendingBranch, m.pendingVersion = nil, ""
 		m.step = uploadStepVersion
 		m.versionInput.Focus()
 		m.err = nil
@@ -345,6 +392,9 @@ func (m uploadBuildModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 
 // View renders the upload-build flow.
 func (m uploadBuildModel) View() string {
+	if m.buildPicker != nil {
+		return m.buildPicker.View()
+	}
 	var b strings.Builder
 	w := m.width
 	if w == 0 {
@@ -397,13 +447,21 @@ func (m uploadBuildModel) View() string {
 		}
 		b.WriteString("  " + normalStyle.Render("Review:") + "\n\n")
 		b.WriteString("  " + dimStyle.Render("App:      ") + normalStyle.Render(m.appName) + "\n")
+		branchLabel := m.branchLabel
+		if branchLabel == "" {
+			branchLabel = defaultBranchLabel
+		}
+		if m.pendingBranch != nil {
+			branchLabel = m.pendingBranch.Name + " (retry destination)"
+		}
+		b.WriteString("  Branch:   " + branchLabel + "\n")
 		b.WriteString("  " + dimStyle.Render("File:     ") + normalStyle.Render(filepath.Base(m.resolvedPath)) + "\n")
 		b.WriteString("  " + dimStyle.Render("Size:     ") + normalStyle.Render(formatFileSize(m.fileSize)) + "\n")
 		b.WriteString("  " + dimStyle.Render("Version:  ") + normalStyle.Render(version) + "\n")
 		if m.err != nil {
 			b.WriteString("\n  " + errorStyle.Render(m.err.Error()) + "\n")
 		}
-		b.WriteString("\n  " + helpStyle.Render("enter/y to upload, backspace/n to go back, esc to cancel") + "\n")
+		b.WriteString("\n  " + helpStyle.Render("b to choose branch, enter/y to upload, backspace/n to go back, esc to cancel") + "\n")
 
 	case uploadStepUploading:
 		b.WriteString("  " + m.spinner.View() + " Uploading build...\n")

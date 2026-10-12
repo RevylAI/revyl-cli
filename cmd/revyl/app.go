@@ -28,6 +28,7 @@ Tests reference an app to know which binary to install on the device.
 Commands:
   create - Create a new app
   list   - List all apps
+  branch - Manage build branches and defaults
   delete - Delete an app`,
 }
 
@@ -270,7 +271,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Create table with dynamic column widths
-	table := ui.NewTable("NAME", "PLATFORM", "BUILDS", "LATEST", "APP ID")
+	table := ui.NewTable("NAME", "PLATFORM", "BUILDS", "LATEST", "APP ID", "DEFAULT BRANCH")
 	table.SetMinWidth(0, 20) // NAME
 	table.SetMinWidth(1, 8)  // PLATFORM
 	table.SetMinWidth(4, 36) // APP ID - UUIDs are 36 chars
@@ -280,7 +281,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 		if app.LatestVersion != "" {
 			latestVer = app.LatestVersion
 		}
-		table.AddRow(app.Name, app.Platform, fmt.Sprintf("%d", app.VersionsCount), latestVer, app.ID)
+		table.AddRow(app.Name, app.Platform, fmt.Sprintf("%d", app.VersionsCount), latestVer, app.ID, app.DefaultBranchName)
 	}
 
 	table.Render()

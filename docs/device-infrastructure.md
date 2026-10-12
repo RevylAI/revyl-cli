@@ -21,9 +21,10 @@ revyl build --remote --platform ios
 revyl build --remote --platform android
 ```
 
-The build runs on Revyl's cloud infrastructure, uploads the artifact, and sets
-it as the app's current build by default. No local Xcode or Android SDK is
-needed. If more than one build profile matches, select one when prompted;
+The build runs on Revyl's cloud infrastructure and uploads the artifact.
+See [build branches](build-branches.md) for
+how uploads affect default selection. No local Xcode or Android SDK is needed.
+If more than one build profile matches, select one when prompted;
 for unattended CI, follow the [remote build configuration guide](https://docs.revyl.ai/remote-builds/configuration).
 
 Already uploaded a build? Skip this step. iOS needs a simulator `.app` or zipped
@@ -44,7 +45,10 @@ revyl device start --platform ios --app-id YOUR_IOS_APP_ID
 revyl device start --platform android --app-id YOUR_ANDROID_APP_ID
 ```
 
-Revyl selects a default device and installs the app's latest build. The command
+Revyl selects a default device and uses the app default branch, following that
+branch's default build. Add
+`--branch staging` to choose another branch, `--build-selection latest` to bypass
+its pin, or `--build-version-id` for an exact build. The command
 prints the session ID and a live viewer link. Keep the session ID for the next
 steps; use the viewer to watch the device.
 

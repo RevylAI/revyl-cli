@@ -58,8 +58,9 @@ var testRunCmd = &cobra.Command{
 	Short: "Run a test by name or ID",
 	Long: `Run a test by its local YAML name from the selected .revyl/tests directory or UUID.
 
-By default runs against the last uploaded build. Use --build to build and
-upload first.
+Runs the build that the test's saved selection picks. Default branch uses the
+app's default branch and that branch's default build. Use --branch or --build-id to
+choose for this run only, or --build to build, upload, and run that artifact.
 
 Use the test NAME or UUID, not a file path.
   CORRECT: revyl test run login-flow
@@ -203,6 +204,11 @@ func init() {
 	testCmd.AddCommand(testVersionsCmd)
 	testCmd.AddCommand(testRestoreCmd)
 
+	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides the saved selector)")
+	testRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "Build choice for this run: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
+	testCreateCmd.Flags().StringVar(&createTestBranch, "branch", "", "Save this Revyl branch for future runs")
+	testCreateCmd.Flags().StringVar(&createTestBuildSelection, "build-selection", "", "Save build choice: inherit (Automatic: the branch's default build), latest or pinned")
+	testCreateCmd.Flags().StringVar(&createTestBuildID, "build-id", "", "Save an exact build pin")
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")

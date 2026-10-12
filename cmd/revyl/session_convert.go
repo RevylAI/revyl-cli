@@ -14,6 +14,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -26,6 +27,8 @@ type sessionConvertResult struct {
 	TestName             string   `json:"test_name"`
 	TestURL              string   `json:"test_url,omitempty"`
 	Platform             string   `json:"platform"`
+	BuildID              string   `json:"build_id,omitempty"`
+	BranchID             string   `json:"branch_id,omitempty"`
 	AppID                string   `json:"app_id,omitempty"`
 	BlocksCount          int      `json:"blocks_count"`
 	LocalPath            string   `json:"local_path,omitempty"`
@@ -85,7 +88,10 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	pinnedVersion := metadataString(session.SourceMetadata, "build_version")
+	savedSelection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, appID, createTestBranch, "", createTestBuildSelection, createTestBuildID)
+	if err != nil {
+		return err
+	}
 
 	if !jsonOutput {
 		ui.PrintInfo("Compiling session %s into test steps...", sessionID)
@@ -125,8 +131,10 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 		"platform": platform,
 		"app_id":   appID,
 	}
-	if pinnedVersion != "" {
-		metadata["pinned_version"] = pinnedVersion
+	if savedSelection != nil {
+		metadata["branch_id"] = savedSelection.BranchID
+		metadata["build_selection"] = savedSelection.BuildSelection
+		metadata["pinned_build_id"] = savedSelection.PinnedBuildID
 	}
 
 	totalActionsCompiled := 0
@@ -144,6 +152,8 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 		TestName:             testName,
 		Platform:             platform,
 		AppID:                appID,
+		BuildID:              session.BuildID,
+		BranchID:             session.BranchID,
 		BlocksCount:          len(blocks),
 		Warnings:             warnings,
 		DryRun:               createTestDryRun,
@@ -191,7 +201,7 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	localPath, err := saveSessionConvertedLocalTest(testsDir, testName, platform, appName, pinnedVersion, createResp.TestID, createTestTags, blocks)
+	localPath, err := saveSessionConvertedLocalTest(testsDir, testName, platform, appName, savedSelection, createResp.TestID, createTestTags, blocks)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save local YAML: %v", err))
 		if !jsonOutput {
@@ -291,6 +301,9 @@ func resolveSessionConvertAppID(aggregate *config.NormalizedProjectAggregate, se
 		return appID, nil
 	}
 	if session != nil {
+		if session.AppID != "" {
+			return session.AppID, nil
+		}
 		if appID := metadataString(session.SourceMetadata, "app_id"); appID != "" {
 			return appID, nil
 		}
@@ -323,7 +336,7 @@ func resolveSessionConvertAppID(aggregate *config.NormalizedProjectAggregate, se
 }
 
 func resolveSessionConvertAppName(ctx context.Context, client *api.Client, session *api.DeviceSessionDetail, appID string) (string, error) {
-	if session != nil {
+	if session != nil && metadataString(session.SourceMetadata, "app_id") == appID && (session.AppID == "" || session.AppID == appID) {
 		if name := metadataString(session.SourceMetadata, "app_name"); name != "" {
 			return name, nil
 		}
@@ -402,7 +415,7 @@ func ensureSessionConvertLocalPathAvailable(testsDir, testName string) error {
 	return nil
 }
 
-func saveSessionConvertedLocalTest(testsDir, testName, platform, appName, pinnedVersion, testID string, tags []string, blocks []map[string]interface{}) (string, error) {
+func saveSessionConvertedLocalTest(testsDir, testName, platform, appName string, selection *api.SavedBuildSelection, testID string, tags []string, blocks []map[string]interface{}) (string, error) {
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		return "", err
 	}
@@ -421,13 +434,21 @@ func saveSessionConvertedLocalTest(testsDir, testName, platform, appName, pinned
 				Tags:     tags,
 			},
 			Build: config.TestBuildConfig{
-				Name:          appName,
-				PinnedVersion: pinnedVersion,
+				Name: appName,
 			},
 			Blocks: localBlocks,
 		},
 	}
 
+	if selection != nil {
+		localTest.Test.Build.BuildSelection = string(selection.BuildSelection)
+		if selection.BranchID != nil {
+			localTest.Test.Build.BranchID = *selection.BranchID
+		}
+		if selection.PinnedBuildID != nil {
+			localTest.Test.Build.PinnedBuildID = *selection.PinnedBuildID
+		}
+	}
 	path := filepath.Join(testsDir, testName+".yaml")
 	if err := config.SaveLocalTest(path, localTest); err != nil {
 		return "", err
