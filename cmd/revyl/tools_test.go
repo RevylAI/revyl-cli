@@ -110,6 +110,76 @@ func TestAtlasCaptureListingSupportsViewScope(t *testing.T) {
 	}
 }
 
+func TestAtlasCatalogBranchScopeDefaults(t *testing.T) {
+	const branchID = "00000000-0000-4000-8000-000000000002"
+	const buildID = "00000000-0000-4000-8000-000000000003"
+	for _, name := range []string{"atlas.brief", "atlas.graph", "atlas.search", "atlas.area", "atlas.screen", "atlas.neighbors", "atlas.observations", "atlas.edge"} {
+		t.Run(name, func(t *testing.T) {
+			tool, err := findInvestigationTool(rootCmd, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tool.InputSchema.Properties["branch_id"].Format != "uuid" {
+				t.Fatal("branch_id must validate an immutable UUID")
+			}
+			for _, build := range []string{"", buildID, "all"} {
+				input := map[string]any{"branch_id": branchID}
+				for _, key := range tool.InputSchema.Required {
+					input[key] = "00000000-0000-4000-8000-000000000001"
+				}
+				if build != "" {
+					input["build"] = build
+				}
+				args, err := tool.Arguments(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				joined := strings.Join(args, " ")
+				if !strings.Contains(joined, "--branch-id="+branchID) {
+					t.Fatalf("branch missing: %v", args)
+				}
+				if build == "" && strings.Contains(joined, "--build=") {
+					t.Fatalf("branch aggregate injected build: %v", args)
+				}
+				if build != "" && !strings.Contains(joined, "--build="+build) {
+					t.Fatalf("explicit build lost: %v", args)
+				}
+				delete(input, "branch_id")
+				delete(input, "build")
+				args, err = tool.Arguments(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantAll := name != "atlas.observations" && name != "atlas.edge"
+				if strings.Contains(strings.Join(args, " "), "--build=all") != wantAll {
+					t.Fatalf("unscoped default changed: %v", args)
+				}
+			}
+		})
+	}
+}
+
+func TestAtlasBranchViewPreservesAggregateScope(t *testing.T) {
+	tool, err := findInvestigationTool(rootCmd, "atlas.graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const branchID = "00000000-0000-4000-8000-000000000002"
+	view, err := tool.View(map[string]any{"app": "00000000-0000-4000-8000-000000000001", "branch_id": branchID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Query.Arguments["branch_id"] != branchID {
+		t.Fatalf("branch lost: %+v", view)
+	}
+	if _, exists := view.Query.Arguments["build"]; exists {
+		t.Fatalf("build injected: %+v", view)
+	}
+	if err := tool.ValidateView(view); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInvestigationLaunchesAreExplicitWritesAndNeverWait(t *testing.T) {
 	for _, name := range []string{"explorations.launch", "tests.run"} {
 		tool, err := findInvestigationTool(rootCmd, name)

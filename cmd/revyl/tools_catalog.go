@@ -3,7 +3,7 @@ package main
 import "github.com/revyl/cli/internal/toolcatalog"
 
 func investigationToolSpecs() []toolcatalog.Spec {
-	scope := []string{"app", "build", "from", "to", "since", "report-id", "test-id", "source-kind", "device-model", "runtime", "include-variants", "limit", "screenshots"}
+	scope := []string{"app", "branch-id", "build", "from", "to", "since", "report-id", "test-id", "source-kind", "device-model", "runtime", "include-variants", "limit", "screenshots"}
 	specs := []toolcatalog.Spec{
 		{Name: "explorations.launch", Command: "explore run", Description: "Launch an exploration after the user authorizes its app/build, objective and resource scope. Returns immediately with the run identity; use explorations.status to check progress. A timeout is not proof the launch failed: inspect existing runs before retrying.", Positionals: []string{"app_id"}, Flags: []string{"build-id", "platform", "explorers", "strategy", "instructions", "device-model", "os-version", "max-duration"}, Required: []string{"instructions"}, Defaults: map[string]any{"explorers": 1, "max_duration": "10m"}, FixedArguments: []string{"--no-wait"}, Write: true},
 		{Name: "explorations.status", Command: "explore status", Description: "Read exploration progress and its report by run ID. A queued or running exploration is not completed evidence.", Positionals: []string{"run_id"}},

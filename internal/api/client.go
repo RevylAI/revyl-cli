@@ -3090,6 +3090,7 @@ type App struct {
 
 // AtlasQuery carries the shared filters supported by Atlas inspection endpoints.
 type AtlasQuery struct {
+	BranchID            string
 	RecentBuildLimit    int
 	AppID               string
 	BuildID             string
@@ -3114,6 +3115,9 @@ type AtlasResponse map[string]interface{}
 
 func (q AtlasQuery) values() url.Values {
 	values := url.Values{}
+	if q.BranchID != "" {
+		values.Set("branch_id", q.BranchID)
+	}
 	if q.RecentBuildLimit > 0 {
 		values.Set("recent_build_limit", fmt.Sprintf("%d", q.RecentBuildLimit))
 	}
@@ -5657,16 +5661,16 @@ func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string,
 	return parseResponse(resp, nil)
 }
 
-// DeviceSessionHistoryResponse represents paginated device session history.
-type DeviceSessionHistoryResponse struct {
-	Sessions []DeviceSessionHistoryItem `json:"sessions"`
-	Total    int                        `json:"total"`
-	Limit    int                        `json:"limit"`
-	Offset   int                        `json:"offset"`
+// CLIDeviceSessionHistoryResponse represents paginated device session history.
+type CLIDeviceSessionHistoryResponse struct {
+	Sessions []CLIDeviceSessionHistoryItem `json:"sessions"`
+	Total    int                           `json:"total"`
+	Limit    int                           `json:"limit"`
+	Offset   int                           `json:"offset"`
 }
 
-// DeviceSessionHistoryItem represents a single device session in the history list.
-type DeviceSessionHistoryItem struct {
+// CLIDeviceSessionHistoryItem represents a single device session in the history list.
+type CLIDeviceSessionHistoryItem struct {
 	ID              string  `json:"id"`
 	AppID           *string `json:"app_id"`
 	BuildID         *string `json:"build_id"`
@@ -5693,19 +5697,19 @@ type DeviceSessionHistoryItem struct {
 //   - offset: Number of sessions to skip for pagination
 //
 // Returns:
-//   - *DeviceSessionHistoryResponse: The paginated session history
+//   - *CLIDeviceSessionHistoryResponse: The paginated session history
 //   - error: Any error that occurred
-func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int) (*DeviceSessionHistoryResponse, error) {
+func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int) (*CLIDeviceSessionHistoryResponse, error) {
 	return c.QueryDeviceSessionHistory(ctx, url.Values{"limit": {fmt.Sprint(limit)}, "offset": {fmt.Sprint(offset)}})
 }
 
-func (c *Client) QueryDeviceSessionHistory(ctx context.Context, filters url.Values) (*DeviceSessionHistoryResponse, error) {
+func (c *Client) QueryDeviceSessionHistory(ctx context.Context, filters url.Values) (*CLIDeviceSessionHistoryResponse, error) {
 	path := "/api/v1/execution/device-sessions/history?" + filters.Encode()
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
-	var result DeviceSessionHistoryResponse
+	var result CLIDeviceSessionHistoryResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

@@ -1851,6 +1851,24 @@ func (e WorkflowStatus) Valid() bool {
 	}
 }
 
+// Defines values for CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection.
+const (
+	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionInherit CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "inherit"
+	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatest  CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "latest"
+)
+
+// Valid indicates whether the value is a known member of the CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection enum.
+func (e CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection) Valid() bool {
+	switch e {
+	case CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionInherit:
+		return true
+	case CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatest:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform.
 const (
 	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "android"
@@ -2165,10 +2183,15 @@ type ActionRange struct {
 	Start int `json:"start"`
 }
 
-// ActiveDeviceSessionItem Response model for a single active device session.
+// ActiveDeviceSessionItem Active session, with build attribution fixed to the session starting build.
 type ActiveDeviceSessionItem struct {
+	AppId                     *string                 `json:"app_id,omitempty"`
 	AppPackage                *string                 `json:"app_package,omitempty"`
 	BilledTo                  *string                 `json:"billed_to,omitempty"`
+	BranchId                  *string                 `json:"branch_id,omitempty"`
+	BranchName                *string                 `json:"branch_name,omitempty"`
+	BuildId                   *string                 `json:"build_id,omitempty"`
+	BuildVersion              *string                 `json:"build_version,omitempty"`
 	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
 	CanInteract               *bool                   `json:"can_interact,omitempty"`
 	CreatedAt                 *time.Time              `json:"created_at,omitempty"`
@@ -2269,16 +2292,18 @@ type AppPlatformCounts struct {
 
 // AppResponse Response model for an app.
 type AppResponse struct {
-	AttachedTests          *int                                      `json:"attached_tests,omitempty"`
-	AttributionReady       *bool                                     `json:"attribution_ready,omitempty"`
-	BuildsCount            *int                                      `json:"builds_count,omitempty"`
-	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
-	CreatedAt              *time.Time                                `json:"created_at,omitempty"`
-	CurrentBuildId         *openapi_types.UUID                       `json:"current_build_id,omitempty"`
-	CurrentVersion         *string                                   `json:"current_version,omitempty"`
-	DefaultBranchId        *openapi_types.UUID                       `json:"default_branch_id,omitempty"`
-	Description            *string                                   `json:"description,omitempty"`
-	ExpoSynced             *bool                                     `json:"expo_synced,omitempty"`
+	AttachedTests              *int                                      `json:"attached_tests,omitempty"`
+	AttributionReady           *bool                                     `json:"attribution_ready,omitempty"`
+	BuildsCount                *int                                      `json:"builds_count,omitempty"`
+	CloudAgentConversation     *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	CreatedAt                  *time.Time                                `json:"created_at,omitempty"`
+	CurrentBuildId             *openapi_types.UUID                       `json:"current_build_id,omitempty"`
+	CurrentVersion             *string                                   `json:"current_version,omitempty"`
+	DefaultBranchId            *openapi_types.UUID                       `json:"default_branch_id,omitempty"`
+	DefaultBranchName          *string                                   `json:"default_branch_name,omitempty"`
+	DefaultBranchPinnedBuildId *openapi_types.UUID                       `json:"default_branch_pinned_build_id,omitempty"`
+	Description                *string                                   `json:"description,omitempty"`
+	ExpoSynced                 *bool                                     `json:"expo_synced,omitempty"`
 
 	// HasAtlas Whether this app has renderable Atlas content. Populated by app collection endpoints; null when the caller did not request Atlas enrichment.
 	HasAtlas *bool `json:"has_atlas,omitempty"`
@@ -3326,11 +3351,12 @@ type BuildConfigPlatform string
 
 // BuildCreateFromUploadRequest Request to create a build from a completed staging upload.
 type BuildCreateFromUploadRequest struct {
-	BranchId   *openapi_types.UUID     `json:"branch_id,omitempty"`
-	BranchName *string                 `json:"branch_name,omitempty"`
-	Metadata   *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId          *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName        *string                 `json:"branch_name,omitempty"`
+	ContextBranchName *string                 `json:"context_branch_name,omitempty"`
+	Metadata          *map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent Compatibility-only flag; uploads never change branch pins
+	// SetAsCurrent True pins the destination branch to this build, even when the branch follows Latest. False, the default, never changes a pin; a branch with no pin uses this build because it is the newest
 	SetAsCurrent *bool `json:"set_as_current,omitempty"`
 
 	// UploadId Upload session id returned by upload-session
@@ -3352,8 +3378,9 @@ type BuildCreateResponse struct {
 
 // BuildFromUrlRequest Request to create a build by ingesting an artifact from a URL (e.g., Expo EAS).
 type BuildFromUrlRequest struct {
-	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName *string             `json:"branch_name,omitempty"`
+	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName        *string             `json:"branch_name,omitempty"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
 
 	// FingerprintHash Native dependency fingerprint for compatible artifact reuse
 	FingerprintHash *string `json:"fingerprint_hash,omitempty"`
@@ -3365,7 +3392,7 @@ type BuildFromUrlRequest struct {
 	Headers  *map[string]string      `json:"headers,omitempty"`
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent Compatibility-only flag; uploads never change branch pins
+	// SetAsCurrent True pins the destination branch to this build, even when the branch follows Latest. False, the default, never changes a pin; a branch with no pin uses this build because it is the newest
 	SetAsCurrent *bool `json:"set_as_current,omitempty"`
 
 	// Version Version string (must be unique within the app)
@@ -3444,8 +3471,9 @@ type BuildMultipartUploadResumeResponse struct {
 
 // BuildMultipartUploadStartRequest Request to start an S3 multipart upload for a large build artifact.
 type BuildMultipartUploadStartRequest struct {
-	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName *string             `json:"branch_name,omitempty"`
+	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName        *string             `json:"branch_name,omitempty"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
 
 	// FileName Name of the file to upload
 	FileName string `json:"file_name"`
@@ -3522,6 +3550,7 @@ type BuildResponse struct {
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
 	DownloadUrl            *string                                   `json:"download_url,omitempty"`
 	Id                     *openapi_types.UUID                       `json:"id,omitempty"`
+	IsBranchPinned         *bool                                     `json:"is_branch_pinned,omitempty"`
 	Metadata               *map[string]interface{}                   `json:"metadata,omitempty"`
 	Owner                  *openapi_types.UUID                       `json:"owner,omitempty"`
 	PackageName            *string                                   `json:"package_name,omitempty"`
@@ -3585,22 +3614,24 @@ type BuildStepType string
 
 // BuildUploadCompleteRequest Request to mark upload as complete.
 type BuildUploadCompleteRequest struct {
-	BranchId   *openapi_types.UUID     `json:"branch_id,omitempty"`
-	BranchName *string                 `json:"branch_name,omitempty"`
-	Metadata   *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId          *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName        *string                 `json:"branch_name,omitempty"`
+	ContextBranchName *string                 `json:"context_branch_name,omitempty"`
+	Metadata          *map[string]interface{} `json:"metadata,omitempty"`
 
 	// PackageName Package name
 	PackageName *string `json:"package_name,omitempty"`
 
-	// SetAsCurrent Compatibility-only flag; uploads never change branch pins
+	// SetAsCurrent True pins the destination branch to this build, even when the branch follows Latest. False, the default, never changes a pin; a branch with no pin uses this build because it is the newest
 	SetAsCurrent *bool              `json:"set_as_current,omitempty"`
 	VersionId    openapi_types.UUID `json:"version_id"`
 }
 
 // BuildUploadSessionRequest Request to open a staging upload session for a new build artifact.
 type BuildUploadSessionRequest struct {
-	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName *string             `json:"branch_name,omitempty"`
+	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName        *string             `json:"branch_name,omitempty"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
 
 	// FileName Name of the file to upload
 	FileName string `json:"file_name"`
@@ -3677,6 +3708,11 @@ type CheckVariableExistsResponse struct {
 
 // ChildTaskReportInfo defines model for ChildTaskReportInfo.
 type ChildTaskReportInfo struct {
+	AppId                *string  `json:"app_id,omitempty"`
+	BranchId             *string  `json:"branch_id,omitempty"`
+	BranchName           *string  `json:"branch_name,omitempty"`
+	BuildId              *string  `json:"build_id,omitempty"`
+	BuildVersion         *string  `json:"build_version,omitempty"`
 	CompletedAt          *string  `json:"completed_at,omitempty"`
 	CurrentStep          *string  `json:"current_step,omitempty"`
 	Duration             *float32 `json:"duration,omitempty"`
@@ -4225,12 +4261,14 @@ type DevicePair struct {
 	Runtime string `json:"runtime"`
 }
 
-// DeviceSessionDetailItem Detailed device session payload for the canonical session viewer.
-type DeviceSessionDetailItem struct {
+// DeviceSessionDetailResponse Session viewer detail, with build attribution fixed to its starting build.
+type DeviceSessionDetailResponse struct {
 	ActionCount               *int                                      `json:"action_count,omitempty"`
 	AppId                     *string                                   `json:"app_id,omitempty"`
 	AppName                   *string                                   `json:"app_name,omitempty"`
 	BilledTo                  *string                                   `json:"billed_to,omitempty"`
+	BranchId                  *string                                   `json:"branch_id,omitempty"`
+	BranchName                *string                                   `json:"branch_name,omitempty"`
 	BuildId                   *string                                   `json:"build_id,omitempty"`
 	BuildVersion              *string                                   `json:"build_version,omitempty"`
 	CanCancel                 *bool                                     `json:"can_cancel,omitempty"`
@@ -4266,6 +4304,55 @@ type DeviceSessionDetailItem struct {
 	WorkflowExecutionId       *string                                   `json:"workflow_execution_id,omitempty"`
 	WorkflowName              *string                                   `json:"workflow_name,omitempty"`
 	WorkflowRunId             *string                                   `json:"workflow_run_id,omitempty"`
+}
+
+// DeviceSessionHistoryItem Session history row, with build attribution fixed to its starting build.
+type DeviceSessionHistoryItem struct {
+	AppDefaultBranchId     *string                                   `json:"app_default_branch_id,omitempty"`
+	AppId                  *string                                   `json:"app_id,omitempty"`
+	AppName                *string                                   `json:"app_name,omitempty"`
+	BilledTo               *string                                   `json:"billed_to,omitempty"`
+	BranchId               *string                                   `json:"branch_id,omitempty"`
+	BranchName             *string                                   `json:"branch_name,omitempty"`
+	BuildId                *string                                   `json:"build_id,omitempty"`
+	BuildVersion           *string                                   `json:"build_version,omitempty"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+	CreatedAt                       *string                                         `json:"created_at,omitempty"`
+	DeviceModel                     *string                                         `json:"device_model,omitempty"`
+	DurationSeconds                 *float32                                        `json:"duration_seconds,omitempty"`
+	EndedAt                         *string                                         `json:"ended_at,omitempty"`
+	ErrorMessage                    *string                                         `json:"error_message,omitempty"`
+	HasVideo                        *bool                                           `json:"has_video,omitempty"`
+	Id                              string                                          `json:"id"`
+	OrgId                           string                                          `json:"org_id"`
+	OsVersion                       *string                                         `json:"os_version,omitempty"`
+	Platform                        *string                                         `json:"platform,omitempty"`
+	ReportId                        *string                                         `json:"report_id,omitempty"`
+	Source                          *string                                         `json:"source,omitempty"`
+	SourceMetadata                  *map[string]interface{}                         `json:"source_metadata,omitempty"`
+	StartedAt                       *string                                         `json:"started_at,omitempty"`
+	Status                          string                                          `json:"status"`
+	StepCount                       *int                                            `json:"step_count,omitempty"`
+	TestExecutionId                 *string                                         `json:"test_execution_id,omitempty"`
+	TestId                          *string                                         `json:"test_id,omitempty"`
+	TestName                        *string                                         `json:"test_name,omitempty"`
+	TraceId                         *string                                         `json:"trace_id,omitempty"`
+	UserEmail                       *string                                         `json:"user_email,omitempty"`
+	WorkflowExecutionId             *string                                         `json:"workflow_execution_id,omitempty"`
+	WorkflowName                    *string                                         `json:"workflow_name,omitempty"`
+	WorkflowRunId                   *string                                         `json:"workflow_run_id,omitempty"`
+}
+
+// DeviceSessionHistoryResponse Paginated device session history response.
+type DeviceSessionHistoryResponse struct {
+	Limit    int                        `json:"limit"`
+	Offset   int                        `json:"offset"`
+	OrgId    string                     `json:"org_id"`
+	Sessions []DeviceSessionHistoryItem `json:"sessions"`
+	Total    int                        `json:"total"`
 }
 
 // DeviceSessionStopResponse Separate durable stop acceptance from execution and resource completion.
@@ -4461,6 +4548,7 @@ type ExplorationLaunchRequest struct {
 	BranchName         *string                  `json:"branch_name,omitempty"`
 	BuildId            *openapi_types.UUID      `json:"build_id,omitempty"`
 	BuildSelection     *BuildSelectionMode      `json:"build_selection,omitempty"`
+	ContextBranchName  *string                  `json:"context_branch_name,omitempty"`
 	DeviceModel        *string                  `json:"device_model,omitempty"`
 	EnvVars            *map[string]string       `json:"env_vars,omitempty"`
 	IdleTimeoutSeconds *int                     `json:"idle_timeout_seconds,omitempty"`
@@ -4491,6 +4579,10 @@ type ExplorationLaunchResponse struct {
 type ExplorationRunReportChild struct {
 	AppId         *string    `json:"app_id,omitempty"`
 	AppName       *string    `json:"app_name,omitempty"`
+	BranchId      *string    `json:"branch_id,omitempty"`
+	BranchName    *string    `json:"branch_name,omitempty"`
+	BuildId       *string    `json:"build_id,omitempty"`
+	BuildVersion  *string    `json:"build_version,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	DeviceModel   *string    `json:"device_model,omitempty"`
 	Duration      *float32   `json:"duration,omitempty"`
@@ -4526,7 +4618,10 @@ type ExplorationRunReportResponse struct {
 type ExplorationRunResponse struct {
 	AppId           string                        `json:"app_id"`
 	AtlasStatus     string                        `json:"atlas_status"`
+	BranchId        *string                       `json:"branch_id,omitempty"`
+	BranchName      *string                       `json:"branch_name,omitempty"`
 	BuildId         *string                       `json:"build_id,omitempty"`
+	BuildVersion    *string                       `json:"build_version,omitempty"`
 	CompletedAt     *time.Time                    `json:"completed_at,omitempty"`
 	Config          *map[string]interface{}       `json:"config,omitempty"`
 	CreatedAt       time.Time                     `json:"created_at"`
@@ -5846,11 +5941,13 @@ type RemoteBuildLogsResponse struct {
 
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
 type RemoteBuildPhaseTiming struct {
-	CompletedAt *time.Time              `json:"completed_at,omitempty"`
-	DurationMs  *int                    `json:"duration_ms,omitempty"`
-	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
-	Phase       string                  `json:"phase"`
-	StartedAt   time.Time               `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	DurationMs  *int       `json:"duration_ms,omitempty"`
+
+	// Metadata Extensible runner-supplied phase metadata.
+	Metadata  *map[string]interface{} `json:"metadata,omitempty"`
+	Phase     string                  `json:"phase"`
+	StartedAt time.Time               `json:"started_at"`
 }
 
 // RemoteBuildRequest Request body to trigger a remote build.
@@ -5863,7 +5960,8 @@ type RemoteBuildRequest struct {
 	CleanBuild          *bool   `json:"clean_build,omitempty"`
 
 	// Config Sandbox build configuration stored by the API and used by build jobs.
-	Config *BuildConfig `json:"config,omitempty"`
+	Config            *BuildConfig `json:"config,omitempty"`
+	ContextBranchName *string      `json:"context_branch_name,omitempty"`
 
 	// Image Optional sandbox build image key. Defaults to latest.
 	Image *string `json:"image,omitempty"`
@@ -5953,6 +6051,7 @@ type RemoteBuildStatusResponse struct {
 	AppId                  *string                                   `json:"app_id,omitempty"`
 	ArtifactType           *string                                   `json:"artifact_type,omitempty"`
 	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
+	BranchName             *string                                   `json:"branch_name,omitempty"`
 	CandidateArtifacts     *[]string                                 `json:"candidate_artifacts,omitempty"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
 	CompletedAt            *time.Time                                `json:"completed_at,omitempty"`
@@ -6016,6 +6115,7 @@ type RemoteBuildStepStatus string
 //	is_active: Whether the build is still queued or running.
 type RemoteBuildSummary struct {
 	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
+	BranchName             *string                                   `json:"branch_name,omitempty"`
 	BuildId                *string                                   `json:"build_id,omitempty"`
 	BuildJobId             string                                    `json:"build_job_id"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
@@ -6080,7 +6180,10 @@ type ReportContextActionResponse struct {
 
 // ReportContextResponse Canonical high-context report payload for CLI JSON consumption.
 type ReportContextResponse struct {
+	AppId        *string    `json:"app_id,omitempty"`
 	AppName      *string    `json:"app_name,omitempty"`
+	BranchId     *string    `json:"branch_id,omitempty"`
+	BranchName   *string    `json:"branch_name,omitempty"`
 	BuildVersion *string    `json:"build_version,omitempty"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 	CreatedAt    *string    `json:"created_at,omitempty"`
@@ -6118,6 +6221,7 @@ type ReportContextResponse struct {
 	PerfettoTraceUrl       *string                      `json:"perfetto_trace_url,omitempty"`
 	Platform               *string                      `json:"platform,omitempty"`
 	ReportUrl              *string                      `json:"report_url,omitempty"`
+	ResolvedBuildId        *string                      `json:"resolved_build_id,omitempty"`
 	ScreenHeight           *int                         `json:"screen_height,omitempty"`
 	ScreenWidth            *int                         `json:"screen_width,omitempty"`
 	SessionId              *string                      `json:"session_id,omitempty"`
@@ -6382,10 +6486,11 @@ type StartDeviceInfo struct {
 	BranchName *string             `json:"branch_name,omitempty"`
 
 	// BuildId Specific `builds` table row UUID. When provided, the backend uses this exact build instead of resolving the latest build for the given `app_id`.
-	BuildId        *openapi_types.UUID `json:"build_id,omitempty"`
-	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
-	DeviceLocal    *bool               `json:"device_local,omitempty"`
-	DeviceModel    *string             `json:"device_model,omitempty"`
+	BuildId           *openapi_types.UUID `json:"build_id,omitempty"`
+	BuildSelection    *BuildSelectionMode `json:"build_selection,omitempty"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	DeviceLocal       *bool               `json:"device_local,omitempty"`
+	DeviceModel       *string             `json:"device_model,omitempty"`
 
 	// DeviceRunnerId Optional worker DEVICE_ID label to require for direct device sessions.
 	DeviceRunnerId *string            `json:"device_runner_id,omitempty"`
@@ -6575,8 +6680,9 @@ type TaskID struct {
 	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
 
 	// BuildVersionId Override the build to use for this test execution. If provided, this will override the build attached to the test.
-	BuildVersionId *openapi_types.UUID `json:"build_version_id,omitempty"`
-	DeviceLocal    *bool               `json:"device_local,omitempty"`
+	BuildVersionId    *openapi_types.UUID `json:"build_version_id,omitempty"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	DeviceLocal       *bool               `json:"device_local,omitempty"`
 
 	// DeviceModel Override the target device model for this execution
 	DeviceModel  *string `json:"device_model,omitempty"`
@@ -6791,12 +6897,17 @@ type TestEnhancedHistoryResponse struct {
 // When queried via test_executions_full view, includes status and timing
 // from device_sessions (the source of truth for state).
 type TestExecutionTasksEnhanced struct {
-	CompletedAt          *time.Time `json:"completed_at,omitempty"`
-	CreatedAt            *time.Time `json:"created_at,omitempty"`
-	CurrentStep          *string    `json:"current_step,omitempty"`
-	CurrentStepIndex     *int       `json:"current_step_index,omitempty"`
-	ErrorMessage         *string    `json:"error_message,omitempty"`
-	ExecutionTimeSeconds *float32   `json:"execution_time_seconds,omitempty"`
+	AppId                *openapi_types.UUID `json:"app_id,omitempty"`
+	BranchId             *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName           *string             `json:"branch_name,omitempty"`
+	BuildId              *openapi_types.UUID `json:"build_id,omitempty"`
+	BuildVersion         *string             `json:"build_version,omitempty"`
+	CompletedAt          *time.Time          `json:"completed_at,omitempty"`
+	CreatedAt            *time.Time          `json:"created_at,omitempty"`
+	CurrentStep          *string             `json:"current_step,omitempty"`
+	CurrentStepIndex     *int                `json:"current_step_index,omitempty"`
+	ErrorMessage         *string             `json:"error_message,omitempty"`
+	ExecutionTimeSeconds *float32            `json:"execution_time_seconds,omitempty"`
 
 	// Id Execution ID (primary key)
 	Id                  openapi_types.UUID      `json:"id"`
@@ -7599,52 +7710,6 @@ type WorkflowsBaseSchema struct {
 	UpdatedAt          *time.Time `json:"updated_at,omitempty"`
 }
 
-// AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem Single row in the device session history listing.
-type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem struct {
-	AppId                  *string                                   `json:"app_id,omitempty"`
-	AppName                *string                                   `json:"app_name,omitempty"`
-	BilledTo               *string                                   `json:"billed_to,omitempty"`
-	BuildId                *string                                   `json:"build_id,omitempty"`
-	BuildVersion           *string                                   `json:"build_version,omitempty"`
-	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
-
-	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
-	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
-	CreatedAt                       *string                                         `json:"created_at,omitempty"`
-	DeviceModel                     *string                                         `json:"device_model,omitempty"`
-	DurationSeconds                 *float32                                        `json:"duration_seconds,omitempty"`
-	EndedAt                         *string                                         `json:"ended_at,omitempty"`
-	ErrorMessage                    *string                                         `json:"error_message,omitempty"`
-	HasVideo                        *bool                                           `json:"has_video,omitempty"`
-	Id                              string                                          `json:"id"`
-	OrgId                           string                                          `json:"org_id"`
-	OsVersion                       *string                                         `json:"os_version,omitempty"`
-	Platform                        *string                                         `json:"platform,omitempty"`
-	ReportId                        *string                                         `json:"report_id,omitempty"`
-	Source                          *string                                         `json:"source,omitempty"`
-	SourceMetadata                  *map[string]interface{}                         `json:"source_metadata,omitempty"`
-	StartedAt                       *string                                         `json:"started_at,omitempty"`
-	Status                          string                                          `json:"status"`
-	StepCount                       *int                                            `json:"step_count,omitempty"`
-	TestExecutionId                 *string                                         `json:"test_execution_id,omitempty"`
-	TestId                          *string                                         `json:"test_id,omitempty"`
-	TestName                        *string                                         `json:"test_name,omitempty"`
-	TraceId                         *string                                         `json:"trace_id,omitempty"`
-	UserEmail                       *string                                         `json:"user_email,omitempty"`
-	WorkflowExecutionId             *string                                         `json:"workflow_execution_id,omitempty"`
-	WorkflowName                    *string                                         `json:"workflow_name,omitempty"`
-	WorkflowRunId                   *string                                         `json:"workflow_run_id,omitempty"`
-}
-
-// AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse Paginated device session history response.
-type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse struct {
-	Limit    int                                                           `json:"limit"`
-	Offset   int                                                           `json:"offset"`
-	OrgId    string                                                        `json:"org_id"`
-	Sessions []AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem `json:"sessions"`
-	Total    int                                                           `json:"total"`
-}
-
 // AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata defines model for app__routes__workflow_routes__workflow_share_xpt__StepMetadata.
 type AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata struct {
 	ActionType  string  `json:"action_type"`
@@ -7676,7 +7741,9 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	// Attributes:
 	//     ios_app: Optional iOS app override configuration.
 	//     android_app: Optional Android app override configuration.
-	BuildConfig *WorkflowAppConfig `json:"build_config,omitempty"`
+	BuildConfig       *WorkflowAppConfig                                            `json:"build_config,omitempty"`
+	BuildSelection    *CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection `json:"build_selection,omitempty"`
+	ContextBranchName *string                                                       `json:"context_branch_name,omitempty"`
 
 	// LaunchArguments Inline iOS app arguments in exact token order. Stored argument sets are applied first; these tokens are appended afterward.
 	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
@@ -7697,6 +7764,9 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	VariableOverrides *map[string]string `json:"variable_overrides,omitempty"`
 	WorkflowId        openapi_types.UUID `json:"workflow_id"`
 }
+
+// CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection defines model for CognisimSchemasSchemasDeviceSchemaWorkflowInfo.BuildSelection.
+type CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection string
 
 // ListAppsApiV1AppsGetParams defines parameters for ListAppsApiV1AppsGet.
 type ListAppsApiV1AppsGetParams struct {
@@ -7773,6 +7843,9 @@ type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
 
 // ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
 type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
+	BranchId   *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	BranchName *string             `form:"branch_name,omitempty" json:"branch_name,omitempty"`
+
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
 
@@ -7787,6 +7860,9 @@ type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 
 	// Search Search by version name or package name
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// ExactVersion Filter by the exact version across all build kinds (requires include_jobs=false)
+	ExactVersion *string `form:"exact_version,omitempty" json:"exact_version,omitempty"`
 
 	// AttributedToCloudAgentConversationId Filter the build/job collection by cloud-agent conversation (requires include_jobs=true)
 	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
@@ -7822,9 +7898,10 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	Version string `form:"version" json:"version"`
 
 	// FileName Name of the file to upload
-	FileName   string              `form:"file_name" json:"file_name"`
-	BranchId   *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
-	BranchName *string             `form:"branch_name,omitempty" json:"branch_name,omitempty"`
+	FileName          string              `form:"file_name" json:"file_name"`
+	BranchId          *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	BranchName        *string             `form:"branch_name,omitempty" json:"branch_name,omitempty"`
+	ContextBranchName *string             `form:"context_branch_name,omitempty" json:"context_branch_name,omitempty"`
 
 	// Source Build upload source for backend-owned lifecycle analytics
 	Source                                 *string `form:"source,omitempty" json:"source,omitempty"`
@@ -8095,6 +8172,7 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	UserId                               *string               `form:"user_id,omitempty" json:"user_id,omitempty"`
 	AttributedToCloudAgentConversationId *openapi_types.UUID   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 	AppId                                *openapi_types.UUID   `form:"app_id,omitempty" json:"app_id,omitempty"`
+	BranchId                             *openapi_types.UUID   `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 }
 
 // StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPostParams defines parameters for StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPost.
@@ -8227,6 +8305,8 @@ type GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams struct {
 	Status                               *string             `form:"status,omitempty" json:"status,omitempty"`
 	SortOrder                            *string             `form:"sort_order,omitempty" json:"sort_order,omitempty"`
 	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+	AppId                                *openapi_types.UUID `form:"app_id,omitempty" json:"app_id,omitempty"`
+	BranchId                             *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 }
 
 // GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams defines parameters for GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGet.

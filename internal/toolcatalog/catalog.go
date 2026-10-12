@@ -98,7 +98,7 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 			case "surface-scope":
 				parameter.Enum = []string{"all", "app", "app+system", "app+external"}
 			}
-			if name == "session-id" || name == "app" || name == "observation" || name == "report-id" || name == "test-id" || name == "client-request-id" || name == "base-build" || name == "head-build" {
+			if name == "session-id" || name == "app" || name == "branch-id" || name == "observation" || name == "report-id" || name == "test-id" || name == "client-request-id" || name == "base-build" || name == "head-build" {
 				parameter.Format = "uuid"
 			}
 			if name == "reports" {
@@ -139,6 +139,15 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 	return definitions, nil
 }
 
+func (d Definition) parameterDefault(key string, parameter Parameter, input map[string]any) any {
+	if key == "build" && strings.HasPrefix(d.Name, "atlas.") {
+		if branchID, ok := input["branch_id"].(string); ok && branchID != "" {
+			return nil
+		}
+	}
+	return parameter.Default
+}
+
 func (d Definition) Arguments(input map[string]any) ([]string, error) {
 	for key := range input {
 		if _, ok := d.InputSchema.Properties[key]; !ok {
@@ -149,7 +158,7 @@ func (d Definition) Arguments(input map[string]any) ([]string, error) {
 	for key, parameter := range d.InputSchema.Properties {
 		value, present := input[key]
 		if !present {
-			value = parameter.Default
+			value = d.parameterDefault(key, parameter, input)
 		}
 		if value != nil {
 			if err := validate(parameter, value); err != nil {

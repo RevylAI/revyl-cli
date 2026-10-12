@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,17 +122,24 @@ func TestResolveDevBuildJobID_Immediate(t *testing.T) {
 	}
 }
 
+type devLogsPollingContext struct {
+	context.Context
+	pollStarted chan struct{}
+	pollOnce    sync.Once
+}
+
+func (ctx *devLogsPollingContext) Done() <-chan struct{} {
+	// The resolver evaluates Done after reading the unregistered snapshot.
+	ctx.pollOnce.Do(func() { close(ctx.pollStarted) })
+	return ctx.Context.Done()
+}
+
 func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	previousInterval := devLogsJobPollInterval
 	devLogsJobPollInterval = time.Millisecond
 	t.Cleanup(func() { devLogsJobPollInterval = previousInterval })
 
 	cwd := t.TempDir()
-	// `revyl dev logs --follow` only runs against a live dev context, and the
-	// goroutine below replaces the status file while the resolver polls it.
-	// Without registering the context as running, the resolver cannot treat a
-	// concurrent-replace read failure as transient, which made this flaky on
-	// Windows where os.Rename is not atomic for readers.
 	writeDevLogsTestRunningContext(t, cwd, "default")
 	status := devStatus{
 		PID:       os.Getpid(),
@@ -145,25 +153,33 @@ func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	writeDevLogsTestStatus(t, cwd, "default", status)
 	statusPath := devCtxStatusPath(cwd, "default")
 
-	registrationDone := make(chan struct{})
+	parent, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx := &devLogsPollingContext{Context: parent, pollStarted: make(chan struct{})}
+	resolutionDone := make(chan struct{})
+	var jobID string
+	var resolveErr error
+	t.Cleanup(func() {
+		cancel()
+		<-resolutionDone
+	})
 	go func() {
-		defer close(registrationDone)
-		time.Sleep(10 * time.Millisecond)
-		setDevStatusSeedInstalled(statusPath, "1.2.3")
-		setDevStatusRemoteJobID(statusPath, "job-delayed")
+		defer close(resolutionDone)
+		jobID, resolveErr = resolveDevBuildJobID(ctx, cwd, "default", true, 0)
 	}()
 
-	jobID, err := resolveDevBuildJobID(context.Background(), cwd, "default", true, time.Second)
-	if err != nil {
-		t.Fatalf("resolveDevBuildJobID() error = %v", err)
+	select {
+	case <-ctx.pollStarted:
+	case <-resolutionDone:
+		t.Fatalf("resolver returned before registration: jobID=%q, error=%v", jobID, resolveErr)
+	}
+	setDevStatusSeedInstalled(statusPath, "1.2.3")
+	setDevStatusRemoteJobID(statusPath, "job-delayed")
+	<-resolutionDone
+	if resolveErr != nil {
+		t.Fatalf("resolveDevBuildJobID() error = %v", resolveErr)
 	}
 	if jobID != "job-delayed" {
 		t.Fatalf("resolveDevBuildJobID() = %q, want job-delayed", jobID)
-	}
-	select {
-	case <-registrationDone:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for build registration writer")
 	}
 	data, err := os.ReadFile(statusPath.String())
 	if err != nil {

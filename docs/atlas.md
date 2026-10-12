@@ -97,7 +97,7 @@ is an alias for `--runtime`. Values match the model and OS runtime recorded on
 Atlas evidence exactly, including case, and combined filters use AND semantics.
 The active criteria are returned in `projection`, available choices are returned
 in `facets.device_targets`, and suggested Atlas follow-up commands preserve the
-active build, time, device, and runtime scope.
+active branch, build, time, device, and runtime scope.
 
 Graph-backed reads accept `--recent-build-limit 20` to match the product's
 Recent view (the latest 20 builds, not the latest build or a rolling date window).

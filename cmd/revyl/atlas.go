@@ -227,6 +227,7 @@ func init() {
 }
 
 func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
+	cmd.Flags().String("branch-id", "", "Filter Atlas evidence to a Revyl branch ID")
 	cmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
 	cmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
 	cmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp)")
@@ -356,6 +357,24 @@ func resolveAtlasBuild(cmd *cobra.Command, client *api.Client, appID string, bui
 	return build, nil
 }
 
+func resolveAtlasScope(cmd *cobra.Command, client *api.Client, app *api.App) (string, string, error) {
+	branchID, _ := cmd.Flags().GetString("branch-id")
+	if branchID == "" {
+		buildID, err := resolveAtlasBuild(cmd, client, app.ID, atlasBuild)
+		return "", buildID, err
+	}
+	if _, err := uuid.Parse(branchID); err != nil {
+		return "", "", fmt.Errorf("branch ID must be a UUID")
+	}
+	if !cmd.Flags().Changed("build") {
+		return branchID, "", nil
+	}
+	if _, err := uuid.Parse(atlasBuild); err != nil {
+		return "", "", fmt.Errorf("with --branch-id, omit --build for branch evidence or pass an exact build UUID")
+	}
+	return branchID, atlasBuild, nil
+}
+
 func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api.App, error) {
 	if atlasRecentBuildLimit < 0 || atlasRecentBuildLimit > 100 {
 		return api.AtlasQuery{}, nil, fmt.Errorf("recent-build-limit must be between 0 and 100")
@@ -364,7 +383,7 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 	if err != nil {
 		return api.AtlasQuery{}, nil, err
 	}
-	buildID, err := resolveAtlasBuild(cmd, client, app.ID, atlasBuild)
+	branchID, buildID, err := resolveAtlasScope(cmd, client, app)
 	if err != nil {
 		return api.AtlasQuery{}, nil, err
 	}
@@ -375,6 +394,7 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 	includeVariants := atlasIncludeVariants
 	return api.AtlasQuery{
 		AppID:               app.ID,
+		BranchID:            branchID,
 		BuildID:             buildID,
 		RecentBuildLimit:    atlasRecentBuildLimit,
 		ReportID:            atlasReportID,
@@ -1777,6 +1797,13 @@ func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
 	result := map[string]interface{}{
 		"data_source": projection["data_source"],
 	}
+	branchID := atlasString(graph, "branch_id")
+	if branchID == "" {
+		branchID = atlasString(projection, "branch_id")
+	}
+	if branchID != "" {
+		result["branch_id"] = branchID
+	}
 	for _, key := range []string{
 		"requested_build_id",
 		"from_time",
@@ -1795,6 +1822,9 @@ func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
 func atlasEvidenceProjection(query api.AtlasQuery) map[string]interface{} {
 	result := map[string]interface{}{
 		"data_source": "evidence",
+	}
+	if query.BranchID != "" {
+		result["branch_id"] = query.BranchID
 	}
 	if query.DeviceModel != "" {
 		result["device_model"] = query.DeviceModel
@@ -1821,6 +1851,7 @@ func atlasScopeFlagSuffix(graph api.AtlasResponse) string {
 		key  string
 		flag string
 	}{
+		{"branch_id", "--branch-id"},
 		{"requested_build_id", "--build"},
 		{"from_time", "--from"},
 		{"to_time", "--to"},
@@ -2234,7 +2265,7 @@ func buildAtlasAreaGraph(app *api.App, graph api.AtlasResponse, area string) map
 		"internal_edges":   internalCount,
 		"boundary_edges":   boundaryCount,
 		"available_areas":  availableAreas,
-		"next_actions":     atlasAreaNextActionsForApp(matches, appID),
+		"next_actions":     atlasScopedNextActions(graph, atlasAreaNextActionsForApp(matches, appID)),
 	}
 }
 

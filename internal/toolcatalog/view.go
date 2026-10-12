@@ -45,8 +45,8 @@ func (d Definition) View(input map[string]any) (View, error) {
 	}
 	arguments := map[string]any{}
 	for key, parameter := range d.InputSchema.Properties {
-		if parameter.Default != nil {
-			arguments[key] = parameter.Default
+		if value := d.parameterDefault(key, parameter, input); value != nil {
+			arguments[key] = value
 		}
 	}
 	for key, value := range input {
