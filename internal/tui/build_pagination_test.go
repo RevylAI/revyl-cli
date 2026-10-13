@@ -154,6 +154,88 @@ func TestBuildPickerLoadingBranchesKeepsAllBranchesSelected(t *testing.T) {
 	}
 }
 
+const pickerThirdBranchID = "00000000-0000-0000-0000-000000000005"
+
+func TestBuildPickerReloadsLoadedPagesWhenAPageRepeatsABranch(t *testing.T) {
+	mainRow := fmt.Sprintf(`{"id":%q,"name":"main"}`, pickerBranchID)
+	otherRow := fmt.Sprintf(`{"id":%q,"name":"other"}`, pickerOtherBranchID)
+	thirdRow := fmt.Sprintf(`{"id":%q,"name":"third"}`, pickerThirdBranchID)
+	for _, tc := range []struct{ name, reloadedPageTwo string }{
+		{"reload lists the branch that moved up", otherRow},
+		{"reload that repeats again loads nothing more", thirdRow + "," + otherRow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rowsByPage := map[string][]string{
+				"1": {mainRow + "," + otherRow, mainRow + "," + thirdRow},
+				"2": {otherRow, tc.reloadedPageTwo},
+			}
+			var pages []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/apps/" + pickerAppID:
+					fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, pickerAppID, pickerBranchID)
+				case "/api/v1/apps/" + pickerAppID + "/branches/" + pickerBranchID:
+					fmt.Fprint(w, mainRow)
+				case "/api/v1/apps/" + pickerAppID + "/branches":
+					page := r.URL.Query().Get("page")
+					pages = append(pages, page)
+					if len(rowsByPage[page]) == 0 {
+						t.Errorf("unexpected branch page read: %s", r.URL)
+						http.NotFound(w, r)
+						return
+					}
+					fmt.Fprintf(w, `{"branches":[%s],"total_pages":2}`, rowsByPage[page][0])
+					rowsByPage[page] = rowsByPage[page][1:]
+				default:
+					t.Errorf("unexpected request: %s", r.URL)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			m := newBuildPicker(api.NewClientWithBaseURL("test", server.URL), pickerAppID, "Branch")
+			m.branchOnly = true
+			m, _ = m.Update(m.Init()())
+			if m.err != nil || !m.moreBranches {
+				t.Fatalf("first branch page unavailable: err=%v", m.err)
+			}
+			m, _ = pickerKey(m, tea.KeyDown)
+			m, cmd := m.Update(keyRune('m'))
+			m, cmd = m.Update(cmd())
+			if !m.loading || cmd == nil {
+				t.Fatal("a page repeating a listed branch must reload the loaded pages")
+			}
+			m, cmd = m.Update(cmd())
+			if cmd != nil || m.loading || m.err != nil || m.moreBranches {
+				t.Fatalf("a reload must finish the load without loading again: err=%v", m.err)
+			}
+			var ids []string
+			for _, branch := range m.branches {
+				ids = append(ids, branch.ID)
+			}
+			if !reflect.DeepEqual(ids, []string{pickerBranchID, pickerThirdBranchID, pickerOtherBranchID}) || !reflect.DeepEqual(pages, []string{"1", "2", "1", "2"}) {
+				t.Fatalf("reload must list each branch once, from page 1 on: ids=%v, pages=%v", ids, pages)
+			}
+			m, _ = pickerKey(m, tea.KeyEnter)
+			if !m.done || m.selection.BranchID != pickerOtherBranchID {
+				t.Fatalf("reload moved the cursor off the chosen branch: %#v", m.selection)
+			}
+		})
+	}
+}
+
+func TestMergeBranchPageKeepsTheFirstListingAndReportsARepeat(t *testing.T) {
+	listed := []api.BuildBranch{{ID: pickerBranchID, Name: "main"}, {ID: pickerOtherBranchID, Name: "other"}}
+	third := api.BuildBranch{ID: pickerThirdBranchID, Name: "third"}
+	merged, repeated := mergeBranchPage(listed, []api.BuildBranch{{ID: pickerOtherBranchID, Name: "other, read again"}, third})
+	if !repeated || !reflect.DeepEqual(merged, []api.BuildBranch{listed[0], listed[1], third}) {
+		t.Fatalf("a repeat must keep the first listing and be reported: merged=%v, repeated=%v", merged, repeated)
+	}
+	if _, repeated := mergeBranchPage(listed, []api.BuildBranch{third}); repeated {
+		t.Fatal("a page of unlisted branches reported a repeat")
+	}
+}
+
 func TestAppBuildListLoadsOnePageAndRetainsChoicesOnPageFailure(t *testing.T) {
 	t.Chdir(t.TempDir())
 	branchReads := 0

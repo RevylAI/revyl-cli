@@ -127,7 +127,9 @@ revyl app branch rename staging release --app "My App"
 ```
 
 The list shows the app's default branch first, marked `(default)` in the table
-and `is_default` in JSON. **DEFAULT BUILD** shows the branch's default build:
+and `is_default` in JSON, then the other branches by latest activity: a new
+build, a pin or unpin, or a rename moves a branch up. **DEFAULT BUILD** shows
+the branch's default build:
 **Latest build** with the version a run uses now, such as
 `Latest build (v4)`, or the exact build's version. **BUILD ID** is the build a
 run on the branch uses now, or `-` when it has no builds. Unpinning, or
@@ -217,9 +219,9 @@ for a run. Those actions keep their explicit, saved, and default selections.
 
 Pickers that choose a run, a saved selection, or an upload destination show the
 app's default branch once, as `Default branch (base)` with its default build,
-followed by the other branches. A selection that already names the default
-branch keeps that branch's own row. The build choice after a branch is
-**Automatic**, **Latest build**, or **Exact build**.
+followed by the other branches, most recently active first. A selection that
+already names the default branch keeps that branch's own row. The build choice
+after a branch is **Automatic**, **Latest build**, or **Exact build**.
 
 Branch pickers, exact-build pickers, and the app's build list show one page at a
 time. Press `m` to load more choices. Press `/`, type a search, then press Enter
@@ -361,7 +363,7 @@ build IDs must belong to the same app, and you must have access to it.
 
 | Operation | API |
 | --- | --- |
-| List/create branches | `GET` / `POST /api/v1/apps/{app_id}/branches`. The list puts the app default first (`is_default`), then the newest, and gives each branch the build Latest would use (`latest_build`, `null` when there is none); it takes `search` (part of the name, any case), `name` (exact), `page` and `page_size` (up to 100). Create body: `{"name":"staging"}`. |
+| List/create branches | `GET` / `POST /api/v1/apps/{app_id}/branches`. The list puts the app default first (`is_default`), then the most recently active, and gives each branch the build Latest would use (`latest_build`, `null` when there is none); it takes `search` (part of the name, any case), `name` (exact), `page` and `page_size` (up to 100). Because the order follows recent activity, a script walking every page should start again from page 1 when a page repeats a branch. Create body: `{"name":"staging"}`. |
 | Read/rename a branch | `GET` / `PATCH /api/v1/apps/{app_id}/branches/{branch_id}`; rename body: `{"name":"release"}`. |
 | Pin/unpin a branch's default build | Same branch `PATCH`, with `pinned_build_id` set to a build UUID or explicit `null`. |
 | Change app default | `PATCH /api/v1/apps/{app_id}` with `default_branch_id`. |

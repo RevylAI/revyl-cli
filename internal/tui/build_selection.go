@@ -54,7 +54,7 @@ type buildPickerModel struct {
 type buildPickerDataMsg struct {
 	id                   string
 	page                 int
-	hasNext              bool
+	hasNext, reloaded    bool
 	branches             []api.BuildBranch
 	builds               []api.BuildVersion
 	defaultBranch        *api.BuildBranch
@@ -78,25 +78,49 @@ func (m buildPickerModel) Init() tea.Cmd {
 
 func (m buildPickerModel) fetchBranches(page int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		msg := buildPickerDataMsg{id: m.id, page: page, defaultBranch: m.defaultBranch}
-		if page == 1 && !m.allowAll {
-			branch, err := m.client.ResolveBranch(ctx, m.appID, "", "")
-			if err != nil {
-				msg.err = err
-				return msg
+		return m.readBranchPage(page)
+	}
+}
+
+func (m buildPickerModel) reloadBranches(through int) tea.Cmd {
+	return func() tea.Msg {
+		reload := buildPickerDataMsg{id: m.id, reloaded: true}
+		for page := 1; ; page++ {
+			data := m.readBranchPage(page)
+			if data.err != nil {
+				return data
 			}
-			msg.defaultBranch = branch
+			if page == 1 {
+				reload.defaultBranch = data.defaultBranch
+			}
+			reload.branches = append(reload.branches, data.branches...)
+			reload.page, reload.hasNext = page, data.hasNext
+			if page >= through || !data.hasNext {
+				return reload
+			}
 		}
-		result, err := m.client.ListBuildBranches(ctx, m.appID, api.BranchListOptions{Page: page, PageSize: 100, Search: m.branchSearch})
+	}
+}
+
+func (m buildPickerModel) readBranchPage(page int) buildPickerDataMsg {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	msg := buildPickerDataMsg{id: m.id, page: page, defaultBranch: m.defaultBranch}
+	if page == 1 && !m.allowAll {
+		branch, err := m.client.ResolveBranch(ctx, m.appID, "", "")
 		if err != nil {
 			msg.err = err
 			return msg
 		}
-		msg.branches, msg.hasNext = result.Branches, page < result.TotalPages
+		msg.defaultBranch = branch
+	}
+	result, err := m.client.ListBuildBranches(ctx, m.appID, api.BranchListOptions{Page: page, PageSize: 100, Search: m.branchSearch})
+	if err != nil {
+		msg.err = err
 		return msg
 	}
+	msg.branches, msg.hasNext = result.Branches, page < result.TotalPages
+	return msg
 }
 
 func (m buildPickerModel) fetchBuilds() tea.Cmd {
@@ -157,6 +181,22 @@ func (m buildPickerModel) options() []string {
 	}
 }
 
+func mergeBranchPage(listed, page []api.BuildBranch) (merged []api.BuildBranch, repeated bool) {
+	listedIDs := make(map[string]struct{}, len(listed)+len(page))
+	for _, branch := range listed {
+		listedIDs[branch.ID] = struct{}{}
+	}
+	for _, branch := range page {
+		if _, ok := listedIDs[branch.ID]; ok {
+			repeated = true
+			continue
+		}
+		listedIDs[branch.ID] = struct{}{}
+		listed = append(listed, branch)
+	}
+	return listed, repeated
+}
+
 func (m buildPickerModel) isDefaultBranch(branch api.BuildBranch) bool {
 	return m.defaultBranch != nil && branch.ID == m.defaultBranch.ID || branch.IsDefault != nil && *branch.IsDefault
 }
@@ -191,6 +231,22 @@ func (m buildPickerModel) branchRows() []api.BuildBranch {
 	return rows
 }
 
+func (m buildPickerModel) cursorBranchID() string {
+	if m.cursor == 0 {
+		return ""
+	}
+	return m.branchRows()[m.cursor-1].ID
+}
+
+func (m buildPickerModel) cursorForBranch(branchID string) int {
+	for i, branch := range m.branchRows() {
+		if branch.ID == branchID {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 	if data, ok := msg.(buildPickerDataMsg); ok {
 		if data.id != m.id {
@@ -201,12 +257,9 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		if data.err != nil {
 			return m, nil
 		}
-		if data.page <= 1 {
-			m.cursor = 0
-		}
 		if m.step == buildPickerExact {
 			if data.page <= 1 {
-				m.builds = nil
+				m.builds, m.cursor = nil, 0
 			}
 			m.builds = append(m.builds, data.builds...)
 			m.buildPage, m.moreBuilds = max(1, data.page), data.hasNext
@@ -215,13 +268,25 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 			if data.branchName != "" {
 				m.label = data.branchName
 			}
-		} else {
-			if data.page <= 1 {
-				m.branches = nil
-			}
-			m.branches = append(m.branches, data.branches...)
-			m.defaultBranch = data.defaultBranch
-			m.branchPage, m.moreBranches = max(1, data.page), data.hasNext
+			return m, nil
+		}
+		listed := m.branches
+		if data.page <= 1 || data.reloaded {
+			listed = nil
+		}
+		merged, repeated := mergeBranchPage(listed, data.branches)
+		// Activity only moves branches up, so a repeat means rows crossed a page boundary.
+		if repeated && data.page > 1 && !data.reloaded {
+			m.loading = true
+			return m, m.reloadBranches(data.page)
+		}
+		previous := m
+		m.branches, m.defaultBranch = merged, data.defaultBranch
+		m.branchPage, m.moreBranches = max(1, data.page), data.hasNext
+		if data.reloaded {
+			m.cursor = m.cursorForBranch(previous.cursorBranchID())
+		} else if data.page <= 1 {
+			m.cursor = 0
 		}
 		return m, nil
 	}

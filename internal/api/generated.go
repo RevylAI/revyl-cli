@@ -3304,9 +3304,9 @@ type BuildBranchListItem struct {
 
 // BuildBranchListResponse One page of an app's branches.
 //
-// The app's default branch comes first, then the rest newest created first,
-// ties broken by id, so pages never overlap or skip a branch. A search
-// narrows the pages and the counts alike.
+// The app's default branch comes first, then the rest most recently active
+// first: created, renamed, pinned, unpinned or given a build. Ties break by
+// id. A search narrows the pages and the counts alike.
 type BuildBranchListResponse struct {
 	Branches *[]BuildBranchListItem `json:"branches,omitempty"`
 
