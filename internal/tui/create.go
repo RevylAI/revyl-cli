@@ -392,7 +392,7 @@ func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	case "b":
 		if app := m.selectedApp(); app != nil && m.client != nil {
 			picker := newBuildPicker(m.client, app.ID, "Saved test build")
-			picker.currentBranchID = m.buildSelection.BranchID
+			picker.currentBranchID, picker.offerAllBranches = m.buildSelection.BranchID, true
 			m.buildPicker = &picker
 			return m, picker.Init()
 		}
@@ -502,7 +502,7 @@ func appBranchLabel(app api.App) string {
 	}
 	defaultBuild := "Latest build"
 	if app.DefaultBranchPinnedBuildID != "" {
-		defaultBuild = "Exact build"
+		defaultBuild = "Pinned build"
 	}
 	return branch + " (default) · " + defaultBuild
 }

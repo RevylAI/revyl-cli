@@ -78,6 +78,7 @@ var exploreCancelCmd = &cobra.Command{
 var (
 	exploreBranchName            string
 	exploreBuildSelection        string
+	exploreAllBranches           bool
 	exploreBuildID               string
 	explorePlatform              string
 	exploreExplorerCount         int
@@ -101,7 +102,7 @@ func init() {
 	configureExploreRunFlags(exploreRunCmd)
 
 	for _, flag := range []string{
-		"build-id", "build-selection", "platform", "explorers", "strategy", "instructions",
+		"build-id", "build-selection", allBranchesFlagName, "platform", "explorers", "strategy", "instructions",
 		"auth-instructions", "launch-var", "launch-env", "no-inherited-launch-vars",
 		"device-model", "os-version", "max-duration", "idle-timeout", "timeout",
 		"no-wait", "open",
@@ -114,6 +115,7 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&exploreBuildID, "build-id", "", "Explore an exact build ID (otherwise follows the selected branch's default build)")
 	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: app default)")
 	cmd.Flags().StringVar(&exploreBuildSelection, "build-selection", "", "Build choice: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
+	cmd.Flags().BoolVar(&exploreAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios or android")
 	cmd.Flags().IntVar(&exploreExplorerCount, "explorers", 3, "Number of parallel explorers")
 	cmd.Flags().StringVar(&exploreStrategy, "strategy", "balanced", "Exploration strategy: balanced, surface-sweep, journey-focus, or hard-edges")
@@ -306,7 +308,14 @@ func buildExploreLaunchRequest(
 	client exploreAPI,
 	args []string,
 ) (*api.ExplorationLaunchRequest, *api.App, error) {
-	if err := execution.ValidateRuntimeBuildSelection("", exploreBranchName, exploreBuildSelection, exploreBuildID); err != nil {
+	buildSelection, err := resolveAllBranchesSelection(allBranchesFlagName, exploreAllBranches, "build-selection", exploreBuildSelection,
+		allBranchesConflict{flag: "--branch", set: exploreBranchName != ""},
+		allBranchesConflict{flag: "--build-id", set: strings.TrimSpace(exploreBuildID) != ""},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := execution.ValidateRuntimeBuildSelection("", exploreBranchName, buildSelection, exploreBuildID); err != nil {
 		return nil, nil, err
 	}
 	platform, err := normalizeExplorePlatform(explorePlatform)
@@ -404,8 +413,8 @@ func buildExploreLaunchRequest(
 	if exploreBranchName != "" {
 		request.BranchName = &exploreBranchName
 	}
-	if exploreBuildSelection != "" {
-		mode := api.BuildSelectionMode(exploreBuildSelection)
+	if buildSelection != "" {
+		mode := api.BuildSelectionMode(buildSelection)
 		request.BuildSelection = &mode
 	}
 	if value := strings.TrimSpace(exploreBuildID); value != "" {

@@ -151,6 +151,10 @@ func TestExplicitUploadRetryKeepsFrozenBranchAndVersionAfterGitChanges(t *testin
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/apps/" + pickerAppID + "/builds":
 			fmt.Fprintf(w, `{"id":%q,"version":"uploaded","branch_id":%q}`, pickerBuildID, pickerBranchID)
+		case "/api/v1/apps/resolve":
+			fmt.Fprintf(w, `{"version_id":%q,"branch_id":%q,"resolution_status":"resolved"}`, pickerBuildID, pickerBranchID)
+		case "/api/v1/apps/builds/" + pickerBuildID:
+			fmt.Fprintf(w, `{"id":%q,"app_id":%q,"version":"uploaded"}`, pickerBuildID, pickerAppID)
 		default:
 			t.Errorf("unexpected request: %s", r.URL)
 			http.NotFound(w, r)
@@ -176,6 +180,9 @@ func TestExplicitUploadRetryKeepsFrozenBranchAndVersionAfterGitChanges(t *testin
 	second := cmd().(tea.BatchMsg)[1]().(BuildUploadedMsg)
 	if second.Err != nil || second.VersionID != pickerBuildID {
 		t.Fatalf("retry failed: %#v", second)
+	}
+	if second.BranchSummary != "renamed (Latest build: runs use this upload)" {
+		t.Fatalf("upload summary = %q", second.BranchSummary)
 	}
 	if len(branchNames) != 1 || branchNames[0] != "Feature/Customer" || len(versions) != 2 || versions[0] == "" || versions[0] != versions[1] {
 		t.Fatalf("retry changed logical upload: branches=%v, versions=%v", branchNames, versions)

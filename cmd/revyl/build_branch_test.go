@@ -419,10 +419,10 @@ func TestAppBranchListShowsEachBranchDefaultBuildAndTheBuildItRuns(t *testing.T)
 			t.Fatalf("BUILD ID must follow DEFAULT BUILD:\n%s", stderr)
 		}
 		for _, want := range []struct{ branch, defaultBuild, buildID string }{
-			{"base (default)", "v1.2", pinnedID},
+			{"base (default)", "Pinned build (v1.2)", pinnedID},
 			{"main", "Latest build (v2.0)", latestID},
 			{"release", "Latest build (no builds)", "-"},
-			{"gone", "v0.2 (unavailable)", goneID},
+			{"gone", "Pinned build (v0.2, unavailable)", goneID},
 		} {
 			row := ""
 			for _, line := range lines {

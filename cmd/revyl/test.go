@@ -59,8 +59,9 @@ var testRunCmd = &cobra.Command{
 	Long: `Run a test by its local YAML name from the selected .revyl/tests directory or UUID.
 
 Runs the build that the test's saved selection picks. Default branch uses the
-app's default branch and that branch's default build. Use --branch or --build-id to
-choose for this run only, or --build to build, upload, and run that artifact.
+app's default branch and that branch's default build. Use --branch,
+--build-selection, --all-branches, or --build-id to choose for this run only, or
+--build to build, upload, and run that artifact.
 
 Use the test NAME or UUID, not a file path.
   CORRECT: revyl test run login-flow
@@ -206,9 +207,11 @@ func init() {
 
 	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides the saved selector)")
 	testRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "Build choice for this run: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
+	testRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	testCreateCmd.Flags().StringVar(&createTestBranch, "branch", "", "Save this Revyl branch for future runs")
 	testCreateCmd.Flags().StringVar(&createTestBuildSelection, "build-selection", "", "Save build choice: inherit (Automatic: the branch's default build), latest or pinned")
-	testCreateCmd.Flags().StringVar(&createTestBuildID, "build-id", "", "Save an exact build pin")
+	testCreateCmd.Flags().StringVar(&createTestBuildID, "build-id", "", "Save an exact build")
+	testCreateCmd.Flags().BoolVar(&createTestAllBranches, allBranchesFlagName, false, "Save All branches · Latest build: each run uses the newest build across all of the app's branches")
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
@@ -243,6 +246,7 @@ func init() {
 	analytics.MarkFlagValue(testRunCmd, "github-actions")
 	analytics.MarkFlagValue(testRunCmd, "verbose")
 	analytics.MarkFlagValue(testRunCmd, "build")
+	analytics.MarkFlagValue(testRunCmd, allBranchesFlagName)
 	analytics.MarkFlagValue(testRunCmd, "profile")
 	analytics.MarkFlagValue(testRunCmd, "platform")
 	analytics.MarkFlagValue(testRunCmd, "device")

@@ -47,8 +47,10 @@ revyl device start --platform android --app-id YOUR_ANDROID_APP_ID
 
 Revyl selects a default device and uses the app default branch, following that
 branch's default build. Add
-`--branch staging` to choose another branch, `--build-selection latest` to bypass
-its pin, or `--build-version-id` for an exact build. The command
+`--branch staging` to choose another branch, `--build-selection latest` for its
+newest build even when the branch is pinned, `--all-branches` for the newest
+build across all of the app's branches,
+or `--build-version-id` for an exact build. The command
 prints the session ID and a live viewer link. Keep the session ID for the next
 steps; use the viewer to watch the device.
 

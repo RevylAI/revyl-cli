@@ -373,7 +373,10 @@ type BuildUploadedMsg struct {
 	Branch    *api.BuildBranch
 	VersionID string
 	Version   string
-	Err       error
+	// BranchSummary names the upload's branch and the build a plain run on it
+	// now uses; empty when that check failed.
+	BranchSummary string
+	Err           error
 }
 
 // HealthCheck represents a single diagnostic check result for the help screen.

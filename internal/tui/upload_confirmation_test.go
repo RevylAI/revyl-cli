@@ -16,12 +16,13 @@ import (
 )
 
 type uploadConfirmationFixture struct {
-	client          *api.Client
-	defaultBranchID string
-	branchNames     []string
-	sessions        []api.BuildUploadSessionRequest
-	completions     []api.BuildCreateFromUploadRequest
-	artifactBodies  []string
+	client           *api.Client
+	defaultBranchID  string
+	branchNames      []string
+	sessions         []api.BuildUploadSessionRequest
+	completions      []api.BuildCreateFromUploadRequest
+	completionFields []map[string]interface{}
+	artifactBodies   []string
 }
 
 func newUploadConfirmationFixture(t *testing.T) *uploadConfirmationFixture {
@@ -76,12 +77,26 @@ func newUploadConfirmationFixture(t *testing.T) *uploadConfirmationFixture {
 				fmt.Fprint(w, `{"items":[],"has_next":false}`)
 				return
 			}
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			fixture.completionFields = append(fixture.completionFields, body)
+			encoded, _ := json.Marshal(body)
 			var request api.BuildCreateFromUploadRequest
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			if err := json.Unmarshal(encoded, &request); err != nil {
 				t.Error(err)
 			}
 			fixture.completions = append(fixture.completions, request)
 			fmt.Fprintf(w, `{"id":%q,"version":%q}`, pickerBuildID, request.Version)
+		case "/api/v1/apps/resolve":
+			var request map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			fmt.Fprintf(w, `{"version_id":%q,"branch_id":%q,"branch_name":"resolved","resolution_status":"resolved"}`, pickerBuildID, request["branch_id"])
+		case "/api/v1/apps/builds/" + pickerBuildID:
+			fmt.Fprintf(w, `{"id":%q,"app_id":%q,"version":"reviewed_version"}`, pickerBuildID, pickerAppID)
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 			http.NotFound(w, r)
@@ -156,8 +171,16 @@ func confirmUploadDestination(t *testing.T, upload uploadBuildModel, fixture *up
 	if session.Version != "reviewed_version" || completion.Version != session.Version || session.FileName != "app.apk" || fixture.artifactBodies[0] != "artifact" || completion.UploadId.String() != pickerBuildID {
 		t.Errorf("upload identity changed: session=%#v, completion=%#v, artifact=%q", session, completion, fixture.artifactBodies)
 	}
-	if completion.Metadata == nil || (*completion.Metadata)["source"] != "cli_upload" || completion.SetAsCurrent == nil || *completion.SetAsCurrent {
+	if completion.Metadata == nil || (*completion.Metadata)["source"] != "cli_upload" {
 		t.Errorf("upload metadata changed: %#v", completion)
+	}
+	for _, field := range []string{"pin", "set_as_current"} {
+		if _, sent := fixture.completionFields[0][field]; sent {
+			t.Errorf("TUI upload must not ask to pin its branch (%s): %#v", field, fixture.completionFields[0])
+		}
+	}
+	if !strings.Contains(result.BranchSummary, "(Latest build: runs use this upload)") {
+		t.Errorf("upload summary = %q, want the branch's Latest build to use this upload", result.BranchSummary)
 	}
 }
 

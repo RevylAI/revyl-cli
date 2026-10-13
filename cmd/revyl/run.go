@@ -2,8 +2,8 @@
 package main
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,6 +32,7 @@ var (
 	runRetries                    int
 	runBranchName                 string
 	runBuildSelection             string
+	runAllBranches                bool
 	runWorkflowIOSBuildID         string
 	runWorkflowAndroidBuildID     string
 	runBuildID                    string
@@ -284,14 +285,18 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(runTestPlatform) != "" && !runTestBuild {
 		return fmt.Errorf("--platform requires --build")
 	}
-	if runTestBuild && runBuildSelection != "" {
+	buildSelection, err := resolveCommandAllBranchesSelection(cmd, runBuildSelection, "branch", "build-id", "build")
+	if err != nil {
+		return err
+	}
+	if runTestBuild && buildSelection != "" {
 		return fmt.Errorf("--build cannot be used with --build-selection; the uploaded build is used exactly")
 	}
 	if runTestBuild && strings.TrimSpace(runBuildID) != "" {
 		return fmt.Errorf("--build cannot be used with --build-id")
 	}
 
-	if err := execution.ValidateRuntimeBuildSelection("", runBranchName, runBuildSelection, runBuildID); err != nil {
+	if err := execution.ValidateRuntimeBuildSelection("", runBranchName, buildSelection, runBuildID); err != nil {
 		return err
 	}
 
@@ -476,7 +481,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		BuildVersionID:             effectiveBuildVersionID,
 		BranchName:                 effectiveBranchName,
 		BranchID:                   effectiveBranchID,
-		BuildSelection:             runBuildSelection,
+		BuildSelection:             buildSelection,
 		Timeout:                    effectiveTimeout,
 		DevMode:                    devMode,
 		NoWait:                     runNoWait,
@@ -553,6 +558,12 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if !(runOutputJSON || runGitHubActions) {
+		if label := buildFromBranchLabel(cmp.Or(result.BuildVersion, result.BuildID), result.BranchName); label != "" {
+			ui.PrintInfo("Build: %s", label)
+		}
+	}
+
 	// Show final result
 	switch {
 	case result.Success:
@@ -618,6 +629,36 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	return completedTestRunError(result, nil)
 }
 
+// buildFromBranchLabel names a build and the branch it came from, such as
+// "v1.2.3 from branch main"; empty when neither is known.
+func buildFromBranchLabel(build, branchName string) string {
+	switch {
+	case build != "" && branchName != "":
+		return build + " from branch " + branchName
+	case build != "":
+		return build
+	case branchName != "":
+		return "a build from branch " + branchName
+	default:
+		return ""
+	}
+}
+
+// printWorkflowRunBuilds prints each distinct build a workflow run's tests
+// used, per platform, with the branch it came from.
+func printWorkflowRunBuilds(tests []execution.WorkflowTestResult) {
+	printed := map[string]bool{}
+	for _, test := range tests {
+		label := buildFromBranchLabel(cmp.Or(test.BuildVersion, test.BuildID), test.BranchName)
+		line := fmt.Sprintf("Build (%s): %s", test.Platform, label)
+		if label == "" || printed[line] {
+			continue
+		}
+		printed[line] = true
+		ui.PrintInfo("%s", line)
+	}
+}
+
 // outputTestResultJSON outputs test results as JSON for CI/CD integration.
 // defaults_applied is added only when the command succeeds, so the JSON a
 // failed run writes stays unchanged.
@@ -640,7 +681,7 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 	if commandSucceeded {
 		payload = withAppliedDefaults(cmd, output)
 	}
-	data, _ := json.MarshalIndent(payload, "", "  ")
+	data, _ := marshalPrettyJSON(payload)
 	fmt.Println(string(data))
 }
 
@@ -726,6 +767,21 @@ func runNotStartedError(serverMessage string) error {
 	return analytics.WithSafeDiagnostic(errors.New(serverMessage), "run was not started")
 }
 
+// workflowRunGenericFailure is what the workflow worker records when it knows
+// no reason for a failed run.
+const workflowRunGenericFailure = "Workflow failed"
+
+// workflowFailedError says why a workflow run failed without a failed test:
+// the reason the run recorded, or only its status when it recorded none.
+// Analytics gets a fixed diagnostic: the reason can name customer branches.
+func workflowFailedError(result *execution.RunWorkflowResult) error {
+	reason := strings.TrimSpace(result.ErrorMessage)
+	if reason == "" || strings.EqualFold(reason, workflowRunGenericFailure) {
+		return fmt.Errorf("workflow failed with status: %s", result.Status)
+	}
+	return analytics.WithSafeDiagnostic(fmt.Errorf("workflow failed: %s", reason), "workflow failed")
+}
+
 func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, iosBuild, androidBuild string) error {
 	var conflicts []string
 	switch platform {
@@ -761,10 +817,14 @@ func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, io
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runWorkflowExec(cmd *cobra.Command, args []string) error {
-	if runWorkflowBuild && runBuildSelection != "" {
+	buildSelection, err := resolveCommandAllBranchesSelection(cmd, runBuildSelection, "branch", "build", "ios-build-id", "android-build-id", "ios-build", "android-build")
+	if err != nil {
+		return err
+	}
+	if runWorkflowBuild && buildSelection != "" {
 		return fmt.Errorf("--build cannot be used with --build-selection; the uploaded build is used exactly")
 	}
-	if err := execution.ValidateRuntimeBuildSelection("", runBranchName, runBuildSelection, ""); err != nil {
+	if err := execution.ValidateRuntimeBuildSelection("", runBranchName, buildSelection, ""); err != nil {
 		return err
 	}
 	if runWorkflowIOSBuildID != "" && (runWorkflowIOSAppID == "" || runWorkflowIOSBuild != "") {
@@ -1001,7 +1061,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			AndroidBranchID:            effectiveAndroidBranchID,
 			AndroidBuildID:             effectiveAndroidBuildID,
 			BranchName:                 effectiveWorkflowBranchName,
-			BuildSelection:             runBuildSelection,
+			BuildSelection:             buildSelection,
 			HasLocation:                wfHasLocation,
 			Latitude:                   wfLat,
 			Longitude:                  wfLng,
@@ -1071,7 +1131,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		AndroidBranchID:            effectiveAndroidBranchID,
 		AndroidBuildID:             effectiveAndroidBuildID,
 		BranchName:                 effectiveWorkflowBranchName,
-		BuildSelection:             runBuildSelection,
+		BuildSelection:             buildSelection,
 		Latitude:                   wfLat,
 		Longitude:                  wfLng,
 		HasLocation:                wfHasLocation,
@@ -1137,6 +1197,9 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Show final result
+	if !(runOutputJSON || runGitHubActions) {
+		printWorkflowRunBuilds(result.Tests)
+	}
 	if runOutputJSON || runGitHubActions {
 		outputWorkflowResultJSON(result)
 	} else if result.Success {
@@ -1183,7 +1246,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			if result.FailedTests > 0 {
 				return completedWorkflowRunError(result, fmt.Errorf("workflow had %d failed tests", result.FailedTests))
 			}
-			return completedWorkflowRunError(result, fmt.Errorf("workflow failed with status: %s", result.Status))
+			return completedWorkflowRunError(result, workflowFailedError(result))
 		}
 	}
 
@@ -1230,7 +1293,7 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 	}
 	output["tests"] = tests
 
-	data, _ := json.MarshalIndent(output, "", "  ")
+	data, _ := marshalPrettyJSON(output)
 	fmt.Println(string(data))
 }
 

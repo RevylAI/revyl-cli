@@ -14,7 +14,7 @@ import (
 
 var testBuildCmd = &cobra.Command{Use: "build", Short: "Manage a test's saved branch and build choice"}
 var testBuildShowCmd = &cobra.Command{Use: "show <test-name|id>", Args: cobra.ExactArgs(1), Short: "Show a test's saved branch and build", RunE: runTestBuildShow}
-var testBuildSetCmd = &cobra.Command{Use: "set <test-name|id>", Args: cobra.ExactArgs(1), Short: "Save a branch and build choice: Automatic, Latest build or Exact build", RunE: runTestBuildSet}
+var testBuildSetCmd = &cobra.Command{Use: "set <test-name|id>", Args: cobra.ExactArgs(1), Short: "Save a branch and build choice: Automatic, Latest build, Exact build, or All branches · Latest build", RunE: runTestBuildSet}
 var testBuildClearCmd = &cobra.Command{Use: "clear <test-name|id>", Args: cobra.ExactArgs(1), Short: "Restore Default branch: the app's default branch and its default build", RunE: runTestBuildClear}
 
 func init() {
@@ -22,7 +22,8 @@ func init() {
 	testBuildCmd.AddCommand(testBuildShowCmd, testBuildSetCmd, testBuildClearCmd)
 	testBuildSetCmd.Flags().String("branch", "", "Revyl branch name to save")
 	testBuildSetCmd.Flags().String("build-selection", "", "Build choice: inherit (Automatic: the branch's default build), latest or pinned")
-	testBuildSetCmd.Flags().String("build-id", "", "Exact build ID to pin")
+	testBuildSetCmd.Flags().String("build-id", "", "Exact build ID to save")
+	testBuildSetCmd.Flags().Bool(allBranchesFlagName, false, "Save All branches · Latest build: each run uses the newest build across all of the app's branches")
 }
 
 func runTestBuildShow(cmd *cobra.Command, args []string) error {
@@ -46,11 +47,14 @@ func runTestBuildShow(cmd *cobra.Command, args []string) error {
 		return writeSavedTestBuildSelection(cmd, testID, selection, legacyVersion)
 	}
 	if legacyVersion != "" {
-		ui.PrintKeyValue("Branch:", "Not recorded (legacy version pin)")
+		ui.PrintKeyValue("Branch:", "Not recorded (saved before branches)")
 		ui.PrintKeyValue("Build:", fmt.Sprintf("Exact build %s", legacyVersion))
 		return nil
 	}
 	branch := "Default branch"
+	if selection.BuildSelection == api.BuildSelectionModeLatestAllBranches {
+		branch = "All branches"
+	}
 	if selection.BranchID != nil {
 		saved, err := client.ResolveBranch(cmd.Context(), test.AppID, *selection.BranchID, "")
 		if err != nil {
@@ -60,7 +64,7 @@ func runTestBuildShow(cmd *cobra.Command, args []string) error {
 	}
 	build := "Automatic"
 	switch selection.BuildSelection {
-	case api.BuildSelectionModeLatest:
+	case api.BuildSelectionModeLatest, api.BuildSelectionModeLatestAllBranches:
 		build = "Latest build"
 	case api.BuildSelectionModePinned:
 		pinned, err := client.GetBuildVersionDetail(cmd.Context(), *selection.PinnedBuildID, false)
@@ -69,7 +73,7 @@ func runTestBuildShow(cmd *cobra.Command, args []string) error {
 		case errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound:
 			build = fmt.Sprintf("Exact build %s (unavailable)", *selection.PinnedBuildID)
 		case err != nil:
-			return fmt.Errorf("read pinned build: %w", err)
+			return fmt.Errorf("read saved exact build: %w", err)
 		default:
 			build = fmt.Sprintf("Exact build %s (%s)", pinned.Version, pinned.ID)
 		}
@@ -83,8 +87,12 @@ func runTestBuildSet(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
 	mode, _ := cmd.Flags().GetString("build-selection")
 	buildID, _ := cmd.Flags().GetString("build-id")
+	mode, err := resolveCommandAllBranchesSelection(cmd, mode, "branch", "build-id")
+	if err != nil {
+		return err
+	}
 	if branchName == "" && mode == "" && buildID == "" {
-		return fmt.Errorf("provide --branch, --build-selection or --build-id; use clear to restore Default branch")
+		return fmt.Errorf("provide --branch, --build-selection, --build-id or --all-branches; use clear to restore Default branch")
 	}
 	testID, client, err := resolveTestClient(cmd, args[0])
 	if err != nil {
@@ -95,7 +103,7 @@ func runTestBuildSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	branchID := ""
-	if branchName == "" && buildID == "" {
+	if branchName == "" && buildID == "" && mode != string(api.BuildSelectionModeLatestAllBranches) {
 		branchID = test.BranchID
 	}
 	selection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, test.AppID, branchName, branchID, mode, buildID)

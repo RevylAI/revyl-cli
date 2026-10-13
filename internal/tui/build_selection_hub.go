@@ -25,6 +25,8 @@ func (m hubModel) beginBuildPicker(appID, title, target, currentBranchID string)
 	m.err = nil
 	if target == "app-filter" {
 		picker.branchOnly, picker.allowAll = true, true
+	} else {
+		picker.offerAllBranches = true
 	}
 	m.buildPicker, m.buildPickerTarget = &picker, target
 	return m, picker.Init()
@@ -129,7 +131,7 @@ func workflowBuildSelectionLabel(row map[string]interface{}) string {
 	mode, _ := row["build_selection"].(string)
 	selection.Mode = api.BuildSelectionMode(mode)
 	if legacy, ok := row["pinned_version"].(string); ok && legacy != "" {
-		return "Pinned version " + legacy
+		return "Exact build " + legacy
 	}
 	return buildSelectionLabel(selection)
 }

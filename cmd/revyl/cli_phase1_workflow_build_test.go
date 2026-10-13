@@ -303,8 +303,10 @@ build:
 	if captured.ContextBranchName != "" {
 		t.Fatalf("exact build continuation inferred again: %+v", captured)
 	}
-	if setAsCurrent, ok := createRequest["set_as_current"].(bool); !ok || setAsCurrent {
-		t.Fatalf("set_as_current = %#v, want false", createRequest["set_as_current"])
+	for _, field := range []string{"pin", "set_as_current"} {
+		if _, sent := createRequest[field]; sent {
+			t.Fatalf("--build upload sent %s; it must not pin its branch: %#v", field, createRequest)
+		}
 	}
 }
 
@@ -637,8 +639,10 @@ build:
 		}
 	})
 	_ = parseJSON(t, output)
-	if setAsCurrent, ok := createRequest["set_as_current"].(bool); !ok || setAsCurrent {
-		t.Fatalf("set_as_current = %#v, want false", createRequest["set_as_current"])
+	for _, field := range []string{"pin", "set_as_current"} {
+		if _, sent := createRequest[field]; sent {
+			t.Fatalf("--build upload sent %s; it must not pin its branch: %#v", field, createRequest)
+		}
 	}
 
 	if noWait {

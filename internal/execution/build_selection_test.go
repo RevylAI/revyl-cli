@@ -279,7 +279,7 @@ func TestCreateTestMixedYAMLDelegatesPinConsistencyToServer(t *testing.T) {
 					}
 					if rejected {
 						w.WriteHeader(http.StatusUnprocessableEntity)
-						_, _ = w.Write([]byte(`{"detail":"Pinned version and exact build disagree"}`))
+						_, _ = w.Write([]byte(`{"detail":"The saved version doesn't match the exact build's version"}`))
 					} else {
 						_, _ = w.Write([]byte(`{"id":"test","version":1}`))
 					}
@@ -297,7 +297,7 @@ func TestCreateTestMixedYAMLDelegatesPinConsistencyToServer(t *testing.T) {
 				t.Fatal("import did not reach authorized server validation")
 			}
 			if rejected {
-				if err == nil || result != nil || !strings.Contains(err.Error(), "Pinned version and exact build disagree") {
+				if err == nil || result != nil || !strings.Contains(err.Error(), "The saved version doesn't match the exact build's version") {
 					t.Fatalf("server rejection was swallowed: result=%+v err=%v", result, err)
 				}
 			} else if err != nil || result.TestID != "test" {

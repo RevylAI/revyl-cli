@@ -14,10 +14,69 @@ import (
 )
 
 var ErrBranchHasNoBuilds = errors.New("selected branch has no builds; upload a build to this branch first")
-var ErrBranchHasNoCompatibleBuild = errors.New("selected branch has no compatible build; upload a compatible build or choose another branch")
+var ErrBranchHasNoCompatibleBuild = errors.New("selected branch has no usable build; upload one to it or choose another branch")
 var ErrBranchNotFound = errors.New("build branch not found")
 
+// BranchError is ErrBranchNotFound, ErrBranchHasNoBuilds or
+// ErrBranchHasNoCompatibleBuild worded with the branch and app it failed on;
+// errors.Is still matches the sentinel.
+type BranchError struct {
+	Err        error
+	BranchName string
+	// AppName is empty when the caller knows only the app's ID.
+	AppName string
+	// FromGit marks a branch named after the checked-out Git branch.
+	FromGit bool
+}
+
+func (e *BranchError) Unwrap() error { return e.Err }
+
+func (e *BranchError) Error() string {
+	if e.BranchName == "" {
+		if e.AppName != "" && errors.Is(e.Err, ErrBranchHasNoCompatibleBuild) {
+			return fmt.Sprintf("no branch on %q has a usable build; upload one first", e.AppName)
+		}
+		return e.Err.Error()
+	}
+	branch := fmt.Sprintf("branch %q", e.BranchName)
+	if e.FromGit {
+		branch += " from Git"
+	}
+	onApp := ""
+	if e.AppName != "" {
+		onApp = fmt.Sprintf(" on %q", e.AppName)
+	}
+	switch {
+	case errors.Is(e.Err, ErrBranchNotFound):
+		return fmt.Sprintf("%s doesn't exist%s", branch, onApp)
+	case errors.Is(e.Err, ErrBranchHasNoBuilds):
+		return fmt.Sprintf("%s%s has no builds; upload a build to it first", branch, onApp)
+	case errors.Is(e.Err, ErrBranchHasNoCompatibleBuild):
+		return fmt.Sprintf("%s%s has no usable build; upload one to it or choose another branch", branch, onApp)
+	default:
+		return e.Err.Error()
+	}
+}
+
 const MaxContextBranchNameLength = 4096
+
+const maxBranchNameLength = 255
+
+// ValidateBranchName applies the API's branch name rule (BranchName in
+// cognisim_schemas) so a bad name fails before any request.
+func ValidateBranchName(name string) error {
+	switch {
+	case name == "":
+		return errors.New("branch name can't be empty")
+	case utf8.RuneCountInString(name) > maxBranchNameLength:
+		return fmt.Errorf("branch name must be at most %d characters", maxBranchNameLength)
+	case strings.TrimSpace(name) != name:
+		return fmt.Errorf("branch name %q can't start or end with whitespace", name)
+	case strings.IndexFunc(name, unicode.IsControl) >= 0:
+		return fmt.Errorf("branch name %q can't contain control characters", name)
+	}
+	return nil
+}
 
 type BuildSelection struct {
 	ContextBranchName string
@@ -37,16 +96,18 @@ func validateBranchSelector(branchID, branchName string) error {
 		}
 	}
 	if branchName != "" {
-		if strings.TrimSpace(branchName) != branchName || utf8.RuneCountInString(branchName) > 255 {
-			return errors.New("branch name must be 1–255 characters without surrounding whitespace")
-		}
-		for _, r := range branchName {
-			if unicode.IsControl(r) {
-				return errors.New("branch name cannot contain control characters")
-			}
-		}
+		return ValidateBranchName(branchName)
 	}
 	return nil
+}
+
+// contextBranchNameFor returns the detected Git branch a request may carry.
+// Latest across all branches ignores it, so such a request never sends one.
+func contextBranchNameFor(mode BuildSelectionMode, contextBranchName string) string {
+	if mode == BuildSelectionModeLatestAllBranches {
+		return ""
+	}
+	return contextBranchName
 }
 
 func validateContextBranchName(name string) error {
@@ -65,18 +126,22 @@ func (s BuildSelection) Validate() error {
 	}
 	switch s.Mode {
 	case "", BuildSelectionModeInherit, BuildSelectionModeLatest, BuildSelectionModePinned:
+	case BuildSelectionModeLatestAllBranches:
+		if s.BranchID != "" || s.BranchName != "" {
+			return errors.New("All branches · Latest build can't be combined with a branch")
+		}
 	default:
-		return errors.New("build selection must be inherit, latest, or pinned")
+		return errors.New("build selection must be inherit, latest, latest_all_branches, or pinned")
 	}
 	if s.BuildID != "" {
 		if _, err := uuid.Parse(s.BuildID); err != nil {
 			return errors.New("build ID must be a UUID")
 		}
 		if s.Mode != "" && s.Mode != BuildSelectionModePinned {
-			return errors.New("an exact build cannot be combined with inherit or latest selection")
+			return errors.New("an exact build can't be combined with Automatic, Latest build, or All branches · Latest build")
 		}
 	} else if s.Mode == BuildSelectionModePinned {
-		return errors.New("pinned selection requires a build ID")
+		return errors.New("an exact build (pinned) requires a build ID")
 	}
 	return nil
 }
@@ -122,7 +187,7 @@ func (s *SavedBuildSelection) Validate() error {
 		return errors.New("saved build selection requires a mode")
 	}
 	if (s.BuildSelection == BuildSelectionModePinned) != (s.PinnedBuildID != nil) {
-		return errors.New("saved pinned selection requires an exact build; other modes cannot pin a build")
+		return errors.New("a saved exact build (pinned) requires a build ID; other build choices can't take one")
 	}
 	if buildID != "" && branchID == "" {
 		return errors.New("saved exact build requires its branch")
@@ -219,9 +284,9 @@ func (c *Client) ResolveBranchWithContext(ctx context.Context, appID, branchID, 
 		}
 		if len(branches.Branches) == 0 {
 			if usesContext {
-				return nil, fmt.Errorf("%w: detected Git branch has no matching Revyl branch; upload a build or select another branch with --branch", ErrBranchNotFound)
+				return nil, fmt.Errorf("%w; upload a build or select another branch with --branch", &BranchError{Err: ErrBranchNotFound, BranchName: branchName, FromGit: true})
 			}
-			return nil, ErrBranchNotFound
+			return nil, &BranchError{Err: ErrBranchNotFound, BranchName: branchName}
 		}
 		return &branches.Branches[0], nil
 	}
@@ -247,10 +312,7 @@ func (c *Client) ResolveBranchWithContext(ctx context.Context, appID, branchID, 
 }
 
 func (c *Client) CreateBuildBranch(ctx context.Context, appID, name string) (*BuildBranch, error) {
-	if name == "" {
-		return nil, errors.New("branch name is required")
-	}
-	if err := validateBranchSelector("", name); err != nil {
+	if err := ValidateBranchName(name); err != nil {
 		return nil, err
 	}
 	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/apps/%s/branches", url.PathEscape(appID)), map[string]string{"name": name})
@@ -314,6 +376,7 @@ type buildResolutionRequest struct {
 }
 type buildResolutionResult struct {
 	AppID            string `json:"build_var_id"`
+	AppName          string `json:"app_name"`
 	BuildID          string `json:"version_id"`
 	BranchID         string `json:"branch_id"`
 	BranchName       string `json:"branch_name"`
@@ -339,7 +402,7 @@ func (c *Client) resolveBuildSelection(ctx context.Context, appID string, select
 		mode = BuildSelectionModePinned
 	}
 	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/apps/resolve?include_download_url=%t", includeDownloadURL), buildResolutionRequest{
-		ContextBranchName: selection.ContextBranchName,
+		ContextBranchName: contextBranchNameFor(mode, selection.ContextBranchName),
 		AppID:             appID,
 		BranchID:          selection.BranchID,
 		BranchName:        selection.BranchName,
@@ -354,10 +417,10 @@ func (c *Client) resolveBuildSelection(ctx context.Context, appID string, select
 		return nil, err
 	}
 	if result.ResolutionStatus == "branch_has_no_builds" {
-		return nil, ErrBranchHasNoBuilds
+		return nil, &BranchError{Err: ErrBranchHasNoBuilds, BranchName: result.BranchName, AppName: result.AppName}
 	}
 	if result.BuildID == "" {
-		return nil, ErrBranchHasNoCompatibleBuild
+		return nil, &BranchError{Err: ErrBranchHasNoCompatibleBuild, BranchName: result.BranchName, AppName: result.AppName}
 	}
 	detail, err := c.GetBuildVersionDetail(ctx, result.BuildID, false)
 	if err != nil {

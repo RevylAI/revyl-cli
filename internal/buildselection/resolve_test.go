@@ -88,7 +88,7 @@ func TestSelectLatestPreferringGitBranchFallsBackToTheBranchLatestBuild(t *testi
 	if err != nil || selected.ID != "newest-usable" || client.selection != latestOnBase {
 		t.Fatalf("unexpected result: %v %+v %v", selected, client.selection, err)
 	}
-	if len(warnings) != 1 || warnings[0] != `No builds found for current branch "feature/login"; using latest available build instead.` {
+	if len(warnings) != 1 || warnings[0] != `No build on the app's default branch came from Git branch "feature/login"; using the default branch's newest build.` {
 		t.Fatalf("warnings = %q", warnings)
 	}
 }

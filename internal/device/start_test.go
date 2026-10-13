@@ -155,6 +155,22 @@ func TestResolveStartArtifact_PropagatesLatestBuildAPIError(t *testing.T) {
 	}
 }
 
+func TestResolveStartArtifact_NamesTheEmptyBranchAndAppInsteadOfTheAppID(t *testing.T) {
+	t.Parallel()
+
+	const appID = "11111111-1111-4111-8111-111111111111"
+	_, err := ResolveStartArtifact(context.Background(), stubArtifactResolver{
+		latestErr: &api.BranchError{Err: api.ErrBranchHasNoBuilds, BranchName: "zzqa-empty", AppName: "zzqa-allbranches-ios"},
+	}, StartArtifactOptions{AppID: appID, BranchName: "zzqa-empty"})
+	want := `failed to resolve build: branch "zzqa-empty" on "zzqa-allbranches-ios" has no builds; upload a build to it first`
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
+	if !errors.Is(err, api.ErrBranchHasNoBuilds) {
+		t.Fatalf("error %v no longer matches ErrBranchHasNoBuilds", err)
+	}
+}
+
 func TestResolveStartArtifact_UsesTrimmedDirectAppURL(t *testing.T) {
 	t.Parallel()
 

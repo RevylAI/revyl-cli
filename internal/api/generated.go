@@ -515,9 +515,10 @@ func (e BuildResolutionResponseResolutionStatus) Valid() bool {
 
 // Defines values for BuildSelectionMode.
 const (
-	BuildSelectionModeInherit BuildSelectionMode = "inherit"
-	BuildSelectionModeLatest  BuildSelectionMode = "latest"
-	BuildSelectionModePinned  BuildSelectionMode = "pinned"
+	BuildSelectionModeInherit           BuildSelectionMode = "inherit"
+	BuildSelectionModeLatest            BuildSelectionMode = "latest"
+	BuildSelectionModeLatestAllBranches BuildSelectionMode = "latest_all_branches"
+	BuildSelectionModePinned            BuildSelectionMode = "pinned"
 )
 
 // Valid indicates whether the value is a known member of the BuildSelectionMode enum.
@@ -526,6 +527,8 @@ func (e BuildSelectionMode) Valid() bool {
 	case BuildSelectionModeInherit:
 		return true
 	case BuildSelectionModeLatest:
+		return true
+	case BuildSelectionModeLatestAllBranches:
 		return true
 	case BuildSelectionModePinned:
 		return true
@@ -1874,8 +1877,9 @@ func (e WorkflowStatus) Valid() bool {
 
 // Defines values for CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection.
 const (
-	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionInherit CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "inherit"
-	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatest  CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "latest"
+	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionInherit           CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "inherit"
+	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatest            CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "latest"
+	CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatestAllBranches CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection = "latest_all_branches"
 )
 
 // Valid indicates whether the value is a known member of the CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection enum.
@@ -1884,6 +1888,8 @@ func (e CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection) Valid() bo
 	case CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionInherit:
 		return true
 	case CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatest:
+		return true
+	case CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelectionLatestAllBranches:
 		return true
 	default:
 		return false
@@ -3450,8 +3456,8 @@ type BuildCreateFromUploadRequest struct {
 	ContextBranchName *string                 `json:"context_branch_name,omitempty"`
 	Metadata          *map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent True pins the destination branch to this build, even when the branch follows Latest. False, the default, never changes a pin; a branch with no pin uses this build because it is the newest
-	SetAsCurrent *bool `json:"set_as_current,omitempty"`
+	// Pin True pins the destination branch to this build. False, the default, never changes a pin: a branch following Latest uses this build because it is the newest, and a pinned branch keeps its pin
+	Pin *bool `json:"pin,omitempty"`
 
 	// UploadId Upload session id returned by upload-session
 	UploadId openapi_types.UUID `json:"upload_id"`
@@ -3486,8 +3492,8 @@ type BuildFromUrlRequest struct {
 	Headers  *map[string]string      `json:"headers,omitempty"`
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent True pins the destination branch to this build, even when the branch follows Latest. False, the default, never changes a pin; a branch with no pin uses this build because it is the newest
-	SetAsCurrent *bool `json:"set_as_current,omitempty"`
+	// Pin True pins the destination branch to this build. False, the default, never changes a pin: a branch following Latest uses this build because it is the newest, and a pinned branch keeps its pin
+	Pin *bool `json:"pin,omitempty"`
 
 	// Version Version string (must be unique within the app)
 	Version string `json:"version"`
@@ -3653,6 +3659,8 @@ type BuildResolutionRequest struct {
 
 // BuildResolutionResponse Response with resolved build information.
 type BuildResolutionResponse struct {
+	// AppName The app's name, for messages that name it
+	AppName          *string                                  `json:"app_name,omitempty"`
 	ArtifactUrl      *string                                  `json:"artifact_url,omitempty"`
 	BranchId         *openapi_types.UUID                      `json:"branch_id,omitempty"`
 	BranchName       *string                                  `json:"branch_name,omitempty"`
@@ -3752,9 +3760,9 @@ type BuildUploadCompleteRequest struct {
 	// PackageName Package name
 	PackageName *string `json:"package_name,omitempty"`
 
-	// SetAsCurrent True pins the destination branch to this build, even when the branch follows Latest. False, the default, never changes a pin; a branch with no pin uses this build because it is the newest
-	SetAsCurrent *bool              `json:"set_as_current,omitempty"`
-	VersionId    openapi_types.UUID `json:"version_id"`
+	// Pin True pins the destination branch to this build. False, the default, never changes a pin: a branch following Latest uses this build because it is the newest, and a pinned branch keeps its pin
+	Pin       *bool              `json:"pin,omitempty"`
+	VersionId openapi_types.UUID `json:"version_id"`
 }
 
 // BuildUploadSessionRequest Request to open a staging upload session for a new build artifact.
@@ -6096,10 +6104,16 @@ type RemoteBuildRequest struct {
 	// Image Optional sandbox build image key. Defaults to latest.
 	Image *string `json:"image,omitempty"`
 
+	// Pin True pins the destination branch to the finished build. False, the default, never changes a pin.
+	Pin *bool `json:"pin,omitempty"`
+
 	// Recipe One platform recipe as the customer wrote it, with setup and build steps kept apart.
 	//
 	// Revyl adds checkout, fingerprinting, and the artifact upload around these steps.
-	Recipe       *BuildRecipe              `json:"recipe,omitempty"`
+	Recipe *BuildRecipe `json:"recipe,omitempty"`
+
+	// SetAsCurrent Ignored. Accepted from CLI versions that sent it on every build; send `pin` to pin the branch.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	SetAsCurrent *bool                     `json:"set_as_current,omitempty"`
 	Source       RemoteBuildRequest_Source `json:"source"`
 
@@ -8324,6 +8338,7 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	AttributedToCloudAgentConversationId *openapi_types.UUID   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 	AppId                                *openapi_types.UUID   `form:"app_id,omitempty" json:"app_id,omitempty"`
 	BranchId                             *openapi_types.UUID   `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	BranchName                           *string               `form:"branch_name,omitempty" json:"branch_name,omitempty"`
 }
 
 // StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPostParams defines parameters for StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPost.

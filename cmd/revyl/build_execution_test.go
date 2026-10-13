@@ -132,10 +132,14 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 		args                   []string
 		failEnqueue            bool
 		bare                   bool
+		wantPin                bool
 	}{
 		{name: "bare build", platform: "android", status: "success", bare: true},
 		{name: "android waits", platform: "android", status: "success"},
 		{name: "ios waits", platform: "ios", status: "success"},
+		{name: "pin", platform: "android", status: "success", args: []string{"--pin"}, wantPin: true},
+		{name: "deprecated no-set-current", platform: "android", status: "success", args: []string{"--no-set-current"}},
+		{name: "deprecated set-current", platform: "android", status: "success", args: []string{"--set-current"}, wantPin: true},
 		{name: "detached", platform: "android", status: "pending", args: []string{"--detach"}},
 		{name: "remote compatibility", platform: "ios", status: "pending", args: []string{"--remote", "--detach", "--profile=release", "--platform=ios"}},
 		{name: "no fallback", platform: "android", failEnqueue: true},
@@ -190,7 +194,7 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 			}))
 			defer server.Close()
 			t.Setenv("REVYL_BACKEND_URL", server.URL)
-			args := append([]string{"--json", "--image=test-image", "--env=PLAIN=value", "--secret=BUILD_TOKEN", "--timeout=90", "--no-cache", "--no-set-current", "--version=1.2.3"}, test.args...)
+			args := append([]string{"--json", "--image=test-image", "--env=PLAIN=value", "--secret=BUILD_TOKEN", "--timeout=90", "--no-cache", "--version=1.2.3"}, test.args...)
 			if test.bare {
 				args = nil
 			}
@@ -238,12 +242,18 @@ func TestPublicBuildDefaultsToRemoteSubmission(t *testing.T) {
 			if request.Recipe == nil || string(request.Recipe.Platform) != test.platform || len(request.Recipe.BuildSteps) != 1 || request.Recipe.BuildSteps[0].Command == nil || *request.Recipe.BuildSteps[0].Command != "touch local-build-ran" {
 				t.Fatalf("recipe not preserved: %+v", request.Recipe)
 			}
+			if request.SetAsCurrent != nil {
+				t.Fatalf("remote build sent the ignored set_as_current: %+v", request)
+			}
+			if (request.Pin != nil && *request.Pin) != test.wantPin || (request.Pin != nil && !*request.Pin) {
+				t.Fatalf("remote build pin = %v, want pin only with --pin", request.Pin)
+			}
 			if test.bare {
-				if request.Image != nil || request.TimeoutSeconds != nil || request.Version != nil || request.SetAsCurrent == nil || !*request.SetAsCurrent {
+				if request.Image != nil || request.TimeoutSeconds != nil || request.Version != nil {
 					t.Fatalf("remote defaults not preserved: %+v", request)
 				}
 			} else {
-				if request.Image == nil || *request.Image != "test-image" || request.TimeoutSeconds == nil || *request.TimeoutSeconds != 90 || request.SetAsCurrent == nil || *request.SetAsCurrent || request.CleanBuild == nil || !*request.CleanBuild {
+				if request.Image == nil || *request.Image != "test-image" || request.TimeoutSeconds == nil || *request.TimeoutSeconds != 90 || request.CleanBuild == nil || !*request.CleanBuild {
 					t.Fatalf("remote options not preserved: %+v", request)
 				}
 				if request.Recipe.Env == nil || (*request.Recipe.Env)["PLAIN"] != "value" || request.Recipe.SecretRefs == nil || !reflect.DeepEqual(*request.Recipe.SecretRefs, []string{"BUILD_TOKEN"}) {

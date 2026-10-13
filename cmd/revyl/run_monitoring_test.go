@@ -245,3 +245,96 @@ func TestRunWorkflowExec_UsesPollingMonitoringMode(t *testing.T) {
 		t.Fatalf("MonitoringMode = %q, want %q", monitoringMode, sse.MonitoringModePolling)
 	}
 }
+
+func TestRunWorkflowExecSaysWhyARunFailedWithoutAFailedTest(t *testing.T) {
+	const reason = "No branch on the iOS app has a usable build"
+	tests := []struct {
+		name          string
+		recordedError string
+		failedTests   int
+		outputJSON    bool
+		wantErr       string
+	}{
+		{name: "recorded_reason", recordedError: reason, wantErr: "workflow failed: " + reason},
+		{name: "nothing_recorded", wantErr: "workflow failed with status: failed"},
+		{name: "generic_fallback", recordedError: "Workflow failed", wantErr: "workflow failed with status: failed"},
+		{name: "failed_tests", recordedError: reason, failedTests: 2, wantErr: "workflow had 2 failed tests"},
+		{name: "json_keeps_the_recorded_error", recordedError: reason, outputJSON: true, wantErr: "workflow failed: " + reason},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("REVYL_API_KEY", "test-key")
+			testutil.SetHomeDir(t, t.TempDir())
+			withWorkingDir(t, t.TempDir())
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/workflows/get_workflow_info" {
+					t.Fatalf("unexpected path: %s", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"11111111-1111-4111-8111-111111111111","name":"smoke"}`))
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+			originalRunWorkflowExecution := runWorkflowExecution
+			originalRunNoWait := runNoWait
+			originalRunOpen := runOpen
+			originalRunRetries := runRetries
+			originalRunOutputJSON := runOutputJSON
+			originalRunGitHubActions := runGitHubActions
+			originalRunWorkflowBuild := runWorkflowBuild
+			originalRunWorkflowIOSAppID := runWorkflowIOSAppID
+			originalRunWorkflowAndroidAppID := runWorkflowAndroidAppID
+			originalRunLocation := runLocation
+			t.Cleanup(func() {
+				runWorkflowExecution = originalRunWorkflowExecution
+				runNoWait = originalRunNoWait
+				runOpen = originalRunOpen
+				runRetries = originalRunRetries
+				runOutputJSON = originalRunOutputJSON
+				runGitHubActions = originalRunGitHubActions
+				runWorkflowBuild = originalRunWorkflowBuild
+				runWorkflowIOSAppID = originalRunWorkflowIOSAppID
+				runWorkflowAndroidAppID = originalRunWorkflowAndroidAppID
+				runLocation = originalRunLocation
+			})
+			runWorkflowExecution = func(context.Context, string, *config.ProjectConfig, execution.RunWorkflowParams) (*execution.RunWorkflowResult, error) {
+				return &execution.RunWorkflowResult{
+					TaskID:       "task-789",
+					WorkflowID:   "11111111-1111-4111-8111-111111111111",
+					Status:       "failed",
+					FailedTests:  test.failedTests,
+					ErrorMessage: test.recordedError,
+					ReportURL:    "https://app.example/report/task-789",
+				}, nil
+			}
+			runNoWait = false
+			runOpen = false
+			runRetries = 1
+			runOutputJSON = test.outputJSON
+			runGitHubActions = false
+			runWorkflowBuild = false
+			runWorkflowIOSAppID = ""
+			runWorkflowAndroidAppID = ""
+			runLocation = ""
+
+			cmd := newLeafCommand("run", runWorkflowExec)
+			cmd.Flags().Bool("open", false, "")
+			cmd.Flags().Int("timeout", execution.DefaultRunTimeoutSeconds, "")
+			_ = cmd.Flags().Set("open", "false")
+
+			var runErr error
+			stdout := captureStdout(t, func() {
+				runErr = runWorkflowExec(cmd, []string{"11111111-1111-4111-8111-111111111111"})
+			})
+			if runErr == nil || runErr.Error() != test.wantErr {
+				t.Fatalf("runWorkflowExec() error = %v, want %q", runErr, test.wantErr)
+			}
+			if test.outputJSON {
+				if got := parseJSON(t, stdout)["error"]; got != test.recordedError {
+					t.Fatalf("JSON error = %#v, want %q", got, test.recordedError)
+				}
+			}
+		})
+	}
+}

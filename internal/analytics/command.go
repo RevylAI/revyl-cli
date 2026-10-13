@@ -3,12 +3,15 @@ package analytics
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/api"
 )
 
 const (
@@ -168,9 +171,19 @@ func (r *CommandRun) completeCommand(err error) {
 		props["failure_class"] = string(classifyFailure(err, recordedCompletion))
 		diagnostic := err.Error()
 		var safeErr interface{ safeDiagnostic() string }
-		hasSafeDiagnostic := errors.As(err, &safeErr)
-		if hasSafeDiagnostic {
+		var branchErr *api.BranchError
+		var apiErr *api.APIError
+		hasSafeDiagnostic := true
+		switch {
+		case errors.As(err, &safeErr):
 			diagnostic = safeErr.safeDiagnostic()
+		case errors.As(err, &branchErr):
+			// Its wording names customer branches and apps; the sentinel names neither.
+			diagnostic = branchErr.Err.Error()
+		case errors.As(err, &apiErr):
+			diagnostic = fmt.Sprintf("API request failed (HTTP %d)", apiErr.StatusCode)
+		default:
+			hasSafeDiagnostic = false
 		}
 		props["error_message"] = sanitizeDiagnosticString(diagnostic, r.diagnosticRedactions)
 		if tail := r.outputTailSnapshot(); !hasSafeDiagnostic && len(tail) > 0 {

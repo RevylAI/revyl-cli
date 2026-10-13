@@ -14,8 +14,10 @@ revyl explore cancel <run-id>
 If you omit the app, Revyl uses the mapping in `.revyl/config.yaml`. Choose a
 platform when the project maps more than one app. Without a branch, it uses the
 app default branch and its default build. Use `--branch staging` to select
-a branch, `--build-selection latest` to bypass its pin, or `--build-id` for an
-exact build. See [Build branches](build-branches.md).
+a branch, `--build-selection latest` for its newest build even when the branch
+is pinned, `--all-branches` for the newest build across all of the app's
+branches, or `--build-id` for an exact build. See
+[Build branches](build-branches.md).
 
 ## Shape the run
 
@@ -93,9 +95,10 @@ jq -e --arg build_id "$BUILD_ID" \
 
 4. Open `.report_url` from `explore.json` and select the destination in Atlas.
    Confirm the build ID, login and useful mapped screens. Keep the source SHA,
-   build ID and report URL with the run. Runs that use the branch now use this
-   build, because the upload pinned the branch to it. Making it the app default
-   is optional.
+   build ID and report URL with the run. When the branch follows Latest build,
+   runs that use it now use this build, because it is the newest; a pinned
+   branch keeps its pin unless you upload with `--pin`. Making that branch the
+   app's default branch is optional.
 
 Optionally run an existing test for the same app/platform against that build:
 

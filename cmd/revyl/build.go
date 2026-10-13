@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--profile <name>] [--platform ios|android] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Use:   "build [--profile <name>] [--platform ios|android] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--pin] [--detach] [--no-cache] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -35,6 +35,10 @@ configured app_id and authenticated access; cloud build usage and plan limits ap
 Use --local to run the same recipe on this machine and upload the generated artifact.
 Local execution requires the recipe's toolchain and is not supported on Windows.
 --remote remains supported; --remote=false also selects local execution.
+
+The build lands on its branch (--branch, or the app's default branch). A branch
+that follows Latest build runs it because it is the newest; a pinned branch keeps
+its pin. Pass --pin to pin the branch to the new build.
 
 Use --profile and --platform to resolve ambiguous choices in CI or --json mode.
 Cloud failures are reported without falling back to local execution.`,
@@ -51,6 +55,10 @@ var buildUploadCmd = &cobra.Command{
 
 This command does not run a build. Use ` + "`revyl build`" + ` to build from source.
 
+The upload lands on its branch (--branch, or the app's default branch). A branch
+that follows Latest build runs it because it is the newest; a pinned branch keeps
+its pin. Pass --pin to pin the branch to the new build.
+
 To match a GitHub PR from any CI runner, pass --repo owner/name and --commit
 with the full PR head SHA. Add --pr to select a PR explicitly. These flags
 override detected SCM identity; GitHub Actions and Buildkite are detected automatically.`,
@@ -58,7 +66,8 @@ override detected SCM identity; GitHub Actions and Buildkite are detected automa
   revyl build upload --file ./build/App.app.zip --platform ios --yes
   revyl build upload --url https://artifacts.example.com/app.apk --app <id>
   revyl build upload --url https://artifacts.example.com/app.ipa --header "Authorization: Bearer <token>"
-  revyl build upload --file ./app.apk --version 1.2.3 --no-set-current --json
+  revyl build upload --file ./app.apk --version 1.2.3 --json
+  revyl build upload --file ./app.apk --app <id> --branch staging --pin
   revyl build upload --file ./app.apk --app <id> --preview --json`,
 	RunE: runBuildUpload,
 }
@@ -127,6 +136,7 @@ Use --follow to stream status until the build reaches a terminal state.`,
 var (
 	buildSkip                 bool
 	buildVersion              string
+	buildPinFlag              bool
 	buildSetCurr              bool
 	buildNoSetCurrent         bool
 	buildCommandJSON          bool
@@ -164,6 +174,7 @@ var (
 	remotePlatformFlag        string
 	remoteAppFlag             string
 	remoteVersionFlag         string
+	remotePinFlag             bool
 	remoteSetCurrFlag         bool
 	remoteJSONFlag            bool
 	remoteCleanFlag           bool
@@ -202,7 +213,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
 	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run a cold remote build with all caches disabled")
-	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Add the build without making it the branch's default build; a branch on Latest build still uses it")
+	registerBuildPinFlags(buildCmd)
 	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
 	analytics.MarkFlagValue(buildCmd, "profile")
 	analytics.MarkFlagValue(buildCmd, "platform")
@@ -212,11 +223,10 @@ func init() {
 	analytics.MarkFlagValue(buildCmd, "timeout")
 	analytics.MarkFlagValue(buildCmd, "detach")
 	analytics.MarkFlagValue(buildCmd, "no-cache")
-	analytics.MarkFlagValue(buildCmd, "no-set-current")
 	analytics.MarkFlagValue(buildCmd, "json")
 
 	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the uploaded artifact (default: auto-generated)")
-	buildUploadCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Add the build without making it the branch's default build; a branch on Latest build still uses it")
+	registerBuildPinFlags(buildUploadCmd)
 	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App name or ID to upload to")
 	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Mobile platform (ios or android)")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
@@ -237,19 +247,17 @@ func init() {
 	_ = buildUploadCmd.Flags().MarkHidden("clean")
 	buildUploadCmd.Flags().BoolVar(&uploadIncludeDirtyFlag, "include-dirty", false, "Deprecated")
 	_ = buildUploadCmd.Flags().MarkHidden("include-dirty")
-	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", true, "Pin the branch to the new build (the default)")
-	_ = buildUploadCmd.Flags().MarkHidden("set-current")
 	analytics.MarkFlagValue(buildUploadCmd, "platform")
 	analytics.MarkFlagValue(buildUploadCmd, "yes")
 	analytics.MarkFlagValue(buildUploadCmd, "json")
 	analytics.MarkFlagValue(buildUploadCmd, "preview")
 	analytics.MarkFlagValue(buildUploadCmd, "version")
-	analytics.MarkFlagValue(buildUploadCmd, "no-set-current")
 
 	buildRemoteCmd.Flags().StringVar(&remotePlatformFlag, "platform", "", "Deprecated")
 	buildRemoteCmd.Flags().StringVar(&remoteAppFlag, "app", "", "Deprecated")
 	buildRemoteCmd.Flags().StringVar(&remoteVersionFlag, "version", "", "Deprecated")
-	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", true, "Pin the branch to the new build (the default)")
+	buildRemoteCmd.Flags().BoolVar(&remotePinFlag, "pin", false, "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteJSONFlag, "json", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Deprecated")
@@ -257,6 +265,7 @@ func init() {
 	_ = buildRemoteCmd.Flags().MarkHidden("platform")
 	_ = buildRemoteCmd.Flags().MarkHidden("app")
 	_ = buildRemoteCmd.Flags().MarkHidden("version")
+	_ = buildRemoteCmd.Flags().MarkHidden("pin")
 	_ = buildRemoteCmd.Flags().MarkHidden("set-current")
 	_ = buildRemoteCmd.Flags().MarkHidden("json")
 	_ = buildRemoteCmd.Flags().MarkHidden("clean")
@@ -283,16 +292,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	return runProjectConfiguredBuild(cmd)
 }
 
-func buildUploadSetsCurrent(cmd *cobra.Command) (bool, error) {
-	if !cmd.Flags().Changed("set-current") {
-		return !buildNoSetCurrent, nil
-	}
-	if cmd.Flags().Changed("no-set-current") {
-		return false, fmt.Errorf("use either --set-current or --no-set-current, not both")
-	}
-	return cmd.Flags().GetBool("set-current")
-}
-
 // runBuildUpload executes the build upload command.
 //
 // Parameters:
@@ -311,11 +310,10 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
 		buildUploadJSON = true
 	}
-	setCurrent, err := buildUploadSetsCurrent(cmd)
+	pin, err := resolveBuildPin(cmd)
 	if err != nil {
 		return err
 	}
-	buildSetCurr = setCurrent
 	if buildUploadJSON {
 		ui.SetQuietMode(true)
 		defer ui.SetQuietMode(false)
@@ -340,12 +338,12 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 
 	// Direct file upload bypasses config-based build entirely.
 	if uploadFileFlag != "" {
-		return runDirectFileUpload(cmd, apiKey)
+		return runDirectFileUpload(cmd, apiKey, pin)
 	}
 
 	// URL-based upload: the backend fetches the artifact server-side.
 	if uploadURLFlag != "" {
-		return runURLUpload(cmd, apiKey)
+		return runURLUpload(cmd, apiKey, pin)
 	}
 
 	return deprecatedBuildUploadLocalBuildError()
@@ -409,10 +407,11 @@ func validateLocalBuildSecrets(platformKey string, platformCfg config.BuildPlatf
 // Parameters:
 //   - cmd: The cobra command being executed
 //   - apiKey: Authentication token for API requests
+//   - pin: Whether the upload pins its branch to the new build
 //
 // Returns:
 //   - error: Any error that occurred during upload
-func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
+func runDirectFileUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -530,12 +529,12 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	ui.StartSpinner("Uploading artifact...")
 
 	result, uploadErr := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BranchName:   commandBuildBranch(cmd),
-		AppID:        appID,
-		Version:      versionStr,
-		FilePath:     artifactPath,
-		Metadata:     metadata,
-		SetAsCurrent: buildSetCurr,
+		BranchName: commandBuildBranch(cmd),
+		AppID:      appID,
+		Version:    versionStr,
+		FilePath:   artifactPath,
+		Metadata:   metadata,
+		Pin:        pin,
 	})
 
 	ui.StopSpinner()
@@ -554,7 +553,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	ui.PrintInfo("Build ID:        %s", result.VersionID)
 	printUploadedBuildBranch(cmd.Context(), client, "Branch:          %s", uploadedBuild{
 		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
-		BuildID: result.VersionID, BuildVersion: result.Version, DefaultBuildChanged: buildSetCurr,
+		BuildID: result.VersionID, BuildVersion: result.Version, DefaultBuildChanged: pin,
 	})
 	if result.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageID)
@@ -637,10 +636,11 @@ func parseHeaderFlags(flags []string) (map[string]string, error) {
 // Parameters:
 //   - cmd: The cobra command being executed
 //   - apiKey: Authentication token for API requests
+//   - pin: Whether the upload pins its branch to the new build
 //
 // Returns:
 //   - error: Any error that occurred during the upload
-func runURLUpload(cmd *cobra.Command, apiKey string) error {
+func runURLUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -722,13 +722,13 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	ui.StartSpinner("Ingesting artifact from URL...")
 
 	result, uploadErr := client.CreateBuildFromURL(cmd.Context(), &api.CreateBuildFromURLRequest{
-		BranchName:   commandBuildBranch(cmd),
-		AppID:        appID,
-		FromURL:      uploadURLFlag,
-		Headers:      headers,
-		Version:      versionStr,
-		Metadata:     metadata,
-		SetAsCurrent: buildSetCurr,
+		BranchName: commandBuildBranch(cmd),
+		AppID:      appID,
+		FromURL:    uploadURLFlag,
+		Headers:    headers,
+		Version:    versionStr,
+		Metadata:   metadata,
+		Pin:        pin,
 	})
 
 	ui.StopSpinner()
@@ -746,12 +746,20 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 			ui.PrintSuccess("Upload complete!")
 		}
 	}
+	if pin && result.WasReused {
+		branch := "<branch>"
+		if result.BranchName != "" {
+			branch = quoteCLIRecoveryArgument(result.BranchName)
+		}
+		ui.PrintWarning("--pin didn't pin the branch: version %s already existed, so the upload reused build %s. To pin it, run: %s",
+			result.Version, result.ID, cliRecoveryCommand("app", "branch", "pin", branch, result.ID, "--app", appID))
+	}
 	ui.PrintInfo("App:             %s", appID)
 	ui.PrintInfo("Build Version:   %s", result.Version)
 	ui.PrintInfo("Build ID:        %s", result.ID)
 	printUploadedBuildBranch(cmd.Context(), client, "Branch:          %s", uploadedBuild{
 		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
-		BuildID: result.ID, BuildVersion: result.Version, DefaultBuildChanged: buildSetCurr && !result.WasReused,
+		BuildID: result.ID, BuildVersion: result.Version, DefaultBuildChanged: pin && !result.WasReused,
 	})
 	if result.PackageName != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageName)
@@ -1526,12 +1534,11 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.StartSpinner("Uploading artifact...")
 
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BranchName:   commandBuildBranch(cmd),
-		AppID:        appID,
-		Version:      versionStr,
-		FilePath:     artifactPath,
-		Metadata:     metadata,
-		SetAsCurrent: buildSetCurr,
+		BranchName: commandBuildBranch(cmd),
+		AppID:      appID,
+		Version:    versionStr,
+		FilePath:   artifactPath,
+		Metadata:   metadata,
 	})
 
 	ui.StopSpinner()
@@ -1553,7 +1560,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.PrintInfo("Build ID:        %s", result.VersionID)
 	printUploadedBuildBranch(cmd.Context(), client, "Branch:          %s", uploadedBuild{
 		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
-		BuildID: result.VersionID, BuildVersion: result.Version, DefaultBuildChanged: buildSetCurr,
+		BuildID: result.VersionID, BuildVersion: result.Version,
 	})
 	if result.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageID)

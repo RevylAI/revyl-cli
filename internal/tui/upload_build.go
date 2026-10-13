@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/buildselection"
 )
 
 // uploadStep tracks which stage of the upload flow the user is on.
@@ -27,6 +29,8 @@ const (
 	uploadStepUploading                   // upload in flight
 	uploadStepDone                        // upload complete
 )
+
+const uploadPinNotice = "This upload doesn't pin the branch: a branch on Latest build runs its newest upload"
 
 // validBuildExts lists accepted file extensions for build uploads.
 var validBuildExts = map[string]bool{
@@ -70,9 +74,10 @@ type uploadBuildModel struct {
 	fileSize     int64
 
 	// Result
-	uploadedVersionID string
-	uploadedVersion   string
-	done              bool
+	uploadedVersionID     string
+	uploadedVersion       string
+	uploadedBranchSummary string
+	done                  bool
 
 	// Post-upload action cursor (0=upload another, 1=back to builds)
 	doneCursor int
@@ -149,10 +154,19 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 			return BuildUploadedMsg{Branch: branch, Err: fmt.Errorf("upload failed: %w", err)}
 		}
 
+		uploaded := buildselection.UploadedBuild{
+			AppID: appID, BranchID: cmp.Or(resp.BranchID, branch.ID), BranchName: cmp.Or(resp.BranchName, branch.Name),
+			BuildID: resp.VersionID, BuildVersion: resp.Version,
+		}
+		summary, summaryErr := buildselection.UploadedBuildBranchSummary(ctx, client, uploaded)
+		if summaryErr != nil {
+			summary = ""
+		}
 		return BuildUploadedMsg{
-			Branch:    branch,
-			VersionID: resp.VersionID,
-			Version:   resp.Version,
+			Branch:        branch,
+			VersionID:     resp.VersionID,
+			Version:       resp.Version,
+			BranchSummary: summary,
 		}
 	}
 }
@@ -207,6 +221,10 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.uploadedVersionID = msg.VersionID
 		m.uploadedVersion = msg.Version
+		m.uploadedBranchSummary = msg.BranchSummary
+		if m.uploadedBranchSummary == "" && msg.Branch != nil {
+			m.uploadedBranchSummary = msg.Branch.Name
+		}
 		m.step = uploadStepDone
 		return m, nil
 	}
@@ -458,6 +476,7 @@ func (m uploadBuildModel) View() string {
 		b.WriteString("  " + dimStyle.Render("File:     ") + normalStyle.Render(filepath.Base(m.resolvedPath)) + "\n")
 		b.WriteString("  " + dimStyle.Render("Size:     ") + normalStyle.Render(formatFileSize(m.fileSize)) + "\n")
 		b.WriteString("  " + dimStyle.Render("Version:  ") + normalStyle.Render(version) + "\n")
+		b.WriteString("  " + dimStyle.Render(uploadPinNotice) + "\n")
 		if m.err != nil {
 			b.WriteString("\n  " + errorStyle.Render(m.err.Error()) + "\n")
 		}
@@ -470,7 +489,11 @@ func (m uploadBuildModel) View() string {
 	case uploadStepDone:
 		b.WriteString("  " + successStyle.Render("✓ Build uploaded successfully") + "\n")
 		b.WriteString("  " + dimStyle.Render("Version: "+m.uploadedVersion) + "\n")
-		b.WriteString("  " + dimStyle.Render("ID: "+m.uploadedVersionID) + "\n\n")
+		b.WriteString("  " + dimStyle.Render("ID: "+m.uploadedVersionID) + "\n")
+		if m.uploadedBranchSummary != "" {
+			b.WriteString("  " + dimStyle.Render("Branch: "+m.uploadedBranchSummary) + "\n")
+		}
+		b.WriteString("\n")
 		b.WriteString("  " + normalStyle.Render("What next?") + "\n\n")
 
 		options := []string{"Upload another build", "Back to builds"}

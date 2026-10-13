@@ -11,61 +11,84 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestBranchPolicyNoSetCurrentStaysPublic(t *testing.T) {
+func TestBuildPinFlagIsPublicAndOldFlagsAreHidden(t *testing.T) {
 	for _, command := range []*cobra.Command{buildCmd, buildUploadCmd} {
-		flag := command.Flags().Lookup("no-set-current")
-		if flag == nil || flag.Hidden || flag.Deprecated != "" {
-			t.Fatalf("%s --no-set-current must remain visible and nondeprecated", command.Name())
+		pin := command.Flags().Lookup("pin")
+		if pin == nil || pin.Hidden || pin.Usage != "Pin the branch to the new build" {
+			t.Fatalf("%s --pin must be visible: %+v", command.Name(), pin)
+		}
+		for _, name := range []string{"set-current", "no-set-current"} {
+			flag := command.Flags().Lookup(name)
+			if flag == nil || !flag.Hidden {
+				t.Fatalf("%s --%s must stay accepted and hidden", command.Name(), name)
+			}
+		}
+		help := command.Use + command.Long + command.Example
+		if strings.Contains(help, "set-current") {
+			t.Fatalf("%s help still recommends a deprecated flag: %s", command.Name(), help)
 		}
 	}
-}
-
-func TestBranchPolicyLegacySetCurrentStaysHiddenWithoutWarning(t *testing.T) {
-	flag := buildUploadCmd.Flags().Lookup("set-current")
-	if flag == nil || !flag.Hidden || flag.Deprecated != "" {
-		t.Fatal("build upload --set-current must stay accepted, hidden and without a deprecation warning")
+	if flag := buildRemoteCmd.Flags().Lookup("pin"); flag == nil || !flag.Hidden {
+		t.Fatal("deprecated build remote must accept a hidden --pin")
 	}
 }
 
-func TestBuildUploadHonorsLegacySetCurrent(t *testing.T) {
-	t.Setenv("REVYL_API_KEY", "test-key")
-	previousSetCurrent, previousNoSetCurrent := buildSetCurr, buildNoSetCurrent
-	previousFile, previousURL := uploadFileFlag, uploadURLFlag
-	t.Cleanup(func() {
-		buildSetCurr, buildNoSetCurrent = previousSetCurrent, previousNoSetCurrent
-		uploadFileFlag, uploadURLFlag = previousFile, previousURL
-	})
-	uploadFileFlag, uploadURLFlag = "app.apk", "https://example.test/app.apk"
+func TestResolveBuildPinFlags(t *testing.T) {
+	const (
+		setCurrentWarning        = "--set-current is deprecated and will be removed; use --pin to pin the branch to the new build"
+		setCurrentFalseWarning   = "--set-current=false is deprecated and does nothing; uploads don't pin their branch unless you pass --pin"
+		noSetCurrentWarning      = "--no-set-current is deprecated and does nothing; uploads don't pin their branch unless you pass --pin"
+		noSetCurrentFalseWarning = "--no-set-current=false is deprecated and does nothing; uploads don't pin their branch unless you pass --pin"
+	)
 	for _, test := range []struct {
-		name    string
-		args    []string
-		wantPin bool
-		wantErr string
+		name     string
+		args     []string
+		wantPin  bool
+		warnings []string
+		wantErr  string
 	}{
-		{name: "default pins", wantPin: true},
-		{name: "legacy opt out", args: []string{"--set-current=false"}},
-		{name: "legacy opt in", args: []string{"--set-current"}, wantPin: true},
-		{name: "public opt out", args: []string{"--no-set-current"}},
-		{name: "explicit public false", args: []string{"--no-set-current=false"}, wantPin: true},
-		{name: "contradictory flags", args: []string{"--set-current", "--no-set-current"}, wantErr: "use either --set-current or --no-set-current"},
+		{name: "no flags leaves the pin alone"},
+		{name: "pin", args: []string{"--pin"}, wantPin: true},
+		{name: "explicit pin false", args: []string{"--pin=false"}},
+		{name: "deprecated set-current pins", args: []string{"--set-current"}, wantPin: true, warnings: []string{setCurrentWarning}},
+		{name: "deprecated set-current false does nothing", args: []string{"--set-current=false"}, warnings: []string{setCurrentFalseWarning}},
+		{name: "deprecated no-set-current does nothing", args: []string{"--no-set-current"}, warnings: []string{noSetCurrentWarning}},
+		{name: "deprecated no-set-current false does nothing", args: []string{"--no-set-current=false"}, warnings: []string{noSetCurrentFalseWarning}},
+		{name: "pin with redundant set-current", args: []string{"--pin", "--set-current"}, wantPin: true, warnings: []string{setCurrentWarning}},
+		{name: "no-set-current false with pin", args: []string{"--pin", "--no-set-current=false"}, wantPin: true, warnings: []string{noSetCurrentFalseWarning}},
+		{name: "pin contradicts no-set-current", args: []string{"--pin", "--no-set-current"}, wantErr: "--pin and --no-set-current conflict"},
+		{name: "pin contradicts set-current false", args: []string{"--pin", "--set-current=false"}, wantErr: "--pin and --set-current=false conflict"},
+		{name: "pin false contradicts set-current", args: []string{"--pin=false", "--set-current"}, wantErr: "--pin=false and --set-current conflict"},
+		{name: "set-current contradicts no-set-current", args: []string{"--set-current", "--no-set-current"}, wantErr: "--set-current and --no-set-current conflict"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cmd := newLeafCommand("upload", runBuildUpload)
-			cmd.Flags().BoolVar(&buildSetCurr, "set-current", true, "")
-			cmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "")
+			registerBuildPinFlags(cmd)
 			if err := cmd.ParseFlags(test.args); err != nil {
 				t.Fatal(err)
 			}
-			err := runBuildUpload(cmd, nil)
-			wantErr := test.wantErr
-			if wantErr == "" {
-				wantErr = "--file and --url are mutually exclusive"
-				if buildSetCurr != test.wantPin {
-					t.Fatalf("upload pins branch = %t, want %t", buildSetCurr, test.wantPin)
+			var pin bool
+			var err error
+			stdout, stderr := captureStdoutAndStderrSeparate(t, func() { pin, err = resolveBuildPin(cmd) })
+			if stdout != "" {
+				t.Fatalf("pin flags wrote to stdout: %q", stdout)
+			}
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) || !strings.Contains(err.Error(), "use only --pin to pin the branch to the new build") {
+					t.Fatalf("error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil || pin != test.wantPin {
+				t.Fatalf("pin = %t, %v; want %t", pin, err, test.wantPin)
+			}
+			for _, warning := range test.warnings {
+				if !strings.Contains(stderr, warning) {
+					t.Errorf("stderr missing %q:\n%s", warning, stderr)
 				}
 			}
-			if err == nil || !strings.Contains(err.Error(), wantErr) {
-				t.Fatalf("upload error = %v, want %q", err, wantErr)
+			if len(test.warnings) == 0 && stderr != "" {
+				t.Fatalf("unexpected stderr: %q", stderr)
 			}
 		})
 	}

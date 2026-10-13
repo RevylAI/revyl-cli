@@ -30,7 +30,7 @@ test:
   build:
     name: "app-name"            # Required: App name from Revyl
     branch_id: "branch-uuid"   # Optional: saved Revyl branch; omission is Default branch
-    build_selection: inherit   # inherit (Automatic: the branch's default build), latest, or pinned
+    build_selection: inherit   # inherit (Automatic: the branch's default build), latest, latest_all_branches, or pinned
     # pinned_build_id: "build-uuid" # Required with pinned; must belong to branch_id
     # pinned_version: "1.0.0"  # Legacy alternative; do not mix with the selector above
   blocks:                       # Required: At least one block
@@ -42,10 +42,12 @@ test:
 
 New tests use Default branch when no selector is supplied. A saved branch uses its stable
 ID, so renaming the branch does not break the test. ` + "`inherit`" + ` (Automatic) uses the
-branch's default build; ` + "`latest`" + ` bypasses its pin; ` + "`pinned`" + ` fixes the exact build ID.
-On updates, omitting all selector keys preserves the saved selection. To reset it,
-set ` + "`build_selection: inherit`" + ` and remove both IDs. Runs may override selection
-without editing this file or the saved test. Legacy version pins remain accepted.
+branch's default build; ` + "`latest`" + ` uses the branch's newest build, even when the branch
+is pinned; ` + "`latest_all_branches`" + ` uses the newest build across all of the app's branches
+and takes no branch_id; ` + "`pinned`" + ` fixes the exact build ID. On updates, omitting all
+selector keys preserves the saved selection. To reset it, set ` + "`build_selection: inherit`" + `
+and remove both IDs. Runs may override selection without editing this file or the saved
+test. A legacy ` + "`pinned_version`" + ` alone remains accepted.
 
 ## Block Types
 
@@ -336,11 +338,12 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 		},
 		"buildSelection": map[string]interface{}{
 			"fields":         []string{"branch_id", "build_selection", "pinned_build_id"},
-			"modes":          []string{"inherit", "latest", "pinned"},
+			"modes":          []string{"inherit", "latest", "latest_all_branches", "pinned"},
+			"allBranches":    "latest_all_branches takes no branch_id or pinned_build_id",
 			"automatic":      "No branch ID: Default branch, which follows the app default branch",
 			"updateOmission": "Omitted selector keys preserve saved settings; explicit inherit with no IDs resets to Default branch",
 			"pinned":         "Requires an exact pinned_build_id and its branch_id",
-			"legacy":         "pinned_version remains accepted alone; older mixed exact pins are verified against their app, branch and version by the server",
+			"legacy":         "pinned_version remains accepted alone; the server verifies older selections that pair it with an exact build against their app, branch and version",
 		},
 		"blockTypes": map[string]interface{}{
 			"instructions": map[string]interface{}{

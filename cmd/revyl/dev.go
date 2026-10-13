@@ -505,6 +505,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	if devStartSeedLatest && devStartBuildSelection != "" && devStartBuildSelection != "latest" {
 		return fmt.Errorf("--seed-latest requires latest build selection")
 	}
+	if err := rejectAllBranchesSelection(devStartBuildSelection, "a dev loop follows one branch, which its rebuilds upload to; pass --branch to choose it"); err != nil {
+		return err
+	}
 	if appID := strings.TrimSpace(devStartAppID); appID != "" {
 		invocation = invocation.withAppID(appID)
 	}
@@ -680,7 +683,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 						formatBuildAge(simBuild.Age()), simBuild.ModTime.Format("Mon Jan 2 15:04"))
 				}
 				ui.StartSpinner("Uploading local simulator build...")
-				uploadResult, uploadErr := performLocalArtifactUpload(cmd, projectBuildInvocationFromDev(invocation.withAppID(localAppID)), simBuild.Path, 0, client, true, false)
+				uploadResult, uploadErr := performLocalArtifactUpload(cmd, projectBuildInvocationFromDev(invocation.withAppID(localAppID)), simBuild.Path, 0, client, false, false)
 				ui.StopSpinner()
 				if uploadErr == nil {
 					needsDevBuild = false
@@ -700,7 +703,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			return fmt.Errorf("no builds found for app %s; provide --build-version-id or use config-backed dev flow", appIDOverride)
 		}
 		ui.PrintInfo("Building and uploading dev client (%s/%s)...", invocation.Profile, invocation.Platform)
-		buildResult, buildErr := performLocalBuild(cmd, projectBuildInvocationFromDev(invocation), apiKey, false, interactive, true, &buildProgress{})
+		buildResult, buildErr := performLocalBuild(cmd, projectBuildInvocationFromDev(invocation), apiKey, false, interactive, false, &buildProgress{})
 		if buildErr != nil {
 			return buildErr
 		}
@@ -2254,7 +2257,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 
 	if needsBuild {
 		ui.PrintInfo("Building %s...", platformKey)
-		buildResult, buildErr := performLocalBuild(cmd, projectBuildInvocationFromDev(invocation), apiKey, false, ui.IsInteractive(), true, &buildProgress{})
+		buildResult, buildErr := performLocalBuild(cmd, projectBuildInvocationFromDev(invocation), apiKey, false, ui.IsInteractive(), false, &buildProgress{})
 		if buildErr != nil {
 			return fmt.Errorf("build failed: %w", buildErr)
 		}

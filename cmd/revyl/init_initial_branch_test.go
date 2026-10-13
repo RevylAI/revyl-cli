@@ -114,7 +114,7 @@ func TestInitInitialBranchSelectionIsPerAppAndTransient(t *testing.T) {
 	}
 }
 
-func TestInitFirstBuildRoutesPreserveInitialBranchAndPin(t *testing.T) {
+func TestInitFirstBuildRoutesPreserveInitialBranchWithoutPinning(t *testing.T) {
 	for _, route := range []string{"batch_retry", "sequential", "react_native", "expo"} {
 		for _, linked := range []bool{false, true} {
 			for _, explicit := range []string{"", "release"} {
@@ -140,7 +140,7 @@ func TestInitFirstBuildRoutesPreserveInitialBranchAndPin(t *testing.T) {
 						}
 					}
 					requests := make(chan api.BuildUploadSessionRequest, 2)
-					finalizations := make(chan api.BuildCreateFromUploadRequest, 2)
+					finalizations := make(chan map[string]any, 2)
 					var server *httptest.Server
 					server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						w.Header().Set("Content-Type", "application/json")
@@ -166,12 +166,12 @@ func TestInitFirstBuildRoutesPreserveInitialBranchAndPin(t *testing.T) {
 						case "/artifact":
 							w.WriteHeader(http.StatusOK)
 						case "/api/v1/apps/app/builds":
-							var request api.BuildCreateFromUploadRequest
+							var request map[string]any
 							if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 								t.Error(err)
 							}
 							finalizations <- request
-							_ = json.NewEncoder(w).Encode(map[string]any{"id": "66666666-6666-4666-8666-666666666666", "version": request.Version})
+							_ = json.NewEncoder(w).Encode(map[string]any{"id": "66666666-6666-4666-8666-666666666666", "version": request["version"]})
 						default:
 							t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 							http.NotFound(w, r)
@@ -221,11 +221,13 @@ func TestInitFirstBuildRoutesPreserveInitialBranchAndPin(t *testing.T) {
 						}
 					}
 					finalization := <-finalizations
-					if finalization.SetAsCurrent == nil || !*finalization.SetAsCurrent || finalization.UploadId.String() != uploadID {
-						t.Fatalf("init lost pin or frozen upload provenance: %+v", finalization)
+					if finalization["upload_id"] != uploadID {
+						t.Fatalf("init lost frozen upload provenance: %+v", finalization)
 					}
-					if finalization.BranchId != nil || finalization.BranchName != nil || finalization.ContextBranchName != nil {
-						t.Fatalf("finalization reselected its branch: %+v", finalization)
+					for _, field := range []string{"pin", "set_as_current", "branch_id", "branch_name", "context_branch_name"} {
+						if _, sent := finalization[field]; sent {
+							t.Fatalf("init finalization sent %s; it must neither pin nor reselect its branch: %+v", field, finalization)
+						}
 					}
 				})
 			}

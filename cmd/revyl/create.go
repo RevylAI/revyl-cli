@@ -30,6 +30,7 @@ var (
 	createTestBranch         string
 	createTestBuildSelection string
 	createTestBuildID        string
+	createTestAllBranches    bool
 	createTestAppID          string
 	createTestNoOpen         bool
 	createTestForce          bool
@@ -151,6 +152,11 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	if createTestFromFile != "" && createTestFromSession != "" {
 		return fmt.Errorf("provide --from-file or --from-session, not both")
 	}
+	buildSelection, err := resolveCommandAllBranchesSelection(cmd, createTestBuildSelection, "branch", "build-id")
+	if err != nil {
+		return err
+	}
+	createTestBuildSelection = buildSelection
 
 	if createTestFromSession != "" {
 		return runCreateTestFromSession(cmd, args)

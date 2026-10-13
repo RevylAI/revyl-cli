@@ -65,7 +65,7 @@ func TestPushReturnsSelectorFailureWhileKeepingSuccessfulTests(t *testing.T) {
 			}
 			if name == "rejected" {
 				w.WriteHeader(http.StatusUnprocessableEntity)
-				_, _ = w.Write([]byte(`{"detail":"Pinned version and exact build disagree"}`))
+				_, _ = w.Write([]byte(`{"detail":"The saved version doesn't match the exact build's version"}`))
 			} else {
 				_, _ = w.Write([]byte(`{"id":"accepted-id","version":1}`))
 			}
@@ -80,7 +80,7 @@ func TestPushReturnsSelectorFailureWhileKeepingSuccessfulTests(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "key")
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
 	err := runTestsPush(newLeafCommand("push", runTestsPush), nil)
-	if err == nil || !strings.Contains(err.Error(), "rejected: Pinned version and exact build disagree") {
+	if err == nil || !strings.Contains(err.Error(), "rejected: The saved version doesn't match the exact build's version") {
 		t.Fatalf("push did not return per-test selector failure: %v", err)
 	}
 	if !created["accepted"] || !created["rejected"] {

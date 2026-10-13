@@ -489,11 +489,8 @@ func TestParseAPIErrorBodyIncludesValidationErrors(t *testing.T) {
 	}`))
 
 	got := err.Error()
-	if !strings.Contains(got, "Validation error") {
-		t.Fatalf("error = %q, want top-level message", got)
-	}
-	if !strings.Contains(got, "body.setup_command: Value error, setup_command must start with an allowed tool: git, bash") {
-		t.Fatalf("error = %q, want field-level validation detail", got)
+	if want := "Validation error: setup_command: setup_command must start with an allowed tool: git, bash"; got != want {
+		t.Fatalf("error = %q, want the field without its request location and the validator's own message: %q", got, want)
 	}
 	if len(err.ValidationIssues) != 1 || err.ValidationIssues[0] != (APIValidationIssue{
 		Field:   "body.setup_command",
@@ -501,6 +498,35 @@ func TestParseAPIErrorBodyIncludesValidationErrors(t *testing.T) {
 		Type:    "value_error",
 	}) {
 		t.Fatalf("ValidationIssues = %#v", err.ValidationIssues)
+	}
+}
+
+func TestParseAPIErrorBodyWordsValidationIssuesForPeople(t *testing.T) {
+	for _, test := range []struct {
+		name, issue, want string
+	}{
+		{
+			name:  "validator message on a body field",
+			issue: `{"field":"body.name","message":"Value error, Branch names must be nonempty and have no surrounding whitespace","type":"value_error"}`,
+			want:  "Validation error: name: Branch names must be nonempty and have no surrounding whitespace",
+		},
+		{
+			name:  "built-in check on a query parameter",
+			issue: `{"field":"query.page","message":"Input should be greater than or equal to 1","type":"greater_than_equal"}`,
+			want:  "Validation error: page: Input should be greater than or equal to 1",
+		},
+		{
+			name:  "whole body",
+			issue: `{"field":"body","message":"Field required","type":"missing"}`,
+			want:  "Validation error: body: Field required",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := parseAPIErrorBody(http.StatusUnprocessableEntity, []byte(`{"message":"Validation error","errors":[`+test.issue+`]}`)).Error()
+			if got != test.want {
+				t.Fatalf("error = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
@@ -727,7 +753,7 @@ func TestCreateBuildFromURL_Success(t *testing.T) {
 		Metadata: map[string]interface{}{
 			"source": "cli_url_upload",
 		},
-		SetAsCurrent: true,
+		Pin: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateBuildFromURL() error = %v", err)
@@ -749,8 +775,11 @@ func TestCreateBuildFromURL_Success(t *testing.T) {
 	if headers, ok := capturedBody["headers"].(map[string]interface{}); !ok || headers["Authorization"] != "Bearer secret" {
 		t.Fatalf("headers = %v, want Authorization header", capturedBody["headers"])
 	}
-	if setAsCurrent, ok := capturedBody["set_as_current"].(bool); !ok || !setAsCurrent {
-		t.Fatalf("set_as_current = %v, want true", capturedBody["set_as_current"])
+	if pin, ok := capturedBody["pin"].(bool); !ok || !pin {
+		t.Fatalf("pin = %v, want true", capturedBody["pin"])
+	}
+	if _, sent := capturedBody["set_as_current"]; sent {
+		t.Fatalf("set_as_current must not be sent: %v", capturedBody)
 	}
 }
 
@@ -807,7 +836,7 @@ func TestCreateBuildFromURL_BackendFetchFailure(t *testing.T) {
 	}
 }
 
-func TestCreateBuildFromURL_NoHeadersAndNoSetCurrent(t *testing.T) {
+func TestCreateBuildFromURL_NoHeadersAndNoPin(t *testing.T) {
 	var capturedBody map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -824,10 +853,9 @@ func TestCreateBuildFromURL_NoHeadersAndNoSetCurrent(t *testing.T) {
 
 	client := NewClientWithBaseURL("test-key", server.URL)
 	_, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
-		AppID:        "app-1",
-		FromURL:      "https://public.example.com/app.apk",
-		Version:      "2.0.0",
-		SetAsCurrent: false,
+		AppID:   "app-1",
+		FromURL: "https://public.example.com/app.apk",
+		Version: "2.0.0",
 	})
 	if err != nil {
 		t.Fatalf("CreateBuildFromURL() error = %v", err)
@@ -836,8 +864,10 @@ func TestCreateBuildFromURL_NoHeadersAndNoSetCurrent(t *testing.T) {
 	if _, exists := capturedBody["headers"]; exists {
 		t.Fatalf("headers should be omitted when nil, got: %v", capturedBody["headers"])
 	}
-	if setAsCurrent, ok := capturedBody["set_as_current"].(bool); !ok || setAsCurrent {
-		t.Fatalf("set_as_current = %v, want explicit false", capturedBody["set_as_current"])
+	for _, field := range []string{"pin", "set_as_current"} {
+		if _, sent := capturedBody[field]; sent {
+			t.Fatalf("an upload that doesn't pin must omit %s: %v", field, capturedBody)
+		}
 	}
 }
 

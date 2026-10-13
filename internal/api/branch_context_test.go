@@ -68,7 +68,7 @@ func TestContextBranchLookupPrecedence(t *testing.T) {
 			if tc.fail && !strings.Contains(err.Error(), "--branch") {
 				t.Errorf("missing remedy %v", err)
 			}
-			if tc.missing && !tc.upload && !errors.Is(err, ErrBranchNotFound) {
+			if tc.missing && !tc.upload && (!errors.Is(err, ErrBranchNotFound) || err.Error() != `branch "feature" from Git doesn't exist; upload a build or select another branch with --branch`) {
 				t.Errorf("wrong missing error %v", err)
 			}
 			if tc.name == "unsupported" && calls != 0 {

@@ -130,11 +130,11 @@ func (s *Server) registerManageTestsTool() {
 		Description: `Manage Revyl tests. Use the "action" param to select an operation.
 
 Actions:
-  run          - Run a test by name or ID. Default branch uses the app's default branch; saved concrete selections remain unchanged. Params: test_name (required), project_dir, retries, build_version_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, or pinned), location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
+  run          - Run a test by name or ID. Default branch uses the app's default branch; saved concrete selections remain unchanged. Params: test_name (required), project_dir, retries, build_version_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches for the newest build across all branches, or pinned), location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   list         - List tests from .revyl/config.yaml. No params required.
   list_remote  - List all tests in the organization. No params required.
-  create       - Create a test from YAML. Params: name (required), platform (required), yaml_content, app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, or pinned), pinned_build_id, module_names_or_ids
-  update       - Update a test's YAML. Params: test_name_or_id (required), yaml_content (required), app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, or pinned), pinned_build_id, force. Omitted selectors preserve the saved choice; inherit alone restores Default branch.
+  create       - Create a test from YAML. Params: name (required), platform (required), yaml_content, app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches, or pinned), pinned_build_id, module_names_or_ids
+  update       - Update a test's YAML. Params: test_name_or_id (required), yaml_content (required), app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches, or pinned), pinned_build_id, force. Omitted selectors preserve the saved choice; inherit alone restores Default branch.
   delete       - Delete a test. Params: test_name (required)
   status       - Get execution status. Params: task_id (required)
   cancel       - Cancel a running test. Params: task_id (required)`,
@@ -219,13 +219,13 @@ Actions:
   list          - List all workflows. No params required.
   create        - Create a workflow. Params: name (required)
   delete        - Delete a workflow. Params: workflow_name (required)
-  run           - Run a workflow. Default branch targets use the app's default branch; saved concrete selections remain unchanged. Params: workflow_name (required), project_dir, retries, branch_name, build_selection (inherit for Automatic, or latest), ios_app_id, android_app_id, ios_build_id, android_build_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
+  run           - Run a workflow. Default branch targets use the app's default branch; saved concrete selections remain unchanged. Params: workflow_name (required), project_dir, retries, branch_name, build_selection (inherit for Automatic, latest, or latest_all_branches for the newest build across all branches), ios_app_id, android_app_id, ios_build_id, android_build_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   cancel        - Cancel a running workflow. Params: task_id (required)
   add_tests     - Add tests to a workflow. Params: workflow_name (required), test_names (required)
   remove_tests  - Remove tests from a workflow. Params: workflow_name (required), test_names (required)
   get_settings  - Get workflow settings, including saved build selectors. Params: workflow_name_or_id (required)
   set_location  - Set GPS override. Params: workflow_name (required), location (required)
-  set_app       - Set app overrides. Params: workflow_name_or_id (required), ios_app_id, android_app_id, ios_branch_id, ios_branch_name, ios_build_selection, ios_pinned_build_id, android_branch_id, android_branch_name, android_build_selection, android_pinned_build_id. Build selection is inherit (Automatic), latest, or pinned; inherit alone restores Default branch for that platform.
+  set_app       - Set app overrides. Params: workflow_name_or_id (required), ios_app_id, android_app_id, ios_branch_id, ios_branch_name, ios_build_selection, ios_pinned_build_id, android_branch_id, android_branch_name, android_build_selection, android_pinned_build_id. Build selection is inherit (Automatic), latest, latest_all_branches (no branch), or pinned; inherit alone restores Default branch for that platform.
   open_editor   - Get browser editor URL. Params: workflow_name (required)`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Manage Workflows",

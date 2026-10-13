@@ -785,7 +785,6 @@ func remoteDevTriggerRequestFromProject(
 	version string,
 	invocation projectDevInvocation,
 ) (*api.RemoteBuildRequest, error) {
-	setCurrent := true
 	source, err := remoteBuildRequestSource(nil, sourceKey, "")
 	if err != nil {
 		return nil, err
@@ -797,7 +796,7 @@ func remoteDevTriggerRequestFromProject(
 	}
 	request := &api.RemoteBuildRequest{
 		Source: source, Recipe: &recipe,
-		Version: stringPtrOrNil(version), SetAsCurrent: &setCurrent,
+		Version:             stringPtrOrNil(version),
 		BuildDefinitionHash: stringPtrOrNil(invocation.BuildDefinitionHash),
 	}
 	if invocation.BranchID != "" {
@@ -957,7 +956,6 @@ func installAndLaunchRemoteDevBuild(
 }
 
 func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version string, platCfg config.BuildPlatform, buildCaches []config.BuildCache) (*api.RemoteBuildRequest, error) {
-	setCurrent := true
 	source, err := remoteBuildRequestSource(nil, sourceKey, "")
 	if err != nil {
 		return nil, err
@@ -977,10 +975,9 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 		return nil, err
 	}
 	return &api.RemoteBuildRequest{
-		Source:       source,
-		Recipe:       &recipe,
-		Version:      stringPtrOrNil(version),
-		SetAsCurrent: &setCurrent,
+		Source:  source,
+		Recipe:  &recipe,
+		Version: stringPtrOrNil(version),
 	}, nil
 }
 

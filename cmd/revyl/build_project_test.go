@@ -305,7 +305,7 @@ func TestRunLocalBuildWithoutAppUsesExistingResolutionAfterBuild(t *testing.T) {
 		},
 	}
 	cmd := newBuildTestCommand()
-	err := runLocalBuild(cmd, invocation, "test-key", false, true, &buildProgress{})
+	err := runLocalBuild(cmd, invocation, "test-key", false, true, false, &buildProgress{})
 	if err != selectionErr {
 		t.Fatalf("error = %v, want existing app selection path error", err)
 	}
@@ -398,7 +398,7 @@ func TestRunLocalBuildWithoutAppFailsBeforeNonInteractiveExecution(t *testing.T)
 			OutputPath:    &outputPath,
 		},
 	}
-	err := runLocalBuild(newBuildTestCommand(), invocation, "test-key", true, false, &buildProgress{})
+	err := runLocalBuild(newBuildTestCommand(), invocation, "test-key", true, false, false, &buildProgress{})
 	if err == nil || !strings.Contains(err.Error(), "build.profiles.development.android.app_id") || !strings.Contains(err.Error(), "interactive terminal") {
 		t.Fatalf("error = %v, want actionable app binding guidance", err)
 	}
@@ -419,7 +419,7 @@ func TestRemoteBuildWithoutAppExplainsExactBinding(t *testing.T) {
 	err := runProjectRemoteBuild(newBuildTestCommand(), projectBuildInvocation{
 		Profile:  "release",
 		Platform: "ios",
-	}, "test-key", true, &buildProgress{})
+	}, "test-key", true, false, &buildProgress{})
 	if err == nil || !strings.Contains(err.Error(), "build.profiles.release.ios.app_id") || !strings.Contains(err.Error(), "revyl config validate") {
 		t.Fatalf("error = %v, want exact remote app binding guidance", err)
 	}
@@ -433,7 +433,7 @@ func TestRemoteBuildWithoutAppExplainsExactBinding(t *testing.T) {
 func TestRemoteBuildInvalidAppIDExplainsWhereToFindUUID(t *testing.T) {
 	err := runProjectRemoteBuild(newBuildTestCommand(), projectBuildInvocation{
 		Profile: "release", Platform: "ios", AppID: "My App",
-	}, "test-key", true, &buildProgress{})
+	}, "test-key", true, false, &buildProgress{})
 	if err == nil {
 		t.Fatal("expected invalid app ID error")
 	}

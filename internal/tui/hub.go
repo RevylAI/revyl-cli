@@ -5023,7 +5023,7 @@ func (m hubModel) renderAppDetail() string {
 			version := nameStyle.Render(bv.Version)
 			currentBadge := ""
 			if m.appBuildBranch != nil && m.appBuildBranch.PinnedBuildID != nil && bv.ID == *m.appBuildBranch.PinnedBuildID {
-				currentBadge = successStyle.Render(" (default build)")
+				currentBadge = successStyle.Render(" (pinned)")
 			}
 			if bv.BranchName != "" {
 				currentBadge += dimStyle.Render(" [" + bv.BranchName + "]")
@@ -5208,13 +5208,13 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 				checks = append(checks, HealthCheck{
 					Name:    "Build Uploaded",
 					Status:  "ok",
-					Message: "Build available on app default branch",
+					Message: "The app's default branch has a usable build",
 				})
 			} else {
 				checks = append(checks, HealthCheck{
 					Name:    "Build Uploaded",
 					Status:  "warning",
-					Message: "No available build on app default branch; upload a build or check its pin",
+					Message: "The app's default branch has no usable build; upload one or check its pin",
 				})
 			}
 		} else if !appLinked {

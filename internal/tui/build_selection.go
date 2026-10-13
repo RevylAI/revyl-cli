@@ -22,7 +22,11 @@ const (
 	buildPickerName
 )
 
-const defaultBranchLabel = "Default branch"
+const (
+	defaultBranchLabel     = "Default branch"
+	allBranchesLatestLabel = "All branches · Latest build"
+	keepSavedSettingsLabel = "Keep saved settings"
+)
 
 type buildPickerModel struct {
 	id, appID, title string
@@ -41,7 +45,7 @@ type buildPickerModel struct {
 	cursor                            int
 	loading, done, cancelled          bool
 	branchOnly, allowAll, allowCreate bool
-	workflow                          bool
+	workflow, offerAllBranches        bool
 	err                               error
 	nameInput                         textinput.Model
 	searchInput                       textinput.Model
@@ -154,6 +158,9 @@ func (m buildPickerModel) fetchBuildPage(page int) tea.Cmd {
 func (m buildPickerModel) options() []string {
 	switch m.step {
 	case buildPickerMode:
+		if m.workflowOffersAllBranches() {
+			return []string{keepSavedSettingsLabel, allBranchesLatestLabel}
+		}
 		if m.workflow {
 			return []string{"Automatic", "Latest build"}
 		}
@@ -168,6 +175,9 @@ func (m buildPickerModel) options() []string {
 		options := []string{m.defaultBranchOption()}
 		if m.allowAll {
 			options[0] = "All branches"
+		}
+		if m.offerAllBranches {
+			options = append(options, allBranchesLatestLabel)
 		}
 		for _, branch := range m.branchRows() {
 			label := branch.Name
@@ -195,6 +205,20 @@ func mergeBranchPage(listed, page []api.BuildBranch) (merged []api.BuildBranch, 
 		listed = append(listed, branch)
 	}
 	return listed, repeated
+}
+
+// leadingBranchChoices counts the choices listed before the branch rows.
+func (m buildPickerModel) leadingBranchChoices() int {
+	if m.offerAllBranches {
+		return 2
+	}
+	return 1
+}
+
+// workflowOffersAllBranches reports whether a workflow picker with no branch
+// name asks between its saved settings and All branches.
+func (m buildPickerModel) workflowOffersAllBranches() bool {
+	return m.workflow && m.offerAllBranches && !m.branchOnly && m.selection.BranchName == ""
 }
 
 func (m buildPickerModel) isDefaultBranch(branch api.BuildBranch) bool {
@@ -232,16 +256,16 @@ func (m buildPickerModel) branchRows() []api.BuildBranch {
 }
 
 func (m buildPickerModel) cursorBranchID() string {
-	if m.cursor == 0 {
+	if m.cursor < m.leadingBranchChoices() {
 		return ""
 	}
-	return m.branchRows()[m.cursor-1].ID
+	return m.branchRows()[m.cursor-m.leadingBranchChoices()].ID
 }
 
 func (m buildPickerModel) cursorForBranch(branchID string) int {
 	for i, branch := range m.branchRows() {
 		if branch.ID == branchID {
-			return i + 1
+			return i + m.leadingBranchChoices()
 		}
 	}
 	return 0
@@ -284,7 +308,11 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		m.branches, m.defaultBranch = merged, data.defaultBranch
 		m.branchPage, m.moreBranches = max(1, data.page), data.hasNext
 		if data.reloaded {
-			m.cursor = m.cursorForBranch(previous.cursorBranchID())
+			if branchID := previous.cursorBranchID(); branchID != "" {
+				m.cursor = m.cursorForBranch(branchID)
+			} else {
+				m.cursor = previous.cursor
+			}
 		} else if data.page <= 1 {
 			m.cursor = 0
 		}
@@ -336,7 +364,12 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		if key.String() == "enter" {
 			selection := api.BuildSelection{BranchName: m.nameInput.Value()}
 			if m.workflow && selection.BranchName == "" {
-				m.selection, m.done = selection, true
+				m.selection = selection
+				if m.workflowOffersAllBranches() {
+					m.step, m.cursor = buildPickerMode, 0
+					return m, nil
+				}
+				m.done = true
 				return m, nil
 			}
 			if selection.BranchName == "" {
@@ -421,8 +454,12 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 				m.done, m.label = true, "All branches"
 				return m, nil
 			}
-			if m.cursor > 0 {
-				branch := m.branchRows()[m.cursor-1]
+			if m.offerAllBranches && m.cursor == 1 {
+				m.selection.Mode, m.label, m.done = api.BuildSelectionModeLatestAllBranches, allBranchesLatestLabel, true
+				return m, nil
+			}
+			if m.cursor >= m.leadingBranchChoices() {
+				branch := m.branchRows()[m.cursor-m.leadingBranchChoices()]
 				m.selection.BranchID, m.label = branch.ID, branch.Name
 			}
 			if m.branchOnly {
@@ -431,6 +468,13 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 			}
 			m.step, m.cursor = buildPickerMode, 0
 		case buildPickerMode:
+			if m.workflowOffersAllBranches() {
+				if m.cursor == 1 {
+					m.selection.Mode, m.label = api.BuildSelectionModeLatestAllBranches, allBranchesLatestLabel
+				}
+				m.done = true
+				return m, nil
+			}
 			switch m.cursor {
 			case 0:
 				m.selection.Mode, m.done = api.BuildSelectionModeInherit, true
@@ -480,7 +524,7 @@ func (m buildPickerModel) View() string {
 			if m.buildSearch != "" {
 				b.WriteString("  No builds match this search. Press / to change or clear it.\n")
 			} else {
-				b.WriteString("  No builds on this branch. Upload a build before selecting a pin.\n")
+				b.WriteString("  No builds on this branch. Upload one, or press backspace to choose another branch.\n")
 			}
 		}
 		start, end := scrollWindow(m.cursor, len(options), 12)
@@ -514,6 +558,8 @@ func buildSelectionLabel(selection api.BuildSelection) string {
 		branch = defaultBranchLabel
 	}
 	switch selection.Mode {
+	case api.BuildSelectionModeLatestAllBranches:
+		return allBranchesLatestLabel
 	case api.BuildSelectionModeLatest:
 		return branch + " · Latest build"
 	case api.BuildSelectionModePinned:

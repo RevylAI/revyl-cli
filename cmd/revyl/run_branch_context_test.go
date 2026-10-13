@@ -157,7 +157,7 @@ func TestWorkflowRunContextMatchesWaitingAndQueuedInvocations(t *testing.T) {
 	}
 }
 
-const missingBranchDetail = `Branch "typo" doesn't exist for Shop iOS`
+const missingBranchDetail = `Branch "typo" doesn't exist on "Shop iOS"`
 
 func missingBranchServer(t *testing.T, startPath string) (*httptest.Server, *int) {
 	t.Helper()
@@ -307,6 +307,77 @@ func TestRunJSONSaysWhichBuildEachRunUsed(t *testing.T) {
 	for _, key := range []string{"branch_name", "build_version", "build_id"} {
 		if value, present := second[key]; !present || value != "" {
 			t.Fatalf("a test without a resolved build must still carry %s as empty: %v", key, second)
+		}
+	}
+}
+
+func TestRunJSONKeepsAmpersandsAndAngleBracketsLiteral(t *testing.T) {
+	const testName = "Checkout & <Pay>"
+	const failure = "expected <Pay> & saw nothing"
+	testResult := &execution.RunTestResult{
+		TaskID: "task", TestName: testName, Status: "failed", ErrorMessage: failure,
+		ReportURL: "https://app.example.com/tests/report?taskId=task&tab=steps",
+	}
+	testOutput := captureStdout(t, func() {
+		outputTestResultJSON(newWorkflowRunTestCommand(), testResult, false)
+	})
+	withDefault := newWorkflowRunTestCommand()
+	recordAppliedDefault(withDefault, appliedDefault{Flag: "os-version", Value: "iOS 18.4", Reason: "newest_runtime_for_model"})
+	testWithDefaultOutput := captureStdout(t, func() {
+		outputTestResultJSON(withDefault, testResult, true)
+	})
+	if !strings.Contains(testWithDefaultOutput, `"defaults_applied"`) {
+		t.Fatalf("test run JSON lost the applied default:\n%s", testWithDefaultOutput)
+	}
+	workflowOutput := captureStdout(t, func() {
+		outputWorkflowResultJSON(&execution.RunWorkflowResult{
+			TaskID: "workflow-task", WorkflowName: "Smoke & <Regression>", Status: "failed",
+			Tests: []execution.WorkflowTestResult{{TestName: testName, Platform: "ios", ErrorMessage: failure}},
+		})
+	})
+	for command, output := range map[string]string{
+		"test run":                         testOutput,
+		"test run with an applied default": testWithDefaultOutput,
+		"workflow run":                     workflowOutput,
+	} {
+		if strings.Contains(output, `\u00`) {
+			t.Fatalf("%s JSON escapes characters the GitHub Actions print verbatim:\n%s", command, output)
+		}
+		if !strings.Contains(output, `"`+testName+`"`) || !strings.Contains(output, `"`+failure+`"`) {
+			t.Fatalf("%s JSON lost the literal test name or error:\n%s", command, output)
+		}
+		parseJSON(t, output)
+	}
+	if !strings.Contains(testOutput, "taskId=task&tab=steps") {
+		t.Fatalf("test run JSON escaped the report link:\n%s", testOutput)
+	}
+}
+
+func TestRunOutputNamesTheBuildsBranch(t *testing.T) {
+	for _, test := range []struct{ build, branch, want string }{
+		{"v1.2.3", "main", "v1.2.3 from branch main"},
+		{"v1.2.3", "", "v1.2.3"},
+		{"", "main", "a build from branch main"},
+		{"", "", ""},
+	} {
+		if got := buildFromBranchLabel(test.build, test.branch); got != test.want {
+			t.Errorf("buildFromBranchLabel(%q, %q) = %q, want %q", test.build, test.branch, got, test.want)
+		}
+	}
+	stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+		printWorkflowRunBuilds([]execution.WorkflowTestResult{
+			{Platform: "ios", BuildVersion: "v2", BranchName: "feature"},
+			{Platform: "ios", BuildVersion: "v2", BranchName: "feature"},
+			{Platform: "android", BuildID: "android-build", BranchName: "main"},
+			{Platform: "android"},
+		})
+	})
+	if stdout != "" {
+		t.Fatalf("build lines went to stdout: %q", stdout)
+	}
+	for _, want := range []string{"Build (ios): v2 from branch feature", "Build (android): android-build from branch main"} {
+		if strings.Count(stderr, want) != 1 {
+			t.Fatalf("stderr should name %q once:\n%s", want, stderr)
 		}
 	}
 }

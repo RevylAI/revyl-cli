@@ -29,7 +29,6 @@ jobs:
             --app "$REVYL_ANDROID_APP_ID" \
             --platform android \
             --version "$REVYL_PR_HEAD_SHA" \
-            --no-set-current \
             --yes \
             --json > revyl-build.json
           BUILD_ID=$(jq -er 'select(.success == true and .count == 1) | .build.build_id | select(type == "string" and length > 0)' revyl-build.json)

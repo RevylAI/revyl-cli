@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -66,7 +67,7 @@ func withAppliedDefaults(cmd *cobra.Command, payload interface{}) interface{} {
 	if defaults == nil || len(*defaults) == 0 {
 		return payload
 	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := marshalWithoutHTMLEscape(payload)
 	if err != nil {
 		return payload
 	}
@@ -74,10 +75,23 @@ func withAppliedDefaults(cmd *cobra.Command, payload interface{}) interface{} {
 	if json.Unmarshal(encoded, &object) != nil || object == nil {
 		return payload
 	}
-	appliedJSON, err := json.Marshal(*defaults)
+	appliedJSON, err := marshalWithoutHTMLEscape(*defaults)
 	if err != nil {
 		return payload
 	}
 	object["defaults_applied"] = appliedJSON
 	return object
+}
+
+// marshalWithoutHTMLEscape encodes compact JSON that keeps &, < and > literal,
+// so an output printed without HTML escaping stays that way once it carries
+// defaults_applied.
+func marshalWithoutHTMLEscape(value interface{}) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buffer.Bytes(), "\n"), nil
 }

@@ -3,12 +3,15 @@ package analytics
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/api"
 )
 
 func TestCompleteUsesCompletedErrorForDomainFailure(t *testing.T) {
@@ -65,6 +68,77 @@ func TestFailureUsesExplicitSafeDiagnosticWithoutChangingReturnedError(t *testin
 	}
 	if got := event.Properties["error_message"]; got != "project configuration validation failed" {
 		t.Fatalf("error_message = %q", got)
+	}
+}
+
+func TestFailureOnANamedBranchReportsOnlyItsSentinel(t *testing.T) {
+	recorder := testRecorder()
+	run := testCommandRun(recorder)
+	err := fmt.Errorf("failed to resolve build: %w", &api.BranchError{
+		Err: api.ErrBranchHasNoBuilds, BranchName: "customer-branch", AppName: "Customer App",
+	})
+	run.ObserveOutput("stderr", err.Error())
+
+	run.Complete(err)
+
+	event := lastEvent(t, recorder)
+	if got := event.Properties["error_message"]; got != api.ErrBranchHasNoBuilds.Error() {
+		t.Fatalf("error_message = %q, want the sentinel without customer names", got)
+	}
+	if _, exists := event.Properties["output_tail"]; exists {
+		t.Fatalf("branch failure retained output tail: %#v", event.Properties["output_tail"])
+	}
+}
+
+func TestAPIFailureKeepsServerDetailsOutOfAnalytics(t *testing.T) {
+	for _, scenario := range []struct {
+		name, safeDiagnostic, wantDiagnostic, wantClass string
+		statusCode                                      int
+		wrapped                                         bool
+	}{
+		{name: "direct refusal", statusCode: 400, wantDiagnostic: "API request failed (HTTP 400)", wantClass: "usage"},
+		{name: "wrapped server failure", statusCode: 500, wrapped: true, wantDiagnostic: "API request failed (HTTP 500)", wantClass: "server"},
+		{name: "explicit safe diagnostic", statusCode: 400, wrapped: true, safeDiagnostic: "build selection failed", wantDiagnostic: "build selection failed", wantClass: "usage"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			recorder := testRecorder()
+			run := testCommandRun(recorder)
+			apiErr := &api.APIError{
+				StatusCode: scenario.statusCode,
+				Message:    "Customer App cannot run",
+				Detail:     "release/customer-private is pinned to an unavailable build",
+				Hint:       "unpin release/customer-private on Customer App",
+			}
+			var err error = apiErr
+			if scenario.safeDiagnostic != "" {
+				err = WithSafeDiagnostic(err, scenario.safeDiagnostic)
+			}
+			if scenario.wrapped {
+				err = fmt.Errorf("failed to resolve build: %w", err)
+			}
+			originalMessage := err.Error()
+			run.ObserveOutput("stderr", originalMessage)
+
+			run.Complete(err)
+
+			event := lastEvent(t, recorder)
+			if event.Event != CliCommandFailedEvent || event.Properties["exit_code"] != 1 {
+				t.Fatalf("failure event = %#v", event)
+			}
+			if got := event.Properties["error_message"]; got != scenario.wantDiagnostic {
+				t.Errorf("error_message = %q, want %q", got, scenario.wantDiagnostic)
+			}
+			if got := event.Properties["failure_class"]; got != scenario.wantClass {
+				t.Errorf("failure_class = %q, want %q", got, scenario.wantClass)
+			}
+			if _, exists := event.Properties["output_tail"]; exists {
+				t.Errorf("API failure retained output tail: %#v", event.Properties["output_tail"])
+			}
+			var returnedAPIErr *api.APIError
+			if err.Error() != originalMessage || !errors.As(err, &returnedAPIErr) || returnedAPIErr != apiErr {
+				t.Fatalf("analytics changed the returned error: %v", err)
+			}
+		})
 	}
 }
 

@@ -36,8 +36,9 @@ Start with:
   revyl atlas screen <screen-id> --app "My App" --screenshots --screenshot-dir /tmp/atlas-shots
 
 Reads include all branches by default. Use --branch or --branch-id to narrow
-the scope, or --build to select one build. --build latest selects the latest
-eligible build on the selected branch, or the app default branch.`,
+the scope, or --build to select one build. --build latest selects the newest
+usable build on the selected branch, or the app's default branch when no branch
+is given, even when the branch is pinned.`,
 	Args: cobra.NoArgs,
 	RunE: runAtlasGuide,
 }

@@ -280,6 +280,37 @@ type APIValidationIssue struct {
 	Type    string
 }
 
+// validationRequestLocations are the request parts FastAPI puts first in a
+// failure's field, as in "body.name".
+var validationRequestLocations = []string{"body.", "query.", "path.", "header.", "cookie."}
+
+// pydanticValueErrorPrefix starts the message of a validator's own ValueError.
+const pydanticValueErrorPrefix = "Value error, "
+
+// readableText is the issue as people read it: the field without its request
+// location, and a validator's message without pydantic's prefix.
+func (i APIValidationIssue) readableText() string {
+	field := i.Field
+	for _, location := range validationRequestLocations {
+		if trimmed, found := strings.CutPrefix(field, location); found && trimmed != "" {
+			field = trimmed
+			break
+		}
+	}
+	message := i.Message
+	if i.Type == "value_error" {
+		message = strings.TrimPrefix(message, pydanticValueErrorPrefix)
+	}
+	switch {
+	case field != "" && message != "":
+		return field + ": " + message
+	case field != "":
+		return field
+	default:
+		return message
+	}
+}
+
 // HotReloadRelayCreateParams provisions a new backend-owned hot reload relay.
 type HotReloadRelayCreateParams struct {
 	Provider string `json:"provider,omitempty"`
@@ -506,20 +537,13 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 	if len(errResp.Errors) > 0 {
 		var parts []string
 		for _, validationErr := range errResp.Errors {
-			part := strings.TrimSpace(validationErr.Message)
-			field := strings.TrimSpace(validationErr.Field)
-			issueType := strings.TrimSpace(validationErr.Type)
-			validationIssues = append(validationIssues, APIValidationIssue{
-				Field:   field,
-				Message: part,
-				Type:    issueType,
-			})
-			if field != "" && part != "" {
-				part = fmt.Sprintf("%s: %s", field, part)
-			} else if field != "" {
-				part = field
+			issue := APIValidationIssue{
+				Field:   strings.TrimSpace(validationErr.Field),
+				Message: strings.TrimSpace(validationErr.Message),
+				Type:    strings.TrimSpace(validationErr.Type),
 			}
-			if part != "" {
+			validationIssues = append(validationIssues, issue)
+			if part := issue.readableText(); part != "" {
 				parts = append(parts, part)
 			}
 		}
@@ -939,6 +963,11 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 	if err := validateContextBranchName(req.ContextBranchName); err != nil {
 		return nil, err
 	}
+	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
+		withoutContext := *req
+		withoutContext.ContextBranchName = ""
+		req = &withoutContext
+	}
 	// Dispatch has no idempotency key; retrying an uncertain response can launch twice.
 	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/execution/api/execute_test_id_async", req)
 	if err != nil {
@@ -1001,6 +1030,11 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 	if err := validateContextBranchName(req.ContextBranchName); err != nil {
 		return nil, err
 	}
+	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
+		withoutContext := *req
+		withoutContext.ContextBranchName = ""
+		req = &withoutContext
+	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/workflow-executions", req)
 	if err != nil {
 		return nil, err
@@ -1023,7 +1057,9 @@ type UploadBuildRequest struct {
 	Version           string                 `json:"version"`
 	FilePath          string                 `json:"-"`
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
-	SetAsCurrent      bool                   `json:"set_as_current,omitempty"`
+	// Pin pins the destination branch to the new build; without it the
+	// branch's pin is unchanged.
+	Pin bool `json:"pin,omitempty"`
 }
 
 // UploadBuildResponse represents a build upload response.
@@ -1137,6 +1173,15 @@ func (c *Client) uploadBuildViaSession(ctx context.Context, req *UploadBuildRequ
 	return c.createBuildFromStagedUpload(ctx, req, session.UploadID)
 }
 
+// withUploadPin adds the pin request to an upload finalization payload. An
+// upload that doesn't pin omits the field, which leaves the branch's pin alone.
+func withUploadPin(payload map[string]interface{}, pin bool) map[string]interface{} {
+	if pin {
+		payload["pin"] = true
+	}
+	return payload
+}
+
 // createBuildFromStagedUpload finalizes a staging upload (single PUT or
 // multipart): one create call validates the staged artifact server-side and
 // inserts the build row. No build row exists until validation passes, so
@@ -1152,12 +1197,11 @@ func (c *Client) createBuildFromStagedUpload(ctx context.Context, req *UploadBui
 	finalizationClient.Timeout = BuildFinalizationTimeout
 	createResp, err := c.doRequestWithRetryClient(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds", req.AppID),
-		map[string]interface{}{
-			"upload_id":      uploadID,
-			"version":        req.Version,
-			"metadata":       metadata,
-			"set_as_current": req.SetAsCurrent,
-		}, &finalizationClient)
+		withUploadPin(map[string]interface{}{
+			"upload_id": uploadID,
+			"version":   req.Version,
+			"metadata":  metadata,
+		}, req.Pin), &finalizationClient)
 	if err != nil {
 		return nil, err
 	}
@@ -1287,12 +1331,11 @@ func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRe
 
 	completeResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/builds/%s/complete-upload", versionID),
-		map[string]interface{}{
-			"version_id":     versionID,
-			"metadata":       metadata,
-			"package_name":   extractResult.PackageID,
-			"set_as_current": req.SetAsCurrent,
-		})
+		withUploadPin(map[string]interface{}{
+			"version_id":   versionID,
+			"metadata":     metadata,
+			"package_name": extractResult.PackageID,
+		}, req.Pin))
 	if err != nil {
 		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, err
@@ -2231,8 +2274,9 @@ type CreateBuildFromURLRequest struct {
 	// Metadata is optional key-value metadata attached to the build record.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 
-	// SetAsCurrent marks this version as the current/default version for the app.
-	SetAsCurrent bool `json:"set_as_current"`
+	// Pin pins the destination branch to the new build; without it the
+	// branch's pin is unchanged.
+	Pin bool `json:"pin,omitempty"`
 }
 
 // CreateBuildFromURLResponse represents the server response after a URL-based build ingestion.
@@ -4288,6 +4332,11 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	}
 	if err := validateContextBranchName(req.ContextBranchName); err != nil {
 		return nil, err
+	}
+	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
+		withoutContext := *req
+		withoutContext.ContextBranchName = ""
+		req = &withoutContext
 	}
 	requestID := newTraceRequestID()
 	headers := map[string]string{traceRequestIDHeader: requestID}

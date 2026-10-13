@@ -18,7 +18,7 @@ func TestBranchDefaultBuildLabelNamesTheBuildARunUses(t *testing.T) {
 		`]}`), &page); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"v1.2", "Latest build (v2.0)", "Latest build (no builds)", "build-1", "v0.2 (unavailable)"}
+	want := []string{"Pinned build (v1.2)", "Latest build (v2.0)", "Latest build (no builds)", "Pinned build (build-1)", "Pinned build (v0.2, unavailable)"}
 	for index, branch := range page.Branches {
 		if got := BranchDefaultBuildLabel(branch); got != want[index] {
 			t.Fatalf("%s default build = %q, want %q", branch.Name, got, want[index])

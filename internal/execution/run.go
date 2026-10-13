@@ -452,7 +452,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		return nil, fmt.Errorf("an Android build override requires an Android app")
 	}
 	if params.BuildSelection != "" && (params.IOSBuildID != "" || params.AndroidBuildID != "" || params.IOSBuild != "" || params.AndroidBuild != "") {
-		return nil, fmt.Errorf("a workflow build mode cannot be combined with exact build or version overrides")
+		return nil, fmt.Errorf("a build choice (Automatic, Latest build, or All branches · Latest build) can't be combined with an exact iOS or Android build")
 	}
 	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
 		return nil, err

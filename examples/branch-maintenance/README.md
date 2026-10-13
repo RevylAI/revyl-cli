@@ -34,9 +34,11 @@ that Explore used the uploaded build. A partial usable map can succeed; inspect
 its report before treating the setup as complete.
 
 `--branch main` or `--branch staging` keeps the destination explicit and stable
-even if the app default changes. Regular runs on that branch then use the
-uploaded build, because the upload pins the branch to it. Changing the app
-default is optional.
+even if the app default changes. The upload doesn't pin the branch. When the
+branch follows Latest build, runs on it that don't choose a build use the
+uploaded build, because it is the newest; a pinned branch keeps its pin until
+you pin another build with `revyl app branch pin`. Making that branch the app's
+default branch is optional.
 
 ## Optional test of the same build
 

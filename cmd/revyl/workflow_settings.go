@@ -164,8 +164,9 @@ func init() {
 	for _, platform := range []string{"ios", "android"} {
 		workflowAppSetCmd.Flags().String(platform+"-branch", "", "Saved Revyl branch for this platform")
 		workflowAppSetCmd.Flags().String(platform+"-build-selection", "", "Saved build choice: inherit (Automatic: the branch's default build), latest or pinned")
-		workflowAppSetCmd.Flags().String(platform+"-build-id", "", "Exact build ID to pin for this platform")
+		workflowAppSetCmd.Flags().String(platform+"-build-id", "", "Exact build ID to save for this platform")
 		workflowAppSetCmd.Flags().Bool(platform+"-automatic", false, "Use Default branch: the app's default branch and its default build")
+		workflowAppSetCmd.Flags().Bool(platform+"-"+allBranchesFlagName, false, "Save All branches · Latest build for this platform: each run uses the newest build across all of the app's branches")
 	}
 }
 
@@ -353,13 +354,22 @@ func runWorkflowAppSet(cmd *cobra.Command, args []string) error {
 			mode, _ := cmd.Flags().GetString(target.platform + "-build-selection")
 			buildID, _ := cmd.Flags().GetString(target.platform + "-build-id")
 			automatic, _ := cmd.Flags().GetBool(target.platform + "-automatic")
+			allBranches, _ := cmd.Flags().GetBool(target.platform + "-" + allBranchesFlagName)
 			branchID, _ := value["branch_id"].(string)
-			if automatic {
+			mode, err := resolveAllBranchesSelection(target.platform+"-"+allBranchesFlagName, allBranches, target.platform+"-build-selection", mode,
+				changedFlagConflicts(cmd, target.platform+"-branch", target.platform+"-build-id", target.platform+"-automatic")...)
+			if err != nil {
+				return err
+			}
+			switch {
+			case automatic:
 				if branchName != "" || mode != "" || buildID != "" {
 					return fmt.Errorf("--%s-automatic cannot be combined with another selector", target.platform)
 				}
 				branchID, mode = "", "inherit"
-			} else if branchName != "" || buildID != "" {
+			case api.BuildSelectionMode(mode) == api.BuildSelectionModeLatestAllBranches:
+				branchID = ""
+			case branchName != "" || buildID != "":
 				branchID = ""
 			}
 			selection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, appID, branchName, branchID, mode, buildID)
@@ -506,13 +516,15 @@ func printWorkflowPlatformSelection(ctx context.Context, client *api.Client, lab
 	ui.PrintInfo("  %-12s %s", label, nameWithID(appName, appID))
 	ui.PrintInfo("    Branch: %s", workflowBranchChoice(ctx, client, appID, value))
 	if version := workflowSelectionText(value, "pinned_version"); version != "" && workflowSelectionText(value, "pinned_build_id") == "" {
-		ui.PrintInfo("    Legacy version pin: %s", version)
+		ui.PrintInfo("    Saved version (before branches): %s", version)
 	}
 }
 
 func workflowBranchChoice(ctx context.Context, client *api.Client, appID string, value map[string]interface{}) string {
 	build := "Automatic"
 	switch api.BuildSelectionMode(workflowSelectionText(value, "build_selection")) {
+	case api.BuildSelectionModeLatestAllBranches:
+		return "All branches · Latest build"
 	case api.BuildSelectionModeLatest:
 		build = "Latest build"
 	case api.BuildSelectionModePinned:
@@ -725,7 +737,9 @@ func workflowPlatformSelectorChanged(cmd *cobra.Command, platform string) bool {
 			return true
 		}
 	}
-	return false
+	// --<platform>-all-branches=false asks for nothing, so it keeps the saved choice.
+	allBranches, _ := cmd.Flags().GetBool(platform + "-" + allBranchesFlagName)
+	return allBranches
 }
 
 func runWorkflowAppEnable(cmd *cobra.Command, args []string) error {

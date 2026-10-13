@@ -64,7 +64,7 @@ func ResolveStartArtifact(
 		BranchID: opts.BranchID, BranchName: opts.BranchName,
 		Mode: api.BuildSelectionMode(opts.BuildSelection), BuildID: artifact.BuildID,
 	}
-	if artifact.BuildID == "" && selection.BranchID == "" && selection.BranchName == "" {
+	if artifact.BuildID == "" && selection.BranchID == "" && selection.BranchName == "" && selection.Mode != api.BuildSelectionModeLatestAllBranches {
 		selection.ContextBranchName = opts.ContextBranchName
 	}
 	if selection.BranchID != "" || selection.BranchName != "" || selection.Mode != "" {
@@ -99,13 +99,13 @@ func ResolveStartArtifact(
 		}
 		artifact.AppID = detail.AppID
 		if selection.Mode != "" && selection.Mode != "pinned" {
-			return ResolvedStartArtifact{}, fmt.Errorf("an exact build version requires pinned build selection")
+			return ResolvedStartArtifact{}, fmt.Errorf("an exact build can't be combined with Automatic, Latest build, or All branches · Latest build")
 		}
 	}
 	if detail == nil || selection.BranchID != "" || selection.BranchName != "" {
 		detail, err = resolver.ResolveBuildSelection(ctx, artifact.AppID, selection)
 		if err != nil {
-			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve build for app %s: %w", artifact.AppID, err)
+			return ResolvedStartArtifact{}, fmt.Errorf("failed to resolve build: %w", err)
 		}
 	}
 	if detail == nil || strings.TrimSpace(detail.ID) == "" {

@@ -793,6 +793,10 @@ var deviceStartCmd = &cobra.Command{
 		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
 		branchName, _ := cmd.Flags().GetString("branch")
 		buildSelection, _ := cmd.Flags().GetString("build-selection")
+		buildSelection, selectionErr := resolveCommandAllBranchesSelection(cmd, buildSelection, "branch", "build-version-id")
+		if selectionErr != nil {
+			return selectionErr
+		}
 		appURL, _ := cmd.Flags().GetString("app-url")
 		appLink, _ := cmd.Flags().GetString("app-link")
 		launchVars := getExactStringArrayFlag(cmd, "launch-var")
@@ -1033,6 +1037,9 @@ var deviceStartCmd = &cobra.Command{
 				session.SessionID,
 			)
 			ui.PrintSuccess("Device ready! Session %d (%s)", session.Index, platform)
+			if label := buildFromBranchLabel(session.BuildID, session.BranchName); label != "" {
+				ui.PrintInfo("Build: %s", label)
+			}
 			ui.PrintLink("Session", session.SessionID)
 			ui.PrintLink("Live View", reportURL)
 			ui.PrintNextSteps([]ui.NextStep{
@@ -1802,6 +1809,10 @@ var deviceInstallCmd = &cobra.Command{
 		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
 		branchName, _ := cmd.Flags().GetString("branch")
 		buildSelection, _ := cmd.Flags().GetString("build-selection")
+		buildSelection, selectionErr := resolveCommandAllBranchesSelection(cmd, buildSelection, "branch", "build-version-id")
+		if selectionErr != nil {
+			return selectionErr
+		}
 		bundleID, _ := cmd.Flags().GetString("bundle-id")
 
 		appID, buildVersionID, appURL, err := normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL)
@@ -1857,6 +1868,9 @@ var deviceInstallCmd = &cobra.Command{
 		if detectedBundleID := extractInstallBundleID(respBody); detectedBundleID != "" {
 			payload["bundle_id"] = detectedBundleID
 			message = fmt.Sprintf("Installed %s from %s", detectedBundleID, appURL)
+		}
+		if label := buildFromBranchLabel(resolved.BuildID, resolved.BranchName); label != "" {
+			message += " (build " + label + ")"
 		}
 
 		jsonOrPrint(cmd, payload, message)
@@ -2357,6 +2371,9 @@ var deviceHistoryCmd = &cobra.Command{
 		appID, _ := cmd.Flags().GetString("app-id")
 		branchName, _ := cmd.Flags().GetString("branch")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if app, _ := cmd.Flags().GetString("app"); branchName != "" && app == "" && appID == "" {
+			return errors.New("--branch requires --app or --app-id")
+		}
 
 		if !jsonOutput {
 			ui.StartSpinner("Fetching session history...")
@@ -3450,6 +3467,7 @@ func init() {
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
 	deviceStartCmd.Flags().String("branch", "", "Select a Revyl branch (otherwise use the app default)")
 	deviceStartCmd.Flags().String("build-selection", "", "Build choice: inherit (Automatic: the branch's default build), latest, or pinned with --build-version-id")
+	deviceStartCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
 	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
@@ -3567,6 +3585,7 @@ func init() {
 	deviceInstallCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
 	deviceInstallCmd.Flags().String("branch", "", "Select a Revyl branch (otherwise use the app default)")
 	deviceInstallCmd.Flags().String("build-selection", "", "Build choice: inherit (Automatic: the branch's default build), latest, or pinned with --build-version-id")
+	deviceInstallCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceInstallCmd.Flags().String("build-version-id", "", "Build version ID from a previous upload; download URL is resolved automatically")
 	deviceInstallCmd.Flags().String("app-url", "", "URL to download app from (.apk or .ipa)")
 	deviceInstallCmd.Flags().String("bundle-id", "", "Bundle ID (optional, auto-detected)")

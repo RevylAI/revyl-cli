@@ -430,9 +430,11 @@ func exploreReport(executionStatus, atlasStatus, customerStatus string, complete
 
 func resetExploreFlagsForTest(t *testing.T) {
 	t.Helper()
-	oldBranch, oldSelection := exploreBranchName, exploreBuildSelection
-	exploreBranchName, exploreBuildSelection = "", ""
-	t.Cleanup(func() { exploreBranchName, exploreBuildSelection = oldBranch, oldSelection })
+	oldBranch, oldSelection, oldAllBranches := exploreBranchName, exploreBuildSelection, exploreAllBranches
+	exploreBranchName, exploreBuildSelection, exploreAllBranches = "", "", false
+	t.Cleanup(func() {
+		exploreBranchName, exploreBuildSelection, exploreAllBranches = oldBranch, oldSelection, oldAllBranches
+	})
 	old := struct {
 		buildID, platform, strategy, instructions, authInstructions string
 		explorerCount                                               int
@@ -485,14 +487,19 @@ func resetExploreFlagsForTest(t *testing.T) {
 }
 
 func TestExploreBranchSelectorPreservesOmissionAndExplicitMode(t *testing.T) {
-	for _, tc := range []struct{ name, branch, mode string }{
-		{"automatic", "", ""},
-		{"explicit branch", "main", ""},
-		{"latest", "feature/one", "latest"},
+	for _, tc := range []struct {
+		name, branch, mode string
+		allBranches        bool
+		wantMode           string
+	}{
+		{name: "automatic"},
+		{name: "explicit branch", branch: "main"},
+		{name: "latest", branch: "feature/one", mode: "latest", wantMode: "latest"},
+		{name: "all branches", allBranches: true, wantMode: "latest_all_branches"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetExploreFlagsForTest(t)
-			exploreBranchName, exploreBuildSelection = tc.branch, tc.mode
+			exploreBranchName, exploreBuildSelection, exploreAllBranches = tc.branch, tc.mode, tc.allBranches
 			client := &fakeExploreAPI{searchResults: []api.App{{ID: uuid.NewString(), Name: "App", Platform: "ios"}}}
 			req, _, err := buildExploreLaunchRequest(context.Background(), client, []string{"App"})
 			if err != nil {
@@ -506,7 +513,7 @@ func TestExploreBranchSelectorPreservesOmissionAndExplicitMode(t *testing.T) {
 			if err := json.Unmarshal(body, &fields); err != nil {
 				t.Fatal(err)
 			}
-			for key, want := range map[string]string{"branch_name": tc.branch, "build_selection": tc.mode} {
+			for key, want := range map[string]string{"branch_name": tc.branch, "build_selection": tc.wantMode} {
 				got, exists := fields[key]
 				if want == "" && exists {
 					t.Fatalf("%s should be omitted: %s", key, body)

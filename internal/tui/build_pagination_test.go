@@ -399,3 +399,31 @@ func TestAppBuildListIgnoresOldPageAfterReopeningSameApp(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildPickerReloadKeepsTheCursorChoiceWithAllBranchesListed(t *testing.T) {
+	mainBranch := api.BuildBranch{ID: pickerBranchID, Name: "main"}
+	other := api.BuildBranch{ID: pickerOtherBranchID, Name: "other"}
+	third := api.BuildBranch{ID: pickerThirdBranchID, Name: "third"}
+	for _, tc := range []struct {
+		name       string
+		cursor     int
+		wantBranch string
+		wantMode   api.BuildSelectionMode
+	}{
+		{"last branch row follows its branch", 3, pickerThirdBranchID, ""},
+		{"All branches row stays selected", 1, "", api.BuildSelectionModeLatestAllBranches},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newBuildPicker(nil, pickerAppID, "Branch")
+			m.loading, m.branchOnly, m.offerAllBranches = false, true, true
+			m.defaultBranch = &mainBranch
+			m.branches = []api.BuildBranch{mainBranch, other, third}
+			m.cursor = tc.cursor
+			m, _ = m.Update(buildPickerDataMsg{id: m.id, page: 1, reloaded: true, defaultBranch: &mainBranch, branches: []api.BuildBranch{mainBranch, third, other}})
+			m, _ = pickerKey(m, tea.KeyEnter)
+			if !m.done || m.selection.BranchID != tc.wantBranch || m.selection.Mode != tc.wantMode {
+				t.Fatalf("reload moved the cursor off the chosen row: cursor=%d selection=%#v", m.cursor, m.selection)
+			}
+		})
+	}
+}

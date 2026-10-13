@@ -390,10 +390,10 @@ func TestUploadBuild_LargeFileUsesMultipartFlow(t *testing.T) {
 	artifactPath := writeTestArtifactOfSize(t, fileSize)
 
 	resp, err := backend.client.UploadBuild(context.Background(), &UploadBuildRequest{
-		AppID:        "app-1",
-		Version:      "v1",
-		FilePath:     artifactPath,
-		SetAsCurrent: true,
+		AppID:    "app-1",
+		Version:  "v1",
+		FilePath: artifactPath,
+		Pin:      true,
 	})
 	if err != nil {
 		t.Fatalf("UploadBuild() error = %v, want nil", err)
@@ -452,8 +452,11 @@ func TestUploadBuild_LargeFileUsesMultipartFlow(t *testing.T) {
 	if create["upload_id"] != "up-mp-1" {
 		t.Fatalf("create upload_id = %v, want up-mp-1", create["upload_id"])
 	}
-	if create["set_as_current"] != true {
-		t.Fatalf("create set_as_current = %v, want true", create["set_as_current"])
+	if create["pin"] != true {
+		t.Fatalf("create pin = %v, want true", create["pin"])
+	}
+	if _, sent := create["set_as_current"]; sent {
+		t.Fatalf("create sent set_as_current: %v", create)
 	}
 }
 

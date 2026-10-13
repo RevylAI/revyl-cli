@@ -2258,13 +2258,15 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *initConfigDr
 }
 
 type wizardBuildResult struct {
-	BranchName string
-	Platform   string
-	AppID      string
-	Version    string
-	VersionID  string
-	Err        error
-	RetryLater string
+	BranchName       string
+	BranchSummary    string
+	BranchSummaryErr error
+	Platform         string
+	AppID            string
+	Version          string
+	VersionID        string
+	Err              error
+	RetryLater       string
 }
 
 // firstBuildOutcome tracks which platforms were attempted and whether they
@@ -3171,13 +3173,12 @@ func wizardFirstBuildReactNative(
 			uploadBranch := cfg.uploadBranchForApp(platformCfg.AppID)
 			ui.StartSpinner("Uploading artifact...")
 			result, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
-				BranchID:     uploadBranch.id,
-				BranchName:   uploadBranch.name,
-				AppID:        platformCfg.AppID,
-				Version:      versionStr,
-				FilePath:     artifactPath,
-				Metadata:     metadata,
-				SetAsCurrent: true,
+				BranchID:   uploadBranch.id,
+				BranchName: uploadBranch.name,
+				AppID:      platformCfg.AppID,
+				Version:    versionStr,
+				FilePath:   artifactPath,
+				Metadata:   metadata,
 			})
 			ui.StopSpinner()
 
@@ -3192,9 +3193,7 @@ func wizardFirstBuildReactNative(
 			ui.PrintSuccess("Upload complete!")
 			ui.PrintKeyValue("App:", platformCfg.AppID)
 			ui.PrintKeyValue("Build Version:", result.Version)
-			if result.BranchName != "" {
-				ui.PrintKeyValue("Branch:", branchDefaultBuildIsNow(result.BranchName, result.Version))
-			}
+			printInitUploadBranch(ctx, client, platformCfg.AppID, result)
 			if result.VersionID != "" {
 				ui.PrintKeyValue("Build ID:", result.VersionID)
 			}
@@ -3403,13 +3402,12 @@ func sequentialBuildAndUpload(
 		uploadBranch := cfg.uploadBranchForApp(platformCfg.AppID)
 		ui.StartSpinner("Uploading artifact...")
 		result, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
-			BranchID:     uploadBranch.id,
-			BranchName:   uploadBranch.name,
-			AppID:        platformCfg.AppID,
-			Version:      versionStr,
-			FilePath:     artifactPath,
-			Metadata:     metadata,
-			SetAsCurrent: true,
+			BranchID:   uploadBranch.id,
+			BranchName: uploadBranch.name,
+			AppID:      platformCfg.AppID,
+			Version:    versionStr,
+			FilePath:   artifactPath,
+			Metadata:   metadata,
 		})
 		ui.StopSpinner()
 
@@ -3433,9 +3431,7 @@ func sequentialBuildAndUpload(
 		ui.PrintSuccess("Upload complete!")
 		ui.PrintKeyValue("App:", platformCfg.AppID)
 		ui.PrintKeyValue("Build Version:", result.Version)
-		if result.BranchName != "" {
-			ui.PrintKeyValue("Branch:", branchDefaultBuildIsNow(result.BranchName, result.Version))
-		}
+		printInitUploadBranch(ctx, client, platformCfg.AppID, result)
 		if result.VersionID != "" {
 			ui.PrintKeyValue("Build ID:", result.VersionID)
 		}
@@ -3656,13 +3652,12 @@ func runWizardBuildForPlatform(
 	outputMu.Unlock()
 
 	uploadResult, err := client.UploadBuild(ctx, &api.UploadBuildRequest{
-		BranchID:     branchSelection.id,
-		BranchName:   branchSelection.name,
-		AppID:        result.AppID,
-		Version:      versionStr,
-		FilePath:     artifactPath,
-		Metadata:     metadata,
-		SetAsCurrent: true,
+		BranchID:   branchSelection.id,
+		BranchName: branchSelection.name,
+		AppID:      result.AppID,
+		Version:    versionStr,
+		FilePath:   artifactPath,
+		Metadata:   metadata,
 	})
 	if err != nil {
 		result.Err = fmt.Errorf("upload failed: %w", err)
@@ -3672,6 +3667,12 @@ func runWizardBuildForPlatform(
 	result.Version = uploadResult.Version
 	result.VersionID = uploadResult.VersionID
 	result.BranchName = uploadResult.BranchName
+	if result.BranchName != "" {
+		result.BranchSummary, result.BranchSummaryErr = uploadedBuildBranchSummary(ctx, client, uploadedBuild{
+			AppID: result.AppID, BranchID: uploadResult.BranchID, BranchName: uploadResult.BranchName,
+			BuildID: uploadResult.VersionID, BuildVersion: uploadResult.Version,
+		})
+	}
 	return result
 }
 
@@ -3704,6 +3705,15 @@ func orderWizardBuildResults(results []wizardBuildResult, order []string) []wiza
 	}
 
 	return ordered
+}
+
+// printInitUploadBranch prints the branch an init upload landed on and which
+// build a plain run on it uses; init uploads never change a branch's pin.
+func printInitUploadBranch(ctx context.Context, client *api.Client, appID string, result *api.UploadBuildResponse) {
+	reportUploadedBuildBranch(ctx, client, uploadedBuild{
+		AppID: appID, BranchID: result.BranchID, BranchName: result.BranchName,
+		BuildID: result.VersionID, BuildVersion: result.Version,
+	}, func(summary string) { ui.PrintKeyValue("Branch:", summary) })
 }
 
 func printWizardBuildResults(results []wizardBuildResult) []string {
@@ -3744,8 +3754,11 @@ func printWizardBuildResults(results []wizardBuildResult) []string {
 		}
 
 		ui.PrintSuccess("[%s] Upload complete", result.Platform)
-		if result.BranchName != "" {
-			ui.PrintInfo("  Branch: %s", branchDefaultBuildIsNow(result.BranchName, result.Version))
+		if result.BranchSummary != "" {
+			ui.PrintInfo("  Branch: %s", result.BranchSummary)
+		}
+		if result.BranchSummaryErr != nil {
+			ui.PrintWarning("Couldn't check which build runs on %s: %v", result.BranchName, result.BranchSummaryErr)
 		}
 		if result.AppID != "" {
 			ui.PrintInfo("  App: %s", result.AppID)

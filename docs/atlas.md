@@ -18,9 +18,10 @@ revyl atlas graph --app "My App" --device-model "Pixel 7" --runtime "Android 14"
 
 Atlas reads and `atlas open` show **All branches** by default. Pass
 `--branch <name>` or `--branch-id <id>` to narrow the evidence to one branch,
-including a branch with no runnable build. `--all-branches` remains an explicit
+including a branch with no usable build. `--all-branches` remains an explicit
 way to select All. `--build latest` selects the newest usable build in the chosen
-branch, or the app's default branch when no branch is given, bypassing its pin.
+branch, or the app's default branch when no branch is given, even when the
+branch is pinned.
 An exact `--build <id>` keeps that build's scope. Legacy `--build all` means All
 and cannot be combined with a branch.
 

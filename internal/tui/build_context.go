@@ -14,7 +14,7 @@ type testExecutionBuildSelection struct {
 
 func prepareTestRunBuildSelection(ctx context.Context, client *api.Client, choice testExecutionBuildSelection) (api.BuildSelection, error) {
 	selection := choice.Selection
-	if choice.OverrideAppID != "" && selection.BranchID == "" && selection.BranchName == "" && selection.BuildID == "" {
+	if choice.OverrideAppID != "" && selection.BranchID == "" && selection.BranchName == "" && selection.BuildID == "" && selection.Mode != api.BuildSelectionModeLatestAllBranches {
 		branch, err := client.ResolveBranchWithContext(ctx, choice.OverrideAppID, "", "", selection.ContextBranchName)
 		if err != nil {
 			return selection, fmt.Errorf("resolve run branch override: %w", err)

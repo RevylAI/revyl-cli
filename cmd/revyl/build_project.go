@@ -124,6 +124,10 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 	if err := validateBuildFlags(cmd, remoteExecution); err != nil {
 		return err
 	}
+	pin, err := resolveBuildPin(cmd)
+	if err != nil {
+		return err
+	}
 	progress.markFailureStage("authentication")
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -154,9 +158,9 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 	analyticsProperties["selection_source"] = invocation.SelectionSource
 
 	if remoteExecution {
-		return runProjectRemoteBuild(cmd, invocation, apiKey, jsonOutput, progress)
+		return runProjectRemoteBuild(cmd, invocation, apiKey, jsonOutput, pin, progress)
 	}
-	return runLocalBuild(cmd, invocation, apiKey, jsonOutput, interactive, progress)
+	return runLocalBuild(cmd, invocation, apiKey, jsonOutput, interactive, pin, progress)
 }
 
 func actionableBuildConfigError(err error) error {
@@ -354,13 +358,13 @@ func cloneEffectiveBuildRecipe(recipe config.EffectiveBuildRecipe) config.Effect
 	return cloned
 }
 
-func runLocalBuild(cmd *cobra.Command, invocation projectBuildInvocation, apiKey string, jsonOutput, interactive bool, progress *buildProgress) error {
+func runLocalBuild(cmd *cobra.Command, invocation projectBuildInvocation, apiKey string, jsonOutput, interactive, pin bool, progress *buildProgress) error {
 	if !jsonOutput {
 		ui.PrintBanner(version)
 		ui.PrintInfo("Building %s/%s", invocation.Profile, invocation.Platform)
 		ui.Println()
 	}
-	result, err := performLocalBuild(cmd, invocation, apiKey, jsonOutput, interactive, !buildNoSetCurrent, progress)
+	result, err := performLocalBuild(cmd, invocation, apiKey, jsonOutput, interactive, pin, progress)
 	if err != nil {
 		return err
 	}
@@ -374,7 +378,7 @@ func performLocalBuild(
 	apiKey string,
 	quiet bool,
 	interactive bool,
-	setAsCurrent bool,
+	pin bool,
 	progress *buildProgress,
 ) (localBuildResult, error) {
 	if invocation.AppID == "" && !interactive {
@@ -429,11 +433,11 @@ func performLocalBuild(
 		}
 	}
 	progress.markFailureStage("upload")
-	upload, err := performLocalArtifactUpload(cmd, invocation, artifactPath, duration, client, setAsCurrent, true)
+	upload, err := performLocalArtifactUpload(cmd, invocation, artifactPath, duration, client, pin, true)
 	if err != nil {
 		return localBuildResult{}, err
 	}
-	return localBuildResult{Invocation: invocation, ArtifactPath: artifactPath, Duration: duration, Upload: upload, DefaultBuildChanged: setAsCurrent}, nil
+	return localBuildResult{Invocation: invocation, ArtifactPath: artifactPath, Duration: duration, Upload: upload, DefaultBuildChanged: pin}, nil
 }
 
 func selectOrCreateBuildApp(cmd *cobra.Command, client *api.Client, invocation projectBuildInvocation) (string, error) {
@@ -578,7 +582,7 @@ func performLocalArtifactUpload(
 	artifactPath string,
 	duration time.Duration,
 	client *api.Client,
-	setAsCurrent bool,
+	pin bool,
 	artifactProducedByRecipe bool,
 ) (*api.UploadBuildResponse, error) {
 	if invocation.BranchID == "" && invocation.BranchName == "" {
@@ -602,8 +606,8 @@ func performLocalArtifactUpload(
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
 		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
 		AppID: invocation.AppID, Version: versionString, FilePath: preparedArtifact,
-		Metadata:     metadata,
-		SetAsCurrent: setAsCurrent,
+		Metadata: metadata,
+		Pin:      pin,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upload built artifact: %w", err)
@@ -730,7 +734,7 @@ func prepareLocalArtifact(artifactPath string) (string, func(), error) {
 	return filepath.Clean(artifactPath), nil, nil
 }
 
-func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation, apiKey string, jsonOutput bool, progress *buildProgress) error {
+func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation, apiKey string, jsonOutput, pin bool, progress *buildProgress) error {
 	progress.markFailureStage("configuration")
 	if invocation.AppID == "" {
 		return fmt.Errorf(
@@ -766,7 +770,7 @@ func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation
 		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
 		Profile: invocation.Profile, ProjectRoot: invocation.ProjectRoot, WorktreeRoot: invocation.WorktreeRoot, Resolved: &resolved,
 		Platform: invocation.Platform, Version: buildVersion,
-		SetCurrent: !buildNoSetCurrent, Clean: buildNoCacheFlag, JSON: jsonOutput,
+		Pin: pin, Clean: buildNoCacheFlag, JSON: jsonOutput,
 		Wait: !buildDetachFlag, IncludeDirty: true, TimeoutSeconds: effectiveRecipe.TimeoutSeconds,
 		BuildDefinitionHash: invocation.BuildDefinitionHash, SetFailureStage: progress.markFailureStage,
 	})

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,93 @@ func TestResolveBuildSelectionOnlyBootstrapsConfirmedEmpty(t *testing.T) {
 				t.Fatalf("wrong error %v", err)
 			}
 		})
+	}
+}
+
+func TestResolveBuildSelectionNamesTheBranchAndAppWithoutBuilds(t *testing.T) {
+	for _, test := range []struct {
+		status   string
+		sentinel error
+		want     string
+	}{
+		{"branch_has_no_builds", ErrBranchHasNoBuilds, `branch "release/2.0" on "My App" has no builds; upload a build to it first`},
+		{"no_compatible_build", ErrBranchHasNoCompatibleBuild, `branch "release/2.0" on "My App" has no usable build; upload one to it or choose another branch`},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"build_var_id": "app", "app_name": "My App", "branch_id": branchTestID, "branch_name": "release/2.0", "resolution_status": test.status})
+			}))
+			defer server.Close()
+			_, err := NewClientWithBaseURL("test", server.URL).ResolveBuildSelection(context.Background(), "app", BuildSelection{BranchName: "release/2.0"})
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+			if !errors.Is(err, test.sentinel) {
+				t.Fatalf("error %v no longer matches its sentinel", err)
+			}
+		})
+	}
+}
+
+func TestBranchErrorNamesWhatTheCallerKnows(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  *BranchError
+		want string
+	}{
+		{"missing branch and app", &BranchError{Err: ErrBranchNotFound, BranchName: "release/2.0", AppName: "My App"}, `branch "release/2.0" doesn't exist on "My App"`},
+		{"missing branch only", &BranchError{Err: ErrBranchNotFound, BranchName: "release/2.0"}, `branch "release/2.0" doesn't exist`},
+		{"missing Git branch", &BranchError{Err: ErrBranchNotFound, BranchName: "feature/login", FromGit: true}, `branch "feature/login" from Git doesn't exist`},
+		{"empty branch, app unknown", &BranchError{Err: ErrBranchHasNoBuilds, BranchName: "release/2.0"}, `branch "release/2.0" has no builds; upload a build to it first`},
+		{"no branch has a build", &BranchError{Err: ErrBranchHasNoCompatibleBuild, AppName: "My App"}, `no branch on "My App" has a usable build; upload one first`},
+		{"neither named", &BranchError{Err: ErrBranchHasNoCompatibleBuild}, ErrBranchHasNoCompatibleBuild.Error()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.err.Error(); got != test.want {
+				t.Fatalf("Error() = %q, want %q", got, test.want)
+			}
+			if !errors.Is(test.err, test.err.Err) {
+				t.Fatal("errors.Is no longer matches the sentinel")
+			}
+		})
+	}
+}
+
+func TestResolveBranchByNameNamesTheMissingBranch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(BuildBranchesPage{Branches: []BuildBranch{}})
+	}))
+	defer server.Close()
+	_, err := NewClientWithBaseURL("test", server.URL).ResolveBranch(context.Background(), "app", "", "does-not-exist")
+	if err == nil || err.Error() != `branch "does-not-exist" doesn't exist` || !errors.Is(err, ErrBranchNotFound) {
+		t.Fatalf("error = %v, want the named branch matching ErrBranchNotFound", err)
+	}
+}
+
+func TestBranchNamesFollowTheAPIRuleBeforeAnyRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("an invalid branch name reached the API: %s %s", r.Method, r.URL)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer server.Close()
+	client := NewClientWithBaseURL("test", server.URL)
+	for _, test := range []struct{ name, want string }{
+		{" bad ", `branch name " bad " can't start or end with whitespace`},
+		{"", "branch name can't be empty"},
+		{"re\tlease", `branch name "re\tlease" can't contain control characters`},
+		{strings.Repeat("界", 256), "branch name must be at most 255 characters"},
+	} {
+		if err := ValidateBranchName(test.name); err == nil || err.Error() != test.want {
+			t.Errorf("validate %q: error = %v, want %q", test.name, err, test.want)
+		}
+		if _, err := client.CreateBuildBranch(context.Background(), "app", test.name); err == nil || err.Error() != test.want {
+			t.Errorf("create %q: error = %v, want %q", test.name, err, test.want)
+		}
+	}
+	if err := ValidateBranchName(strings.Repeat("界", 255)); err != nil {
+		t.Fatalf("a 255-character name is valid: %v", err)
 	}
 }
 

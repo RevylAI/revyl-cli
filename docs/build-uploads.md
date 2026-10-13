@@ -11,9 +11,9 @@ Add `--branch staging` to select a Revyl destination branch; otherwise the uploa
 uses the app default. A named destination can create the branch. Version
 labels do not select the destination.
 The destination stays fixed
-through upload finalization. An upload pins its branch to the new build, even
-when the branch was following Latest; add `--no-set-current` to leave the
-branch's pin unchanged.
+through upload finalization. Without `--pin`, an upload doesn't pin its branch:
+a branch on **Latest build** runs the new build because it is the newest, and a
+pinned branch keeps its pin. Add `--pin` to pin the branch to the new build.
 Results include `branch_id`, `branch_name`, and the exact uploaded build ID.
 See [Build branches](build-branches.md) for selection and listing commands.
 After a successful command exit, read the JSON for the upload mode:

@@ -46,7 +46,7 @@ type remoteBuildOptions struct {
 	Image               string
 	Env                 map[string]string
 	Secrets             []string
-	SetCurrent          bool
+	Pin                 bool
 	Clean               bool
 	JSON                bool
 	Wait                bool
@@ -365,7 +365,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			}
 			printUploadedBuildBranch(ctx, client, "Branch: %s", uploadedBuild{
 				AppID: appID.String(), BranchID: branchID, BranchName: *status.BranchName,
-				BuildID: stringValue(status.VersionId), BuildVersion: stringValue(status.Version), DefaultBuildChanged: opts.SetCurrent,
+				BuildID: stringValue(status.VersionId), BuildVersion: stringValue(status.Version), DefaultBuildChanged: opts.Pin,
 			})
 		}
 		testsDir := filepath.Join(projectRoot, ".revyl", "tests")
@@ -407,7 +407,6 @@ func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uu
 		}
 		branchID = &parsed
 	}
-	setCurrent := opts.SetCurrent
 	var contextBranchName *string
 	if opts.ContextBranchName != "" {
 		contextBranchName = &opts.ContextBranchName
@@ -421,7 +420,7 @@ func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uu
 		CleanBuild:          boolPtrOrNil(opts.Clean),
 		Version:             stringPtrOrNil(opts.Version),
 		Image:               stringPtrOrNil(resolved.Image),
-		SetAsCurrent:        &setCurrent,
+		Pin:                 boolPtrOrNil(opts.Pin),
 	}, nil
 }
 

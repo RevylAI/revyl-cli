@@ -580,7 +580,7 @@ func (s *Server) registerDeviceTools() {
 type StartDeviceSessionInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
-	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
 	Platform                   string   `json:"platform" jsonschema:"Target platform: ios or android (REQUIRED)"`
 	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID"`
@@ -1819,7 +1819,7 @@ type InstallAppInput struct {
 	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
 	AppID          string `json:"app_id,omitempty" jsonschema:"App to resolve using the branch's default build or latest."`
 	BranchName     string `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
-	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`
+	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
 	AppURL         string `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
 	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Build version ID from a previous upload_build. The download URL is resolved automatically. Provide this OR app_url."`
 	BundleID       string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`

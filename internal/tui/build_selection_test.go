@@ -84,7 +84,7 @@ func TestBranchPickerShowsTheDefaultBranchOnce(t *testing.T) {
 	}
 
 	m := load("")
-	assertOptions(m, "Default branch (base) · Latest build (base-4)", "main · main-2")
+	assertOptions(m, "Default branch (base) · Latest build (base-4)", "main · Pinned build (main-2)")
 	chosen, _ := pickerKey(m, tea.KeyEnter)
 	assertOptions(chosen, "Automatic", "Latest build", "Exact build")
 	chosen, _ = pickerKey(chosen, tea.KeyEnter)
@@ -93,7 +93,7 @@ func TestBranchPickerShowsTheDefaultBranchOnce(t *testing.T) {
 	}
 
 	explicit := load(pickerBranchID)
-	assertOptions(explicit, "Default branch (base) · Latest build (base-4)", "base (default) · Latest build (base-4)", "main · main-2")
+	assertOptions(explicit, "Default branch (base) · Latest build (base-4)", "base (default) · Latest build (base-4)", "main · Pinned build (main-2)")
 	explicit.cursor = 1
 	explicit, _ = pickerKey(explicit, tea.KeyEnter)
 	if explicit.selection.BranchID != pickerBranchID {
@@ -106,7 +106,7 @@ func TestBranchPickerShowsTheDefaultBranchOnce(t *testing.T) {
 	}
 	m, cmd := pickerKey(m, tea.KeyEnter)
 	m, _ = m.Update(cmd())
-	assertOptions(m, "Default branch (base) · Latest build", "main · main-2")
+	assertOptions(m, "Default branch (base) · Latest build", "main · Pinned build (main-2)")
 }
 
 func TestBuildPickerAllIsDistinctFromBranchNamedAll(t *testing.T) {
@@ -308,6 +308,10 @@ func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/apps/" + pickerAppID + "/builds":
 			fmt.Fprintf(w, `{"id":%q,"version":"v1","branch_id":%q,"branch_name":"renamed"}`, pickerBuildID, pickerBranchID)
+		case "/api/v1/apps/resolve":
+			fmt.Fprintf(w, `{"version_id":"older-build","branch_id":%q,"branch_name":"renamed","resolution_status":"resolved"}`, pickerBranchID)
+		case "/api/v1/apps/builds/older-build":
+			fmt.Fprintf(w, `{"id":"older-build","app_id":%q,"version":"v0"}`, pickerAppID)
 		default:
 			t.Errorf("unexpected request: %s", r.URL)
 			http.NotFound(w, r)
@@ -318,6 +322,9 @@ func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
 		msg := uploadBuildCmd(api.NewClientWithBaseURL("test", server.URL), pickerAppID, file, fmt.Sprintf("v%d", index), selection)().(BuildUploadedMsg)
 		if msg.Err != nil || msg.VersionID != pickerBuildID || msg.Branch == nil || msg.Branch.ID != pickerBranchID {
 			t.Fatalf("upload failed or lost frozen branch: %#v", msg)
+		}
+		if msg.BranchSummary != "renamed (Latest build: runs use v0)" {
+			t.Fatalf("upload summary = %q, want the build the branch runs now", msg.BranchSummary)
 		}
 	}
 }
@@ -522,5 +529,73 @@ func TestHubBranchPickerKeepsBackgroundMessagesFlowing(t *testing.T) {
 	m = next.(hubModel)
 	if len(m.apps) != 1 || m.buildPicker == nil {
 		t.Fatal("picker swallowed background update")
+	}
+}
+
+func TestBuildPickerOffersAllBranchesForRunsOnly(t *testing.T) {
+	isDefault := true
+	newPicker := func(offer bool) buildPickerModel {
+		m := newBuildPicker(nil, pickerAppID, "Build")
+		m.loading, m.offerAllBranches = false, offer
+		m.defaultBranch = &api.BuildBranch{ID: pickerBranchID, Name: "base"}
+		m.branches = []api.BuildBranch{{ID: pickerBranchID, Name: "base", IsDefault: &isDefault}, {ID: pickerOtherBranchID, Name: "main"}}
+		return m
+	}
+	m := newPicker(true)
+	if got := m.options(); len(got) != 3 || got[1] != allBranchesLatestLabel || !strings.HasPrefix(got[2], "main") {
+		t.Fatalf("options = %q, want All branches after Default branch", got)
+	}
+	m.cursor = 1
+	all, _ := pickerKey(m, tea.KeyEnter)
+	if !all.done || all.selection != (api.BuildSelection{Mode: api.BuildSelectionModeLatestAllBranches}) || all.label != allBranchesLatestLabel {
+		t.Fatalf("All branches = %#v, label %q", all.selection, all.label)
+	}
+	if buildSelectionLabel(all.selection) != allBranchesLatestLabel {
+		t.Fatalf("label = %q", buildSelectionLabel(all.selection))
+	}
+	m.cursor = 2
+	named, _ := pickerKey(m, tea.KeyEnter)
+	if named.done || named.selection.BranchID != pickerOtherBranchID || named.step != buildPickerMode {
+		t.Fatalf("branch row after All branches = %#v", named)
+	}
+	if got := newPicker(false).options(); len(got) != 2 || strings.Contains(strings.Join(got, "\n"), allBranchesLatestLabel) {
+		t.Fatalf("upload or browse picker offered All branches: %q", got)
+	}
+
+	hub := newHubModel("dev", false)
+	hub.client = api.NewClientWithBaseURL("test", "http://127.0.0.1:1")
+	for target, want := range map[string]bool{"device": true, "test-run": true, "test-save": true, "workflow-ios": true, "app-filter": false} {
+		next, _ := hub.beginBuildPicker(pickerAppID, "Build", target, "")
+		if picker := next.(hubModel).buildPicker; picker == nil || picker.offerAllBranches != want {
+			t.Fatalf("%s offers All branches = %v, want %t", target, picker, want)
+		}
+	}
+}
+
+func TestWorkflowPickerOffersAllBranchesForABlankName(t *testing.T) {
+	for _, choice := range []struct {
+		cursor int
+		want   api.BuildSelection
+	}{
+		{cursor: 0},
+		{cursor: 1, want: api.BuildSelection{Mode: api.BuildSelectionModeLatestAllBranches}},
+	} {
+		m := newBuildPicker(nil, "", "Workflow")
+		m.workflow, m.offerAllBranches, m.loading, m.step = true, true, false, buildPickerName
+		m, _ = pickerKey(m, tea.KeyEnter)
+		if m.done || m.step != buildPickerMode || strings.Join(m.options(), "|") != keepSavedSettingsLabel+"|"+allBranchesLatestLabel {
+			t.Fatalf("blank workflow name = step %v options %q", m.step, m.options())
+		}
+		m.cursor = choice.cursor
+		m, _ = pickerKey(m, tea.KeyEnter)
+		if !m.done || m.selection != choice.want {
+			t.Fatalf("cursor %d chose %#v, want %#v", choice.cursor, m.selection, choice.want)
+		}
+	}
+	devLoop := newBuildPicker(nil, "", "Dev loop")
+	devLoop.workflow, devLoop.branchOnly, devLoop.loading, devLoop.step = true, true, false, buildPickerName
+	devLoop, _ = pickerKey(devLoop, tea.KeyEnter)
+	if !devLoop.done || devLoop.selection != (api.BuildSelection{}) {
+		t.Fatalf("dev loop picker offered All branches: %#v", devLoop)
 	}
 }

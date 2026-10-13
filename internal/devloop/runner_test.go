@@ -119,6 +119,17 @@ func TestCommandRunnerRejectsDeprecatedPlatformKeyBeforeStartingChild(t *testing
 	}
 }
 
+func TestCommandRunnerRejectsAllBranchesBeforeStartingChild(t *testing.T) {
+	runner := &CommandRunner{BinaryPath: filepath.Join(t.TempDir(), "missing-revyl")}
+
+	_, err := runner.Start(context.Background(), t.TempDir(), StartRequest{
+		BuildSelection: "latest_all_branches",
+	})
+	if err == nil || !strings.Contains(err.Error(), "isn't available for a dev loop") || !strings.Contains(err.Error(), "branch_name") {
+		t.Fatalf("Start() error = %v, want guidance to pick one branch", err)
+	}
+}
+
 func TestCommandRunnerScopesStartRecoveryCommandsToResolvedProject(t *testing.T) {
 	t.Setenv("REVYL_BINARY", "")
 	workDir := t.TempDir()

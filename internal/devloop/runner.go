@@ -284,6 +284,9 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 	if err := (api.BuildSelection{BranchName: request.BranchName, Mode: api.BuildSelectionMode(request.BuildSelection), BuildID: request.BuildVersionID}).Validate(); err != nil {
 		return StartResult{}, err
 	}
+	if api.BuildSelectionMode(request.BuildSelection) == api.BuildSelectionModeLatestAllBranches {
+		return StartResult{}, fmt.Errorf("build_selection latest_all_branches isn't available for a dev loop: it follows one branch, which its rebuilds upload to; pass branch_name to choose it")
+	}
 	if request.SeedLatest && (request.BuildVersionID != "" || (request.BuildSelection != "" && request.BuildSelection != "latest")) {
 		return StartResult{}, fmt.Errorf("seed_latest requires latest selection without an exact build")
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -33,9 +34,10 @@ func TestBuildWhichCLI(t *testing.T) {
 		t.Fatalf("build CLI: %v\n%s", err, output)
 	}
 	const (
-		appID    = "11111111-1111-4111-8111-111111111111"
-		branchID = "22222222-2222-4222-8222-222222222222"
-		buildID  = "33333333-3333-4333-8333-333333333333"
+		appID               = "11111111-1111-4111-8111-111111111111"
+		branchID            = "22222222-2222-4222-8222-222222222222"
+		buildID             = "33333333-3333-4333-8333-333333333333"
+		unavailablePinError = `Branch "release/customer-private" on "My App" is pinned to an unavailable build; pin another build or unpin the branch`
 	)
 	for _, scenario := range []struct {
 		name, gitBranch, explicitBranch, resolvedBranch, source string
@@ -52,12 +54,12 @@ func TestBuildWhichCLI(t *testing.T) {
 		{name: "unrelated checkout uses default", gitBranch: "missing", resolvedBranch: "base", source: "default_branch"},
 		{name: "unrelated checkout uses default pin", gitBranch: "empty", resolvedBranch: "base", source: "default_branch", pinned: true},
 		{name: "unsupported Git name does not affect selection", gitBranch: strings.Repeat("long/", 60) + "feature", resolvedBranch: "base", source: "default_branch"},
-		{name: "explicit empty branch", explicitBranch: "empty", status: "branch_has_no_builds", wantError: "selected branch has no builds"},
-		{name: "no compatible default", status: "no_compatible_build", wantError: "selected branch has no compatible build"},
-		{name: "explicit no compatible build", explicitBranch: "preview", status: "no_compatible_build", wantError: "selected branch has no compatible build"},
+		{name: "explicit empty branch", explicitBranch: "empty", status: "branch_has_no_builds", wantError: `branch "empty" on "My App" has no builds; upload a build to it first`, telemetry: true},
+		{name: "no compatible default", status: "no_compatible_build", wantError: `branch "base" on "My App" has no usable build`},
+		{name: "explicit no compatible build", explicitBranch: "preview", status: "no_compatible_build", wantError: `branch "preview" on "My App" has no usable build`},
 		{name: "explicit missing branch", explicitBranch: "missing", serverError: "selected branch was not found", wantError: "selected branch was not found"},
-		{name: "default unavailable pin", serverError: "pinned build is unavailable", wantError: "pinned build is unavailable", telemetry: true},
-		{name: "feature checkout default pin unavailable", gitBranch: "feature/login", serverError: "pinned build is unavailable", wantError: "pinned build is unavailable"},
+		{name: "default unavailable pin", serverError: unavailablePinError, wantError: unavailablePinError, telemetry: true},
+		{name: "feature checkout default pin unavailable", gitBranch: "feature/login", serverError: unavailablePinError, wantError: unavailablePinError},
 		{name: "explicit unsupported branch", explicitBranch: strings.Repeat("x", 256), wantError: "branch name must be", rejectBeforeAPI: true},
 		{name: "blank explicit branch", explicitBranch: " ", wantError: "--branch requires a Revyl branch name", rejectBeforeAPI: true},
 		{name: "current branch setting", resolvedBranch: "base", source: "default_branch", pinned: true, pinChanged: true},
@@ -126,7 +128,7 @@ func TestBuildWhichCLI(t *testing.T) {
 						return
 					}
 					if scenario.status != "" {
-						_ = json.NewEncoder(w).Encode(map[string]string{"resolution_status": scenario.status})
+						_ = json.NewEncoder(w).Encode(map[string]string{"resolution_status": scenario.status, "branch_name": cmp.Or(scenario.explicitBranch, "base"), "app_name": "My App"})
 						return
 					}
 					_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": branchID, "branch_name": scenario.resolvedBranch, "resolution_status": "resolved"})
@@ -196,9 +198,22 @@ func TestBuildWhichCLI(t *testing.T) {
 						if encodeErr != nil {
 							t.Fatal(encodeErr)
 						}
-						for _, privateValue := range []string{appID, buildID, "My App", "private metadata"} {
+						for _, privateValue := range []string{appID, buildID, "My App", "release/customer-private", "private metadata"} {
 							if bytes.Contains(encoded, []byte(privateValue)) {
 								t.Errorf("telemetry contains app/build data: %s", encoded)
+							}
+						}
+						if event.Event == analytics.CliCommandFailedEvent {
+							if _, exists := event.Properties["output_tail"]; exists {
+								t.Errorf("branch failure retained output tail: %#v", event.Properties["output_tail"])
+							}
+							if scenario.serverError != "" {
+								if got := event.Properties["error_message"]; got != "API request failed (HTTP 400)" {
+									t.Errorf("error_message = %q, want bounded HTTP diagnostic", got)
+								}
+								if got := event.Properties["failure_class"]; got != "usage" {
+									t.Errorf("failure_class = %q, want usage", got)
+								}
 							}
 						}
 						observed[event.Event]++
@@ -237,7 +252,7 @@ func TestBuildWhichCLI(t *testing.T) {
 				t.Fatalf("unexpected stderr: %s", &stderr)
 			}
 			if scenario.human {
-				for _, text := range []string{"Branch: base", "Reason: app default branch", "Build: 1.2.3 (" + buildID + ")", "Default build: Exact build"} {
+				for _, text := range []string{"Branch: base", "Reason: app default branch", "Build: 1.2.3 (" + buildID + ")", "Default build: Pinned build"} {
 					if !strings.Contains(stdout.String(), text) {
 						t.Errorf("human output missing %q: %s", text, &stdout)
 					}
@@ -283,11 +298,11 @@ func TestUploadedBuildBranchSummarySaysWhichBuildRuns(t *testing.T) {
 		want                string
 		wantLookups         bool
 	}{
-		{name: "upload changed the default build", defaultBuildChanged: true, want: "base (default build is now v1.3)"},
+		{name: "--pin pinned the branch to this upload", defaultBuildChanged: true, want: "base (pinned to this build)"},
 		{name: "latest build is this upload", runBuildID: uploadID, want: "base (Latest build: runs use this upload)", wantLookups: true},
-		{name: "exact default build stays", runBuildID: otherBuild, pinned: true, want: "base (default build stays v1.2; runs won't use this upload)", wantLookups: true},
+		{name: "branch stays pinned to another build", runBuildID: otherBuild, pinned: true, want: "base (pinned to v1.2; runs that don't choose a build keep using v1.2)", wantLookups: true},
 		{name: "latest build resolves elsewhere", runBuildID: otherBuild, want: "base (Latest build: runs use v1.2)", wantLookups: true},
-		{name: "reused upload is already the default build", runBuildID: uploadID, pinned: true, want: "base (default build is now v1.3)", wantLookups: true},
+		{name: "branch already pinned to this upload", runBuildID: uploadID, pinned: true, want: "base (pinned to this build)", wantLookups: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var lookups atomic.Int32

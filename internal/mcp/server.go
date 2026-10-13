@@ -1007,7 +1007,7 @@ type RunTestInput struct {
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
 	BranchID                   string   `json:"branch_id,omitempty" jsonschema:"Explicit Revyl branch ID; omit to preserve the saved test selection"`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Explicit Revyl branch name; omitted preserves saved selection"`
-	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned (requires build_version_id)"`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch), or pinned (requires build_version_id)"`
 	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 	DeviceModel                string   `json:"device_model,omitempty" jsonschema:"Override device model (e.g. iPhone 16, Pixel 7)"`
 	OsVersion                  string   `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
@@ -1032,6 +1032,9 @@ type RunTestOutput struct {
 	TotalSteps     int        `json:"total_steps,omitempty"`
 	LastStep       string     `json:"last_step,omitempty"`
 	ErrorMessage   string     `json:"error_message,omitempty"`
+	BuildID        string     `json:"build_id,omitempty"`
+	BuildVersion   string     `json:"build_version,omitempty"`
+	BranchName     string     `json:"branch_name,omitempty"`
 	NextSteps      []NextStep `json:"next_steps,omitempty"`
 }
 
@@ -1143,6 +1146,9 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		ReportURL:    result.ReportURL,
 		ViewerURL:    result.ReportURL,
 		ErrorMessage: result.ErrorMessage,
+		BuildID:      result.BuildID,
+		BuildVersion: result.BuildVersion,
+		BranchName:   result.BranchName,
 	}
 	if lastStatus != nil {
 		out.CompletedSteps = lastStatus.CompletedSteps
@@ -1180,7 +1186,7 @@ type RunWorkflowInput struct {
 	IOSAppID                   string   `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
 	AndroidAppID               string   `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name resolved separately for each effective app; omitted preserves saved selections"`
-	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice for every app: inherit (Automatic: the branch's default build) or latest; omit when passing exact platform build IDs"`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice for every app: inherit (Automatic: the branch's default build), latest, or latest_all_branches (the newest build across all of each app's branches; no branch_name); omit when passing exact platform build IDs"`
 	IOSBuildID                 string   `json:"ios_build_id,omitempty" jsonschema:"Exact iOS build ID for this run"`
 	AndroidBuildID             string   `json:"android_build_id,omitempty" jsonschema:"Exact Android build ID for this run"`
 	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
@@ -1192,20 +1198,21 @@ type RunWorkflowInput struct {
 
 // RunWorkflowOutput defines the output for the run_workflow tool.
 type RunWorkflowOutput struct {
-	Success        bool       `json:"success"`
-	TaskID         string     `json:"task_id"`
-	WorkflowID     string     `json:"workflow_id"`
-	Status         string     `json:"status"`
-	TotalTests     int        `json:"total_tests"`
-	PassedTests    int        `json:"passed_tests"`
-	FailedTests    int        `json:"failed_tests"`
-	Duration       string     `json:"duration"`
-	ReportURL      string     `json:"report_url"`
-	ViewerURL      string     `json:"viewer_url,omitempty"`
-	CompletedTests int        `json:"completed_tests,omitempty"`
-	CurrentTest    string     `json:"current_test,omitempty"`
-	ErrorMessage   string     `json:"error_message,omitempty"`
-	NextSteps      []NextStep `json:"next_steps,omitempty"`
+	Success        bool                           `json:"success"`
+	TaskID         string                         `json:"task_id"`
+	WorkflowID     string                         `json:"workflow_id"`
+	Status         string                         `json:"status"`
+	TotalTests     int                            `json:"total_tests"`
+	PassedTests    int                            `json:"passed_tests"`
+	FailedTests    int                            `json:"failed_tests"`
+	Duration       string                         `json:"duration"`
+	ReportURL      string                         `json:"report_url"`
+	ViewerURL      string                         `json:"viewer_url,omitempty"`
+	CompletedTests int                            `json:"completed_tests,omitempty"`
+	CurrentTest    string                         `json:"current_test,omitempty"`
+	ErrorMessage   string                         `json:"error_message,omitempty"`
+	Tests          []execution.WorkflowTestResult `json:"tests,omitempty"`
+	NextSteps      []NextStep                     `json:"next_steps,omitempty"`
 }
 
 // handleRunWorkflow handles the run_workflow tool call.
@@ -1318,6 +1325,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		ReportURL:    result.ReportURL,
 		ViewerURL:    viewerURL,
 		ErrorMessage: result.ErrorMessage,
+		Tests:        result.Tests,
 	}
 	if lastStatus != nil {
 		out.CompletedTests = lastStatus.CompletedTests
@@ -1471,8 +1479,8 @@ type CreateTestInput struct {
 	AppID            string   `json:"app_id,omitempty" jsonschema:"Optional explicit app ID to associate with the test"`
 	BranchID         string   `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omitted follows the app default"`
 	BranchName       string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name to resolve and save as a stable ID"`
-	BuildSelection   string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned"`
-	PinnedBuildID    string   `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to pin; never falls back when unavailable"`
+	BuildSelection   string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch), or pinned"`
+	PinnedBuildID    string   `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to save; never falls back when unavailable"`
 	ModuleNamesOrIDs []string `json:"module_names_or_ids,omitempty" jsonschema:"Optional ordered module names or IDs to prepend as module_import blocks"`
 	Tags             []string `json:"tags,omitempty" jsonschema:"Optional tag names to assign to the test after creation"`
 }
@@ -3736,12 +3744,12 @@ type SetWorkflowAppInput struct {
 	AndroidAppID          string `json:"android_app_id,omitempty" jsonschema:"Android app ID to override"`
 	IOSBranchID           string `json:"ios_branch_id,omitempty" jsonschema:"Saved iOS Revyl branch ID"`
 	IOSBranchName         string `json:"ios_branch_name,omitempty" jsonschema:"Exact iOS Revyl branch name to resolve and save"`
-	IOSBuildSelection     string `json:"ios_build_selection,omitempty" jsonschema:"iOS build choice: inherit (Automatic: the branch's default build), latest, or pinned; inherit alone resets to Default branch"`
-	IOSPinnedBuildID      string `json:"ios_pinned_build_id,omitempty" jsonschema:"Exact iOS build ID to pin"`
+	IOSBuildSelection     string `json:"ios_build_selection,omitempty" jsonschema:"iOS build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch), or pinned; inherit alone resets to Default branch"`
+	IOSPinnedBuildID      string `json:"ios_pinned_build_id,omitempty" jsonschema:"Exact iOS build ID to save"`
 	AndroidBranchID       string `json:"android_branch_id,omitempty" jsonschema:"Saved Android Revyl branch ID"`
 	AndroidBranchName     string `json:"android_branch_name,omitempty" jsonschema:"Exact Android Revyl branch name to resolve and save"`
-	AndroidBuildSelection string `json:"android_build_selection,omitempty" jsonschema:"Android build choice: inherit (Automatic: the branch's default build), latest, or pinned; inherit alone resets to Default branch"`
-	AndroidPinnedBuildID  string `json:"android_pinned_build_id,omitempty" jsonschema:"Exact Android build ID to pin"`
+	AndroidBuildSelection string `json:"android_build_selection,omitempty" jsonschema:"Android build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch), or pinned; inherit alone resets to Default branch"`
+	AndroidPinnedBuildID  string `json:"android_pinned_build_id,omitempty" jsonschema:"Exact Android build ID to save"`
 }
 
 func (s *Server) handleSetWorkflowApp(ctx context.Context, req *mcp.CallToolRequest, input SetWorkflowAppInput) (*mcp.CallToolResult, SimpleSuccessOutput, error) {
@@ -4105,8 +4113,8 @@ type UpdateTestInput struct {
 	AppID          string `json:"app_id,omitempty" jsonschema:"Optional app ID to associate with the test"`
 	BranchID       string `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omitted preserves the existing selection"`
 	BranchName     string `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name to resolve and save as a stable ID"`
-	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned; inherit without branch/build resets to Default branch"`
-	PinnedBuildID  string `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to pin"`
+	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch), or pinned; inherit without branch/build resets to Default branch"`
+	PinnedBuildID  string `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to save"`
 	Force          bool   `json:"force,omitempty" jsonschema:"Force update even if remote has a newer version"`
 }
 

@@ -523,6 +523,31 @@ func TestRemoteDevTriggerRequestAllowsFastlane(t *testing.T) {
 	}
 }
 
+func TestRemoteDevBuildsNeverPinTheirBranch(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	output := "build/app.apk"
+	fromProject, err := remoteDevTriggerRequestFromProject(appID, "source.tar.gz", "v1", projectDevInvocation{
+		Platform: "android", AppID: appID.String(), BranchID: "00000000-0000-4000-8000-000000000789",
+		Recipe: config.EffectiveBuildRecipe{BuildCommands: config.CommandStepItems([]string{"./gradlew assembleDebug"}), OutputPath: &output},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := remoteDevTriggerRequest(appID, "source.tar.gz", "android", "v1", config.BuildPlatform{Command: "./gradlew assembleDebug", Output: output}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []*api.RemoteBuildRequest{fromProject, legacy} {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), `"pin"`) || strings.Contains(string(encoded), `"set_as_current"`) {
+			t.Fatalf("revyl dev --remote asked to pin its branch: %s", encoded)
+		}
+	}
+}
+
 func TestRemoteDevTriggerRequestCarriesMultipleBuildCommands(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
 	req, err := remoteDevTriggerRequest(

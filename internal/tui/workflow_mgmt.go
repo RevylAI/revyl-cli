@@ -646,8 +646,8 @@ func executeWorkflowDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cm
 	switch key {
 	case "B":
 		if m.selectedWfDetail != nil && m.client != nil {
-			picker := newBuildPicker(m.client, "", "Workflow branch override (blank keeps saved settings)")
-			picker.workflow, picker.loading, picker.step = true, false, buildPickerName
+			picker := newBuildPicker(m.client, "", "Workflow branch for this run (leave blank to keep saved settings or use All branches · Latest build)")
+			picker.workflow, picker.offerAllBranches, picker.loading, picker.step = true, true, false, buildPickerName
 			picker.nameInput.Focus()
 			m.buildPicker, m.buildPickerTarget = &picker, "workflow-run"
 			return m, textinput.Blink

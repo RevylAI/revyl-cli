@@ -16,8 +16,8 @@ func TestBranchDefaultPolicyDisplay(t *testing.T) {
 		wantBranch, wantAppRow string
 	}{
 		{"latest", nil, nil, "Latest build", "Latest build"},
-		{"exact", &pinnedID, &pinnedVersion, "v1.2", "Exact build"},
-		{"exact without a version", &pinnedID, nil, pinnedID, "Exact build"},
+		{"pinned", &pinnedID, &pinnedVersion, "Pinned build (v1.2)", "Pinned build"},
+		{"pinned without a version", &pinnedID, nil, "Pinned build (" + pinnedID + ")", "Pinned build"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			branch := api.BuildBranch{ID: pickerBranchID, Name: "default", PinnedBuildID: test.pin, PinnedBuildVersion: test.version}

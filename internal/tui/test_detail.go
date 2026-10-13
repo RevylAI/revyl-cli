@@ -73,7 +73,7 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 		detail.BuildSelection = api.BuildSelection{BranchID: test.BranchID, Mode: test.BuildSelection, BuildID: test.PinnedBuildID}
 		detail.BuildLabel = buildSelectionLabel(detail.BuildSelection)
 		if test.PinnedVersion != "" {
-			detail.BuildLabel = "Pinned version " + test.PinnedVersion
+			detail.BuildLabel = "Exact build " + test.PinnedVersion
 		}
 		if test.BranchID != "" && test.AppID != "" {
 			branch, branchErr := client.ResolveBranch(ctx, test.AppID, test.BranchID, "")

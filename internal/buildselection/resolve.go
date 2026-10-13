@@ -33,7 +33,7 @@ func SelectLatestBuildVersionPreferringGitBranch(ctx context.Context, client Bra
 	if err != nil {
 		return nil, "", nil, err
 	}
-	warning := fmt.Sprintf("No builds found for current branch %q; using latest available build instead.", gitBranch)
+	warning := fmt.Sprintf("No build on the app's default branch came from Git branch %q; using the default branch's newest build.", gitBranch)
 	return selected, source, append(warnings, warning), nil
 }
 

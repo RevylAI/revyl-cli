@@ -72,7 +72,7 @@ type DevProfileActionOutput struct {
 type DeviceSessionInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
-	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`
+	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
 	Action                     string   `json:"action" jsonschema:"required,Session action: start stop list switch info doctor"`
 	Platform                   string   `json:"platform,omitempty" jsonschema:"Platform for start: ios or android."`
 	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID for start."`

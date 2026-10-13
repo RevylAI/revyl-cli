@@ -256,15 +256,15 @@ func TestWorkflowAppShowNamesTheSavedBranchAndBuild(t *testing.T) {
 		want, unwanted  []string
 	}{
 		{"default branch", `{"app_id":"` + appID + `","build_selection":"inherit","branch_id":null,"pinned_build_id":null}`, false,
-			[]string{"iOS App:     Shop iOS (" + appID + ")", "Branch: Default branch"}, []string{"·", "Legacy"}},
+			[]string{"iOS App:     Shop iOS (" + appID + ")", "Branch: Default branch"}, []string{"·", "Saved version"}},
 		{"automatic", `{"app_id":"` + appID + `","build_selection":"inherit","branch_id":"` + branchID + `"}`, false,
 			[]string{"Branch: main (" + branchID + ") · Automatic"}, nil},
 		{"latest build", `{"app_id":"` + appID + `","build_selection":"latest","branch_id":"` + branchID + `"}`, false,
 			[]string{"Branch: main (" + branchID + ") · Latest build"}, nil},
 		{"exact build keeps its mirrored version out of the legacy line", `{"app_id":"` + appID + `","build_selection":"pinned","branch_id":"` + branchID + `","pinned_build_id":"` + buildID + `","pinned_version":"v1.2"}`, false,
-			[]string{"Branch: main (" + branchID + ") · Exact build v1.2 (" + buildID + ")"}, []string{"Legacy version pin"}},
+			[]string{"Branch: main (" + branchID + ") · Exact build v1.2 (" + buildID + ")"}, []string{"Saved version (before branches)"}},
 		{"legacy version pin", `{"app_id":"` + appID + `","pinned_version":"v1"}`, false,
-			[]string{"Branch: Default branch", "Legacy version pin: v1"}, nil},
+			[]string{"Branch: Default branch", "Saved version (before branches): v1"}, nil},
 		{"failed lookups fall back to IDs", `{"app_id":"` + appID + `","build_selection":"pinned","branch_id":"` + branchID + `","pinned_build_id":"` + buildID + `"}`, true,
 			[]string{"iOS App:     " + appID + "\n", "Branch: " + branchID + " · Exact build " + buildID + "\n"}, []string{"()"}},
 	} {
@@ -305,6 +305,135 @@ func TestWorkflowAppShowNamesTheSavedBranchAndBuild(t *testing.T) {
 			for _, unwanted := range append(test.unwanted, "Default build", "build selection:") {
 				if strings.Contains(output, unwanted) {
 					t.Fatalf("unexpected %q in:\n%s", unwanted, output)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkflowAppSetAllBranchesDropsTheSavedBranch(t *testing.T) {
+	newSetCommand := func(t *testing.T, flags map[string]string) *cobra.Command {
+		t.Helper()
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		for _, platform := range []string{"ios", "android"} {
+			cmd.Flags().String(platform+"-branch", "", "")
+			cmd.Flags().String(platform+"-build-selection", "", "")
+			cmd.Flags().String(platform+"-build-id", "", "")
+			cmd.Flags().Bool(platform+"-automatic", false, "")
+			cmd.Flags().Bool(platform+"-all-branches", false, "")
+		}
+		for name, value := range flags {
+			if err := cmd.Flags().Set(name, value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return cmd
+	}
+	var request map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/workflows/get_workflow_info":
+			_, _ = w.Write([]byte(`{"id":"workflow","build_config":{"ios_build":{"app_id":"ios-app","branch_id":"saved-branch","build_selection":"latest","pinned_build_id":null}}}`))
+		case "/api/v1/apps/ios-app":
+			_, _ = w.Write([]byte(`{"id":"ios-app","name":"Shop iOS","platform":"ios","versions_count":1,"latest_version":"1.0"}`))
+		case "/api/v1/workflows/update_build_config/workflow":
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", 500)
+		}
+	}))
+	defer server.Close()
+	withWfSettingsMockClient(t, server, "workflow")
+	oldIOS, oldAndroid := workflowAppIOS, workflowAppAndroid
+	workflowAppIOS, workflowAppAndroid = "", ""
+	t.Cleanup(func() { workflowAppIOS, workflowAppAndroid = oldIOS, oldAndroid })
+
+	output := captureStdoutAndStderr(t, func() {
+		if err := runWorkflowAppSet(newSetCommand(t, map[string]string{"ios-all-branches": "true"}), []string{"workflow"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "Branch: All branches · Latest build") {
+		t.Fatalf("set did not echo All branches:\n%s", output)
+	}
+	ios := request["build_config"].(map[string]interface{})["ios_build"].(map[string]interface{})
+	if ios["branch_id"] != nil || ios["build_selection"] != "latest_all_branches" || ios["pinned_build_id"] != nil {
+		t.Fatalf("all branches kept a branch or pin: %v", ios)
+	}
+
+	for flag, want := range map[string]string{
+		"ios-branch":          "--ios-all-branches cannot be combined with --ios-branch",
+		"ios-automatic":       "--ios-all-branches cannot be combined with --ios-automatic",
+		"ios-build-selection": "--ios-all-branches cannot be combined with --ios-build-selection inherit",
+	} {
+		value := map[string]string{"ios-branch": "main", "ios-automatic": "true", "ios-build-selection": "inherit"}[flag]
+		request = nil
+		err := runWorkflowAppSet(newSetCommand(t, map[string]string{"ios-all-branches": "true", flag: value}), []string{"workflow"})
+		if err == nil || !strings.Contains(err.Error(), want) || request != nil {
+			t.Fatalf("%s: err=%v saved=%v, want %q", flag, err, request, want)
+		}
+	}
+}
+
+func TestWorkflowAppSetAllBranchesSelectionHandlesSavedBranch(t *testing.T) {
+	const branchID = "11111111-1111-4111-8111-111111111111"
+	saved := `{"app_id":"android-app","branch_id":"` + branchID + `","build_selection":"pinned","pinned_build_id":"22222222-2222-4222-8222-222222222222","pinned_version":"1.0"}`
+	for _, tc := range []struct {
+		name, flag, value string
+		want              map[string]interface{}
+	}{
+		{"mode string clears the saved branch", "android-build-selection", "latest_all_branches",
+			map[string]interface{}{"branch_id": nil, "build_selection": "latest_all_branches", "pinned_build_id": nil}},
+		{"explicit false keeps the saved choice", "android-all-branches", "false",
+			map[string]interface{}{"branch_id": branchID, "build_selection": "pinned", "pinned_build_id": "22222222-2222-4222-8222-222222222222"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var request map[string]interface{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/apps/android-app":
+					_, _ = w.Write([]byte(`{"id":"android-app","name":"App","platform":"android","versions_count":1,"latest_version":"1.0"}`))
+				case "/api/v1/apps/android-app/branches/" + branchID:
+					_, _ = w.Write([]byte(`{"id":"` + branchID + `","app_id":"android-app","name":"staging"}`))
+				case "/api/v1/workflows/get_workflow_info":
+					_, _ = w.Write([]byte(`{"id":"workflow","build_config":{"android_build":` + saved + `}}`))
+				case "/api/v1/apps/builds/22222222-2222-4222-8222-222222222222":
+					_, _ = w.Write([]byte(`{"id":"22222222-2222-4222-8222-222222222222","app_id":"android-app","branch_id":"` + branchID + `","version":"1.0"}`))
+				case "/api/v1/workflows/update_build_config/workflow":
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Error(err)
+					}
+					_, _ = w.Write([]byte(`{}`))
+				default:
+					t.Errorf("unexpected request: %s", r.URL.Path)
+					http.Error(w, "unexpected", http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			withWfSettingsMockClient(t, server, "workflow")
+			oldIOS, oldAndroid := workflowAppIOS, workflowAppAndroid
+			workflowAppIOS, workflowAppAndroid = "", "android-app"
+			t.Cleanup(func() { workflowAppIOS, workflowAppAndroid = oldIOS, oldAndroid })
+			cmd := newLeafCommand("set", runWorkflowAppSet)
+			cmd.Flags().String("android-build-selection", "", "")
+			cmd.Flags().Bool("android-all-branches", false, "")
+			if err := cmd.Flags().Set(tc.flag, tc.value); err != nil {
+				t.Fatal(err)
+			}
+			_ = captureStdoutAndStderr(t, func() {
+				if err := runWorkflowAppSet(cmd, []string{"workflow"}); err != nil {
+					t.Fatal(err)
+				}
+			})
+			selection := request["build_config"].(map[string]interface{})["android_build"].(map[string]interface{})
+			for key, want := range tc.want {
+				if selection[key] != want {
+					t.Fatalf("%s = %v, want %v (saved %v)", key, selection[key], want, selection)
 				}
 			}
 		})
