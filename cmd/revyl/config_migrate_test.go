@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/gitremote"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/workflowref"
 	"github.com/spf13/cobra"
@@ -78,7 +79,7 @@ func withConfigMigrationDependencies(
 	originalSelectProject := selectConfigMigrationProject
 	originalTTY := configMigrationInputTTY
 	originalGenerate := generateConfigMigrationProject
-	originalSlug := resolveProjectRepoSlug
+	originalSlug := resolveProjectRepository
 	originalToken := readActiveConfigToken
 	prepareLocalConfigMigration = prepare
 	backupAndReplaceConfig = func(string, []byte, []byte) (string, error) {
@@ -90,8 +91,8 @@ func withConfigMigrationDependencies(
 	confirmConfigMigration = func(string, bool) (bool, error) { return true, nil }
 	configMigrationInputTTY = func() bool { return true }
 	generateConfigMigrationProject = func(string) (string, error) { return generatedMigrationProjectID, nil }
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
-		return "", "", errors.New("not a GitHub checkout")
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{}, errors.New("not a GitHub checkout")
 	}
 	readActiveConfigToken = func() (string, error) { return "", nil }
 	t.Cleanup(func() {
@@ -105,7 +106,7 @@ func withConfigMigrationDependencies(
 		selectConfigMigrationProject = originalSelectProject
 		configMigrationInputTTY = originalTTY
 		generateConfigMigrationProject = originalGenerate
-		resolveProjectRepoSlug = originalSlug
+		resolveProjectRepository = originalSlug
 		readActiveConfigToken = originalToken
 	})
 }
@@ -493,8 +494,8 @@ func connectedMigration(
 	client *fakeProjectConfigurationClient,
 ) {
 	t.Helper()
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
-		return "acme", "mobile", nil
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{Provider: "github", Namespace: "acme", Name: "mobile"}, nil
 	}
 	readActiveConfigToken = func() (string, error) { return "token", nil }
 	originalClient := newProjectConfigClient
@@ -1062,9 +1063,9 @@ func TestConfigMigrateAlreadyCanonicalNeverRewritesCanonicalFormatting(t *testin
 	}
 	command := testConfigCommand()
 	_ = command.Flags().Set("json", "true")
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
 		t.Fatal("already-canonical migration performed repository lookup")
-		return "", "", nil
+		return gitremote.RepositoryReference{}, nil
 	}
 
 	output := captureStdout(t, func() {

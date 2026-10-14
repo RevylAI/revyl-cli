@@ -1374,6 +1374,60 @@ func (e ProjectConfigurationReplaceResponseOutcome) Valid() bool {
 	}
 }
 
+// Defines values for ProjectConfigurationRepositoryLocatorProvider.
+const (
+	ProjectConfigurationRepositoryLocatorProviderGithub ProjectConfigurationRepositoryLocatorProvider = "github"
+	ProjectConfigurationRepositoryLocatorProviderGitlab ProjectConfigurationRepositoryLocatorProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the ProjectConfigurationRepositoryLocatorProvider enum.
+func (e ProjectConfigurationRepositoryLocatorProvider) Valid() bool {
+	switch e {
+	case ProjectConfigurationRepositoryLocatorProviderGithub:
+		return true
+	case ProjectConfigurationRepositoryLocatorProviderGitlab:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectConfigurationResourceProvider.
+const (
+	ProjectConfigurationResourceProviderGithub ProjectConfigurationResourceProvider = "github"
+	ProjectConfigurationResourceProviderGitlab ProjectConfigurationResourceProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the ProjectConfigurationResourceProvider enum.
+func (e ProjectConfigurationResourceProvider) Valid() bool {
+	switch e {
+	case ProjectConfigurationResourceProviderGithub:
+		return true
+	case ProjectConfigurationResourceProviderGitlab:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectCursorProofRepositoryProvider.
+const (
+	ProjectCursorProofRepositoryProviderGithub ProjectCursorProofRepositoryProvider = "github"
+	ProjectCursorProofRepositoryProviderGitlab ProjectCursorProofRepositoryProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the ProjectCursorProofRepositoryProvider enum.
+func (e ProjectCursorProofRepositoryProvider) Valid() bool {
+	switch e {
+	case ProjectCursorProofRepositoryProviderGithub:
+		return true
+	case ProjectCursorProofRepositoryProviderGitlab:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecipeStepType.
 const (
 	RecipeStepTypeAndroidSigning        RecipeStepType = "android-signing"
@@ -1458,6 +1512,42 @@ func (e RemoteBuildStepStatus) Valid() bool {
 	case RemoteBuildStepStatusSkipped:
 		return true
 	case RemoteBuildStepStatusSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RepositoryProjectCatalogQueryProvider.
+const (
+	RepositoryProjectCatalogQueryProviderGithub RepositoryProjectCatalogQueryProvider = "github"
+	RepositoryProjectCatalogQueryProviderGitlab RepositoryProjectCatalogQueryProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the RepositoryProjectCatalogQueryProvider enum.
+func (e RepositoryProjectCatalogQueryProvider) Valid() bool {
+	switch e {
+	case RepositoryProjectCatalogQueryProviderGithub:
+		return true
+	case RepositoryProjectCatalogQueryProviderGitlab:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RepositoryProjectCatalogRepositoryProvider.
+const (
+	RepositoryProjectCatalogRepositoryProviderGithub RepositoryProjectCatalogRepositoryProvider = "github"
+	RepositoryProjectCatalogRepositoryProviderGitlab RepositoryProjectCatalogRepositoryProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the RepositoryProjectCatalogRepositoryProvider enum.
+func (e RepositoryProjectCatalogRepositoryProvider) Valid() bool {
+	switch e {
+	case RepositoryProjectCatalogRepositoryProviderGithub:
+		return true
+	case RepositoryProjectCatalogRepositoryProviderGitlab:
 		return true
 	default:
 		return false
@@ -4842,6 +4932,49 @@ type GitHubInstallUrlResponse struct {
 	StateToken string `json:"state_token"`
 }
 
+// GitlabConnectRequest defines model for GitlabConnectRequest.
+type GitlabConnectRequest struct {
+	AccessToken *string `json:"access_token,omitempty"`
+	InstanceUrl *string `json:"instance_url,omitempty"`
+}
+
+// GitlabConnectionSummary defines model for GitlabConnectionSummary.
+type GitlabConnectionSummary struct {
+	Configured bool `json:"configured"`
+	Connected  bool `json:"connected"`
+
+	// ConnectedAt When this organization first created its GitLab connection.
+	ConnectedAt    *time.Time          `json:"connected_at,omitempty"`
+	ConnectedBy    *openapi_types.UUID `json:"connected_by,omitempty"`
+	Enabled        *bool               `json:"enabled,omitempty"`
+	InstanceUrl    *string             `json:"instance_url,omitempty"`
+	NeedsReconnect *bool               `json:"needs_reconnect,omitempty"`
+	TokenExpiresAt *time.Time          `json:"token_expires_at,omitempty"`
+	Username       *string             `json:"username,omitempty"`
+}
+
+// GitlabRepository defines model for GitlabRepository.
+type GitlabRepository struct {
+	InstanceUrl          string `json:"instance_url"`
+	Namespace            string `json:"namespace"`
+	ProviderRepositoryId int    `json:"provider_repository_id"`
+	RepositoryName       string `json:"repository_name"`
+}
+
+// GitlabRepositoryCatalog defines model for GitlabRepositoryCatalog.
+type GitlabRepositoryCatalog struct {
+	NextPage                   *int               `json:"next_page,omitempty"`
+	Repositories               []GitlabRepository `json:"repositories"`
+	UnsupportedRepositoryCount *int               `json:"unsupported_repository_count,omitempty"`
+}
+
+// GitlabWebhookStatus defines model for GitlabWebhookStatus.
+type GitlabWebhookStatus struct {
+	Configured     bool       `json:"configured"`
+	LastDeliveryAt *time.Time `json:"last_delivery_at,omitempty"`
+	VerifiedAt     *time.Time `json:"verified_at,omitempty"`
+}
+
 // GlobalVariableCreate Request model for creating a global variable.
 type GlobalVariableCreate struct {
 	// Description Description of the variable
@@ -5877,11 +6010,15 @@ type ProjectConfigurationReplaceResponseOutcome string
 
 // ProjectConfigurationRepositoryLocator Untrusted public locator for a repository-relative project root.
 type ProjectConfigurationRepositoryLocator struct {
-	Namespace                     string `json:"namespace"`
-	Provider                      string `json:"provider"`
-	RepositoryName                string `json:"repository_name"`
-	RepositoryRelativeProjectRoot string `json:"repository_relative_project_root"`
+	InstanceUrl                   *string                                       `json:"instance_url,omitempty"`
+	Namespace                     string                                        `json:"namespace"`
+	Provider                      ProjectConfigurationRepositoryLocatorProvider `json:"provider"`
+	RepositoryName                string                                        `json:"repository_name"`
+	RepositoryRelativeProjectRoot string                                        `json:"repository_relative_project_root"`
 }
+
+// ProjectConfigurationRepositoryLocatorProvider defines model for ProjectConfigurationRepositoryLocator.Provider.
+type ProjectConfigurationRepositoryLocatorProvider string
 
 // ProjectConfigurationRequestValidationErrorResponse Project-route validation response without customer-authored values.
 type ProjectConfigurationRequestValidationErrorResponse struct {
@@ -5902,15 +6039,18 @@ type ProjectConfigurationResource struct {
 	Authority ConfigurationAuthority `json:"authority"`
 
 	// Configuration The closed canonical ``.revyl/config.yaml`` shape.
-	Configuration                 AuthoredRevylConfig                 `json:"configuration"`
-	Namespace                     string                              `json:"namespace"`
-	ProjectConfigurationHash      string                              `json:"project_configuration_hash"`
-	Provider                      string                              `json:"provider"`
-	RepositoryName                string                              `json:"repository_name"`
-	RepositoryRelativeConfigPath  string                              `json:"repository_relative_config_path"`
-	RepositoryRelativeProjectRoot string                              `json:"repository_relative_project_root"`
-	Source                        ProjectConfigurationResource_Source `json:"source"`
+	Configuration                 AuthoredRevylConfig                  `json:"configuration"`
+	Namespace                     string                               `json:"namespace"`
+	ProjectConfigurationHash      string                               `json:"project_configuration_hash"`
+	Provider                      ProjectConfigurationResourceProvider `json:"provider"`
+	RepositoryName                string                               `json:"repository_name"`
+	RepositoryRelativeConfigPath  string                               `json:"repository_relative_config_path"`
+	RepositoryRelativeProjectRoot string                               `json:"repository_relative_project_root"`
+	Source                        ProjectConfigurationResource_Source  `json:"source"`
 }
+
+// ProjectConfigurationResourceProvider defines model for ProjectConfigurationResource.Provider.
+type ProjectConfigurationResourceProvider string
 
 // ProjectConfigurationResource_Source defines model for ProjectConfigurationResource.Source.
 type ProjectConfigurationResource_Source struct {
@@ -5948,11 +6088,14 @@ type ProjectCursorProofAuthorizationResponse struct {
 
 // ProjectCursorProofRepository Safe canonical repository display for one project.
 type ProjectCursorProofRepository struct {
-	Namespace                     string `json:"namespace"`
-	Provider                      string `json:"provider"`
-	RepositoryName                string `json:"repository_name"`
-	RepositoryRelativeProjectRoot string `json:"repository_relative_project_root"`
+	Namespace                     string                               `json:"namespace"`
+	Provider                      ProjectCursorProofRepositoryProvider `json:"provider"`
+	RepositoryName                string                               `json:"repository_name"`
+	RepositoryRelativeProjectRoot string                               `json:"repository_relative_project_root"`
 }
+
+// ProjectCursorProofRepositoryProvider defines model for ProjectCursorProofRepository.Provider.
+type ProjectCursorProofRepositoryProvider string
 
 // RecipeStep A setup or build step the customer wrote.
 type RecipeStep struct {
@@ -6399,18 +6542,25 @@ type RepositoryProjectCatalogItem struct {
 
 // RepositoryProjectCatalogQuery Repository identity whose canonical projects a caller may discover.
 type RepositoryProjectCatalogQuery struct {
-	Namespace      string `json:"namespace"`
-	Provider       string `json:"provider"`
-	RepositoryName string `json:"repository_name"`
+	InstanceUrl    *string                               `json:"instance_url,omitempty"`
+	Namespace      string                                `json:"namespace"`
+	Provider       RepositoryProjectCatalogQueryProvider `json:"provider"`
+	RepositoryName string                                `json:"repository_name"`
 }
+
+// RepositoryProjectCatalogQueryProvider defines model for RepositoryProjectCatalogQuery.Provider.
+type RepositoryProjectCatalogQueryProvider string
 
 // RepositoryProjectCatalogRepository Canonical provider display identity for one verified repository.
 type RepositoryProjectCatalogRepository struct {
 	Namespace      string                                       `json:"namespace"`
-	Provider       string                                       `json:"provider"`
+	Provider       RepositoryProjectCatalogRepositoryProvider   `json:"provider"`
 	ReportMode     RepositoryProjectCatalogRepositoryReportMode `json:"report_mode"`
 	RepositoryName string                                       `json:"repository_name"`
 }
+
+// RepositoryProjectCatalogRepositoryProvider defines model for RepositoryProjectCatalogRepository.Provider.
+type RepositoryProjectCatalogRepositoryProvider string
 
 // RepositoryProjectCatalogRepositoryReportMode defines model for RepositoryProjectCatalogRepository.ReportMode.
 type RepositoryProjectCatalogRepositoryReportMode string
@@ -8319,6 +8469,18 @@ type ListOrgFilesApiV1FilesGetParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ListGitlabRepositoriesApiV1IntegrationsGitlabRepositoriesGetParams defines parameters for ListGitlabRepositoriesApiV1IntegrationsGitlabRepositoriesGet.
+type ListGitlabRepositoriesApiV1IntegrationsGitlabRepositoriesGetParams struct {
+	Page    *int `form:"page,omitempty" json:"page,omitempty"`
+	PerPage *int `form:"per_page,omitempty" json:"per_page,omitempty"`
+}
+
+// GetGitlabWebhookStatusApiV1IntegrationsGitlabWebhookGetParams defines parameters for GetGitlabWebhookStatusApiV1IntegrationsGitlabWebhookGet.
+type GetGitlabWebhookStatusApiV1IntegrationsGitlabWebhookGetParams struct {
+	Namespace      string `form:"namespace" json:"namespace"`
+	RepositoryName string `form:"repository_name" json:"repository_name"`
+}
+
 // GetModuleApiV1ModulesModuleIdGetParams defines parameters for GetModuleApiV1ModulesModuleIdGet.
 type GetModuleApiV1ModulesModuleIdGetParams struct {
 	OrgId *openapi_types.UUID `form:"org_id,omitempty" json:"org_id,omitempty"`
@@ -8750,6 +8912,9 @@ type GetReplaceUrlApiV1FilesFileIdReplaceUrlPutJSONRequestBody = OrgFileUploadRe
 
 // CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody defines body for CreateHotreloadRelayApiV1HotreloadRelaysPost for application/json ContentType.
 type CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody = HotReloadRelayCreateRequest
+
+// ConnectGitlabApiV1IntegrationsGitlabConnectionPutJSONRequestBody defines body for ConnectGitlabApiV1IntegrationsGitlabConnectionPut for application/json ContentType.
+type ConnectGitlabApiV1IntegrationsGitlabConnectionPutJSONRequestBody = GitlabConnectRequest
 
 // CreateModuleApiV1ModulesCreatePostJSONRequestBody defines body for CreateModuleApiV1ModulesCreatePost for application/json ContentType.
 type CreateModuleApiV1ModulesCreatePostJSONRequestBody = CreateModuleRequest

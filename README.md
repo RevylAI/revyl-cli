@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.154-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.157-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -126,15 +126,20 @@ detection succeeds, it also writes `build.framework` and named profiles for the
 detected iOS and/or Android platforms before any optional interactive onboarding.
 Supplying a project ID writes it locally but does not validate, attach, or publish
 it; use `-y` to stop after local config creation. Authenticated interactive setup
-can continue into the same GitHub PR-automation flow as `revyl github setup`, but
-only after the project config has been written. When the Revyl GitHub App can
-access the repository, committing that valid config to the default branch
+can continue into `revyl github setup` after the project config has been written.
+GitLab automation is configured separately with `revyl gitlab setup`.
+When the connected provider
+can access the repository, committing that valid config to the default branch
 reconciles a matching server project or creates a new Git-managed project when
 its `project.id`, project root, and config path are unclaimed and its references
 are valid. Pull requests validate new configs as unpublished bootstrap candidates;
 creation occurs only from the actual merged default-branch commit. `revyl config
-push` remains the explicit manual publication and recovery path. For an existing
-legacy file, preview or perform the local conversion explicitly:
+push` remains the explicit manual publication and recovery path.
+
+For GitLab automation tokens, terminal connection, and manual webhooks, see
+[Connect GitLab](https://docs.revyl.com/integrations/gitlab).
+
+For an existing legacy file, preview or perform the local conversion explicitly:
 
 ```bash
 revyl config migrate --check            # Summarize the migration; do not write
@@ -168,7 +173,7 @@ need to change project settings, then run `revyl config validate`.
 You can also create and edit manual-authority projects from the GitHub integration in
 the Revyl web app. After creating a project there, run `revyl config pull` from that
 project root (or a directory beneath it). If no local config exists, the CLI verifies
-the connected GitHub repository and writes the nearest matching project's configuration to
+the connected repository and writes the nearest matching project's configuration to
 its exact `.revyl/config.yaml` path; it never imports legacy or invalid remote state.
 When an existing config differs, pull creates an exact-byte backup, atomically
 replaces the file, and reports the backup path without prompting. If the local

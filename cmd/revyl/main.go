@@ -178,6 +178,7 @@ func init() {
 	rootCmd.AddCommand(proofCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(githubCmd)
+	rootCmd.AddCommand(gitlabCmd)
 	rootCmd.AddCommand(globalCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(moduleCmd)

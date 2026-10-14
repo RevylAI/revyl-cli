@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +15,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/gitremote"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -32,15 +31,7 @@ var errGithubInstallTimedOut = errors.New(
 	"timed out waiting for the GitHub App install; finish it in the browser, then run 'revyl github status'",
 )
 
-var (
-	ensureGithubSetupConnected = ensureGithubConnected
-	selectGithubSetupApp       = selectOrCreateGithubSetupApp
-	promptGithubSetupSelect    = ui.PromptSelect
-	confirmGithubSetup         = ui.PromptConfirm
-	githubSetupInputTTY        = ui.IsInputTTY
-	validateGithubSetupConfig  = validateResolvedProjectConfiguration
-	publishGithubSetupConfig   = publishResolvedProjectConfiguration
-)
+var ensureGithubSetupConnected = ensureGithubConnected
 
 var githubCmd = &cobra.Command{
 	Use:   "github",
@@ -129,17 +120,6 @@ func init() {
 	githubCmd.AddCommand(githubConnectCmd, githubStatusCmd, githubSetupCmd)
 }
 
-// newGithubAPIClient builds an API client for GitHub commands using the active
-// credentials and the global --dev flag.
-func newGithubAPIClient(cmd *cobra.Command) (*api.Client, error) {
-	apiKey, err := getAPIKey()
-	if err != nil {
-		return nil, err
-	}
-	devMode, _ := cmd.Flags().GetBool("dev")
-	return api.NewClientWithDevMode(apiKey, devMode), nil
-}
-
 // githubConnectReport is the stable `revyl github connect --json` contract.
 type githubConnectReport struct {
 	Status          string `json:"status"`
@@ -149,7 +129,7 @@ type githubConnectReport struct {
 }
 
 func runGithubConnect(cmd *cobra.Command, _ []string) error {
-	client, err := newGithubAPIClient(cmd)
+	client, err := newSCMAPIClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -197,42 +177,18 @@ func runGithubConnect(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// githubStatusRepository is the current Git repository's standing with the
-// organization's GitHub App installation.
-type githubStatusRepository struct {
-	FullName      string `json:"full_name"`
-	AccessGranted bool   `json:"access_granted"`
-}
-
-// githubStatusProject is the published pull-request automation state for the
-// project root selected by the nearest .revyl/config.yaml.
-type githubStatusProject struct {
-	Root       string `json:"root"`
-	Status     string `json:"status"`
-	Authority  string `json:"authority,omitempty"`
-	NextAction string `json:"next_action,omitempty"`
-}
-
 // githubStatusReport is the stable `revyl github status --json` contract; the
 // human output renders the same facts.
 type githubStatusReport struct {
 	Connected       bool                    `json:"connected"`
 	RepositoryCount int                     `json:"repository_count"`
-	Repository      *githubStatusRepository `json:"repository"`
-	Project         *githubStatusProject    `json:"project"`
+	Repository      *reviewStatusRepository `json:"repository"`
+	Project         *reviewStatusProject    `json:"project"`
 	ProjectError    string                  `json:"project_error,omitempty"`
 }
 
-const (
-	githubProjectStatusNotPublished  = "not_published"
-	githubProjectStatusEnabled       = "enabled"
-	githubProjectStatusDisabled      = "disabled"
-	githubProjectStatusNotConfigured = "not_configured"
-	githubProjectStatusInvalid       = "invalid"
-)
-
 func runGithubStatus(cmd *cobra.Command, _ []string) error {
-	client, err := newGithubAPIClient(cmd)
+	client, err := newSCMAPIClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -291,7 +247,7 @@ func collectGithubStatus(
 		}
 		return report
 	}
-	report.Repository = &githubStatusRepository{
+	report.Repository = &reviewStatusRepository{
 		FullName:      namespace + "/" + repositoryName,
 		AccessGranted: githubRepositoryAvailable(repos, namespace, repositoryName),
 	}
@@ -299,7 +255,7 @@ func collectGithubStatus(
 		return report
 	}
 
-	resolved, err := connectProjectConfiguration(local, namespace, repositoryName)
+	resolved, err := connectProjectConfiguration(local, gitremote.RepositoryReference{Provider: "github", Namespace: namespace, Name: repositoryName})
 	if err != nil {
 		report.ProjectError = err.Error()
 		return report
@@ -317,33 +273,8 @@ func collectGithubStatus(
 		).Error()
 		return report
 	}
-	report.Project = githubProjectStatusFromRead(local, current)
+	report.Project = reviewProjectStatusFromRead(local, current)
 	return report
-}
-
-func githubProjectStatusFromRead(
-	local *config.ProjectContext,
-	current *api.ProjectConfigurationReadResponse,
-) *githubStatusProject {
-	project := &githubStatusProject{Root: local.RepositoryRelativeProjectRoot}
-	switch {
-	case current == nil || current.State == api.ProjectConfigurationReadResponseStateAbsent:
-		project.Status = githubProjectStatusNotPublished
-		project.NextAction = unpublishedConfigurationNextAction(local.Authored)
-	case current.State != api.ProjectConfigurationReadResponseStatePresent || current.Resource == nil:
-		project.Status = githubProjectStatusInvalid
-	default:
-		project.Status = githubProjectStatusNotConfigured
-		if review := current.Resource.Configuration.PrReview; review != nil {
-			if review.Enabled == nil || *review.Enabled {
-				project.Status = githubProjectStatusEnabled
-			} else {
-				project.Status = githubProjectStatusDisabled
-			}
-		}
-		project.Authority = string(current.Resource.Authority)
-	}
-	return project
 }
 
 func printGithubStatusReport(repos *api.GithubRepositoriesResponse, report githubStatusReport) {
@@ -368,10 +299,10 @@ func printGithubStatusReport(repos *api.GithubRepositoriesResponse, report githu
 	}
 	projectLabel := report.Repository.FullName + " (" + report.Project.Root + ")"
 	switch report.Project.Status {
-	case githubProjectStatusNotPublished:
+	case reviewProjectStatusNotPublished:
 		ui.PrintKeyValue("  Current project:", projectLabel+" — not published")
 		ui.PrintDim("  Next: %s to turn on pull request automation.", report.Project.NextAction)
-	case githubProjectStatusInvalid:
+	case reviewProjectStatusInvalid:
 		ui.PrintKeyValue("  Current project:", projectLabel+" — invalid server state")
 	default:
 		ui.PrintKeyValue("  Current project:", projectLabel+" — "+strings.ReplaceAll(report.Project.Status, "_", " "))
@@ -400,7 +331,7 @@ func runGithubSetup(cmd *cobra.Command, _ []string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	client, err := newGithubAPIClient(cmd)
+	client, err := newSCMAPIClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -413,7 +344,10 @@ func runGithubSetupForProject(
 	local *config.ProjectContext,
 	resolved *resolvedProjectConfiguration,
 ) error {
-	if !githubSetupInputTTY() {
+	if resolved.locator.Provider != api.ProjectConfigurationRepositoryLocatorProviderGithub {
+		return fmt.Errorf("this repository uses %s; run revyl %s setup", resolved.locator.Provider, resolved.locator.Provider)
+	}
+	if !reviewSetupInputTTY() {
 		return fmt.Errorf("revyl github setup requires an interactive terminal; edit the project config directly, run %q, then run %q or commit the designated file when Git-managed", cliRecoveryCommand("config", "validate"), cliRecoveryCommand("config", "push"))
 	}
 	repos, err := ensureGithubSetupConnected(cmd.Context(), client)
@@ -427,85 +361,11 @@ func runGithubSetupForProject(
 			resolved.locator.RepositoryName,
 		)
 	}
-	candidate, changed, err := completeGithubSetupConfiguration(cmd, client, local)
-	if err != nil {
-		return err
+	status, err := runProjectReviewSetup(cmd, client, local, resolved)
+	if err == nil {
+		recordGithubSetupOutcome(cmd, status)
 	}
-	canonical, err := config.MarshalCanonicalConfig(candidate)
-	if err != nil {
-		return err
-	}
-	aggregate, err := config.NormalizeAuthoredConfig(candidate, publicationCompilationContext(local))
-	if err != nil {
-		return err
-	}
-	updatedLocal := *local
-	updatedLocal.Authored = &candidate
-	updatedLocal.Aggregate = aggregate
-	updatedResolved, err := resolveConnectedProjectConfiguration(&updatedLocal)
-	if err != nil {
-		return err
-	}
-	validation, err := validateGithubSetupConfig(cmd, client, updatedResolved)
-	if err != nil {
-		return actionableProjectConfigurationAPIError(
-			cmd.Context(),
-			client,
-			updatedResolved.locator,
-			updatedResolved.local.Authored.Project.ID,
-			err,
-			"revyl github setup",
-			updatedResolved.local,
-		)
-	}
-
-	ui.Println()
-	ui.PrintInfo("Project: %s/%s (%s)", resolved.locator.Namespace, resolved.locator.RepositoryName, local.RepositoryRelativeProjectRoot)
-	printGithubSetupBuildSummary(candidate.PRReview.Build)
-	if changed {
-		ui.PrintKeyValue("Config file:", local.ConfigPath)
-	} else {
-		ui.PrintDim("The local pr_review configuration is already complete.")
-	}
-	gitManaged := validation.Current.Resource != nil && validation.Current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch
-	if gitManaged && !changed {
-		recordGithubSetupOutcome(cmd, "proposal_preserved_for_commit")
-		ui.PrintSuccess("The default-branch configuration is ready")
-		ui.PrintDim("Run %q, then commit the designated .revyl/config.yaml.", cliRecoveryCommand("config", "validate"))
-		return nil
-	}
-	confirmationPrompt := "Publish this complete project configuration to Revyl?"
-	if gitManaged {
-		confirmationPrompt = "Write this complete project configuration for commit?"
-	}
-	confirmed, err := confirmGithubSetup(confirmationPrompt, true)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		recordGithubSetupOutcome(cmd, "declined")
-		ui.PrintDim("GitHub setup cancelled; the local configuration was not changed.")
-		return nil
-	}
-
-	if changed {
-		if err := config.ReplaceConfigAtomically(local.ConfigPath, canonical, local.OriginalBytes); err != nil {
-			return err
-		}
-		updatedLocal.OriginalBytes = canonical
-		ui.PrintSuccess("Updated %s", local.ConfigPath)
-	}
-	if gitManaged {
-		recordGithubSetupOutcome(cmd, "proposal_preserved_for_commit")
-		ui.PrintSuccess("Prepared the default-branch configuration for commit")
-		ui.PrintDim("Run %q, then commit the designated .revyl/config.yaml.", cliRecoveryCommand("config", "validate"))
-		return nil
-	}
-	if err := publishGithubSetupConfig(cmd, client, updatedResolved); err != nil {
-		return err
-	}
-	recordGithubSetupOutcome(cmd, "published")
-	return nil
+	return err
 }
 
 func recordGithubSetupOutcome(cmd *cobra.Command, status string) {
@@ -518,164 +378,6 @@ func recordGithubSetupOutcome(cmd *cobra.Command, status string) {
 	})
 }
 
-func validateResolvedProjectConfiguration(
-	cmd *cobra.Command,
-	client *api.Client,
-	resolved *resolvedProjectConfiguration,
-) (*api.ProjectConfigurationValidateResponse, error) {
-	return client.ValidateProjectConfiguration(
-		cmd.Context(),
-		resolved.local.Authored.Project.ID,
-		api.ProjectConfigurationValidateRequest{
-			Locator: resolved.locator, Configuration: resolved.authored,
-		},
-	)
-}
-
-func completeGithubSetupConfiguration(
-	cmd *cobra.Command,
-	client *api.Client,
-	local *config.ProjectContext,
-) (config.AuthoredConfig, bool, error) {
-	candidateBytes, err := config.MarshalCanonicalConfig(*local.Authored)
-	if err != nil {
-		return config.AuthoredConfig{}, false, err
-	}
-	candidate, err := config.ParseAuthoredConfig(candidateBytes)
-	if err != nil {
-		return config.AuthoredConfig{}, false, err
-	}
-	changed := false
-
-	if candidate.PRReview == nil {
-		reviewBuild, ciPlatforms, buildErr := promptGithubReviewBuild(*candidate)
-		if buildErr != nil {
-			return config.AuthoredConfig{}, false, buildErr
-		}
-		for _, platform := range ciPlatforms {
-			appID, selectErr := selectGithubSetupApp(cmd, client, local, platform)
-			if selectErr != nil {
-				return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for CI uploads: %w", platform, selectErr)
-			}
-			if platform == "ios" {
-				reviewBuild.AppIDs.IOS = &appID
-			} else {
-				reviewBuild.AppIDs.Android = &appID
-			}
-		}
-		proofEnabled := true
-		candidate.PRReview = &config.AuthoredPRReview{
-			Build: reviewBuild,
-			ProofOfChanges: &config.AuthoredProofOfChanges{
-				Enabled: &proofEnabled,
-				Harness: &config.AuthoredProofHarness{Kind: "revyl"},
-			},
-		}
-		changed = true
-	}
-
-	switch candidate.PRReview.Build.Kind {
-	case "revyl":
-		profileName := *candidate.PRReview.Build.Profile
-		profile := candidate.Build.Profiles[profileName]
-		for _, platform := range []string{"ios", "android"} {
-			recipe := githubProfileRecipe(&profile, platform)
-			if recipe == nil || recipe.AppID != nil {
-				continue
-			}
-			appID, selectErr := selectGithubSetupApp(cmd, client, local, platform)
-			if selectErr != nil {
-				return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for profile %q: %w", platform, profileName, selectErr)
-			}
-			recipe.AppID = &appID
-			changed = true
-		}
-		candidate.Build.Profiles[profileName] = profile
-	case "ci_upload_to_revyl":
-		// Existing CI-upload policies already carry explicit platform app IDs by
-		// contract. New policies receive them in promptGithubReviewBuild.
-	default:
-		return config.AuthoredConfig{}, false, fmt.Errorf("unsupported pr_review build kind %q", candidate.PRReview.Build.Kind)
-	}
-
-	if err := candidate.ValidateContract(); err != nil {
-		return config.AuthoredConfig{}, false, err
-	}
-	if _, err := config.NormalizeAuthoredConfig(*candidate, publicationCompilationContext(local)); err != nil {
-		return config.AuthoredConfig{}, false, err
-	}
-	return *candidate, changed, nil
-}
-
-func promptGithubReviewBuild(authored config.AuthoredConfig) (config.AuthoredReviewBuild, []string, error) {
-	profileNames := []string{}
-	if authored.Build != nil {
-		for name := range authored.Build.Profiles {
-			profileNames = append(profileNames, name)
-		}
-		sort.Strings(profileNames)
-	}
-
-	buildKind := "ci_upload_to_revyl"
-	if len(profileNames) > 0 {
-		selection, err := promptGithubSetupSelect(
-			"How should pull request builds be produced?",
-			[]string{"Build with Revyl from a named profile", "Upload builds from CI"},
-		)
-		if err != nil {
-			return config.AuthoredReviewBuild{}, nil, err
-		}
-		if selection == 0 {
-			buildKind = "revyl"
-		}
-	}
-
-	if buildKind == "revyl" {
-		profileName := profileNames[0]
-		if len(profileNames) > 1 {
-			selection, err := promptGithubSetupSelect("Which build profile should pull requests use?", profileNames)
-			if err != nil {
-				return config.AuthoredReviewBuild{}, nil, err
-			}
-			profileName = profileNames[selection]
-		}
-		return config.AuthoredReviewBuild{Kind: buildKind, Profile: &profileName}, nil, nil
-	}
-
-	selection, err := promptGithubSetupSelect(
-		"Which platforms will CI upload to Revyl?",
-		[]string{"iOS", "Android", "iOS and Android"},
-	)
-	if err != nil {
-		return config.AuthoredReviewBuild{}, nil, err
-	}
-	platforms := [][]string{{"ios"}, {"android"}, {"ios", "android"}}[selection]
-	return config.AuthoredReviewBuild{
-		Kind:   buildKind,
-		AppIDs: &config.AuthoredExternalCIAppIDs{},
-	}, platforms, nil
-}
-
-func githubProfileRecipe(profile *config.AuthoredBuildProfile, platform string) *config.AuthoredBuildRecipe {
-	if platform == "ios" {
-		return profile.IOS
-	}
-	return profile.Android
-}
-
-func selectOrCreateGithubSetupApp(
-	cmd *cobra.Command,
-	client *api.Client,
-	local *config.ProjectContext,
-	platform string,
-) (string, error) {
-	projectName := filepath.Base(local.ProjectRoot)
-	if projectName == "." || projectName == string(filepath.Separator) || projectName == "" {
-		projectName = "project"
-	}
-	return selectOrCreateAppChoice(cmd, client, projectName, platform)
-}
-
 func githubRepositoryAvailable(repos *api.GithubRepositoriesResponse, namespace, repository string) bool {
 	if repos == nil {
 		return false
@@ -686,23 +388,6 @@ func githubRepositoryAvailable(repos *api.GithubRepositoriesResponse, namespace,
 		}
 	}
 	return false
-}
-
-func printGithubSetupBuildSummary(build config.AuthoredReviewBuild) {
-	if build.Kind == "revyl" && build.Profile != nil {
-		ui.PrintKeyValue("Review builds:", "Revyl profile "+*build.Profile)
-		return
-	}
-	platforms := []string{}
-	if build.AppIDs != nil {
-		if build.AppIDs.IOS != nil {
-			platforms = append(platforms, "iOS")
-		}
-		if build.AppIDs.Android != nil {
-			platforms = append(platforms, "Android")
-		}
-	}
-	ui.PrintKeyValue("Review builds:", "CI uploads for "+strings.Join(platforms, " and "))
 }
 
 const (

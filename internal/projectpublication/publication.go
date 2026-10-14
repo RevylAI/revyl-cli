@@ -43,7 +43,7 @@ func ResolveCandidate(cwd string) (*Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	namespace, repositoryName, err := gitremote.ResolveSlug(local.WorktreeRoot, "")
+	repository, err := gitremote.ResolveRepository(local.WorktreeRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +54,10 @@ func ResolveCandidate(cwd string) (*Candidate, error) {
 	return &Candidate{
 		ProjectID: local.Authored.Project.ID,
 		Locator: api.ProjectConfigurationRepositoryLocator{
-			Provider:                      "github",
-			Namespace:                     namespace,
-			RepositoryName:                repositoryName,
+			Provider:                      api.ProjectConfigurationRepositoryLocatorProvider(repository.Provider),
+			InstanceUrl:                   repository.InstanceURL,
+			Namespace:                     repository.Namespace,
+			RepositoryName:                repository.Name,
 			RepositoryRelativeProjectRoot: local.RepositoryRelativeProjectRoot,
 		},
 		Configuration: authored,

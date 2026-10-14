@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/revyl/cli/internal/gitremote"
 )
 
 // CIContext contains provider-neutral CI and SCM values detected from the
@@ -36,10 +38,25 @@ type uploadSCMContextKey struct{}
 func WithUploadSCMContext(ctx context.Context, repository, commitSHA string, reviewNumber int) (context.Context, error) {
 	repository = strings.TrimSpace(repository)
 	commitSHA = strings.TrimSpace(commitSHA)
-	namespace, project, ok := parseGitHubRepository("https://github.com/" + repository)
-	if !ok || repository != namespace+"/"+project {
-		return nil, fmt.Errorf("invalid --repo: use the PR's base GitHub repository in owner/name format")
+	detected, detectedCI := DetectCIContext()
+	origin := "https://github.com"
+	if detected.SCMProvider == "gitlab" {
+		projectURL := firstNonEmpty(os.Getenv("CI_MERGE_REQUEST_PROJECT_URL"), os.Getenv("CI_PROJECT_URL"))
+		parsed, err := url.Parse(projectURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return nil, fmt.Errorf("GitLab CI must provide a credential-free HTTPS project URL")
+		}
+		origin = parsed.Scheme + "://" + parsed.Host
+	} else if cwd, err := os.Getwd(); err == nil {
+		if reference, err := gitremote.ResolveRepository(cwd); err == nil && reference.InstanceURL != nil {
+			origin = *reference.InstanceURL
+		}
 	}
+	reference, err := gitremote.ParseRepositoryRemote(origin + "/" + repository)
+	if err != nil || repository != reference.Namespace+"/"+reference.Name {
+		return nil, fmt.Errorf("invalid --repo: use the review's base repository in namespace/name format")
+	}
+	namespace, project := reference.Namespace, reference.Name
 	if len(commitSHA) != 40 && len(commitSHA) != 64 {
 		return nil, fmt.Errorf("invalid --commit: supply the full PR head commit SHA (40 or 64 hexadecimal characters)")
 	}
@@ -49,19 +66,22 @@ func WithUploadSCMContext(ctx context.Context, repository, commitSHA string, rev
 	if reviewNumber < 0 {
 		return nil, fmt.Errorf("invalid --pr: supply a positive PR number or omit the flag to match by commit")
 	}
-	detected, detectedCI := DetectCIContext()
 	system := "external"
 	if detectedCI {
 		system = detected.System
 	}
 	ci := CIContext{
 		System: system, CommitSHA: strings.ToLower(commitSHA),
-		Repository: repository, SCMProvider: "github", SCMNamespace: namespace, SCMProject: project,
+		Repository: repository, SCMProvider: reference.Provider, SCMNamespace: namespace, SCMProject: project,
 		ReviewNumber: reviewNumber, RunID: detected.RunID, RunURL: detected.RunURL,
 		Actor: detected.Actor, ActorURL: detected.ActorURL,
 	}
 	if reviewNumber > 0 {
-		ci.ReviewURL = "https://github.com/" + repository + "/pull/" + strconv.Itoa(reviewNumber)
+		reviewPath := "/pull/"
+		if reference.Provider == "gitlab" {
+			reviewPath = "/-/merge_requests/"
+		}
+		ci.ReviewURL = origin + "/" + repository + reviewPath + strconv.Itoa(reviewNumber)
 	}
 	return context.WithValue(ctx, uploadSCMContextKey{}, ci), nil
 }
@@ -78,6 +98,9 @@ func CIContextFromContext(ctx context.Context) (CIContext, bool) {
 func DetectCIContext() (CIContext, bool) {
 	if os.Getenv("GITHUB_ACTIONS") == "true" {
 		return detectGitHubActions(), true
+	}
+	if os.Getenv("GITLAB_CI") == "true" {
+		return detectGitlabCI(), true
 	}
 	if os.Getenv("BUILDKITE") == "true" {
 		return detectBuildkite(), true
@@ -129,6 +152,28 @@ func detectGitHubActions() CIContext {
 		context.RunURL = serverURL + "/" + repository + "/actions/runs/" + runID
 	}
 	return context
+}
+
+func detectGitlabCI() CIContext {
+	repository := firstNonEmpty(os.Getenv("CI_MERGE_REQUEST_PROJECT_PATH"), os.Getenv("CI_PROJECT_PATH"))
+	namespace, project := splitRepository(repository)
+	projectURL := firstNonEmpty(os.Getenv("CI_MERGE_REQUEST_PROJECT_URL"), os.Getenv("CI_PROJECT_URL"))
+	reviewNumber := parsePositiveInt(os.Getenv("CI_MERGE_REQUEST_IID"))
+	reviewURL := ""
+	if reviewNumber > 0 && projectURL != "" {
+		reviewURL = strings.TrimRight(projectURL, "/") + "/-/merge_requests/" + strconv.Itoa(reviewNumber)
+	}
+	return CIContext{
+		System: "gitlab-ci", SCMProvider: "gitlab",
+		CommitSHA:  strings.TrimSpace(os.Getenv("CI_COMMIT_SHA")),
+		Branch:     firstNonEmpty(os.Getenv("CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"), os.Getenv("CI_COMMIT_REF_NAME")),
+		Repository: repository, SCMNamespace: namespace, SCMProject: project,
+		ReviewNumber: reviewNumber, ReviewURL: reviewURL,
+		BaseSHA: strings.TrimSpace(os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA")),
+		RunID:   strings.TrimSpace(os.Getenv("CI_PIPELINE_ID")),
+		RunURL:  strings.TrimSpace(os.Getenv("CI_PIPELINE_URL")),
+		Actor:   strings.TrimSpace(os.Getenv("GITLAB_USER_LOGIN")),
+	}
 }
 
 func detectBuildkite() CIContext {
@@ -210,15 +255,15 @@ func readGitHubActionsEvent(eventPath string) githubActionsEvent {
 }
 
 func splitRepository(repository string) (string, string) {
-	parts := strings.SplitN(strings.TrimSpace(repository), "/", 2)
-	if len(parts) != 2 {
+
+	repository = strings.TrimSpace(repository)
+	separator := strings.LastIndex(repository, "/")
+	if separator <= 0 || separator == len(repository)-1 {
 		return "", ""
 	}
-	namespace := strings.TrimSpace(parts[0])
-	project := strings.TrimSpace(parts[1])
-	if namespace == "" || project == "" {
-		return "", ""
-	}
+	namespace := repository[:separator]
+	project := repository[separator+1:]
+
 	return namespace, project
 }
 

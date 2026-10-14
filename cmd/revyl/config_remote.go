@@ -34,13 +34,14 @@ type githubRepositoryStatusReader interface {
 }
 
 var (
-	resolveProjectContext  = config.ResolveProjectContext
-	resolveProjectRepoSlug = gitremote.ResolveSlug
-	resolveConfigPullRoot  = config.ResolveGitWorktreeRoot
-	createPulledConfig     = config.CreateConfigIfAbsent
-	configWorkingDirectory = os.Getwd
-	readActiveConfigToken  = func() (string, error) { return auth.NewManager().GetActiveToken() }
-	newProjectConfigClient = func(token string, devMode bool) projectConfigurationClient {
+	resolveProjectContext    = config.ResolveProjectContext
+	resolveProjectRepoSlug   = gitremote.ResolveSlug
+	resolveProjectRepository = gitremote.ResolveRepository
+	resolveConfigPullRoot    = config.ResolveGitWorktreeRoot
+	createPulledConfig       = config.CreateConfigIfAbsent
+	configWorkingDirectory   = os.Getwd
+	readActiveConfigToken    = func() (string, error) { return auth.NewManager().GetActiveToken() }
+	newProjectConfigClient   = func(token string, devMode bool) projectConfigurationClient {
 		return api.NewClientWithDevMode(token, devMode)
 	}
 )
@@ -169,20 +170,16 @@ func resolveLocalProjectConfiguration() (*config.ProjectContext, error) {
 func resolveConnectedProjectConfiguration(
 	local *config.ProjectContext,
 ) (*resolvedProjectConfiguration, error) {
-	namespace, repositoryName, err := resolveProjectRepoSlug(local.WorktreeRoot, "")
+	repository, err := resolveProjectRepository(local.WorktreeRoot)
 	if err != nil {
-		return nil, actionableGithubOriginError(local.WorktreeRoot)
+		return nil, actionableRepositoryOriginError(local.WorktreeRoot)
 	}
-	return connectProjectConfiguration(local, namespace, repositoryName)
+	return connectProjectConfiguration(local, repository)
 }
 
-// connectProjectConfiguration binds a local project context to an already
-// resolved GitHub repository slug, so callers that resolved the origin for
-// their own reporting do not spawn a second git subprocess.
 func connectProjectConfiguration(
 	local *config.ProjectContext,
-	namespace string,
-	repositoryName string,
+	repository gitremote.RepositoryReference,
 ) (*resolvedProjectConfiguration, error) {
 	authored, err := authoredConfigForAPI(*local.Authored)
 	if err != nil {
@@ -191,9 +188,10 @@ func connectProjectConfiguration(
 	return &resolvedProjectConfiguration{
 		local: local,
 		locator: api.ProjectConfigurationRepositoryLocator{
-			Provider:                      "github",
-			Namespace:                     namespace,
-			RepositoryName:                repositoryName,
+			Provider:                      api.ProjectConfigurationRepositoryLocatorProvider(repository.Provider),
+			InstanceUrl:                   repository.InstanceURL,
+			Namespace:                     repository.Namespace,
+			RepositoryName:                repository.Name,
 			RepositoryRelativeProjectRoot: local.RepositoryRelativeProjectRoot,
 		},
 		authored: authored,
@@ -202,6 +200,10 @@ func connectProjectConfiguration(
 
 func actionableGithubOriginError(worktreeRoot string) error {
 	return fmt.Errorf("the Git worktree has no supported GitHub origin; run %q or %q, then retry the Revyl command", gitRecoveryCommand(worktreeRoot, "remote", "add", "origin", "https://github.com/<owner>/<repository>.git"), gitRecoveryCommand(worktreeRoot, "remote", "set-url", "origin", "https://github.com/<owner>/<repository>.git"))
+}
+
+func actionableRepositoryOriginError(worktreeRoot string) error {
+	return fmt.Errorf("set origin to this checkout's GitHub or GitLab repository; run %q or %q with the repository URL, then retry the Revyl command", gitRecoveryCommand(worktreeRoot, "remote", "add", "origin", "<repository-url>"), gitRecoveryCommand(worktreeRoot, "remote", "set-url", "origin", "<repository-url>"))
 }
 
 func authoredConfigForAPI(authored config.AuthoredConfig) (api.AuthoredRevylConfig, error) {
@@ -353,13 +355,11 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 			Explanation: "Revyl is not authenticated",
 		}, nil)
 	}
-	namespace, repositoryName, err := resolveProjectRepoSlug(local.WorktreeRoot, "")
+	repository, err := resolveProjectRepository(local.WorktreeRoot)
 	if err != nil {
-		addOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "add", "origin", "https://github.com/<owner>/<repository>.git")
-		setOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "set-url", "origin", "https://github.com/<owner>/<repository>.git")
 		return completeWithoutPublication(connectedConfigurationValidationOutput{
-			Status: "skipped", NextAction: fmt.Sprintf("run %q if origin is missing or %q to update the existing origin, then retry", addOrigin, setOrigin),
-			Explanation: "the worktree has no supported GitHub repository remote",
+			Status: "skipped", NextAction: actionableRepositoryOriginError(local.WorktreeRoot).Error(),
+			Explanation: "the worktree has no supported GitHub or GitLab repository remote",
 		}, nil)
 	}
 	authored, err := authoredConfigForAPI(*local.Authored)
@@ -370,9 +370,10 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 		}, err)
 	}
 	locator := api.ProjectConfigurationRepositoryLocator{
-		Provider:                      "github",
-		Namespace:                     namespace,
-		RepositoryName:                repositoryName,
+		Provider:                      api.ProjectConfigurationRepositoryLocatorProvider(repository.Provider),
+		InstanceUrl:                   repository.InstanceURL,
+		Namespace:                     repository.Namespace,
+		RepositoryName:                repository.Name,
 		RepositoryRelativeProjectRoot: local.RepositoryRelativeProjectRoot,
 	}
 	client := projectConfigurationClientForCommand(cmd, token)
@@ -665,7 +666,7 @@ func actionableProjectConfigurationAPIError(
 	case "project_removed":
 		return removedProjectConfigurationError(firstProjectContext(localContexts))
 	case "repository_provider_unavailable", "repository_projects_provider_unavailable":
-		return fmt.Errorf("GitHub repository verification is temporarily unavailable; retry '%s'", retryCommand)
+		return fmt.Errorf("repository verification is temporarily unavailable; retry '%s'", retryCommand)
 	case "repository_projects_limit_exceeded":
 		return fmt.Errorf("this repository has more Revyl projects than the bounded project catalog can return safely; contact Revyl support to repair or raise the repository project limit before retrying '%s'", retryCommand)
 	case "project_configuration_payload_too_large":
@@ -740,7 +741,7 @@ func actionableProjectConfigurationAPIError(
 			return fmt.Errorf("Revyl rejected a repository-bound configuration reference; repair the referenced organization resource, then %s", projectConfigurationValidateAndRetry(configValidate, retryCommand))
 		default:
 			if apiErr.StatusCode >= 500 {
-				return fmt.Errorf("Revyl or GitHub could not complete repository verification; retry %q, then run %q if it still fails", retryCommand, doctor)
+				return fmt.Errorf("Revyl or the repository provider could not complete repository verification; retry %q, then run %q if it still fails", retryCommand, doctor)
 			}
 			return fmt.Errorf("Revyl could not complete the repository-bound configuration request; run %q, then retry %q", configValidate, retryCommand)
 		}
@@ -750,7 +751,7 @@ func actionableProjectConfigurationAPIError(
 	if fullName == "" {
 		fullName = "the current repository"
 	}
-	if statusReader, ok := client.(githubRepositoryStatusReader); ok {
+	if statusReader, ok := client.(githubRepositoryStatusReader); ok && locator.Provider == "github" {
 		repositories, statusErr := statusReader.GetGithubRepositories(ctx)
 		if statusErr == nil {
 			switch {
@@ -766,7 +767,8 @@ func actionableProjectConfigurationAPIError(
 		catalog, catalogErr := client.ListRepositoryProjects(
 			ctx,
 			api.RepositoryProjectCatalogQuery{
-				Provider:       "github",
+				Provider:       api.RepositoryProjectCatalogQueryProvider(locator.Provider),
+				InstanceUrl:    locator.InstanceUrl,
 				Namespace:      locator.Namespace,
 				RepositoryName: locator.RepositoryName,
 			},
@@ -787,6 +789,9 @@ func actionableProjectConfigurationAPIError(
 		}
 	}
 
+	if locator.Provider == "gitlab" {
+		return fmt.Errorf("Revyl could not verify %s or its project identity; check the GitLab connection, instance origin, and project access in Revyl, then retry %q", fullName, retryCommand)
+	}
 	return fmt.Errorf("Revyl could not verify %s or its project identity; run %q, then retry %q; if repository access is healthy, run %q to restore the registered project configuration", fullName, githubStatus, retryCommand, configPull)
 }
 
@@ -1145,7 +1150,8 @@ func replaceRemovedLocalProjectConfiguration(
 	catalog, err := client.ListRepositoryProjects(
 		cmd.Context(),
 		api.RepositoryProjectCatalogQuery{
-			Provider:       "github",
+			Provider:       api.RepositoryProjectCatalogQueryProvider(resolved.locator.Provider),
+			InstanceUrl:    resolved.locator.InstanceUrl,
 			Namespace:      resolved.locator.Namespace,
 			RepositoryName: resolved.locator.RepositoryName,
 		},
@@ -1185,7 +1191,7 @@ func sameRootReplacementPullTarget(
 	resolved *resolvedProjectConfiguration,
 ) (configPullBootstrapTarget, bool, error) {
 	if catalog == nil ||
-		catalog.Repository.Provider != "github" ||
+		string(catalog.Repository.Provider) != string(resolved.locator.Provider) ||
 		!strings.EqualFold(catalog.Repository.Namespace, resolved.locator.Namespace) ||
 		!strings.EqualFold(catalog.Repository.RepositoryName, resolved.locator.RepositoryName) {
 		return configPullBootstrapTarget{}, false, fmt.Errorf("Revyl returned invalid repository project identity; retry %q, then run %q if it still fails", cliRecoveryCommand("config", "pull"), cliRecoveryCommand("doctor"))
@@ -1213,7 +1219,8 @@ func sameRootReplacementPullTarget(
 	return configPullBootstrapTarget{
 		projectID: replacement.ProjectId.String(),
 		locator: api.ProjectConfigurationRepositoryLocator{
-			Provider:                      "github",
+			Provider:                      api.ProjectConfigurationRepositoryLocatorProvider(resolved.locator.Provider),
+			InstanceUrl:                   resolved.locator.InstanceUrl,
 			Namespace:                     catalog.Repository.Namespace,
 			RepositoryName:                catalog.Repository.RepositoryName,
 			RepositoryRelativeProjectRoot: replacement.RepositoryRelativeProjectRoot,
@@ -1281,9 +1288,9 @@ func resolveConfigPullBootstrapTarget(
 	if err != nil {
 		return nil, configPullBootstrapTarget{}, actionableLocalConfigError(err)
 	}
-	namespace, repositoryName, err := resolveProjectRepoSlug(worktreeRoot, "")
+	repository, err := resolveProjectRepository(worktreeRoot)
 	if err != nil {
-		return nil, configPullBootstrapTarget{}, actionableGithubOriginError(worktreeRoot)
+		return nil, configPullBootstrapTarget{}, actionableRepositoryOriginError(worktreeRoot)
 	}
 	token, err := requireProjectConfigurationToken()
 	if err != nil {
@@ -1293,9 +1300,10 @@ func resolveConfigPullBootstrapTarget(
 	catalog, err := client.ListRepositoryProjects(
 		cmd.Context(),
 		api.RepositoryProjectCatalogQuery{
-			Provider:       "github",
-			Namespace:      namespace,
-			RepositoryName: repositoryName,
+			Provider:       api.RepositoryProjectCatalogQueryProvider(repository.Provider),
+			InstanceUrl:    repository.InstanceURL,
+			Namespace:      repository.Namespace,
+			RepositoryName: repository.Name,
 		},
 	)
 	if err != nil {
@@ -1303,9 +1311,10 @@ func resolveConfigPullBootstrapTarget(
 			cmd.Context(),
 			client,
 			api.ProjectConfigurationRepositoryLocator{
-				Provider:       "github",
-				Namespace:      namespace,
-				RepositoryName: repositoryName,
+				Provider:       api.ProjectConfigurationRepositoryLocatorProvider(repository.Provider),
+				InstanceUrl:    repository.InstanceURL,
+				Namespace:      repository.Namespace,
+				RepositoryName: repository.Name,
 			},
 			expectedProjectID,
 			err,
@@ -1314,8 +1323,7 @@ func resolveConfigPullBootstrapTarget(
 	}
 	target, err := selectConfigPullBootstrapTarget(
 		catalog,
-		namespace,
-		repositoryName,
+		repository,
 		effectiveDirectory,
 		worktreeRoot,
 		expectedProjectID,
@@ -1378,7 +1386,7 @@ func readCanonicalConfigPullTarget(
 	if current == nil || current.State != api.ProjectConfigurationReadResponseStatePresent || current.Resource == nil {
 		return nil, fmt.Errorf("Revyl returned an invalid configured project for the current directory; retry %q, then run %q if it still fails", cliRecoveryCommand("config", "pull"), cliRecoveryCommand("doctor"))
 	}
-	if current.Resource.Provider != "github" ||
+	if string(current.Resource.Provider) != string(target.locator.Provider) ||
 		!strings.EqualFold(current.Resource.Namespace, target.locator.Namespace) ||
 		!strings.EqualFold(
 			current.Resource.RepositoryName,
@@ -1420,16 +1428,15 @@ func readCanonicalConfigPullTarget(
 
 func selectConfigPullBootstrapTarget(
 	catalog *api.RepositoryProjectCatalogResponse,
-	namespace string,
-	repositoryName string,
+	repository gitremote.RepositoryReference,
 	effectiveDirectory string,
 	worktreeRoot string,
 	expectedProjectID string,
 ) (configPullBootstrapTarget, error) {
 	if catalog == nil ||
-		catalog.Repository.Provider != "github" ||
-		!strings.EqualFold(catalog.Repository.Namespace, namespace) ||
-		!strings.EqualFold(catalog.Repository.RepositoryName, repositoryName) {
+		string(catalog.Repository.Provider) != repository.Provider ||
+		!strings.EqualFold(catalog.Repository.Namespace, repository.Namespace) ||
+		!strings.EqualFold(catalog.Repository.RepositoryName, repository.Name) {
 		return configPullBootstrapTarget{}, fmt.Errorf("Revyl returned invalid repository project identity")
 	}
 	resolvedWorktreeRoot, err := filepath.EvalSymlinks(worktreeRoot)
@@ -1504,9 +1511,10 @@ func selectConfigPullBootstrapTarget(
 	return configPullBootstrapTarget{
 		projectID: selected.ProjectId.String(),
 		locator: api.ProjectConfigurationRepositoryLocator{
-			Provider:                      "github",
-			Namespace:                     namespace,
-			RepositoryName:                repositoryName,
+			Provider:                      api.ProjectConfigurationRepositoryLocatorProvider(repository.Provider),
+			InstanceUrl:                   repository.InstanceURL,
+			Namespace:                     repository.Namespace,
+			RepositoryName:                repository.Name,
 			RepositoryRelativeProjectRoot: selected.RepositoryRelativeProjectRoot,
 		},
 		configPath: filepath.Join(resolvedProjectRoot, ".revyl", "config.yaml"),

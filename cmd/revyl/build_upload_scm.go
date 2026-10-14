@@ -8,9 +8,9 @@ import (
 )
 
 func registerBuildUploadSCMFlags(cmd *cobra.Command) {
-	cmd.Flags().String("commit", "", "Full PR head commit SHA; requires --repo and overrides detected SCM identity")
-	cmd.Flags().String("repo", "", "Base GitHub repository (owner/name); requires --commit")
-	cmd.Flags().Int("pr", 0, "PR number; requires --repo and --commit (omit to match by head SHA)")
+	cmd.Flags().String("commit", "", "Full built commit SHA; requires --repo and overrides detected SCM identity")
+	cmd.Flags().String("repo", "", "Base GitHub or GitLab repository (namespace/name); requires --commit")
+	cmd.Flags().Int("pr", 0, "PR or MR number; requires --repo and --commit (omit to match by head SHA)")
 }
 
 func applyBuildUploadSCMFlags(cmd *cobra.Command) error {

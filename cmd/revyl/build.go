@@ -59,9 +59,10 @@ The upload lands on its branch (--branch, or the app's default branch). A branch
 that follows Latest build runs it because it is the newest; a pinned branch keeps
 its pin. Pass --pin to pin the branch to the new build.
 
-To match a GitHub PR from any CI runner, pass --repo owner/name and --commit
-with the full PR head SHA. Add --pr to select a PR explicitly. These flags
-override detected SCM identity; GitHub Actions and Buildkite are detected automatically.`,
+To match a GitHub PR or GitLab MR from any CI runner, pass --repo namespace/name
+and --commit with the full built commit SHA. Add --pr to select a review explicitly.
+These flags override detected SCM identity; GitHub Actions, GitLab CI, and
+Buildkite are detected automatically.`,
 	Example: `  revyl build upload --file ./app.apk --app <id>
   revyl build upload --file ./build/App.app.zip --platform ios --yes
   revyl build upload --url https://artifacts.example.com/app.apk --app <id>

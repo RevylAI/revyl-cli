@@ -1,8 +1,10 @@
 package build
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -142,5 +144,31 @@ func TestParseGitHubRepository(t *testing.T) {
 				t.Fatalf("repository = (%q, %q, %t), want no GitHub identity", namespace, project, ok)
 			}
 		})
+	}
+}
+
+func TestGitlabCIPreservesActualPipelineCommit(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("CI_PROJECT_PATH", "team/subgroup/app")
+	t.Setenv("CI_PROJECT_URL", "https://gitlab.example.com:8443/team/subgroup/app")
+	t.Setenv("CI_MERGE_REQUEST_IID", "42")
+	t.Setenv("CI_COMMIT_SHA", strings.Repeat("a", 40))
+	t.Setenv("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA", strings.Repeat("b", 40))
+	t.Setenv("CI_PIPELINE_ID", "123")
+	ci, ok := DetectCIContext()
+	if !ok || ci.SCMProvider != "gitlab" || ci.SCMNamespace != "team/subgroup" || ci.ReviewNumber != 42 || ci.CommitSHA != strings.Repeat("a", 40) {
+		t.Fatalf("incorrect pipeline identity: %#v", ci)
+	}
+	if ci.ReviewURL != "https://gitlab.example.com:8443/team/subgroup/app/-/merge_requests/42" {
+		t.Fatal(ci.ReviewURL)
+	}
+	ctx, err := WithUploadSCMContext(context.Background(), "team/subgroup/app", strings.Repeat("a", 40), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, ok := CIContextFromContext(ctx)
+	if !ok || explicit.SCMProvider != "gitlab" || explicit.ReviewURL != ci.ReviewURL {
+		t.Fatalf("incorrect explicit identity: %#v", explicit)
 	}
 }

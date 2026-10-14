@@ -10,6 +10,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/gitremote"
 	"github.com/spf13/cobra"
 )
 
@@ -46,9 +47,9 @@ func withGithubSetupAppSelector(
 	selector func(*cobra.Command, *api.Client, *config.ProjectContext, string) (string, error),
 ) {
 	t.Helper()
-	original := selectGithubSetupApp
-	selectGithubSetupApp = selector
-	t.Cleanup(func() { selectGithubSetupApp = original })
+	original := selectReviewSetupApp
+	selectReviewSetupApp = selector
+	t.Cleanup(func() { selectReviewSetupApp = original })
 }
 
 func TestCompleteGithubSetupBindsOnlySelectedManagedProfile(t *testing.T) {
@@ -74,9 +75,9 @@ func TestCompleteGithubSetupBindsOnlySelectedManagedProfile(t *testing.T) {
 		return githubSetupIOSAppID, nil
 	})
 
-	candidate, changed, err := completeGithubSetupConfiguration(testConfigCommand(), nil, local)
+	candidate, changed, err := completeReviewSetupConfiguration(testConfigCommand(), nil, local)
 	if err != nil {
-		t.Fatalf("completeGithubSetupConfiguration() error = %v", err)
+		t.Fatalf("completeReviewSetupConfiguration() error = %v", err)
 	}
 	if !changed || !reflect.DeepEqual(calls, []string{"ios"}) {
 		t.Fatalf("changed = %v, app selections = %v", changed, calls)
@@ -95,9 +96,9 @@ func TestCompleteGithubSetupBindsOnlySelectedManagedProfile(t *testing.T) {
 func TestCompleteGithubSetupCreatesExplicitCIUploadBindings(t *testing.T) {
 	authored := config.AuthoredConfig{Project: config.AuthoredProject{ID: configRemoteProjectID}}
 	local := githubSetupContext(t, authored)
-	originalPrompt := promptGithubSetupSelect
-	promptGithubSetupSelect = func(_ string, _ []string) (int, error) { return 2, nil }
-	t.Cleanup(func() { promptGithubSetupSelect = originalPrompt })
+	originalPrompt := promptReviewSetupSelect
+	promptReviewSetupSelect = func(_ string, _ []string) (int, error) { return 2, nil }
+	t.Cleanup(func() { promptReviewSetupSelect = originalPrompt })
 	withGithubSetupAppSelector(t, func(_ *cobra.Command, _ *api.Client, _ *config.ProjectContext, platform string) (string, error) {
 		if platform == "ios" {
 			return githubSetupIOSAppID, nil
@@ -105,9 +106,9 @@ func TestCompleteGithubSetupCreatesExplicitCIUploadBindings(t *testing.T) {
 		return githubSetupAndroidAppID, nil
 	})
 
-	candidate, changed, err := completeGithubSetupConfiguration(testConfigCommand(), nil, local)
+	candidate, changed, err := completeReviewSetupConfiguration(testConfigCommand(), nil, local)
 	if err != nil {
-		t.Fatalf("completeGithubSetupConfiguration() error = %v", err)
+		t.Fatalf("completeReviewSetupConfiguration() error = %v", err)
 	}
 	if !changed || candidate.PRReview == nil || candidate.PRReview.Build.Kind != "ci_upload_to_revyl" {
 		t.Fatalf("candidate = %#v, changed = %v", candidate.PRReview, changed)
@@ -142,12 +143,12 @@ func TestCompleteGithubSetupLeavesCompletePolicyUnchanged(t *testing.T) {
 		return "", nil
 	})
 
-	_, changed, err := completeGithubSetupConfiguration(testConfigCommand(), nil, local)
+	_, changed, err := completeReviewSetupConfiguration(testConfigCommand(), nil, local)
 	if err != nil {
-		t.Fatalf("completeGithubSetupConfiguration() error = %v", err)
+		t.Fatalf("completeReviewSetupConfiguration() error = %v", err)
 	}
 	if changed {
-		t.Fatal("completeGithubSetupConfiguration() changed a complete policy")
+		t.Fatal("completeReviewSetupConfiguration() changed a complete policy")
 	}
 }
 
@@ -159,16 +160,16 @@ func TestGithubSetupRejectsNonInteractiveUseBeforeConnecting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalTTY := githubSetupInputTTY
+	originalTTY := reviewSetupInputTTY
 	originalEnsure := ensureGithubSetupConnected
-	githubSetupInputTTY = func() bool { return false }
+	reviewSetupInputTTY = func() bool { return false }
 	connectionAttempted := false
 	ensureGithubSetupConnected = func(context.Context, *api.Client) (*api.GithubRepositoriesResponse, error) {
 		connectionAttempted = true
 		return nil, nil
 	}
 	t.Cleanup(func() {
-		githubSetupInputTTY = originalTTY
+		reviewSetupInputTTY = originalTTY
 		ensureGithubSetupConnected = originalEnsure
 	})
 
@@ -214,13 +215,18 @@ func TestGithubSetupPreparesGitManagedProposalWithoutPublishing(t *testing.T) {
 	}
 
 	originalEnsure := ensureGithubSetupConnected
-	originalTTY := githubSetupInputTTY
-	originalPrompt := promptGithubSetupSelect
-	originalConfirm := confirmGithubSetup
-	originalSelector := selectGithubSetupApp
-	originalValidate := validateGithubSetupConfig
-	originalPublish := publishGithubSetupConfig
+	originalTTY := reviewSetupInputTTY
+	originalPrompt := promptReviewSetupSelect
+	originalConfirm := confirmReviewSetup
+	originalSelector := selectReviewSetupApp
+	originalValidate := validateReviewSetupConfig
+	originalPublish := publishReviewSetupConfig
 	originalSlug := resolveProjectRepoSlug
+	originalRepository := resolveProjectRepository
+	resolveProjectRepository = func(root string) (gitremote.RepositoryReference, error) {
+		namespace, name, err := resolveProjectRepoSlug(root, "")
+		return gitremote.RepositoryReference{Provider: "github", Namespace: namespace, Name: name}, err
+	}
 	ensureGithubSetupConnected = func(context.Context, *api.Client) (*api.GithubRepositoriesResponse, error) {
 		return &api.GithubRepositoriesResponse{
 			Repositories: []api.GithubOrgRepository{{Owner: "acme", Repo: "mobile"}},
@@ -228,17 +234,17 @@ func TestGithubSetupPreparesGitManagedProposalWithoutPublishing(t *testing.T) {
 			HasAccess:    true,
 		}, nil
 	}
-	githubSetupInputTTY = func() bool { return true }
-	promptGithubSetupSelect = func(_ string, _ []string) (int, error) { return 0, nil }
+	reviewSetupInputTTY = func() bool { return true }
+	promptReviewSetupSelect = func(_ string, _ []string) (int, error) { return 0, nil }
 	confirmationPrompt := ""
-	confirmGithubSetup = func(prompt string, _ bool) (bool, error) {
+	confirmReviewSetup = func(prompt string, _ bool) (bool, error) {
 		confirmationPrompt = prompt
 		return true, nil
 	}
-	selectGithubSetupApp = func(_ *cobra.Command, _ *api.Client, _ *config.ProjectContext, _ string) (string, error) {
+	selectReviewSetupApp = func(_ *cobra.Command, _ *api.Client, _ *config.ProjectContext, _ string) (string, error) {
 		return githubSetupIOSAppID, nil
 	}
-	validateGithubSetupConfig = func(_ *cobra.Command, _ *api.Client, proposal *resolvedProjectConfiguration) (*api.ProjectConfigurationValidateResponse, error) {
+	validateReviewSetupConfig = func(_ *cobra.Command, _ *api.Client, proposal *resolvedProjectConfiguration) (*api.ProjectConfigurationValidateResponse, error) {
 		if proposal.authored.PrReview == nil {
 			t.Fatal("validation did not receive the completed aggregate")
 		}
@@ -253,20 +259,21 @@ func TestGithubSetupPreparesGitManagedProposalWithoutPublishing(t *testing.T) {
 		}, nil
 	}
 	publicationAttempted := false
-	publishGithubSetupConfig = func(_ *cobra.Command, _ projectConfigurationClient, _ *resolvedProjectConfiguration) error {
+	publishReviewSetupConfig = func(_ *cobra.Command, _ projectConfigurationClient, _ *resolvedProjectConfiguration) error {
 		publicationAttempted = true
 		return nil
 	}
 	resolveProjectRepoSlug = func(string, string) (string, string, error) { return "acme", "mobile", nil }
 	t.Cleanup(func() {
 		ensureGithubSetupConnected = originalEnsure
-		githubSetupInputTTY = originalTTY
-		promptGithubSetupSelect = originalPrompt
-		confirmGithubSetup = originalConfirm
-		selectGithubSetupApp = originalSelector
-		validateGithubSetupConfig = originalValidate
-		publishGithubSetupConfig = originalPublish
+		reviewSetupInputTTY = originalTTY
+		promptReviewSetupSelect = originalPrompt
+		confirmReviewSetup = originalConfirm
+		selectReviewSetupApp = originalSelector
+		validateReviewSetupConfig = originalValidate
+		publishReviewSetupConfig = originalPublish
 		resolveProjectRepoSlug = originalSlug
+		resolveProjectRepository = originalRepository
 	})
 
 	err = runGithubSetupForProject(testConfigCommand(), &api.Client{}, local, resolved)

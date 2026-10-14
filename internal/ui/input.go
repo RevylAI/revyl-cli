@@ -54,23 +54,25 @@ func Prompt(message string) (string, error) {
 	return strings.TrimSpace(input), nil
 }
 
-// PromptSecret reads a secret from an interactive terminal without echoing it.
-//
-// Parameters:
-//   - message: The prompt message to display.
-//
-// Returns:
-//   - string: The exact secret value, excluding a trailing line ending.
-//   - error: An input or terminal error.
+// PromptSecret disables echo before displaying the secret prompt.
 func PromptSecret(message string) (string, error) {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	stdinFD := int(os.Stdin.Fd())
+	if !term.IsTerminal(stdinFD) {
 		return "", fmt.Errorf("secret prompt requires an interactive terminal")
 	}
+	state, err := term.MakeRaw(stdinFD)
+	if err != nil {
+		return "", err
+	}
 	fmt.Fprintf(os.Stderr, "%s ", InfoStyle.Render(message))
-	value, err := term.ReadPassword(int(os.Stdin.Fd()))
+	value, err := term.ReadPassword(stdinFD)
+	restoreErr := term.Restore(stdinFD, state)
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
 		return "", err
+	}
+	if restoreErr != nil {
+		return "", restoreErr
 	}
 	return strings.TrimSuffix(strings.TrimSuffix(string(value), "\n"), "\r"), nil
 }

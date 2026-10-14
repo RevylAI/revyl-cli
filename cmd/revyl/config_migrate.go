@@ -376,8 +376,11 @@ func deterministicConfigMigrationProjectID(cwd string) (string, error) {
 		return "", actionableLocalConfigError(err)
 	}
 	repositoryIdentity := "worktree:" + local.WorktreeRoot
-	if namespace, repositoryName, slugErr := resolveProjectRepoSlug(local.WorktreeRoot, ""); slugErr == nil {
-		repositoryIdentity = "github:" + strings.ToLower(namespace) + "/" + strings.ToLower(repositoryName)
+	if repository, originErr := resolveProjectRepository(local.WorktreeRoot); originErr == nil {
+		repositoryIdentity = repository.Provider + ":" + strings.ToLower(repository.Namespace) + "/" + strings.ToLower(repository.Name)
+		if repository.InstanceURL != nil {
+			repositoryIdentity = repository.Provider + ":" + *repository.InstanceURL + "/" + strings.ToLower(repository.Namespace) + "/" + strings.ToLower(repository.Name)
+		}
 	}
 	projectRoot := path.Clean(strings.ReplaceAll(local.RepositoryRelativeProjectRoot, "\\", "/"))
 	return configMigrationProjectIDForLocator(repositoryIdentity, projectRoot), nil
@@ -748,7 +751,7 @@ func inspectConfigMigrationReconciliation(
 	if identitySource != configMigrationIdentityRemoteExact && identitySource != configMigrationIdentityRemoteExplicit {
 		return local
 	}
-	namespace, repositoryName, err := resolveProjectRepoSlug(result.WorktreeRoot, "")
+	repository, err := resolveProjectRepository(result.WorktreeRoot)
 	if err != nil {
 		return configMigrationReconciliation{
 			Status: "failed", Outcome: "unavailable", NextAction: "run_config_validate",
@@ -774,7 +777,7 @@ func inspectConfigMigrationReconciliation(
 		result.ProjectID,
 		api.ProjectConfigurationValidateRequest{
 			Locator: api.ProjectConfigurationRepositoryLocator{
-				Provider: "github", Namespace: namespace, RepositoryName: repositoryName,
+				Provider: api.ProjectConfigurationRepositoryLocatorProvider(repository.Provider), InstanceUrl: repository.InstanceURL, Namespace: repository.Namespace, RepositoryName: repository.Name,
 				RepositoryRelativeProjectRoot: result.RepositoryRelativeProjectRoot,
 			},
 			Configuration: authored,
@@ -847,7 +850,7 @@ func resolveConfigMigrationProjectIdentity(
 		localSource = configMigrationIdentityLocalGenerated
 	}
 
-	namespace, repositoryName, err := resolveProjectRepoSlug(result.WorktreeRoot, "")
+	repository, err := resolveProjectRepository(result.WorktreeRoot)
 	if err != nil {
 		return configMigrationIdentityOriginUnsupported, nil
 	}
@@ -862,18 +865,19 @@ func resolveConfigMigrationProjectIdentity(
 	catalog, err := projectConfigurationClientForCommand(cmd, token).ListRepositoryProjects(
 		cmd.Context(),
 		api.RepositoryProjectCatalogQuery{
-			Provider:       "github",
-			Namespace:      namespace,
-			RepositoryName: repositoryName,
+			Provider:       api.RepositoryProjectCatalogQueryProvider(repository.Provider),
+			InstanceUrl:    repository.InstanceURL,
+			Namespace:      repository.Namespace,
+			RepositoryName: repository.Name,
 		},
 	)
 	if err != nil {
 		return configMigrationCatalogErrorSource(err), nil
 	}
 	if catalog == nil ||
-		catalog.Repository.Provider != "github" ||
-		!strings.EqualFold(catalog.Repository.Namespace, namespace) ||
-		!strings.EqualFold(catalog.Repository.RepositoryName, repositoryName) {
+		string(catalog.Repository.Provider) != repository.Provider ||
+		!strings.EqualFold(catalog.Repository.Namespace, repository.Namespace) ||
+		!strings.EqualFold(catalog.Repository.RepositoryName, repository.Name) {
 		return configMigrationIdentityCatalogAmbiguous, nil
 	}
 

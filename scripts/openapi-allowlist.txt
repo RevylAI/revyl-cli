@@ -56,6 +56,9 @@ GET /api/v1/files/
 GET /api/v1/files/{file_id}/download-url
 GET /api/v1/integrations/github/install-url
 GET /api/v1/integrations/github/repositories
+GET /api/v1/integrations/gitlab/connection
+GET /api/v1/integrations/gitlab/repositories
+GET /api/v1/integrations/gitlab/webhook
 GET /api/v1/modules/list
 GET /api/v1/modules/{module_id}
 GET /api/v1/modules/{module_id}/tests
@@ -160,6 +163,7 @@ POST /api/v1/workflows/share/generate_shareable_link
 POST /api/v1/workflows/share/unified-report
 PUT /api/v1/files/{file_id}
 PUT /api/v1/files/{file_id}/replace-url
+PUT /api/v1/integrations/gitlab/connection
 PUT /api/v1/modules/update/{module_id}
 PUT /api/v1/projects/{project_id}/configuration
 PUT /api/v1/projects/{project_id}/cursor-proof-authorization

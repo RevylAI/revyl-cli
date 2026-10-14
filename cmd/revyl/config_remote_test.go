@@ -17,6 +17,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/gitremote"
 	"github.com/spf13/cobra"
 )
 
@@ -193,19 +194,22 @@ func withProjectConfigurationDependencies(
 ) {
 	t.Helper()
 	originalResolve := resolveProjectContext
+	originalRepository := resolveProjectRepository
 	originalSlug := resolveProjectRepoSlug
+	resolveProjectRepoSlug = func(string, string) (string, string, error) { return "acme", "mobile", nil }
 	originalToken := readActiveConfigToken
 	originalClient := newProjectConfigClient
 	resolveProjectContext = func(string, string) (*config.ProjectContext, error) {
 		return local, nil
 	}
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
-		return "acme", "mobile", nil
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{Provider: "github", Namespace: "acme", Name: "mobile"}, nil
 	}
 	readActiveConfigToken = func() (string, error) { return token, nil }
 	newProjectConfigClient = func(string, bool) projectConfigurationClient { return client }
 	t.Cleanup(func() {
 		resolveProjectContext = originalResolve
+		resolveProjectRepository = originalRepository
 		resolveProjectRepoSlug = originalSlug
 		readActiveConfigToken = originalToken
 		newProjectConfigClient = originalClient
@@ -228,8 +232,8 @@ func TestConfigValidateWithoutAuthenticationStaysLocal(t *testing.T) {
 		clientCreated = true
 		return nil
 	}
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
-		return "", "", context.Canceled
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{}, context.Canceled
 	}
 	t.Cleanup(func() { newProjectConfigClient = originalClient })
 
@@ -312,11 +316,11 @@ func TestConfigValidateJSONUsesOneSchemaForLocalAndConnected(t *testing.T) {
 	}
 }
 
-func TestConfigValidateAuthenticatedWithoutGithubRemoteStillReportsLocal(t *testing.T) {
+func TestConfigValidateAuthenticatedWithoutRepositoryRemoteStillReportsLocal(t *testing.T) {
 	local := configContext(t, 300)
 	withProjectConfigurationDependencies(t, local, "token", nil)
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
-		return "", "", errors.New("no supported GitHub remote")
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{}, errors.New("no supported repository remote")
 	}
 	command := testConfigCommand()
 	_ = command.Flags().Set("json", "true")
@@ -332,11 +336,14 @@ func TestConfigValidateAuthenticatedWithoutGithubRemoteStillReportsLocal(t *test
 	if decoded.Status != "valid" || decoded.CandidateProjectConfigurationHash != local.Aggregate.ProjectConfigurationHash || decoded.Connected.Status != "skipped" {
 		t.Fatalf("validation output = %#v", decoded)
 	}
-	addOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "add", "origin", "https://github.com/<owner>/<repository>.git")
-	setOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "set-url", "origin", "https://github.com/<owner>/<repository>.git")
+	addOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "add", "origin", "<repository-url>")
+	setOrigin := gitRecoveryCommand(local.WorktreeRoot, "remote", "set-url", "origin", "<repository-url>")
 	if !strings.Contains(decoded.Connected.NextAction, strconv.Quote(addOrigin)) ||
 		!strings.Contains(decoded.Connected.NextAction, strconv.Quote(setOrigin)) {
 		t.Fatalf("connected next action = %q, want exact add and set-url commands", decoded.Connected.NextAction)
+	}
+	if !strings.Contains(decoded.Connected.Explanation, "GitHub or GitLab") {
+		t.Fatalf("connected explanation = %q", decoded.Connected.Explanation)
 	}
 }
 
@@ -759,7 +766,7 @@ func TestPublicationGuidanceRequiresProofOfChanges(t *testing.T) {
 					t.Fatalf("Git-managed next action lost the commit path: %q", publication.NextAction)
 				}
 			}
-			project := githubProjectStatusFromRead(&config.ProjectContext{Authored: authored}, &states[0])
+			project := reviewProjectStatusFromRead(&config.ProjectContext{Authored: authored}, &states[0])
 			if !strings.Contains(project.NextAction, "enabled pr_review block") || !strings.Contains(project.NextAction, "proof_of_changes.enabled: true") {
 				t.Fatalf("github next action = %q, want both settings before publication", project.NextAction)
 			}
@@ -2150,7 +2157,7 @@ func withConfigPullBootstrapDependencies(
 	originalResolve := resolveProjectContext
 	originalRoot := resolveConfigPullRoot
 	originalCWD := configWorkingDirectory
-	originalSlug := resolveProjectRepoSlug
+	originalSlug := resolveProjectRepository
 	originalToken := readActiveConfigToken
 	originalClient := newProjectConfigClient
 	originalProjectID := configPullProjectID
@@ -2161,8 +2168,8 @@ func withConfigPullBootstrapDependencies(
 		return effectiveDirectory, worktreeRoot, nil
 	}
 	configWorkingDirectory = func() (string, error) { return effectiveDirectory, nil }
-	resolveProjectRepoSlug = func(string, string) (string, string, error) {
-		return "acme", "mobile", nil
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{Provider: "github", Namespace: "acme", Name: "mobile"}, nil
 	}
 	readActiveConfigToken = func() (string, error) { return "token", nil }
 	newProjectConfigClient = func(string, bool) projectConfigurationClient { return client }
@@ -2171,7 +2178,7 @@ func withConfigPullBootstrapDependencies(
 		resolveProjectContext = originalResolve
 		resolveConfigPullRoot = originalRoot
 		configWorkingDirectory = originalCWD
-		resolveProjectRepoSlug = originalSlug
+		resolveProjectRepository = originalSlug
 		readActiveConfigToken = originalToken
 		newProjectConfigClient = originalClient
 		configPullProjectID = originalProjectID

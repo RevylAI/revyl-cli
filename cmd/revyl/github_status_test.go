@@ -13,6 +13,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/gitremote"
 )
 
 // githubStatusCommand builds a command whose root carries the persistent
@@ -39,6 +40,11 @@ func withFreshCheckout(t *testing.T, namespace, repository string) {
 	t.Helper()
 	originalResolve := resolveProjectContext
 	originalSlug := resolveProjectRepoSlug
+	originalRepository := resolveProjectRepository
+	resolveProjectRepository = func(root string) (gitremote.RepositoryReference, error) {
+		namespace, name, err := resolveProjectRepoSlug(root, "")
+		return gitremote.RepositoryReference{Provider: "github", Namespace: namespace, Name: name}, err
+	}
 	originalRoot := resolveConfigPullRoot
 	originalCwd := configWorkingDirectory
 	resolveProjectContext = func(string, string) (*config.ProjectContext, error) {
@@ -54,6 +60,7 @@ func withFreshCheckout(t *testing.T, namespace, repository string) {
 	t.Cleanup(func() {
 		resolveProjectContext = originalResolve
 		resolveProjectRepoSlug = originalSlug
+		resolveProjectRepository = originalRepository
 		resolveConfigPullRoot = originalRoot
 		configWorkingDirectory = originalCwd
 	})
@@ -155,7 +162,7 @@ func TestCollectGithubStatusReadsPublishedProject(t *testing.T) {
 	if report.Repository == nil || !report.Repository.AccessGranted {
 		t.Fatalf("repository = %+v", report.Repository)
 	}
-	if report.Project == nil || report.Project.Status != githubProjectStatusEnabled || report.Project.Authority != string(api.ConfigurationAuthorityManual) || report.Project.Root != "." {
+	if report.Project == nil || report.Project.Status != reviewProjectStatusEnabled || report.Project.Authority != string(api.ConfigurationAuthorityManual) || report.Project.Root != "." {
 		t.Fatalf("project = %+v", report.Project)
 	}
 	if report.ProjectError != "" {
@@ -220,7 +227,7 @@ func TestCollectGithubStatusMarksUnpublishedProject(t *testing.T) {
 
 			report := collectGithubStatus(githubStatusCommand(t, false), client, &repos)
 
-			if report.Project == nil || report.Project.Status != githubProjectStatusNotPublished || report.Project.Authority != "" {
+			if report.Project == nil || report.Project.Status != reviewProjectStatusNotPublished || report.Project.Authority != "" {
 				t.Fatalf("project = %+v", report.Project)
 			}
 			if report.Project.NextAction != testCase.wantNextAction {
@@ -361,7 +368,7 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 		{
 			name:       "not published",
 			read:       &api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStateAbsent},
-			wantStatus: githubProjectStatusNotPublished,
+			wantStatus: reviewProjectStatusNotPublished,
 		},
 		{
 			name: "enabled",
@@ -372,7 +379,7 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 					Configuration: api.AuthoredRevylConfig{PrReview: &api.AuthoredPRReview{Enabled: &enabled}},
 				},
 			},
-			wantStatus:    githubProjectStatusEnabled,
+			wantStatus:    reviewProjectStatusEnabled,
 			wantAuthority: string(api.ConfigurationAuthorityManual),
 		},
 		{
@@ -384,7 +391,7 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 					Configuration: api.AuthoredRevylConfig{PrReview: &api.AuthoredPRReview{}},
 				},
 			},
-			wantStatus:    githubProjectStatusEnabled,
+			wantStatus:    reviewProjectStatusEnabled,
 			wantAuthority: string(api.ConfigurationAuthorityGitDefaultBranch),
 		},
 		{
@@ -396,7 +403,7 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 					Configuration: api.AuthoredRevylConfig{PrReview: &api.AuthoredPRReview{Enabled: &disabled}},
 				},
 			},
-			wantStatus:    githubProjectStatusDisabled,
+			wantStatus:    reviewProjectStatusDisabled,
 			wantAuthority: string(api.ConfigurationAuthorityManual),
 		},
 		{
@@ -405,13 +412,13 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 				State:    api.ProjectConfigurationReadResponseStatePresent,
 				Resource: &api.ProjectConfigurationResource{Authority: api.ConfigurationAuthorityManual},
 			},
-			wantStatus:    githubProjectStatusNotConfigured,
+			wantStatus:    reviewProjectStatusNotConfigured,
 			wantAuthority: string(api.ConfigurationAuthorityManual),
 		},
 		{
 			name:       "invalid",
 			read:       &api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStatePresent},
-			wantStatus: githubProjectStatusInvalid,
+			wantStatus: reviewProjectStatusInvalid,
 		},
 	}
 	for _, testCase := range cases {
@@ -457,7 +464,7 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 				t.Fatalf("project = %v, want root=. status=%s", project, testCase.wantStatus)
 			}
 			nextAction, hasNextAction := project["next_action"]
-			if testCase.wantStatus == githubProjectStatusNotPublished {
+			if testCase.wantStatus == reviewProjectStatusNotPublished {
 				if nextAction != `run "revyl config validate", then "revyl config push"` {
 					t.Fatalf("next_action = %q, want the publish step", nextAction)
 				}
