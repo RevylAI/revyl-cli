@@ -304,6 +304,16 @@ without `--branch` it shows every branch.
 
 ## Saved selections
 
+New dashboard tests and newly chosen workflow app overrides start on
+**All branches · Latest build**. Existing saved choices stay unchanged. API,
+CLI, and MCP requests that omit a selection keep **Default branch** for
+compatibility with existing scripts; choose All branches explicitly there.
+`revyl test build clear` also keeps its existing Default branch behavior.
+
+`revyl test pull` leaves All branches out of YAML. Pushing that YAML back to
+its existing test preserves the saved selection. To create a new All branches
+test from YAML, set `build_selection: latest_all_branches` explicitly.
+
 ```bash
 revyl test build show login
 revyl test build set login --branch staging --build-selection latest

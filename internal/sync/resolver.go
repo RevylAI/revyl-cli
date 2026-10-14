@@ -704,7 +704,9 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		localTest.Test.Build.PinnedVersion = remoteTest.PinnedVersion
 	} else {
 		localTest.Test.Build.BranchID = remoteTest.BranchID
-		localTest.Test.Build.BuildSelection = string(remoteTest.BuildSelection)
+		if remoteTest.BuildSelection != api.BuildSelectionModeLatestAllBranches {
+			localTest.Test.Build.BuildSelection = string(remoteTest.BuildSelection)
+		}
 		localTest.Test.Build.PinnedBuildID = remoteTest.PinnedBuildID
 	}
 

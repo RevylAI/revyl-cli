@@ -64,6 +64,10 @@ func TestImportRemoteTest_SavedBuildSelectionRoundTrip(t *testing.T) {
 			wantSelection: map[string]any{"build_selection": "inherit", "branch_id": nil, "pinned_build_id": nil},
 		},
 		{
+			name:         "all_branches_default_is_omitted",
+			remoteFields: map[string]any{"build_selection": "latest_all_branches"},
+		},
+		{
 			name: "omitted_selection",
 		},
 	} {
