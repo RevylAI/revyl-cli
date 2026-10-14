@@ -55,7 +55,7 @@ Examples:
   revyl init --project ID
   revyl init --force`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return analytics.WithSafeDiagnostic(runInit(cmd, args), "project initialization failed")
+		return withConfigDiagnostic(actionableLocalConfigMessage(runInit(cmd, args)))
 	},
 }
 
@@ -351,15 +351,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if configExists {
 		existingBytes, err = config.ReadConfigFile(configPath)
 		if err != nil {
-			return fmt.Errorf("read existing config: %w", err)
+			return &os.PathError{Op: "read", Path: configPath, Err: err}
 		}
 		existingCanonical, err = config.ParseAuthoredConfig(existingBytes)
 		if err != nil {
 			var configErr *config.ConfigError
 			if errors.As(err, &configErr) && configErr.Code == "legacy_config_requires_migration" {
-				return fmt.Errorf("existing .revyl/config.yaml uses the legacy format; run revyl config migrate before revyl init")
+				return fmt.Errorf("existing %q uses the legacy format; run revyl config migrate before revyl init", configPath)
 			}
-			return fmt.Errorf("existing .revyl/config.yaml is invalid: %w", err)
+			return &os.PathError{Op: "validate", Path: configPath, Err: err}
 		}
 		if !initForce && !initDetect {
 			ui.PrintWarning("Project already initialized")
@@ -732,6 +732,11 @@ func writeInitProjectConfig(configPath string, draft *initConfigDraft) (err erro
 			}
 		}()
 	}
+	defer func() {
+		if err != nil {
+			err = &os.PathError{Op: "write", Path: configPath, Err: err}
+		}
+	}()
 	if draft == nil {
 		return fmt.Errorf("init config is nil")
 	}

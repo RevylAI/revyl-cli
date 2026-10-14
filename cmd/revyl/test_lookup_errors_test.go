@@ -131,8 +131,8 @@ func TestTestHistoryReportsLegacyProjectConfigurationInsteadOfNotFound(t *testin
 	if len(captured.Events) != 2 {
 		t.Fatalf("events = %+v, want start and failure", captured.Events)
 	}
-	want := "project configuration could not be used (legacy_config_requires_migration)"
-	if got := captured.Events[1].Properties["error_message"]; got != want {
+	want := "legacy format"
+	if got, _ := captured.Events[1].Properties["error_message"].(string); !strings.Contains(got, want) {
 		t.Fatalf("error_message = %q, want %q", got, want)
 	}
 }

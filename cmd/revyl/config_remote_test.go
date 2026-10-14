@@ -408,13 +408,227 @@ func runConfigValidateWithAnalytics(
 	})
 	run := recorder.StartCommand(command, nil)
 	command.SetContext(analytics.ContextWithCommandRun(context.Background(), run))
-	stdout, stderr = captureStdoutAndStderrSeparate(t, func() { runErr = runConfigValidate(command, nil) })
+	stdout, stderr = captureStdoutAndStderrSeparate(t, func() { runErr = configValidateCmd.RunE(command, nil) })
 	run.Complete(runErr)
 	recorder.Flush()
 	if len(captured.Events) != 2 {
 		t.Fatalf("captured %d lifecycle events, want start and terminal", len(captured.Events))
 	}
 	return stdout, stderr, runErr, captured.Events[1].Properties
+}
+
+func TestConfigValidateAnalyticsCaptureReturnedReason(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		localErr  error
+		remoteErr error
+		want      string
+		redacted  bool
+	}{
+		{
+			name: "field and profile",
+			localErr: &config.ConfigError{Stage: "contract", Code: "missing_field",
+				Path: []string{"build", "profiles", "release-demo", "ios", "build_commands"}},
+			want: "build.profiles.release-demo.ios.build_commands is required",
+		},
+		{
+			name:      "connected validation detail",
+			remoteErr: &api.APIError{StatusCode: 422, Detail: "build.profiles.release-demo.ios.output_path: set a build artifact path"},
+			want:      "build.profiles.release-demo.ios.output_path: set a build artifact path",
+		},
+		{
+			name:      "connected secret detail",
+			remoteErr: &api.APIError{StatusCode: 422, Code: "referenced_secret_not_available", Detail: "build.profiles.demo.ios.secrets.0: example secret is unavailable"},
+			want:      "build.profiles.demo.ios.secrets.0: example secret is unavailable",
+		},
+		{
+			name:      "connected message detail and hint",
+			remoteErr: &api.APIError{StatusCode: 422, Message: "Validation error", Detail: "build.profiles.demo.ios.output_path: set a build artifact path", Hint: "Check the selected build profile"},
+			want:      "build.profiles.demo.ios.output_path: set a build artifact path",
+		},
+		{
+			name:      "server detail",
+			remoteErr: &api.APIError{StatusCode: 503, Detail: "repository verification timed out"},
+			want:      "repository verification timed out",
+		},
+		{
+			name:     "unclassified error",
+			localErr: errors.New("repository demo/mobile has no registered project"),
+			want:     "repository demo/mobile has no registered project",
+		},
+		{
+			name:     "existing credential redaction",
+			localErr: errors.New("request failed with Bearer example_token_12345678"),
+			want:     "request failed with Bearer <redacted>",
+			redacted: true,
+		},
+		{
+			name:     "existing length cap",
+			localErr: errors.New(strings.Repeat("x", 700)),
+			want:     strings.Repeat("x", 500) + "...<truncated>",
+			redacted: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withProjectConfigurationDependencies(t, configContext(t, 300), "token", &fakeProjectConfigurationClient{validateErr: tc.remoteErr})
+			if tc.localErr != nil {
+				resolveProjectContext = func(string, string) (*config.ProjectContext, error) { return nil, tc.localErr }
+			}
+			_, _, err, terminal := runConfigValidateWithAnalytics(t, testConfigCommand())
+			if err == nil {
+				t.Fatal("expected validation failure")
+			}
+			message, _ := terminal["error_message"].(string)
+			if !strings.Contains(message, tc.want) {
+				t.Fatalf("error_message = %q, want %q", message, tc.want)
+			}
+			if !tc.redacted && message != err.Error() {
+				t.Fatalf("analytics changed the returned reason: %q != %q", message, err.Error())
+			}
+			if tc.remoteErr != nil {
+				if !errors.Is(err, tc.remoteErr) || strings.Count(message, tc.want) != 1 {
+					t.Fatalf("API cause missing or detail repeated: %q", message)
+				}
+				var apiErr *api.APIError
+				if errors.As(tc.remoteErr, &apiErr) {
+					for _, want := range []string{apiErr.Message, apiErr.Hint} {
+						if !strings.Contains(message, want) {
+							t.Fatalf("lost API context %q: %q", want, message)
+						}
+					}
+				}
+			}
+			if tc.redacted && message != tc.want {
+				t.Fatalf("sanitization changed: %q", message)
+			}
+			if _, exists := terminal["output_tail"]; exists {
+				t.Fatal("config validation must not capture configuration output")
+			}
+		})
+	}
+}
+
+func TestSetupAnalyticsCaptureConfigFailureReasons(t *testing.T) {
+	const project = "project: {id: 11111111-1111-4111-8111-111111111111}\n"
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{"uuid", "project: {id: not-a-uuid}\n", []string{"project.id", "must be a UUID"}},
+		{"string", "project: {id: 123}\n", []string{"project.id", "must be a string"}},
+		{"timeout type", project + "session: {idle_timeout_seconds: five}\n", []string{"session.idle_timeout_seconds", "must be an integer number of seconds"}},
+		{"timeout range", project + "session: {idle_timeout_seconds: 0}\n", []string{"session.idle_timeout_seconds", "must be between 1 and 2147483647 seconds"}},
+		{"mapping", "project: []\n", []string{"project", "must be a YAML mapping"}},
+		{"sequence", project + "build: {framework: ios, secrets: secret-name}\n", []string{"build.secrets", "must be a YAML sequence"}},
+		{"boolean", project + "pr_review: {enabled: yes}\n", []string{"pr_review.enabled", "must be a boolean (true or false)"}},
+		{"framework", project + "build: {framework: unknown}\n", []string{"build.framework", "must be one of: ios, android, react_native, expo, flutter"}},
+		{"artifact path", project + "build:\n  framework: ios\n  profiles:\n    demo:\n      ios: {build_commands: [build], output_path: /tmp/app.ipa}\n", []string{"build.profiles.demo.ios.output_path", "must stay relative to the project root"}},
+		{"empty profile", project + "build: {framework: ios, profiles: {demo: {}}}\n", []string{"build.profiles.demo", "must declare a platform recipe"}},
+		{"build step", project + "build: {framework: ios, profiles: {demo: {ios: {build_commands: [{name: build}]}}}}\n", []string{"build.profiles.demo.ios.build_commands.0", "must contain exactly one run or typed build step key"}},
+		{"yaml syntax", "project: [}\n", []string{"did not find expected node content"}},
+		{"duplicate key", project + "session: {}\nsession: {}\n", []string{"line 3", `mapping key "session" is declared more than once`}},
+	} {
+		for _, entrypoint := range []*cobra.Command{initCmd, configValidateCmd, configShowCmd, configPushCmd, configPullCmd, configAuthorizeCursorProofCmd, newConfigMigrateCommand(), buildCmd, devCmd} {
+			t.Run(entrypoint.Name()+"/"+tc.name, func(t *testing.T) {
+				resetInitGlobals(t)
+				resetBuildUploadGlobals(t)
+				t.Setenv("REVYL_API_KEY", "test-key")
+				t.Setenv("CI", "")
+				t.Setenv("GITHUB_ACTIONS", "")
+				initNonInteractive = true
+				workDir := t.TempDir()
+				gitInitForInitTest(t, workDir)
+				t.Chdir(workDir)
+				configPath := filepath.Join(workDir, ".revyl", "config.yaml")
+				if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(configPath, []byte(tc.yaml), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				configPath, err := filepath.EvalSymlinks(configPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var captured analytics.TelemetryPayload
+				recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) {
+					captured.Events = append(captured.Events, payload.Events...)
+				})
+				command := &cobra.Command{Use: entrypoint.Name()}
+				run := recorder.StartCommand(command, nil)
+				command.SetContext(analytics.ContextWithCommandRun(context.Background(), run))
+				var runErr error
+				captureStdoutAndStderrSeparate(t, func() { runErr = entrypoint.RunE(command, nil) })
+				run.Complete(runErr)
+				recorder.Flush()
+				if runErr == nil {
+					t.Fatal("invalid config was accepted")
+				}
+				if len(captured.Events) != 2 || captured.Events[1].Event != analytics.CliCommandFailedEvent {
+					t.Fatalf("expected one start and one failure, got %#v", captured.Events)
+				}
+				terminal := captured.Events[1].Properties
+				message, _ := terminal["error_message"].(string)
+				if !strings.Contains(runErr.Error(), "Invalid configuration\n  "+configPath+"\n\n  ") {
+					t.Fatalf("selected config path missing: %v", runErr)
+				}
+				for _, want := range append(tc.want, "Invalid configuration") {
+					if !strings.Contains(message, want) || !strings.Contains(runErr.Error(), want) {
+						t.Fatalf("missing %q: terminal = %q, returned = %q", want, message, runErr)
+					}
+				}
+				for _, unwanted := range []string{"revyl config", "init --force", "Example:"} {
+					if strings.Contains(runErr.Error(), unwanted) {
+						t.Fatalf("error contains unnecessary guidance %q: %v", unwanted, runErr)
+					}
+				}
+				if terminal["failure_class"] != "config" {
+					t.Fatalf("failure_class = %v, want config", terminal["failure_class"])
+				}
+				if _, exists := terminal["output_tail"]; exists {
+					t.Fatal("setup failure must not capture configuration output")
+				}
+			})
+		}
+	}
+}
+
+func TestConfigValidateErrorNamesSelectedFileFromSubdirectory(t *testing.T) {
+	workDir := t.TempDir()
+	gitInitForInitTest(t, workDir)
+	projectRoot := filepath.Join(workDir, "apps", "Mobile App")
+	configPath := filepath.Join(projectRoot, ".revyl", "config.yaml")
+	subdirectory := filepath.Join(projectRoot, "src")
+	for _, directory := range []string{filepath.Dir(configPath), subdirectory} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(configPath, []byte("project: {id: invalid}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath, err := filepath.EvalSymlinks(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(subdirectory)
+	_, _, runErr, terminal := runConfigValidateWithAnalytics(t, testConfigCommand())
+	if runErr == nil {
+		t.Fatal("expected invalid project ID")
+	}
+	if want := "Invalid configuration\n  " + configPath + "\n\n  project.id must be a UUID"; runErr.Error() != want {
+		t.Fatalf("error = %q, want %q", runErr, want)
+	}
+	message, _ := terminal["error_message"].(string)
+	for _, want := range []string{"project.id", "must be a UUID"} {
+		if !strings.Contains(runErr.Error(), want) || !strings.Contains(message, want) {
+			t.Fatalf("missing %q: returned = %q, analytics = %q", want, runErr, message)
+		}
+	}
+	if strings.Contains(runErr.Error(), "revyl config path") {
+		t.Fatalf("error asks to locate an already selected file: %v", runErr)
+	}
 }
 
 func TestConfigValidateReportsWhetherRevylRunsThisConfiguration(t *testing.T) {
@@ -909,8 +1123,8 @@ func TestConfigPushDistinguishesRepositoryAccessFailures(t *testing.T) {
 				(test.wantSecondary != "" && !strings.Contains(pushErr.Error(), test.wantSecondary)) {
 				t.Fatalf("runConfigPush() error = %v, want %q and %q", pushErr, test.want, test.wantSecondary)
 			}
-			if strings.Contains(pushErr.Error(), "could not be completed") {
-				t.Fatalf("generic API message leaked: %v", pushErr)
+			if !errors.Is(pushErr, client.readErr) {
+				t.Fatalf("API cause was lost: %v", pushErr)
 			}
 			if stdout != "" {
 				t.Fatalf("failed push wrote stdout = %q", stdout)

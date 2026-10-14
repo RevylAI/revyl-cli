@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -112,16 +113,20 @@ func hashCanonicalRevylJSON(domain string, encoded []byte) string {
 // NormalizeAuthoredConfig resolves defaults and inheritance without I/O.
 func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext) (*NormalizedProjectAggregate, error) {
 	if err := authored.ValidateContract(); err != nil {
+		var configError *ConfigError
+		if errors.As(err, &configError) {
+			return nil, configError
+		}
 		return nil, newConfigError("contract", "invalid_contract", nil, err.Error())
 	}
 	if err := validateCanonicalAuthoredConfigSize(authored); err != nil {
 		return nil, err
 	}
 	if authored.Build != nil && len(authored.Build.Profiles) > MaxConfigProfiles {
-		return nil, newConfigError("normalization", "too_many_build_profiles", []string{"build", "profiles"}, "")
+		return nil, newConfigError("normalization", "too_many_build_profiles", []string{"build", "profiles"}, fmt.Sprintf("must contain at most %d build profiles", MaxConfigProfiles))
 	}
 	if configCollectionItemCount(authored) > MaxConfigCollectionItems {
-		return nil, newConfigError("normalization", "too_many_collection_items", nil, "")
+		return nil, newConfigError("normalization", "too_many_collection_items", nil, fmt.Sprintf("configuration exceeds the limit of %d collection items", MaxConfigCollectionItems))
 	}
 	root, err := normalizeRelativeDirectory(context.RepositoryRelativeProjectRoot, "repository_relative_project_root")
 	if err != nil {
@@ -132,7 +137,7 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 		return nil, err
 	}
 	if root != "." && executionDirectory != root && !strings.HasPrefix(executionDirectory, root+"/") {
-		return nil, newConfigError("normalization", "execution_directory_outside_project", []string{"execution_directory"}, "")
+		return nil, newConfigError("normalization", "execution_directory_outside_project", []string{"execution_directory"}, "must stay within the project root")
 	}
 
 	session := AuthoredSession{}
@@ -224,7 +229,7 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 func validateCanonicalAuthoredConfigSize(authored AuthoredConfig) error {
 	encoded, err := encodeCanonicalAuthoredConfig(authored)
 	if err != nil {
-		return newConfigError("normalization", "unsupported_canonical_value", nil, "")
+		return newConfigError("normalization", "unsupported_canonical_value", nil, err.Error())
 	}
 	if len(encoded) > MaxConfigBytes {
 		return newConfigError("normalization", "canonical_config_too_large", nil, "")
@@ -478,11 +483,11 @@ func normalizeRelativeDirectory(value, field string) (string, error) {
 		return value, nil
 	}
 	if value == "" || value != strings.TrimSpace(value) || utf8.RuneCountInString(value) > 1024 || !utf8.ValidString(value) || strings.HasPrefix(value, "/") || strings.ContainsAny(value, "\\\x00\r\n") || path.Clean(value) != value {
-		return "", newConfigError("normalization", "invalid_relative_directory", []string{field}, "")
+		return "", newConfigError("normalization", "invalid_relative_directory", []string{field}, "must be a normalized relative directory using forward slashes, at most 1024 characters, without surrounding whitespace or control characters")
 	}
 	for _, segment := range strings.Split(value, "/") {
 		if segment == "" || segment == "." || segment == ".." {
-			return "", newConfigError("normalization", "invalid_relative_directory", []string{field}, "")
+			return "", newConfigError("normalization", "invalid_relative_directory", []string{field}, "must not contain empty, '.' or '..' path segments")
 		}
 	}
 	return value, nil

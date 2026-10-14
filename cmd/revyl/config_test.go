@@ -1,16 +1,57 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/config"
+	"github.com/spf13/cobra"
 )
+
+func TestConfigDiagnosticsPreserveWrappedCauses(t *testing.T) {
+	for _, tc := range []struct {
+		name, operation, code, class string
+		cause                        error
+	}{
+		{"backup", "replace project configuration after creating backup at .revyl/config.yaml.bak.20261013", "config_replace_failed", "config", os.ErrPermission},
+		{"git timeout", "revyl init requires an active Git worktree before it can write project files", "git_worktree_lookup_timed_out", "timeout", context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			compilerErr := &config.ConfigError{Stage: "read", Code: tc.code}
+			original := fmt.Errorf("%s: %w: %w", tc.operation, compilerErr, tc.cause)
+			err := actionableLocalConfigError(original)
+			if err.Error() != original.Error() || !errors.Is(err, compilerErr) || !errors.Is(err, tc.cause) {
+				t.Fatalf("lost wrapped context or cause: %v", err)
+			}
+			var captured analytics.TelemetryPayload
+			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) {
+				captured.Events = append(captured.Events, payload.Events...)
+			})
+			run := recorder.StartCommand(&cobra.Command{Use: "init"}, nil)
+			run.ObserveOutput("error", "unrelated output must not be captured")
+			run.Complete(err)
+			recorder.Flush()
+			if len(captured.Events) != 2 || captured.Events[1].Event != analytics.CliCommandFailedEvent {
+				t.Fatalf("expected start and failure, got %#v", captured.Events)
+			}
+			terminal := captured.Events[1].Properties
+			if terminal["error_message"] != original.Error() || terminal["failure_class"] != tc.class {
+				t.Fatalf("lost analytics context: %#v", terminal)
+			}
+			if _, ok := terminal["output_tail"]; ok {
+				t.Fatal("configuration diagnostic included output tail")
+			}
+		})
+	}
+}
 
 func TestConfigCommandOwnsOnlyCanonicalInspectionAndLifecycleCommands(t *testing.T) {
 	want := map[string]bool{
@@ -151,8 +192,8 @@ func TestConfigShowDirectsLegacyFilesToMigration(t *testing.T) {
 		t.Fatalf("runConfigShow() error = %v", err)
 	}
 	var configError *config.ConfigError
-	if errors.As(err, &configError) {
-		t.Fatalf("legacy compiler error leaked without actionable guidance: %v", err)
+	if !errors.As(err, &configError) {
+		t.Fatalf("legacy compiler cause was lost: %v", err)
 	}
 }
 
@@ -175,12 +216,12 @@ func TestActionableLocalConfigErrorProvidesRecoveryCommands(t *testing.T) {
 		{
 			name: "invalid field",
 			err:  &config.ConfigError{Stage: "contract", Code: "missing_field", Path: []string{"project", "id"}},
-			want: []string{"project.id", "revyl config path", "revyl config validate", "revyl init --force -y"},
+			want: []string{"Invalid configuration\n  .revyl/config.yaml\n\n  project.id is required"},
 		},
 		{
 			name: "invalid yaml source line",
 			err:  &config.ConfigError{Stage: "yaml_syntax", Code: "invalid_yaml", Line: 8, Column: 12},
-			want: []string{"line 8, column 12", "revyl config path", "revyl config validate"},
+			want: []string{"Invalid configuration", "line 8, column 12"},
 		},
 		{
 			name: "unknown build profile",
@@ -200,11 +241,14 @@ func TestActionableLocalConfigErrorProvidesRecoveryCommands(t *testing.T) {
 		{
 			name: "environment secret collision",
 			err:  &config.ConfigError{Stage: "normalization", Code: "environment_secret_collision", Path: []string{"build", "profiles", "development", "ios", "env", "TOKEN"}},
-			want: []string{`build variable "TOKEN"`, "both plaintext env and an encrypted secret", "build.profiles.development.ios.env.TOKEN", "revyl config validate"},
+			want: []string{"Invalid configuration", "both plaintext env and an encrypted secret", "build.profiles.development.ios.env.TOKEN"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recovery := actionableLocalConfigError(test.err)
+			if !errors.Is(recovery, test.err) {
+				t.Fatalf("formatted error lost compiler cause: %v", recovery)
+			}
 			for _, want := range test.want {
 				if !strings.Contains(recovery.Error(), want) {
 					t.Fatalf("actionableLocalConfigError() = %q, want %q", recovery, want)
@@ -239,11 +283,6 @@ func TestActionableLocalConfigErrorPreservesQuotedRecoveryCommands(t *testing.T)
 			name:     "legacy",
 			err:      &config.ConfigError{Stage: "classification", Code: "legacy_config_requires_migration"},
 			commands: [][]string{{"config", "migrate", "--check"}, {"config", "migrate"}},
-		},
-		{
-			name:     "invalid field",
-			err:      &config.ConfigError{Stage: "contract", Code: "missing_field", Path: []string{"project", "id"}},
-			commands: [][]string{{"config", "path"}, {"config", "validate"}, {"init", "--force", "-y"}},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

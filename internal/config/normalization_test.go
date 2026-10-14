@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -230,6 +231,21 @@ func TestSemanticContractErrorsPreserveFieldPaths(t *testing.T) {
 				t.Fatalf("error = %#v, want path %#v", configError, test.path)
 			}
 		})
+	}
+}
+
+func TestNormalizeAuthoredConfigPreservesContractReasonAndPath(t *testing.T) {
+	authored := AuthoredConfig{Project: AuthoredProject{ID: "not-a-uuid"}}
+	_, err := NormalizeAuthoredConfig(authored, CompilationContext{".", "."})
+	var configError *ConfigError
+	if !errorsAs(err, &configError) {
+		t.Fatalf("error = %T %v, want ConfigError", err, err)
+	}
+	if configError.Code != "invalid_contract" || !reflect.DeepEqual(configError.Path, []string{"project", "id"}) {
+		t.Fatalf("error = %#v, want project.id contract failure", configError)
+	}
+	if !strings.Contains(configError.Message, "must be a UUID") {
+		t.Fatalf("message = %q, want UUID constraint", configError.Message)
 	}
 }
 
@@ -618,17 +634,5 @@ func assertConfigError(t *testing.T, err error, stage, code string) {
 }
 
 func errorsAs(err error, target any) bool {
-	if err == nil {
-		return false
-	}
-	configError, ok := err.(*ConfigError)
-	if !ok {
-		return false
-	}
-	pointer, ok := target.(**ConfigError)
-	if !ok {
-		return false
-	}
-	*pointer = configError
-	return true
+	return errors.As(err, target)
 }

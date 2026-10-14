@@ -75,11 +75,11 @@ func ResolveProjectContext(cwd, changeDirectory string) (*ProjectContext, error)
 	}
 	authored, err := ParseAuthoredConfig(fileContext.OriginalBytes)
 	if err != nil {
-		return nil, err
+		return nil, &os.PathError{Op: "validate", Path: fileContext.ConfigPath, Err: err}
 	}
 	aggregate, err := NormalizeAuthoredConfig(*authored, fileContext.CompilationContext())
 	if err != nil {
-		return nil, err
+		return nil, &os.PathError{Op: "validate", Path: fileContext.ConfigPath, Err: err}
 	}
 	return &ProjectContext{
 		EffectiveDirectory:                   fileContext.EffectiveDirectory,
@@ -136,7 +136,7 @@ func ResolveConfigFileContext(cwd, changeDirectory string) (*ConfigFileContext, 
 	}
 	originalBytes, err := ReadConfigFile(configPath)
 	if err != nil {
-		return nil, err
+		return nil, &os.PathError{Op: "read", Path: configPath, Err: err}
 	}
 	return &ConfigFileContext{
 		EffectiveDirectory:                   effectiveDirectory,
@@ -159,8 +159,9 @@ func resolveGitWorktreeRoot(effectiveDirectory string) (string, error) {
 		code := "git_worktree_unavailable"
 		if errors.Is(lookupContext.Err(), context.DeadlineExceeded) {
 			code = "git_worktree_lookup_timed_out"
+			err = lookupContext.Err()
 		}
-		return "", newConfigError("read", code, nil, "")
+		return "", fmt.Errorf("%w: %w", newConfigError("read", code, nil, ""), err)
 	}
 	worktreeRoot := strings.TrimRight(string(output), "\r\n")
 	if worktreeRoot == "" {
@@ -168,10 +169,13 @@ func resolveGitWorktreeRoot(effectiveDirectory string) (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(worktreeRoot)
 	if err != nil {
-		return "", newConfigError("read", "git_worktree_unavailable", nil, "")
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "git_worktree_unavailable", nil, ""), err)
 	}
 	metadata, err := os.Stat(resolved)
-	if err != nil || !metadata.IsDir() {
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "git_worktree_unavailable", nil, ""), err)
+	}
+	if !metadata.IsDir() {
 		return "", newConfigError("read", "git_worktree_unavailable", nil, "")
 	}
 	if _, err := repositoryRelativePath(resolved, effectiveDirectory); err != nil {
@@ -182,7 +186,10 @@ func resolveGitWorktreeRoot(effectiveDirectory string) (string, error) {
 
 func repositoryRelativePath(worktreeRoot, candidate string) (string, error) {
 	relative, err := filepath.Rel(worktreeRoot, candidate)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "path_outside_git_worktree", nil, ""), err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", newConfigError("read", "path_outside_git_worktree", nil, "")
 	}
 	if relative == "." {
@@ -273,7 +280,7 @@ func writeConfigBackup(configPath string, content []byte, mode os.FileMode) (str
 			continue
 		}
 		if createErr != nil {
-			return "", newConfigError("write", "backup_create_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("write", "backup_create_failed", nil, ""), createErr)
 		}
 		complete := false
 		defer func() {
@@ -283,18 +290,18 @@ func writeConfigBackup(configPath string, content []byte, mode os.FileMode) (str
 		}()
 		if err := backup.Chmod(mode.Perm()); err != nil {
 			_ = backup.Close()
-			return "", newConfigError("write", "backup_write_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("write", "backup_write_failed", nil, ""), err)
 		}
 		if _, err := backup.Write(content); err != nil {
 			_ = backup.Close()
-			return "", newConfigError("write", "backup_write_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("write", "backup_write_failed", nil, ""), err)
 		}
 		if err := backup.Sync(); err != nil {
 			_ = backup.Close()
-			return "", newConfigError("write", "backup_write_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("write", "backup_write_failed", nil, ""), err)
 		}
 		if err := backup.Close(); err != nil {
-			return "", newConfigError("write", "backup_write_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("write", "backup_write_failed", nil, ""), err)
 		}
 		complete = true
 		return backupPath, nil
@@ -334,10 +341,13 @@ func CreateConfigIfAbsent(configPath string, content []byte, mode os.FileMode) e
 	}
 	directoryPath := filepath.Dir(configPath)
 	if err := os.MkdirAll(directoryPath, 0o755); err != nil {
-		return newConfigError("write", "config_directory_create_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_directory_create_failed", nil, ""), err)
 	}
 	directoryMetadata, err := os.Lstat(directoryPath)
-	if err != nil || !directoryMetadata.IsDir() || directoryMetadata.Mode()&os.ModeSymlink != 0 {
+	if err != nil {
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_directory_invalid", nil, ""), err)
+	}
+	if !directoryMetadata.IsDir() || directoryMetadata.Mode()&os.ModeSymlink != 0 {
 		return newConfigError("write", "config_directory_invalid", nil, "")
 	}
 	if mode.Perm() == 0 {
@@ -345,30 +355,30 @@ func CreateConfigIfAbsent(configPath string, content []byte, mode os.FileMode) e
 	}
 	temporary, err := os.CreateTemp(directoryPath, "."+filepath.Base(configPath)+".create-*")
 	if err != nil {
-		return newConfigError("write", "temporary_file_create_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "temporary_file_create_failed", nil, ""), err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(mode.Perm()); err != nil {
 		_ = temporary.Close()
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if _, err := temporary.Write(content); err != nil {
 		_ = temporary.Close()
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if err := temporary.Close(); err != nil {
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if err := os.Link(temporaryPath, configPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return newConfigError("write", "config_already_exists", nil, "")
+			return fmt.Errorf("%w: %w", newConfigError("write", "config_already_exists", nil, ""), err)
 		}
-		return newConfigError("write", "config_create_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_create_failed", nil, ""), err)
 	}
 	return nil
 }
@@ -391,24 +401,24 @@ func ReplaceConfigAtomically(configPath string, replacement, expectedCurrent []b
 	directoryPath := filepath.Dir(configPath)
 	temporary, err := os.CreateTemp(directoryPath, "."+filepath.Base(configPath)+".replace-*")
 	if err != nil {
-		return newConfigError("write", "temporary_file_create_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "temporary_file_create_failed", nil, ""), err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(metadata.Mode().Perm()); err != nil {
 		_ = temporary.Close()
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if _, err := temporary.Write(replacement); err != nil {
 		_ = temporary.Close()
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	if err := temporary.Close(); err != nil {
-		return newConfigError("write", "config_write_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_write_failed", nil, ""), err)
 	}
 	currentBytes, currentMetadata, err := readConfigFileAndMetadata(configPath)
 	if err != nil {
@@ -418,14 +428,17 @@ func ReplaceConfigAtomically(configPath string, replacement, expectedCurrent []b
 		return newConfigError("write", "config_changed_during_write", nil, "")
 	}
 	if err := replaceConfigFile(temporaryPath, configPath); err != nil {
-		return newConfigError("write", "config_replace_failed", nil, "")
+		return fmt.Errorf("%w: %w", newConfigError("write", "config_replace_failed", nil, ""), err)
 	}
 	return nil
 }
 
 func readConfigFileAndMetadata(configPath string) ([]byte, os.FileInfo, error) {
 	metadata, err := os.Lstat(configPath)
-	if err != nil || !metadata.Mode().IsRegular() || metadata.Mode()&os.ModeSymlink != 0 {
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", newConfigError("read", "config_not_regular_file", nil, ""), err)
+	}
+	if !metadata.Mode().IsRegular() || metadata.Mode()&os.ModeSymlink != 0 {
 		return nil, nil, newConfigError("read", "config_not_regular_file", nil, "")
 	}
 	data, err := ReadConfigFile(configPath)
@@ -433,7 +446,10 @@ func readConfigFileAndMetadata(configPath string) ([]byte, os.FileInfo, error) {
 		return nil, nil, err
 	}
 	currentMetadata, err := os.Lstat(configPath)
-	if err != nil || !os.SameFile(metadata, currentMetadata) {
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", newConfigError("read", "config_changed_during_read", nil, ""), err)
+	}
+	if !os.SameFile(metadata, currentMetadata) {
 		return nil, nil, newConfigError("read", "config_changed_during_read", nil, "")
 	}
 	return data, currentMetadata, nil

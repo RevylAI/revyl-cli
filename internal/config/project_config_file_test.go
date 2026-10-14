@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,55 @@ import (
 )
 
 const projectFileTestProjectID = "11111111-1111-4111-8111-111111111111"
+
+func TestConfigFilesystemFailuresPreserveCause(t *testing.T) {
+	configPath := writeProjectFileTestConfig(t, t.TempDir(), projectFileTestConfig(projectFileTestProjectID, "demo"), 0o600)
+	for _, tc := range []struct {
+		name, code string
+		cause      error
+		fail       func() error
+	}{
+		{"read missing file", "config_read_failed", os.ErrNotExist, func() error {
+			_, err := ReadConfigFile(configPath + ".missing")
+			return err
+		}},
+		{"replace missing file", "config_not_regular_file", os.ErrNotExist, func() error {
+			return ReplaceConfigAtomically(configPath+".missing", []byte(projectFileTestConfig(projectFileTestProjectID, "demo")), nil)
+		}},
+		{"create existing file", "config_already_exists", os.ErrExist, func() error {
+			return CreateConfigIfAbsent(configPath, []byte(projectFileTestConfig(projectFileTestProjectID, "demo")), 0o600)
+		}},
+		{"backup missing directory", "backup_create_failed", os.ErrNotExist, func() error {
+			_, err := writeConfigBackup(filepath.Join(filepath.Dir(configPath), "missing", "config.yaml"), nil, 0o600)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.fail()
+			var configErr *ConfigError
+			if !errors.As(err, &configErr) || configErr.Code != tc.code || !errors.Is(err, tc.cause) {
+				t.Fatalf("lost typed cause: %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.code) {
+				t.Fatalf("lost operation code: %v", err)
+			}
+			var pathErr *os.PathError
+			var linkErr *os.LinkError
+			switch {
+			case errors.As(err, &pathErr):
+				if !strings.Contains(err.Error(), pathErr.Error()) {
+					t.Fatalf("lost filesystem diagnostic: %v", err)
+				}
+			case errors.As(err, &linkErr):
+				if !strings.Contains(err.Error(), linkErr.Error()) {
+					t.Fatalf("lost filesystem diagnostic: %v", err)
+				}
+			default:
+				t.Fatalf("lost filesystem error: %v", err)
+			}
+		})
+	}
+}
 
 func TestResolveProjectContextUsesChangeDirectoryAndNearestConfig(t *testing.T) {
 	worktreeRoot := t.TempDir()

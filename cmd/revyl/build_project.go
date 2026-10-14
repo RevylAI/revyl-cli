@@ -113,10 +113,10 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 			if remoteExecution {
 				returnErr = fmt.Errorf("%w\n\n'revyl build' runs in the cloud by default. To build on this machine instead, use 'revyl build --local' with your local toolchain. Local builds still require authentication and upload the artifact.", returnErr)
 			}
-			// Selection errors, authored commands, and build output can all carry
-			// customer data. Preserve the original user-facing error while keeping
-			// the centralized failure event deliberately generic.
-			returnErr = analytics.WithSafeDiagnostic(returnErr, "build command failed")
+			var diagnostic *analytics.SafeDiagnosticError
+			if !errors.As(returnErr, &diagnostic) {
+				returnErr = analytics.WithSafeDiagnostic(returnErr, "build command failed")
+			}
 		}
 	}()
 
@@ -166,10 +166,10 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 func actionableBuildConfigError(err error) error {
 	var configError *config.ConfigError
 	if errors.As(err, &configError) && configError.Code == "config_not_found" {
-		return analytics.WithSafeDiagnostic(
-			errors.New("no .revyl/config.yaml applies to the current directory; run this command from the app root or pass '-C <app-root>'. To configure a new project, run 'revyl init'"),
-			projectConfigurationDiagnostic(err),
-		)
+		return withConfigDiagnostic(&configDiagnosticError{
+			cause:   err,
+			message: "no .revyl/config.yaml applies to the current directory; run this command from the app root or pass '-C <app-root>'. To configure a new project, run 'revyl init'",
+		})
 	}
 	return actionableLocalConfigError(err)
 }

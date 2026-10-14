@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	pathpkg "path"
@@ -75,10 +76,14 @@ type ConfigError struct {
 }
 
 func (e *ConfigError) Error() string {
-	if e.Message != "" {
-		return e.Message
+	message := e.Message
+	if message == "" {
+		message = e.Stage + ": " + e.Code
 	}
-	return e.Stage + ": " + e.Code
+	if len(e.Path) > 0 {
+		message = strings.Join(e.Path, ".") + ": " + message
+	}
+	return message
 }
 
 func newConfigError(stage, code string, path []string, message string) *ConfigError {
@@ -96,7 +101,7 @@ func newLocatedConfigError(stage, code string, path []string, message string, li
 }
 
 func yamlDecodeConfigError(err error) *ConfigError {
-	located := newConfigError("yaml_syntax", "invalid_yaml", nil, "")
+	located := newConfigError("yaml_syntax", "invalid_yaml", nil, err.Error())
 	if match := yamlErrorLine.FindStringSubmatch(err.Error()); len(match) == 2 {
 		located.Line, _ = strconv.Atoi(match[1])
 	}
@@ -167,7 +172,7 @@ func loadSingleYAMLMappingNode(data []byte) (*yaml.Node, error) {
 
 func validateYAMLNode(node *yaml.Node) error {
 	if node.Alias != nil || node.Anchor != "" || node.Style&yaml.TaggedStyle != 0 {
-		return newLocatedConfigError("yaml_syntax", "unsupported_yaml_structure", nil, "", node.Line, node.Column)
+		return newLocatedConfigError("yaml_syntax", "unsupported_yaml_structure", nil, "YAML aliases, anchors, and explicit tags are not supported", node.Line, node.Column)
 	}
 	switch node.Kind {
 	case yaml.ScalarNode:
@@ -193,10 +198,10 @@ func validateYAMLNode(node *yaml.Node) error {
 		for index := 0; index < len(node.Content); index += 2 {
 			key := node.Content[index]
 			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
-				return newLocatedConfigError("yaml_syntax", "invalid_mapping_key", nil, "", key.Line, key.Column)
+				return newLocatedConfigError("yaml_syntax", "invalid_mapping_key", nil, "mapping keys must be strings", key.Line, key.Column)
 			}
 			if _, exists := seen[key.Value]; exists {
-				return newLocatedConfigError("yaml_syntax", "duplicate_mapping_key", nil, "", key.Line, key.Column)
+				return newLocatedConfigError("yaml_syntax", "duplicate_mapping_key", nil, fmt.Sprintf("mapping key %q is declared more than once", key.Value), key.Line, key.Column)
 			}
 			seen[key.Value] = struct{}{}
 		}
@@ -247,7 +252,7 @@ func validateLegacyMigrationYAMLNode(node *yaml.Node) error {
 				return newLocatedConfigError("yaml_syntax", "invalid_mapping_key", nil, "", key.Line, key.Column)
 			}
 			if _, exists := seen[key.Value]; exists {
-				return newLocatedConfigError("yaml_syntax", "duplicate_mapping_key", nil, "", key.Line, key.Column)
+				return newLocatedConfigError("yaml_syntax", "duplicate_mapping_key", nil, fmt.Sprintf("mapping key %q is declared more than once", key.Value), key.Line, key.Column)
 			}
 			seen[key.Value] = struct{}{}
 		}
@@ -464,7 +469,7 @@ func validateReviewKeys(review *yaml.Node) error {
 			}
 			kind := scalarValue(mappingValue(harness, "kind"))
 			if mappingValue(harness, "kind") == nil {
-				return newConfigError("contract", "invalid_contract", append(proofPath, "harness"), "")
+				return newConfigError("contract", "invalid_contract", append(proofPath, "harness"), "harness.kind is required")
 			}
 			if err := validateAllowedKeys(harness, append(proofPath, "harness", kind), "kind", "model_id"); err != nil {
 				return err
@@ -550,18 +555,18 @@ func validateSecondsNode(node *yaml.Node, path []string) error {
 		return nil
 	}
 	if node.Kind != yaml.ScalarNode || node.Tag != "!!int" {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, "must be an integer number of seconds")
 	}
 	value, err := strconv.ParseInt(node.Value, 10, 64)
 	if err != nil || value <= 0 || value > maxDatabaseInteger {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, fmt.Sprintf("must be between 1 and %d seconds", maxDatabaseInteger))
 	}
 	return nil
 }
 
 func validateBooleanNode(node *yaml.Node, path []string) error {
 	if node != nil && (node.Kind != yaml.ScalarNode || node.Tag != "!!bool") {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, "must be a boolean (true or false)")
 	}
 	return nil
 }
@@ -571,7 +576,7 @@ func validateMappingNode(node *yaml.Node, path []string, nullable bool) error {
 		return nil
 	}
 	if node.Kind != yaml.MappingNode {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, "must be a YAML mapping")
 	}
 	return nil
 }
@@ -581,7 +586,7 @@ func validateSequenceNode(node *yaml.Node, path []string) error {
 		return nil
 	}
 	if node.Kind != yaml.SequenceNode {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, "must be a YAML sequence")
 	}
 	return nil
 }
@@ -591,7 +596,7 @@ func validateStringNode(node *yaml.Node, path []string, nullable bool) error {
 		return nil
 	}
 	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, "must be a string")
 	}
 	return nil
 }
@@ -605,7 +610,7 @@ func validateEnumStringNode(node *yaml.Node, path []string, allowed ...string) e
 			return nil
 		}
 	}
-	return newConfigError("contract", "invalid_contract", path, "")
+	return newConfigError("contract", "invalid_contract", path, "must be one of: "+strings.Join(allowed, ", "))
 }
 
 func validateStringSequence(node *yaml.Node, path []string) error {
@@ -724,7 +729,7 @@ func decodeAuthoredConfig(data []byte) (*AuthoredConfig, error) {
 				path = []string{match[1]}
 			}
 		}
-		return nil, newConfigError("contract", code, path, "")
+		return nil, newConfigError("contract", code, path, err.Error())
 	}
 	if err := canonicalizeAuthoredConfigUUIDs(&authored); err != nil {
 		return nil, err
@@ -746,7 +751,7 @@ func decodeAuthoredConfig(data []byte) (*AuthoredConfig, error) {
 				path = []string{"build", "profiles", profileName}
 			}
 		}
-		return nil, newConfigError("contract", code, path, "")
+		return nil, newConfigError("contract", code, path, err.Error())
 	}
 	return &authored, nil
 }
@@ -813,7 +818,7 @@ func canonicalizeAuthoredConfigUUIDs(authored *AuthoredConfig) error {
 func canonicalUUID(value string, path []string) (string, error) {
 	parsed, err := uuid.Parse(value)
 	if err != nil {
-		return "", newConfigError("contract", "invalid_contract", path, "")
+		return "", newConfigError("contract", "invalid_contract", path, "must be a UUID")
 	}
 	return parsed.String(), nil
 }
@@ -1500,14 +1505,17 @@ func ResolveEffectiveDirectory(cwd, changeDirectory string) (string, error) {
 	}
 	abs, err := filepath.Abs(candidate)
 	if err != nil {
-		return "", newConfigError("read", "effective_directory_unavailable", nil, "")
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "effective_directory_unavailable", nil, ""), err)
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return "", newConfigError("read", "effective_directory_unavailable", nil, "")
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "effective_directory_unavailable", nil, ""), err)
 	}
 	metadata, err := os.Stat(resolved)
-	if err != nil || !metadata.IsDir() {
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "effective_directory_not_directory", nil, ""), err)
+	}
+	if !metadata.IsDir() {
 		return "", newConfigError("read", "effective_directory_not_directory", nil, "")
 	}
 	return resolved, nil
@@ -1517,14 +1525,17 @@ func ResolveEffectiveDirectory(cwd, changeDirectory string) (string, error) {
 func DiscoverConfigPath(effectiveDirectory, worktreeRoot string) (string, error) {
 	effective, err := filepath.EvalSymlinks(effectiveDirectory)
 	if err != nil {
-		return "", newConfigError("read", "effective_directory_unavailable", nil, "")
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "effective_directory_unavailable", nil, ""), err)
 	}
 	root, err := filepath.EvalSymlinks(worktreeRoot)
 	if err != nil {
-		return "", newConfigError("read", "worktree_root_unavailable", nil, "")
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "worktree_root_unavailable", nil, ""), err)
 	}
 	relative, err := filepath.Rel(root, effective)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "effective_directory_outside_worktree", nil, ""), err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", newConfigError("read", "effective_directory_outside_worktree", nil, "")
 	}
 	current := effective
@@ -1535,7 +1546,7 @@ func DiscoverConfigPath(effectiveDirectory, worktreeRoot string) (string, error)
 			return "", newConfigError("read", "config_not_regular_file", nil, "")
 		}
 		if directoryErr != nil && !errors.Is(directoryErr, os.ErrNotExist) {
-			return "", newConfigError("read", "config_read_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), directoryErr)
 		}
 		candidate := filepath.Join(configDirectory, "config.yaml")
 		metadata, statErr := os.Lstat(candidate)
@@ -1549,7 +1560,7 @@ func DiscoverConfigPath(effectiveDirectory, worktreeRoot string) (string, error)
 			return candidate, nil
 		}
 		if !errors.Is(statErr, os.ErrNotExist) {
-			return "", newConfigError("read", "config_read_failed", nil, "")
+			return "", fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), statErr)
 		}
 		if current == root {
 			break
@@ -1563,36 +1574,39 @@ func ReadConfigFile(configPath string) ([]byte, error) {
 	directoryPath := filepath.Dir(configPath)
 	directoryMetadata, err := os.Lstat(directoryPath)
 	if err != nil {
-		return nil, newConfigError("read", "config_read_failed", nil, "")
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), err)
 	}
 	if !directoryMetadata.IsDir() || directoryMetadata.Mode()&os.ModeSymlink != 0 {
 		return nil, newConfigError("read", "config_not_regular_file", nil, "")
 	}
 	directory, err := os.OpenRoot(directoryPath)
 	if err != nil {
-		return nil, newConfigError("read", "config_read_failed", nil, "")
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), err)
 	}
 	defer directory.Close()
 	openedDirectoryMetadata, err := directory.Stat(".")
-	if err != nil || !os.SameFile(directoryMetadata, openedDirectoryMetadata) {
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_not_regular_file", nil, ""), err)
+	}
+	if !os.SameFile(directoryMetadata, openedDirectoryMetadata) {
 		return nil, newConfigError("read", "config_not_regular_file", nil, "")
 	}
 	name := filepath.Base(configPath)
 	metadata, err := directory.Lstat(name)
 	if err != nil {
-		return nil, newConfigError("read", "config_read_failed", nil, "")
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), err)
 	}
 	if !metadata.Mode().IsRegular() || metadata.Mode()&os.ModeSymlink != 0 {
 		return nil, newConfigError("read", "config_not_regular_file", nil, "")
 	}
 	file, err := directory.Open(name)
 	if err != nil {
-		return nil, newConfigError("read", "config_read_failed", nil, "")
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), err)
 	}
 	defer file.Close()
 	openedMetadata, err := file.Stat()
 	if err != nil {
-		return nil, newConfigError("read", "config_read_failed", nil, "")
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), err)
 	}
 	if !openedMetadata.Mode().IsRegular() || !os.SameFile(metadata, openedMetadata) {
 		return nil, newConfigError("read", "config_not_regular_file", nil, "")
@@ -1602,7 +1616,7 @@ func ReadConfigFile(configPath string) ([]byte, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(file, MaxConfigBytes+1))
 	if err != nil {
-		return nil, newConfigError("read", "config_read_failed", nil, "")
+		return nil, fmt.Errorf("%w: %w", newConfigError("read", "config_read_failed", nil, ""), err)
 	}
 	if len(data) > MaxConfigBytes {
 		return nil, newConfigError("read", "config_too_large", nil, "")

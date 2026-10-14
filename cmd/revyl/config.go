@@ -101,19 +101,23 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 	return err
 }
 
-func actionableLocalConfigError(err error) error {
-	return analytics.WithSafeDiagnostic(actionableLocalConfigMessage(err), projectConfigurationDiagnostic(err))
+type configDiagnosticError struct {
+	cause   error
+	message string
 }
 
-// projectConfigurationDiagnostic keeps the bounded compiler code in analytics
-// so fleet failures stay classifiable; paths and messages can hold
-// customer-authored names and stay out.
-func projectConfigurationDiagnostic(err error) string {
-	var configError *config.ConfigError
-	if !errors.As(err, &configError) {
-		return "project configuration could not be used"
+func (e *configDiagnosticError) Error() string { return e.message }
+func (e *configDiagnosticError) Unwrap() error { return e.cause }
+
+func withConfigDiagnostic(err error) error {
+	if err == nil {
+		return nil
 	}
-	return fmt.Sprintf("project configuration could not be used (%s)", configError.Code)
+	return analytics.WithSafeDiagnostic(err, err.Error())
+}
+
+func actionableLocalConfigError(err error) error {
+	return withConfigDiagnostic(actionableLocalConfigMessage(err))
 }
 
 func actionableLocalConfigMessage(err error) error {
@@ -121,10 +125,21 @@ func actionableLocalConfigMessage(err error) error {
 	if !errors.As(err, &configError) {
 		return err
 	}
-	return analytics.WithFailureClass(localConfigRecoveryError(configError), analytics.FailureClassConfig)
+	configFilePath := ""
+	switch original := err.(type) {
+	case *config.ConfigError:
+	case *os.PathError:
+		if original.Err != configError {
+			return err
+		}
+		configFilePath = original.Path
+	default:
+		return err
+	}
+	return &configDiagnosticError{cause: err, message: localConfigRecoveryError(configError, configFilePath).Error()}
 }
 
-func localConfigRecoveryError(configError *config.ConfigError) error {
+func localConfigRecoveryError(configError *config.ConfigError, configFilePath string) error {
 	field := ""
 	if len(configError.Path) > 0 {
 		field = fmt.Sprintf(" at %s", strings.Join(configError.Path, "."))
@@ -132,6 +147,9 @@ func localConfigRecoveryError(configError *config.ConfigError) error {
 		field = fmt.Sprintf(" at line %d, column %d", configError.Line, configError.Column)
 	} else if configError.Line > 0 {
 		field = fmt.Sprintf(" at line %d", configError.Line)
+	}
+	if configError.Message != "" {
+		field += ": " + configError.Message
 	}
 	migrateCheck := cliRecoveryCommand("config", "migrate", "--check")
 	migrate := cliRecoveryCommand("config", "migrate")
@@ -141,10 +159,16 @@ func localConfigRecoveryError(configError *config.ConfigError) error {
 	validate := cliRecoveryCommand("config", "validate")
 	configPath := cliRecoveryCommand("config", "path")
 	configShow := cliRecoveryCommand("config", "show")
+	configFile := ".revyl/config.yaml"
+	locateConfig := fmt.Sprintf("run `%s` to locate it, ", configPath)
+	if configFilePath != "" {
+		configFile = fmt.Sprintf("%q", configFilePath)
+		locateConfig = ""
+	}
 	doctor := cliRecoveryCommand("doctor")
 	switch configError.Code {
 	case "legacy_config_requires_migration", "mixed_config_formats":
-		return fmt.Errorf("local configuration uses a legacy format; run `%s` to preview the conversion, then run `%s`", migrateCheck, migrate)
+		return fmt.Errorf("%s uses a legacy format; run `%s` to preview the conversion, then run `%s`", configFile, migrateCheck, migrate)
 	case "config_not_found":
 		if recovery := nestedProjectConfigRecovery(); recovery != "" {
 			return errors.New(recovery)
@@ -155,21 +179,21 @@ func localConfigRecoveryError(configError *config.ConfigError) error {
 	case "effective_directory_unavailable", "effective_directory_not_directory":
 		return fmt.Errorf("the selected project directory is unavailable; pass '-C <project-dir>' with an existing directory, then run %q", validate)
 	case "config_not_regular_file":
-		return fmt.Errorf(".revyl/config.yaml is not a regular file; move the conflicting path aside, then run %q to restore it or %q to create it", pull, initialize)
+		return fmt.Errorf("%s is not a regular file; move the conflicting path aside, then run %q to restore it or %q to create it", configFile, pull, initialize)
 	case "config_too_large", "normalized_config_too_large", "canonical_config_too_large":
-		return fmt.Errorf(".revyl/config.yaml is too large to load%s; reduce it below the supported limit, then run %q; to replace it, back it up and run %q", field, validate, forceInitialize)
+		return invalidLocalConfigError(configError, configFilePath, "configuration exceeds the supported size limit")
 	case "invalid_utf8":
-		return fmt.Errorf(".revyl/config.yaml is not valid UTF-8; run %q to locate it, re-save it as UTF-8, then run %q", configPath, validate)
+		return invalidLocalConfigError(configError, configFilePath, "configuration must be encoded as UTF-8")
 	case "invalid_yaml", "single_mapping_document_required", "unsupported_yaml_structure", "invalid_mapping_key", "duplicate_mapping_key":
-		return fmt.Errorf(".revyl/config.yaml is not a supported single YAML mapping%s; run %q to locate and repair it, then run %q; to replace it, back it up and run %q", field, configPath, validate, forceInitialize)
+		return invalidLocalConfigError(configError, configFilePath, "configuration must be a supported single YAML mapping")
 	case "unknown_field":
-		return fmt.Errorf(".revyl/config.yaml contains an unsupported field%s; run %q to locate it, remove that field, then run %q", field, configPath, validate)
+		return invalidLocalConfigError(configError, configFilePath, "is not a supported field")
 	case "missing_field":
-		return fmt.Errorf(".revyl/config.yaml is missing a required field%s; run `%s` to locate it, add that field, then run `%s`; to replace the file, back it up and run `%s`", field, configPath, validate, forceInitialize)
+		return invalidLocalConfigError(configError, configFilePath, "is required")
 	case "invalid_contract":
-		return fmt.Errorf(".revyl/config.yaml contains an invalid value%s; run `%s` to locate it, correct that field, then run `%s`; to replace the file, back it up and run `%s`", field, configPath, validate, forceInitialize)
+		return invalidLocalConfigError(configError, configFilePath, "contains an invalid value")
 	case "config_changed_during_read", "config_changed_before_write", "config_changed_during_write", "test_alias_destination_changed":
-		return fmt.Errorf(".revyl/config.yaml changed while Revyl was using it; wait for the other writer to finish, then run %q and retry the command", validate)
+		return fmt.Errorf("%s changed while Revyl was using it; wait for the other writer to finish, then run %q and retry the command", configFile, validate)
 	case "test_alias_directory_conflict":
 		return fmt.Errorf(".revyl/tests conflicts with the directory required for migrated test aliases; move the conflicting path aside, then run %q and retry %q", migrateCheck, migrate)
 	case "test_alias_directory_unreadable", "test_alias_directory_create_failed":
@@ -192,26 +216,45 @@ func localConfigRecoveryError(configError *config.ConfigError) error {
 		profile, platform := trailingConfigErrorPathSegments(configError.Path)
 		return fmt.Errorf("build profile %q does not configure platform %q; run %q to list configured recipes, then retry with a supported '--profile' and '--platform' pair", profile, platform, configShow)
 	case "environment_secret_collision":
-		name := lastConfigErrorPathSegment(configError.Path)
-		return fmt.Errorf("build variable %q is declared as both plaintext env and an encrypted secret%s; remove one declaration, then run %q", name, field, validate)
+		return invalidLocalConfigError(configError, configFilePath, "is declared as both plaintext env and an encrypted secret")
 	case "recipe_not_runnable":
-		return fmt.Errorf("the selected build recipe is not runnable%s; add build commands in .revyl/config.yaml, then run %q", field, validate)
+		return invalidLocalConfigError(configError, configFilePath, "must include runnable build commands")
 	}
 
 	switch configError.Stage {
 	case "yaml_syntax", "classification", "contract", "normalization", "validation":
-		return fmt.Errorf(".revyl/config.yaml is invalid%s; run %q to locate it, fix the reported field, then run %q; to replace it, back it up and run %q", field, configPath, validate, forceInitialize)
+		return invalidLocalConfigError(configError, configFilePath, configError.Code)
 	case "read":
-		return fmt.Errorf(".revyl/config.yaml could not be read%s; run %q to locate it, make it a readable regular file, then run %q", field, configPath, validate)
+		return fmt.Errorf("%s: %w", configFile, configError)
 	case "write":
-		return fmt.Errorf(".revyl/config.yaml could not be updated%s; make the file and its .revyl directory writable, then run %q and retry the command", field, validate)
+		return fmt.Errorf("%s: %w", configFile, configError)
 	case "selection":
 		return fmt.Errorf("the project configuration is ambiguous%s; run %q, then retry with '--profile <name>' and '--platform ios|android'", field, configShow)
 	case "legacy_translation":
-		return fmt.Errorf("the legacy configuration could not be migrated%s; run %q to inspect the conversion, then retry %q", field, migrateCheck, migrate)
+		return fmt.Errorf("%w; run %q to inspect the conversion, then retry %q", configError, migrateCheck, migrate)
 	default:
-		return fmt.Errorf("the project configuration could not be used%s; run %q to locate and back it up, then run %q and %q", field, configPath, forceInitialize, validate)
+		return fmt.Errorf("%s could not be used%s; %sback it up, then run %q and %q", configFile, field, locateConfig, forceInitialize, validate)
 	}
+}
+
+func invalidLocalConfigError(configError *config.ConfigError, configFilePath, fallback string) error {
+	if configFilePath == "" {
+		configFilePath = ".revyl/config.yaml"
+	}
+	detail := configError.Message
+	if detail == "" {
+		detail = fallback
+	}
+	if field := strings.Join(configError.Path, "."); field != "" {
+		detail = field + " " + strings.TrimPrefix(detail, field+" ")
+	} else if configError.Line > 0 {
+		location := fmt.Sprintf("line %d", configError.Line)
+		if configError.Column > 0 {
+			location += fmt.Sprintf(", column %d", configError.Column)
+		}
+		detail = location + ": " + detail
+	}
+	return fmt.Errorf("Invalid configuration\n  %s\n\n  %s", configFilePath, strings.ReplaceAll(detail, "\n", "\n  "))
 }
 
 func lastConfigErrorPathSegment(path []string) string {

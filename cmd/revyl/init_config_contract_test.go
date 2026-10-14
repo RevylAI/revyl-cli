@@ -141,6 +141,29 @@ func TestRunInitRejectsInvalidExplicitProjectID(t *testing.T) {
 	}
 }
 
+func TestInitConfigWriteFailureRetainsFilePath(t *testing.T) {
+	previousState := activeInitConfigWriteState
+	activeInitConfigWriteState = &initConfigWriteState{}
+	t.Cleanup(func() { activeInitConfigWriteState = previousState })
+	configPath := filepath.Join(t.TempDir(), ".revyl", "config.yaml")
+	draft := &initConfigDraft{Project: initProjectDraft{ID: "not-a-uuid"}}
+	err := writeInitProjectConfig(configPath, draft)
+	if err == nil {
+		t.Fatal("expected invalid generated configuration to fail")
+	}
+	for _, failure := range []error{err, currentInitConfigWriteError(), writeInitProjectConfig(configPath, draft)} {
+		if failure == nil {
+			t.Fatal("expected init to retain the write failure")
+		}
+		message := actionableLocalConfigMessage(failure).Error()
+		for _, want := range []string{configPath, "project.id", "must be a UUID"} {
+			if !strings.Contains(message, want) {
+				t.Fatalf("error = %q, want %q", message, want)
+			}
+		}
+	}
+}
+
 func TestAuthoredConfigFromInitDraftBuildsCanonicalProfilesDirectly(t *testing.T) {
 	draft := &initConfigDraft{
 		Project: initProjectDraft{ID: uuid.NewString()},

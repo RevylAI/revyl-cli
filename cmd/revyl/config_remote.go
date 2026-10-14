@@ -50,10 +50,7 @@ var configValidateCmd = &cobra.Command{
 	Short: "Validate the complete project configuration",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return analytics.WithSafeDiagnostic(
-			runConfigValidate(cmd, args),
-			"project configuration validation failed",
-		)
+		return withConfigDiagnostic(runConfigValidate(cmd, args))
 	},
 }
 
@@ -62,10 +59,7 @@ var configPushCmd = &cobra.Command{
 	Short: "Publish the complete project configuration",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return analytics.WithSafeDiagnostic(
-			runConfigPush(cmd, args),
-			"project configuration publication failed",
-		)
+		return withConfigDiagnostic(runConfigPush(cmd, args))
 	},
 }
 
@@ -79,10 +73,7 @@ This records server-owned launch authority only. It does not edit or publish
 enabled Cursor proof and the caller's live Cursor catalog includes the repository.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return analytics.WithSafeDiagnostic(
-			runConfigAuthorizeCursorProof(cmd, args),
-			"project Cursor proof authorization failed",
-		)
+		return withConfigDiagnostic(runConfigAuthorizeCursorProof(cmd, args))
 	},
 }
 
@@ -96,10 +87,7 @@ var configPullCmd = &cobra.Command{
 	Short: "Pull the project configuration",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return analytics.WithSafeDiagnostic(
-			runConfigPull(cmd, args),
-			"project configuration pull failed",
-		)
+		return withConfigDiagnostic(runConfigPull(cmd, args))
 	},
 }
 
@@ -291,7 +279,7 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 		publicationCompilationContext(local),
 	)
 	if err != nil {
-		return actionableLocalConfigError(err)
+		return actionableLocalConfigError(&os.PathError{Op: "validate", Path: local.ConfigPath, Err: err})
 	}
 	output := projectConfigurationValidationOutput{
 		Status:                            "valid",
@@ -628,7 +616,25 @@ func actionableProjectConfigurationAPIError(
 	err error,
 	retryCommand string,
 	localContexts ...*config.ProjectContext,
-) error {
+) (result error) {
+	defer func() {
+		if result == nil || result == err {
+			return
+		}
+		message := result.Error()
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) {
+			diagnostic := projectConfigurationValidationDetail(apiErr.Error())
+			if diagnostic != "" && !strings.Contains(message, diagnostic) {
+				if detail := projectConfigurationValidationDetail(apiErr.Detail); detail != "" && strings.Contains(message, detail) {
+					message = strings.Replace(message, detail, diagnostic, 1)
+				} else {
+					message = diagnostic + "\n\n" + message
+				}
+			}
+		}
+		result = &configDiagnosticError{cause: err, message: message}
+	}()
 	authLogin := cliRecoveryCommand("auth", "login")
 	authStatus := cliRecoveryCommand("auth", "status")
 	githubStatus := cliRecoveryCommand("github", "status")

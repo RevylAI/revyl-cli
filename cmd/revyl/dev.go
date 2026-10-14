@@ -450,7 +450,10 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			if errors.As(returnErr, &completedErr) {
 				returnErr = analytics.CompletedWithExitCode(returnErr, completion)
 			}
-			returnErr = analytics.WithSafeDiagnostic(returnErr, "dev command failed")
+			var diagnostic *analytics.SafeDiagnosticError
+			if !errors.As(returnErr, &diagnostic) {
+				returnErr = analytics.WithSafeDiagnostic(returnErr, "dev command failed")
+			}
 		}
 	}()
 	if len(args) > 0 {

@@ -297,7 +297,7 @@ func validateBuildStepMappingNode(node *yaml.Node, path []string) error {
 		stepKeys = append(stepKeys, key)
 	}
 	if len(stepKeys) != 1 {
-		return newConfigError("contract", "invalid_contract", path, "")
+		return newConfigError("contract", "invalid_contract", path, "must contain exactly one run or typed build step key, plus an optional name")
 	}
 	stepKey := stepKeys[0]
 	stepPath := append(append([]string{}, path...), stepKey)
@@ -355,7 +355,7 @@ func validateTypedBuildStepInputs(node *yaml.Node, path []string, spec typedBuil
 			entry := value.Content[index+1]
 			entryPath := append(append([]string{}, valuePath...), value.Content[index].Value)
 			if entry.Kind != yaml.ScalarNode || (entry.Tag != "!!str" && entry.Tag != "!!bool") {
-				return newConfigError("contract", "invalid_contract", entryPath, "")
+				return newConfigError("contract", "invalid_contract", entryPath, "must be a string or boolean")
 			}
 		}
 	}

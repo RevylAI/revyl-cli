@@ -137,10 +137,7 @@ or otherwise mutates server state.`,
 			if err != nil {
 				recordConfigMigrationFailure(cmd, err)
 			}
-			return analytics.WithSafeDiagnostic(
-				err,
-				"project configuration migration failed",
-			)
+			return withConfigDiagnostic(err)
 		},
 	}
 	command.Flags().StringVar(
@@ -1212,7 +1209,7 @@ func prepareConfigMigrationFromDiskWithLookups(
 		if errors.As(err, &appRequired) || errors.As(err, &workflowRequired) {
 			return preparedLocalConfigMigration{}, err
 		}
-		return preparedLocalConfigMigration{}, actionableLocalConfigError(err)
+		return preparedLocalConfigMigration{}, actionableLocalConfigError(&os.PathError{Op: "migrate", Path: local.ConfigPath, Err: err})
 	}
 	aliasPlan, err := config.PlanLegacyConfigTestAliases(local.ConfigPath, result.TestAliases)
 	if err != nil {
