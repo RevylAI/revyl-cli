@@ -10,7 +10,11 @@ Use this rule when the user asks to run, change, preview, debug, screenshot, or
 verify a mobile app on a Revyl device.
 
 Drive devices with the Revyl CLI. Load `revyl-cli-dev-loop` for the device loop.
-The plugin does not start MCP. Use shell CLI commands as the default path.
+Use shell CLI commands as the default path.
+
+The plugin's `revyl-workspace` MCP tools show an app's Atlas map or a live device session
+inside the chat and list apps and sessions. Use them when the user asks to see
+one of those. They do not build or run the app's source.
 
 Share the viewer immediately, distinguish device readiness from build success,
 verify through screenshots and semantic validation, and stop owned sessions

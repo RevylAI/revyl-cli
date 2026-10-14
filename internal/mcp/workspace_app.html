@@ -47,6 +47,12 @@ const sessionUnavailableMessage = "revyl-workspace-session-unavailable";
 const sessionTicketTool = "create_revyl_workspace_session_ticket";
 const sessionTicketMetaKey = "revyl/workspaceSessionTicket";
 const sessionTicketResultKind = "workspace_session_ticket";
+// A host may ask the person to approve the ticket call before making it, as
+// Cursor does the first time, so the wait covers a person answering.
+const sessionTicketTimeoutMs = 60000;
+// Inline, a host sizes the frame to this page, which would otherwise measure
+// as whatever height the host started the frame at.
+const inlineHeight = 720;
 // A server that signs its own callers in turns this on when it serves the page.
 const sessionTicketsOffered = false;
 let initialized = false;
@@ -59,6 +65,9 @@ let hostTheme = null;
 let framedPageReady = false;
 const framedLinks = new Map();
 let pendingSessionTicket = null;
+let hostDisplayMode = null;
+let hostDimensions = null;
+let sentHeight = null;
 let resultTimer = null;
 let toolCallUnderway = false;
 function send(message) { window.parent.postMessage(message, "*"); }
@@ -103,7 +112,7 @@ function requestSessionTicket() {
   if (pendingSessionTicket) return;
   if (!sessionTicketsOffered) { answerSessionRequest(""); return; }
   const id = ++requestId;
-  pendingSessionTicket = {id, timer: setTimeout(() => settleSessionTicket(""), 10000)};
+  pendingSessionTicket = {id, timer: setTimeout(() => settleSessionTicket(""), sessionTicketTimeoutMs)};
   send({jsonrpc:"2.0", id, method:"tools/call", params:{name:sessionTicketTool, arguments:{}}});
 }
 function settleSessionTicket(ticket) {
@@ -121,6 +130,20 @@ function abandonSessionTicket() {
 function answerSessionRequest(ticket) {
   frame.contentWindow?.postMessage(
     ticket ? {type:sessionTicketMessage, ticket} : {type:sessionUnavailableMessage}, origin);
+}
+// A host that fixes the frame's height, or shows it fullscreen, gets a page
+// that fills it. A host that gives only a maximum gets a page of a set height.
+function applyHostLayout(context) {
+  if (typeof context?.displayMode === "string") hostDisplayMode = context.displayMode;
+  if (context?.containerDimensions) hostDimensions = context.containerDimensions;
+  if (!hostDimensions) return;
+  const maxHeight = hostDimensions.maxHeight;
+  const height = hostDisplayMode === "fullscreen" || typeof hostDimensions.height === "number" ? null
+    : typeof maxHeight === "number" && maxHeight > 0 ? Math.min(maxHeight, inlineHeight) : inlineHeight;
+  document.documentElement.style.height = height === null ? "" : height + "px";
+  const changed = height !== sentHeight;
+  sentHeight = height;
+  if (height !== null && changed) send({jsonrpc:"2.0", method:"ui/notifications/size-changed", params:{height}});
 }
 function sendHostTheme() {
   if (hostTheme && framedPageReady) frame.contentWindow?.postMessage({type:themeMessage, theme:hostTheme}, origin);
@@ -256,6 +279,7 @@ window.addEventListener("message", event => {
     initialized = true;
     applyHostTheme(message.result.hostContext);
     send({jsonrpc:"2.0", method:"ui/notifications/initialized"});
+    applyHostLayout(message.result.hostContext);
     showLoading();
     const linked = deepLink !== null && renderDeepLink({"openai/deepLink":deepLink});
     if (!linked && !renderDeepLink(message.result.hostContext)) {
@@ -277,8 +301,10 @@ window.addEventListener("message", event => {
     else queuedResult = message.params;
   } else if (message.method === "ui/notifications/host-context-changed") {
     applyHostTheme(message.params);
-    if (initialized) renderDeepLink(message.params);
-    else if (Object.prototype.hasOwnProperty.call(message.params ?? {}, "openai/deepLink")) deepLink = message.params["openai/deepLink"];
+    if (initialized) {
+      applyHostLayout(message.params);
+      renderDeepLink(message.params);
+    } else if (Object.prototype.hasOwnProperty.call(message.params ?? {}, "openai/deepLink")) deepLink = message.params["openai/deepLink"];
   } else if (pendingSessionTicket && message.id === pendingSessionTicket.id) {
     const ticket = hostRefused(message) ? "" : message.result?._meta?.[sessionTicketMetaKey];
     settleSessionTicket(typeof ticket === "string" ? ticket : "");

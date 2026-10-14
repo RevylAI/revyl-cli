@@ -1,7 +1,8 @@
 # Revyl for Cursor
 
 Source for the Revyl Cursor Marketplace plugin: pinned CLI install hooks,
-skills, and a routing rule.
+skills, a routing rule, and the hosted Revyl workspace MCP server declared in
+`mcp.json`.
 
 For user-facing plugin information (what it adds, install and configure,
 verify), see the [Revyl Documentation](https://docs.revyl.com/).

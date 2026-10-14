@@ -32,6 +32,7 @@ func sameFilesystemPath(left, right string) bool {
 const (
 	hookCommand               = "./hooks/ensure-revyl"
 	runtimeUnavailableMessage = "The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path."
+	hostedWorkspaceServerURL  = "https://backend.revyl.ai/api/v1/mcp"
 	loginGuidance             = "Run revyl auth login and post the printed approval URL as a clickable markdown link. Wait for approval. REVYL_API_KEY is optional for unattended agents."
 	installOnFirstCommand     = "The Revyl CLI installs on the first revyl command."
 )
@@ -120,7 +121,7 @@ func TestMarketplaceArtifactContract(t *testing.T) {
 	}
 }
 
-// TestPluginArtifactContract verifies manifests, hooks, skills, and rules without plugin MCP.
+// TestPluginArtifactContract verifies manifests, hooks, skills, rules, and the hosted MCP server.
 func TestPluginArtifactContract(t *testing.T) {
 	pluginRoot := pluginRootPath(t)
 	manifest := readJSON[pluginManifest](t, filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
@@ -137,13 +138,7 @@ func TestPluginArtifactContract(t *testing.T) {
 	requireFile(t, pluginRoot, "hooks/launch-revyl.cmd")
 	requireFile(t, pluginRoot, "hooks/launch-revyl.ps1")
 	requireExactSkills(t, filepath.Join(pluginRoot, filepath.Clean(manifest.Skills)))
-	if _, err := os.Stat(filepath.Join(pluginRoot, "mcp.json")); !os.IsNotExist(err) {
-		t.Fatalf("plugin still ships mcp.json: %v", err)
-	}
-	pluginJSON := readText(t, filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
-	if strings.Contains(pluginJSON, `"mcpServers"`) {
-		t.Fatal("plugin.json still declares mcpServers")
-	}
+	requireHostedWorkspaceServerOnly(t, pluginRoot)
 
 	hooks := readJSON[hooksConfig](t, filepath.Join(pluginRoot, filepath.Clean(manifest.Hooks)))
 	if hooks.Version != 1 {
@@ -161,13 +156,19 @@ func TestPluginArtifactContract(t *testing.T) {
 		"rules/revyl-dev-loop.mdc":          rule,
 		"skills/revyl-cloud-agent/SKILL.md": cloudSkill,
 	} {
-		if !strings.Contains(content, "`revyl-cli-dev-loop`") &&
-			!strings.Contains(content, "The plugin does not start MCP") {
-			t.Fatalf("%s does not route to the CLI loop or say the plugin skips MCP", path)
+		if strings.Contains(content, "The plugin does not start MCP") {
+			t.Fatalf("%s still says the plugin ships no MCP server", path)
 		}
 		if strings.Contains(content, "`revyl-dev-loop`") {
 			t.Fatalf("%s still loads removed revyl-dev-loop", path)
 		}
+	}
+	if !strings.Contains(rule, "`revyl-cli-dev-loop`") ||
+		!strings.Contains(rule, "They do not build or run the app's source.") {
+		t.Fatal("rule does not keep the device loop on the CLI")
+	}
+	if !strings.Contains(cloudSkill, "Do not use the plugin's `revyl-workspace` MCP tools here") {
+		t.Fatal("cloud-agent skill does not keep Cloud Agents off the plugin MCP tools")
 	}
 	if strings.Contains(cloudSkill, "plugin install locations") {
 		t.Fatal("cloud-agent skill still calls curl PATH dirs plugin install locations")
@@ -302,7 +303,7 @@ func TestHookScriptContract(t *testing.T) {
 	}
 }
 
-// TestLocalInstaller verifies isolated copies and live worktree links without plugin MCP.
+// TestLocalInstaller verifies isolated copies and live worktree links.
 func TestLocalInstaller(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "")
 	pluginRoot := pluginRootPath(t)
@@ -376,9 +377,6 @@ func TestLocalInstaller(t *testing.T) {
 		destination := filepath.Join(localRoot, "revyl")
 		requireRealInstalledPlugin(t, destination)
 		requireLinkedPluginDirectories(t, pluginRoot, destination)
-		if _, err := os.Stat(filepath.Join(pluginRoot, "mcp.json")); !os.IsNotExist(err) {
-			t.Fatalf("linked installation resurrected mcp.json: %v", err)
-		}
 
 		installedHook := filepath.Join(destination, "hooks", "ensure-revyl")
 		sourceHook := filepath.Join(pluginRoot, "hooks", "ensure-revyl")
@@ -579,7 +577,7 @@ func requireExactSkills(t *testing.T, skillsRoot string) {
 	}
 }
 
-// requireRealInstalledPlugin verifies a copied artifact without plugin MCP.
+// requireRealInstalledPlugin verifies a copied artifact and its hosted MCP server.
 func requireRealInstalledPlugin(t *testing.T, destination string) {
 	t.Helper()
 	info, err := os.Lstat(destination)
@@ -597,11 +595,26 @@ func requireRealInstalledPlugin(t *testing.T, destination string) {
 	requireDirectory(t, destination, "hooks")
 	requireDirectory(t, destination, "skills")
 	requireDirectory(t, destination, "rules")
-	if _, err := os.Stat(filepath.Join(destination, "mcp.json")); !os.IsNotExist(err) {
-		t.Fatalf("installed plugin still ships mcp.json: %v", err)
+	requireHostedWorkspaceServerOnly(t, destination)
+}
+
+// requireHostedWorkspaceServerOnly verifies the plugin's one MCP server is the
+// hosted workspace endpoint: no command, so the plugin never launches a local
+// process for MCP, and no headers, so the artifact carries no credential.
+func requireHostedWorkspaceServerOnly(t *testing.T, pluginRoot string) {
+	t.Helper()
+	config := readJSON[map[string]map[string]map[string]any](t, filepath.Join(pluginRoot, "mcp.json"))
+	servers := config["mcpServers"]
+	if len(config) != 1 || len(servers) != 1 {
+		t.Fatalf("mcp.json = %#v, want exactly one server under mcpServers", config)
 	}
-	if strings.Contains(readText(t, filepath.Join(destination, ".cursor-plugin", "plugin.json")), `"mcpServers"`) {
-		t.Fatal("installed plugin.json still declares mcpServers")
+	server := servers["revyl-workspace"]
+	if len(server) != 1 || server["url"] != hostedWorkspaceServerURL {
+		t.Fatalf("mcp.json revyl-workspace server = %#v, want only url %s", server, hostedWorkspaceServerURL)
+	}
+	pluginJSON := readText(t, filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
+	if strings.Contains(pluginJSON, `"mcpServers"`) {
+		t.Fatal("plugin.json declares mcpServers; mcp.json is the only source")
 	}
 }
 

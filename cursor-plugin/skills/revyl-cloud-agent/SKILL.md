@@ -5,7 +5,7 @@ description: Revyl conventions for Cursor Cloud/background agents - CLI install,
 
 # Revyl Cloud Agent Skill
 
-Use this skill whenever you are running as a Cursor Cloud/background agent (headless Linux VM) and working with Revyl. Drive devices with the CLI. The plugin does not start MCP.
+Use this skill whenever you are running as a Cursor Cloud/background agent (headless Linux VM) and working with Revyl. Drive devices with the CLI. Do not use the plugin's `revyl-workspace` MCP tools here: they need an interactive sign-in and draw views a headless VM cannot show.
 
 ## Environment Ground Rules (non-negotiable)
 

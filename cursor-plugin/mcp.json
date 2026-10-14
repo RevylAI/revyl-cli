@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "revyl-workspace": {
+      "url": "https://backend.revyl.ai/api/v1/mcp"
+    }
+  }
+}

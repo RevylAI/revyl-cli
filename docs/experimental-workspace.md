@@ -59,14 +59,20 @@ Inside a host the frontend's sign-in cookie is third-party and may not be sent.
 A server that signs its own callers in turns `sessionTicketsOffered` on when it
 serves the bridge page. The bridge then answers the framed page's request for a
 session by calling `create_revyl_workspace_session_ticket` and passing the
-one-time ticket from the result's `_meta` to the page. The CLI's server leaves
+one-time ticket from the result's `_meta` to the page. It waits up to a minute
+for that call, because a host may first ask the person to approve it, as Cursor
+does. The CLI's server leaves
 it off, so here the bridge tells the page at once that no ticket is available
 and the page uses its own sign-in. If the host also announces that call's
 result as a tool result, the bridge ignores it rather than treating it as a
 workspace to show.
 
 The frame fills the entire panel without a wrapper navigation bar or persistent
-status line. A minimal centered loading state remains until the first tool
+status line. A host that shows the panel inline and gives it only a maximum
+height, as Cursor and Grok do, sizes the panel to its content; the bridge then
+sets its page to 720 pixels, or the maximum when that is lower, and reports
+that height with `ui/notifications/size-changed`. A fullscreen panel or one of
+fixed height is filled as it is. A minimal centered loading state remains until the first tool
 result, so device startup does not first load Atlas. Navigate using the embedded
 Revyl page; repeated tool results preserve its current frame.
 

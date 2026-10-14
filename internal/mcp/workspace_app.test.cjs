@@ -20,21 +20,24 @@ function createWorkspace({ sessionTicketsOffered = false } = {}) {
   const nodes = new Map();
   const messages = [];
   const timers = new Map();
+  const delays = new Map();
+  const documentElement = { style: { height: "" } };
   let timerID = 0;
   let receive;
   const parent = { postMessage: message => messages.push(message) };
   const context = {
     URL,
     window: { parent, addEventListener: (_, handler) => { receive = handler; } },
-    document: { getElementById: id => {
+    document: { documentElement, getElementById: id => {
       if (!nodes.has(id)) nodes.set(id, {
         disabled: true,
         addEventListener: function (_, handler) { this.click = handler; },
       });
       return nodes.get(id);
     } },
-    setTimeout: callback => {
+    setTimeout: (callback, delay) => {
       const id = ++timerID;
+      delays.set(id, delay);
       timers.set(id, () => { timers.delete(id); callback(); });
       return id;
     },
@@ -42,7 +45,7 @@ function createWorkspace({ sessionTicketsOffered = false } = {}) {
   };
   vm.runInNewContext(sessionTicketsOffered ? scriptOfferingSessionTickets : script, context);
   return {
-    nodes, messages, timers,
+    nodes, messages, timers, delays, documentElement,
     send: (message, source = parent, eventOrigin) => receive({ source, origin: eventOrigin, data: { jsonrpc: "2.0", ...message } }),
     initialize: (hostContext = {}) => receive({ source: parent, data: { jsonrpc: "2.0", id: 1, result: { hostContext } } }),
     result: payload => receive({ source: parent, data: {
@@ -798,4 +801,38 @@ test("reports no link failure to a document that did not ask for the link", () =
   assert.equal(app.timers.size, 0);
   app.send({ id: asked.id, error: { code: -1, message: "refused" } });
   assert.equal(received.length, 0);
+});
+
+test("sizes itself for a host that gives only a maximum height, and fills a fixed or fullscreen one", () => {
+  const sizes = app => app.messages.filter(message => message.method === "ui/notifications/size-changed").map(message => message.params.height);
+  const cursor = createWorkspace();
+  cursor.initialize({ displayMode: "inline", containerDimensions: { width: 600, maxHeight: 800 } });
+  assert.equal(cursor.documentElement.style.height, "720px");
+  assert.deepEqual(sizes(cursor), [720]);
+  cursor.send({ method: "ui/notifications/host-context-changed", params: { containerDimensions: { width: 500, maxHeight: 800 } } });
+  assert.deepEqual(sizes(cursor), [720]);
+  const short = createWorkspace();
+  short.initialize({ displayMode: "inline", containerDimensions: { maxWidth: 700, maxHeight: 400 } });
+  assert.equal(short.documentElement.style.height, "400px");
+  assert.deepEqual(sizes(short), [400]);
+  short.send({ method: "ui/notifications/host-context-changed", params: { displayMode: "fullscreen", containerDimensions: { width: 1200, height: 900 } } });
+  assert.equal(short.documentElement.style.height, "");
+  assert.deepEqual(sizes(short), [400]);
+  short.send({ method: "ui/notifications/host-context-changed", params: { displayMode: "inline", containerDimensions: { maxWidth: 700, maxHeight: 400 } } });
+  assert.deepEqual(sizes(short), [400, 400]);
+  for (const hostContext of [{}, { displayMode: "fullscreen", containerDimensions: { maxHeight: 900 } }, { containerDimensions: { height: 500 } }]) {
+    const app = createWorkspace();
+    app.initialize(hostContext);
+    assert.equal(app.documentElement.style.height, "");
+    assert.deepEqual(sizes(app), []);
+  }
+});
+
+test("waits a minute for the ticket, long enough for a host to ask the person first", () => {
+  const app = createWorkspace({ sessionTicketsOffered: true });
+  const { fromFrame } = withFrameWindow(app);
+  app.initialize();
+  app.result({ workspace_url: origin + "/atlas" });
+  requestTicket(app, fromFrame);
+  assert.deepEqual([...app.timers.keys()].map(id => app.delays.get(id)), [60000]);
 });
