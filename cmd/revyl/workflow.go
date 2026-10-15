@@ -46,7 +46,7 @@ COMMANDS:
   share        - Generate shareable report link
   location     - Manage stored GPS location override
   app          - Manage stored app overrides (per platform)
-  config       - Manage run configuration (parallelism, retries)
+  config       - Manage run configuration (retries)
   quarantine   - Manage test quarantine (ignore failures in CI)
 
 EXAMPLES:
@@ -484,6 +484,7 @@ func outputWorkflowInfoJSON(
 		if full.RunConfig != nil {
 			output["run_config"] = full.RunConfig
 		}
+		output["override_run_config"] = full.OverrideRunConfig
 	}
 
 	if history != nil && len(history.Executions) > 0 {
@@ -589,16 +590,13 @@ func renderWorkflowInfoCLI(
 			}
 		}
 
-		// Run Config (only shown when non-default)
-		if full.RunConfig != nil && (full.RunConfig.Parallelism > 0 || full.RunConfig.MaxRetries > 0) {
+		if retries, hasRetries := full.RunConfigRetries(); hasRetries || full.OverrideRunConfig {
 			ui.Println()
 			ui.PrintInfo("Run Config")
-			if full.RunConfig.Parallelism > 0 {
-				ui.PrintKeyValue("Parallelism:", fmt.Sprintf("%d", full.RunConfig.Parallelism))
+			if hasRetries {
+				ui.PrintKeyValue("Retries:", fmt.Sprintf("%d", retries))
 			}
-			if full.RunConfig.MaxRetries > 0 {
-				ui.PrintKeyValue("Max Retries:", fmt.Sprintf("%d", full.RunConfig.MaxRetries))
-			}
+			ui.PrintKeyValue("Override:", workflowRunConfigOverrideLabel(full.OverrideRunConfig))
 		}
 	}
 

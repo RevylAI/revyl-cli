@@ -20,6 +20,14 @@ type mockWorkflowClient struct {
 	maxItems  int
 }
 
+func TestResolveMissingNameListsMatchingCandidates(t *testing.T) {
+	client := &mockWorkflowClient{workflows: []api.SimpleWorkflow{{ID: "wf-1", Name: "nightly-ios"}, {ID: "wf-2", Name: "other"}}}
+	_, err := Resolve(context.Background(), client, "nightly")
+	if err == nil || !strings.Contains(err.Error(), "nightly-ios (wf-1)") || strings.Contains(err.Error(), "other") {
+		t.Fatalf("missing-name candidates = %v", err)
+	}
+}
+
 func (m *mockWorkflowClient) GetWorkflow(_ context.Context, workflowID string) (*api.Workflow, error) {
 	m.getCalls++
 	if workflow, ok := m.byID[workflowID]; ok {

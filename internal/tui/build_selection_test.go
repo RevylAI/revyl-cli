@@ -491,6 +491,12 @@ func TestWorkflowBranchSaveFailureRemainsVisibleAndDirty(t *testing.T) {
 	if m.currentView != viewWorkflowSettings || !m.wfSettingsDirty || m.err == nil {
 		t.Fatal("failed pin save looked successful")
 	}
+	if want := "settings save failed: " + msg.Err.Error() + "; your edits are kept; retry saving"; m.err.Error() != want {
+		t.Fatalf("failed pin save error = %q, want %q", m.err, want)
+	}
+	if rendered := renderWorkflowSettings(m); strings.Count(rendered, msg.Err.Error()) != 1 {
+		t.Fatalf("failed pin save must render exactly one error line:\n%s", rendered)
+	}
 }
 
 func TestDeviceBranchPickerCancellationReturnsToAppSelection(t *testing.T) {

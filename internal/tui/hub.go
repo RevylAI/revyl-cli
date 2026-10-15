@@ -302,6 +302,7 @@ type hubModel struct {
 	wfSettingsDirty        bool
 	wfSettingsEditing      bool
 	wfSettingsEditField    string
+	wfSettingsEditErr      string
 	wfSettingsInput        textinput.Model
 	wfSettingsApps         []api.App
 	wfSettingsAppMatches   []api.App
@@ -1858,13 +1859,19 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wfSettingsCursor = 0
 		m.wfSettingsDirty = false
 		m.wfSettingsEditing = false
+		m.wfSettingsEditErr = ""
 		m.wfSettingsAppMatches = nil
 		m.wfSettingsAppCursor = 0
 		return m, nil
 
 	case WorkflowSettingsSavedMsg:
 		m.wfSettingsLoading = false
-		m.err = msg.Err
+		m.wfSettingsEditErr = ""
+		if msg.Err != nil {
+			m.err = fmt.Errorf("settings save failed: %w; your edits are kept; retry saving", msg.Err)
+			return m, nil
+		}
+		m.err = nil
 		if msg.Err == nil {
 			m.wfSettingsDirty = false
 			m.currentView = viewWorkflowDetail

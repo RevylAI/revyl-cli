@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -1370,7 +1372,7 @@ func saveWorkflowSettingsCmd(client *api.Client, workflowID string, wf *api.Work
 			return WorkflowSettingsSavedMsg{Err: err}
 		}
 		if wf.RunConfig != nil {
-			if err := client.UpdateWorkflowRunConfig(ctx, workflowID, wf.RunConfig); err != nil {
+			if err := client.UpdateWorkflowRunConfig(ctx, workflowID, wf.RunConfigUpdate()); err != nil {
 				return WorkflowSettingsSavedMsg{Err: err}
 			}
 		}
@@ -1597,7 +1599,7 @@ func settingsSectionMaxCursor(m hubModel) int {
 	case wfSettingsSectionLocation:
 		return 1
 	case wfSettingsSectionConfig:
-		return 1
+		return 0
 	}
 	return 0
 }
@@ -1625,6 +1627,7 @@ func collectToggledTestIDs(m hubModel) []string {
 // startSettingsEdit enters edit mode for the current field.
 func startSettingsEdit(m *hubModel) {
 	m.wfSettingsEditing = true
+	m.wfSettingsEditErr = ""
 	m.wfSettingsInput = textinput.New()
 	m.wfSettingsInput.Focus()
 
@@ -1686,18 +1689,10 @@ func startSettingsEdit(m *hubModel) {
 			}
 		}
 	case wfSettingsSectionConfig:
-		if m.wfSettingsCursor == 0 {
-			m.wfSettingsEditField = "parallelism"
-			m.wfSettingsInput.Placeholder = "Parallelism (e.g. 2)"
-			if wf.RunConfig != nil && wf.RunConfig.Parallelism > 0 {
-				m.wfSettingsInput.SetValue(fmt.Sprintf("%d", wf.RunConfig.Parallelism))
-			}
-		} else {
-			m.wfSettingsEditField = "max_retries"
-			m.wfSettingsInput.Placeholder = "Max retries (e.g. 3)"
-			if wf.RunConfig != nil && wf.RunConfig.MaxRetries > 0 {
-				m.wfSettingsInput.SetValue(fmt.Sprintf("%d", wf.RunConfig.MaxRetries))
-			}
+		m.wfSettingsEditField = "retries"
+		m.wfSettingsInput.Placeholder = fmt.Sprintf("Attempts per test, including the first (%d-%d)", execution.MinRetries, execution.MaxRetries)
+		if retries, ok := wf.RunConfigRetries(); ok {
+			m.wfSettingsInput.SetValue(strconv.Itoa(retries))
 		}
 	}
 }
@@ -1773,21 +1768,13 @@ func applySettingsEdit(m *hubModel) {
 		}
 		wf.OverrideLocation = len(wf.LocationConfig) > 0
 		m.wfSettingsDirty = true
-	case "parallelism":
-		if wf.RunConfig == nil {
-			wf.RunConfig = &api.WorkflowRunConfig{}
+	case "retries":
+		retries, err := strconv.Atoi(val)
+		if err != nil || retries < execution.MinRetries || retries > execution.MaxRetries {
+			m.wfSettingsEditErr = fmt.Sprintf("Retries must be a whole number from %d to %d", execution.MinRetries, execution.MaxRetries)
+			return
 		}
-		n := 0
-		fmt.Sscanf(val, "%d", &n)
-		wf.RunConfig.Parallelism = n
-		m.wfSettingsDirty = true
-	case "max_retries":
-		if wf.RunConfig == nil {
-			wf.RunConfig = &api.WorkflowRunConfig{}
-		}
-		n := 0
-		fmt.Sscanf(val, "%d", &n)
-		wf.RunConfig.MaxRetries = n
+		wf.SetRunConfigRetries(retries)
 		m.wfSettingsDirty = true
 	}
 }
@@ -1960,34 +1947,29 @@ func renderWorkflowSettings(m hubModel) string {
 	}
 	b.WriteString("  " + separator(innerW) + "\n")
 
-	parallelVal := dimStyle.Render("(default)")
-	retriesVal := dimStyle.Render("(default)")
-	if wf != nil && wf.RunConfig != nil {
-		if wf.RunConfig.Parallelism > 0 {
-			parallelVal = normalStyle.Render(fmt.Sprintf("%d", wf.RunConfig.Parallelism))
+	retriesVal := dimStyle.Render(fmt.Sprintf("%d (default)", execution.MinRetries))
+	overrideVal := dimStyle.Render("off (tests use their own run config)")
+	if wf != nil {
+		if retries, ok := wf.RunConfigRetries(); ok {
+			retriesVal = normalStyle.Render(strconv.Itoa(retries))
 		}
-		if wf.RunConfig.MaxRetries > 0 {
-			retriesVal = normalStyle.Render(fmt.Sprintf("%d", wf.RunConfig.MaxRetries))
+		if wf.OverrideRunConfig {
+			overrideVal = normalStyle.Render("on")
 		}
 	}
 
-	parCursor := "  "
 	retCursor := "  "
 	if m.wfSettingsSection == wfSettingsSectionConfig {
-		if m.wfSettingsCursor == 0 {
-			parCursor = selectedStyle.Render("▸ ")
-			if m.wfSettingsEditing {
-				parallelVal = m.wfSettingsInput.View()
-			}
-		} else {
-			retCursor = selectedStyle.Render("▸ ")
-			if m.wfSettingsEditing {
-				retriesVal = m.wfSettingsInput.View()
-			}
+		retCursor = selectedStyle.Render("▸ ")
+		if m.wfSettingsEditing {
+			retriesVal = m.wfSettingsInput.View()
 		}
 	}
-	b.WriteString(fmt.Sprintf("  %s%-14s %s\n", parCursor, dimStyle.Render("Parallelism:"), parallelVal))
-	b.WriteString(fmt.Sprintf("  %s%-14s %s\n", retCursor, dimStyle.Render("Max Retries:"), retriesVal))
+	b.WriteString(fmt.Sprintf("  %s%-14s %s\n", retCursor, dimStyle.Render("Retries:"), retriesVal))
+	b.WriteString(fmt.Sprintf("    %-14s %s\n", dimStyle.Render("Override:"), overrideVal))
+	if m.wfSettingsEditErr != "" {
+		b.WriteString("  " + errorStyle.Render(m.wfSettingsEditErr) + "\n")
+	}
 
 	// --- Footer ---
 	b.WriteString("\n  " + separator(innerW) + "\n")

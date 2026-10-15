@@ -268,7 +268,19 @@ func resolveByExactName(ctx context.Context, client Client, ref string, inputWas
 	if looksUUIDLike(ref) {
 		return nil, fmt.Errorf("%q is not a valid UUID and no workflow with that exact name was found", ref)
 	}
-	return nil, fmt.Errorf("workflow %q not found\n\nHint: Run 'revyl workflow list' to see all available workflows.", ref)
+	candidates := make([]string, 0, 10)
+	for _, workflow := range workflows {
+		if strings.Contains(strings.ToLower(workflow.Name), strings.ToLower(ref)) {
+			candidates = append(candidates, fmt.Sprintf("%s (%s)", workflow.Name, workflow.ID))
+			if len(candidates) == 10 {
+				break
+			}
+		}
+	}
+	if len(candidates) > 0 {
+		return nil, fmt.Errorf("workflow %q not found; use an exact name or UUID. Matching workflows:\n  %s\nRun 'revyl workflow list' for all workflows", ref, strings.Join(candidates, "\n  "))
+	}
+	return nil, fmt.Errorf("workflow %q not found; no matching workflows. Run 'revyl workflow list' to see all available workflows", ref)
 }
 
 func isNotFound(err error) bool {

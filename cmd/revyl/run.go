@@ -67,11 +67,10 @@ var (
 	runVars                       []string
 )
 
-// minRetries is the minimum allowed retry count.
-const minRetries = 1
-
-// maxRetries is the maximum allowed retry count.
-const maxRetries = 5
+const (
+	minRetries = execution.MinRetries
+	maxRetries = execution.MaxRetries
+)
 
 const (
 	runCancelRequestTimeout = 10 * time.Second

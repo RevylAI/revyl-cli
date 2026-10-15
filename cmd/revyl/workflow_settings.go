@@ -4,12 +4,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/ui"
@@ -186,8 +189,7 @@ func wfSettingsSetupClientDefault(cmd *cobra.Command, nameOrID string) (string, 
 
 	workflowID, _, err := resolveWorkflowID(cmd.Context(), nameOrID, nil, client)
 	if err != nil {
-		ui.PrintError("%v", err)
-		return "", nil, fmt.Errorf("workflow not found")
+		return "", nil, err
 	}
 
 	return workflowID, client, nil
@@ -575,16 +577,17 @@ func workflowSelectionText(value map[string]interface{}, key string) string {
 
 // --- Run config commands ---
 
-// Workflow config flags
-var (
-	workflowConfigParallel int
-	workflowConfigRetries  int
-)
-
 var workflowConfigCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage workflow run configuration",
-	Long: `Manage the run configuration for a workflow (parallelism, retries).
+	Long: `Manage the stored run configuration for a workflow.
+
+The workflow run config replaces each test's own run config only while the
+workflow's run config override is enabled. Otherwise every test keeps its own.
+
+Parallelism is not a workflow setting. A workflow starts all of its tests at
+once, and your organization's concurrency limit decides how many run at the
+same time. Run 'revyl auth billing' to change your plan.
 
 COMMANDS:
   show    - Show current run config
@@ -592,7 +595,7 @@ COMMANDS:
 
 EXAMPLES:
   revyl workflow config show my-workflow
-  revyl workflow config set my-workflow --parallel 3 --retries 2`,
+  revyl workflow config set my-workflow --retries 2`,
 }
 
 var workflowConfigShowCmd = &cobra.Command{
@@ -607,12 +610,13 @@ var workflowConfigSetCmd = &cobra.Command{
 	Short: "Set run configuration for a workflow",
 	Long: `Set the run configuration for a workflow.
 
-At least one of --parallel or --retries must be provided.
+--retries sets how many attempts each test gets, including the first. Every
+other stored run config setting and the override state are kept.
+
+Parallel runs are governed by your organization's plan concurrency.
 
 EXAMPLES:
-  revyl workflow config set my-workflow --parallel 3
-  revyl workflow config set my-workflow --retries 2
-  revyl workflow config set my-workflow --parallel 3 --retries 2`,
+  revyl workflow config set my-workflow --retries 2`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowConfigSet,
 }
@@ -621,8 +625,44 @@ func initWorkflowConfig() {
 	workflowConfigCmd.AddCommand(workflowConfigShowCmd)
 	workflowConfigCmd.AddCommand(workflowConfigSetCmd)
 
-	workflowConfigSetCmd.Flags().IntVar(&workflowConfigParallel, "parallel", 0, "Number of tests to run in parallel")
-	workflowConfigSetCmd.Flags().IntVar(&workflowConfigRetries, "retries", 0, "Max retries for failed tests")
+	workflowConfigSetCmd.Flags().Int("retries", 0, fmt.Sprintf("Attempts per test, including the first (%d-%d)", minRetries, maxRetries))
+	workflowConfigSetCmd.Flags().Int("parallel", 0, "")
+	_ = workflowConfigSetCmd.Flags().MarkHidden("parallel")
+}
+
+// workflowRunConfigOutput is the stable --json contract of
+// `workflow config show` and `workflow config set`.
+type workflowRunConfigOutput struct {
+	OverrideRunConfig bool `json:"override_run_config"`
+	Retries           *int `json:"retries"`
+}
+
+func newWorkflowRunConfigOutput(wf *api.Workflow) workflowRunConfigOutput {
+	output := workflowRunConfigOutput{
+		OverrideRunConfig: wf.OverrideRunConfig,
+	}
+	defaultRetries := minRetries
+	output.Retries = &defaultRetries
+	if retries, ok := wf.RunConfigRetries(); ok {
+		output.Retries = &retries
+	}
+	return output
+}
+
+func printWorkflowRunConfig(wf *api.Workflow) {
+	if retries, ok := wf.RunConfigRetries(); ok {
+		ui.PrintInfo("  Retries:  %d", retries)
+	} else {
+		ui.PrintInfo("  Retries:  %d (default)", minRetries)
+	}
+	ui.PrintInfo("  Override: %s", workflowRunConfigOverrideLabel(wf.OverrideRunConfig))
+}
+
+func workflowRunConfigOverrideLabel(enabled bool) string {
+	if enabled {
+		return "enabled (the workflow run config replaces each test's run config)"
+	}
+	return "disabled (each test uses its own run config)"
 }
 
 func runWorkflowConfigShow(cmd *cobra.Command, args []string) error {
@@ -638,17 +678,18 @@ func runWorkflowConfigShow(cmd *cobra.Command, args []string) error {
 	ui.StopSpinner()
 
 	if err != nil {
-		ui.PrintError("Failed to get workflow: %v", err)
-		return err
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound) {
+			return workflowConfigActionError("read", err)
+		}
+		return fmt.Errorf("cannot read workflow run config: %w", err)
 	}
 
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
-	if jsonOutput {
-		cfg := wf.RunConfig
-		if cfg == nil {
-			cfg = &api.WorkflowRunConfig{}
+	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
+		if _, stored := wf.RunConfigRetries(); !stored {
+			recordAppliedDefault(cmd, appliedDefault{Flag: "retries", Value: strconv.Itoa(minRetries), Reason: "workflow_retries_default"})
 		}
-		data, _ := json.MarshalIndent(cfg, "", "  ")
+		data, _ := json.MarshalIndent(withAppliedDefaults(cmd, newWorkflowRunConfigOutput(wf)), "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
@@ -656,41 +697,35 @@ func runWorkflowConfigShow(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintInfo("Run Config for '%s'", nameOrID)
 	ui.Println()
-
-	if wf.RunConfig == nil {
-		ui.PrintInfo("  Parallelism: (default)")
-		ui.PrintInfo("  Max Retries: (default)")
-	} else {
-		if wf.RunConfig.Parallelism > 0 {
-			ui.PrintInfo("  Parallelism: %d", wf.RunConfig.Parallelism)
-		} else {
-			ui.PrintInfo("  Parallelism: (default)")
-		}
-		if wf.RunConfig.MaxRetries > 0 {
-			ui.PrintInfo("  Max Retries: %d", wf.RunConfig.MaxRetries)
-		} else {
-			ui.PrintInfo("  Max Retries: (default)")
-		}
-	}
-
+	printWorkflowRunConfig(wf)
 	ui.Println()
 	return nil
 }
 
 func runWorkflowConfigSet(cmd *cobra.Command, args []string) error {
 	nameOrID := args[0]
+	retriesUsage := fmt.Sprintf("Pass --retries with a value from %d to %d", minRetries, maxRetries)
 
-	parallelChanged := cmd.Flags().Changed("parallel")
-	retriesChanged := cmd.Flags().Changed("retries")
-	if !parallelChanged && !retriesChanged {
-		return fmt.Errorf("at least one of --parallel or --retries is required")
+	if cmd.Flags().Changed("parallel") {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Parallelism is not a workflow setting; tests already run in parallel up to your organization's concurrency limit. Run 'revyl auth billing' to view your plan.")
+		recordAppliedDefault(cmd, appliedDefault{Flag: "parallel", Value: "organization concurrency", Reason: "workflow_parallelism_ignored"})
+		if !cmd.Flags().Changed("retries") {
+			if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
+				data, _ := json.MarshalIndent(withAppliedDefaults(cmd, map[string]interface{}{}), "", "  ")
+				fmt.Println(string(data))
+			}
+			return nil
+		}
 	}
-
-	if parallelChanged && workflowConfigParallel < 1 {
-		return fmt.Errorf("--parallel must be >= 1 (got %d)", workflowConfigParallel)
+	if !cmd.Flags().Changed("retries") {
+		return usageErrorf("--retries is required. %s", retriesUsage)
 	}
-	if retriesChanged && workflowConfigRetries < 0 {
-		return fmt.Errorf("--retries must be >= 0 (got %d)", workflowConfigRetries)
+	retries, err := cmd.Flags().GetInt("retries")
+	if err != nil {
+		return err
+	}
+	if retries < minRetries || retries > maxRetries {
+		return usageErrorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, retries)
 	}
 
 	workflowID, client, err := wfSettingsSetupClient(cmd, nameOrID)
@@ -698,37 +733,56 @@ func runWorkflowConfigSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Merge with existing config to avoid clobbering unset fields
-	existing, fetchErr := client.GetWorkflow(cmd.Context(), workflowID)
-	cfg := &api.WorkflowRunConfig{}
-	if fetchErr == nil && existing.RunConfig != nil {
-		cfg = existing.RunConfig
-	}
-
-	if parallelChanged {
-		cfg.Parallelism = workflowConfigParallel
-	}
-	if retriesChanged {
-		cfg.MaxRetries = workflowConfigRetries
-	}
-
-	ui.StartSpinner("Updating run config...")
-	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, cfg)
+	ui.StartSpinner("Fetching workflow...")
+	wf, err := client.GetWorkflow(cmd.Context(), workflowID)
 	ui.StopSpinner()
-
 	if err != nil {
-		ui.PrintError("Failed to update run config: %v", err)
-		return err
+		return workflowConfigActionError("read", err)
+	}
+
+	wf.SetRunConfigRetries(retries)
+	ui.StartSpinner("Updating run config...")
+	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, wf.RunConfigUpdate())
+	ui.StopSpinner()
+	if err != nil {
+		return workflowConfigActionError("write", err)
+	}
+
+	if !wf.OverrideRunConfig {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Workflow override is off: the stored retries won't apply until it is enabled; each test uses its own run config meanwhile.")
+		recordAppliedDefault(cmd, appliedDefault{Flag: "override_run_config", Value: "false", Reason: "workflow_override_disabled"})
+	}
+	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
+		data, _ := json.MarshalIndent(withAppliedDefaults(cmd, newWorkflowRunConfigOutput(wf)), "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	ui.PrintSuccess("Run config updated for workflow '%s'", nameOrID)
-	if parallelChanged {
-		ui.PrintInfo("  Parallelism: %d", cfg.Parallelism)
-	}
-	if retriesChanged {
-		ui.PrintInfo("  Max Retries: %d", cfg.MaxRetries)
-	}
+	printWorkflowRunConfig(wf)
 	return nil
+}
+
+func workflowConfigActionError(action string, err error) error {
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case http.StatusForbidden:
+			return analytics.WithFailureClass(fmt.Errorf("cannot %s workflow run config: your account needs workflow %s permission in this organization; check 'revyl auth status'", action, action), analytics.FailureClassAuth)
+		case http.StatusNotFound:
+			return usageErrorf("cannot %s workflow run config: workflow not found; run 'revyl workflow list' and retry with its UUID", action)
+		case http.StatusUnprocessableEntity:
+			field := "run_config"
+			if len(apiErr.ValidationIssues) > 0 {
+				field = apiErr.ValidationIssues[0].Field
+			}
+			return usageErrorf("cannot %s workflow run config: invalid %s; check 'revyl workflow config show' and retry with --retries 1-5", action, field)
+		}
+	}
+	if action == "read" {
+		return fmt.Errorf("cannot read current workflow settings; nothing was changed because writing without them could erase stored settings. Run 'revyl workflow config show' and retry: %w", err)
+	}
+	return fmt.Errorf("could not confirm workflow settings were saved; run 'revyl workflow config show' before retrying: %w", err)
 }
 
 func workflowPlatformSelectorChanged(cmd *cobra.Command, platform string) bool {

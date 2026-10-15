@@ -25,6 +25,13 @@ import (
 // DefaultRunTimeoutSeconds is the default execution timeout for test and workflow runs.
 const DefaultRunTimeoutSeconds = 60 * 60
 
+// MinRetries and MaxRetries bound the attempts per test, including the first,
+// that the CLI accepts for a run or for a workflow's stored run config.
+const (
+	MinRetries = 1
+	MaxRetries = 5
+)
+
 // testRunBuildReadTimeout bounds the read of the build a finished run used, so
 // a slow report never holds the command's exit.
 const testRunBuildReadTimeout = 10 * time.Second

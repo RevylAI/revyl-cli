@@ -3745,7 +3745,60 @@ type Workflow struct {
 	OverrideLocation    bool                   `json:"override_location,omitempty"`
 	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
 	OverrideBuildConfig bool                   `json:"override_build_config,omitempty"`
-	RunConfig           *WorkflowRunConfig     `json:"run_config,omitempty"`
+	// RunConfig is the stored TestRunConfig that replaces every test's own
+	// run config while OverrideRunConfig is true. It stays a raw map so a
+	// read-modify-write preserves keys this CLI does not model.
+	RunConfig         map[string]interface{} `json:"run_config,omitempty"`
+	OverrideRunConfig bool                   `json:"override_run_config,omitempty"`
+}
+
+// RunConfigRetries returns run_config.execution_mode.retries, the attempts
+// each test gets (including the first) while the run config override is on.
+func (w *Workflow) RunConfigRetries() (int, bool) {
+	executionMode, ok := w.RunConfig["execution_mode"].(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+	switch retries := executionMode["retries"].(type) {
+	case float64:
+		return int(retries), true
+	case int:
+		return retries, true
+	default:
+		return 0, false
+	}
+}
+
+// SetRunConfigRetries sets run_config.execution_mode.retries on a copy of the
+// stored run config, keeping every other key.
+func (w *Workflow) SetRunConfigRetries(retries int) {
+	runConfig := make(map[string]interface{}, len(w.RunConfig)+1)
+	for key, value := range w.RunConfig {
+		runConfig[key] = value
+	}
+	executionMode := map[string]interface{}{}
+	if stored, ok := w.RunConfig["execution_mode"].(map[string]interface{}); ok {
+		for key, value := range stored {
+			executionMode[key] = value
+		}
+	}
+	executionMode["retries"] = retries
+	runConfig["execution_mode"] = executionMode
+	w.RunConfig = runConfig
+}
+
+// RunConfigUpdate returns the update_run_config body for the workflow's
+// current run config and override flag. The backend replaces both columns,
+// so the body always carries the full stored run config.
+func (w *Workflow) RunConfigUpdate() UpdateWorkflowRunConfigRequest {
+	runConfig := w.RunConfig
+	if runConfig == nil {
+		runConfig = map[string]interface{}{}
+	}
+	return UpdateWorkflowRunConfigRequest{
+		RunConfig:         runConfig,
+		OverrideRunConfig: w.OverrideRunConfig,
+	}
 }
 
 // CLIWorkflowLastExecution holds the last execution metadata returned by the
@@ -5766,24 +5819,15 @@ func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID strin
 	return parseResponse(resp, nil)
 }
 
-// WorkflowRunConfig represents a workflow's run configuration (parallelism, retries).
-type WorkflowRunConfig struct {
-	Parallelism int `json:"parallelism,omitempty"`
-	MaxRetries  int `json:"max_retries,omitempty"`
-}
-
-// UpdateWorkflowRunConfig updates the run configuration for a workflow.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - workflowID: The workflow UUID
-//   - config: The run configuration to apply
-//
-// Returns:
-//   - error: Any error that occurred
-func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, config *WorkflowRunConfig) error {
+// UpdateWorkflowRunConfig replaces a workflow's stored run_config and
+// override_run_config. Build the body with Workflow.RunConfigUpdate from a
+// freshly read workflow so unchanged keys and the override flag survive.
+func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, request UpdateWorkflowRunConfigRequest) error {
+	if request.RunConfig == nil {
+		return errors.New("update workflow run config: run_config must be an object, not null")
+	}
 	path := fmt.Sprintf("/api/v1/workflows/update_run_config/%s", workflowID)
-	resp, err := c.doRequest(ctx, "PUT", path, config)
+	resp, err := c.doRequestWithRetry(ctx, "PUT", path, request)
 	if err != nil {
 		return err
 	}

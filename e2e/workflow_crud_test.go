@@ -79,9 +79,32 @@ func TestWorkflowLifecycle(t *testing.T) {
 	})
 
 	step(t, "config_set", func(st *testing.T) {
-		result := runCLI(t, "workflow", "config", "set", wfID, "--parallel", "2", "--retries", "1")
+		result := runCLI(t, "workflow", "config", "set", wfID, "--retries", "2")
 		if result.ExitCode != 0 {
-			st.Skipf("workflow config set not supported: %s", result.Stderr)
+			st.Fatalf("workflow config set failed: %s", result.Stderr)
+		}
+		result = runCLI(t, "workflow", "config", "show", wfID, "--json")
+		if result.ExitCode != 0 {
+			st.Fatalf("workflow config show --json failed: %s", result.Stderr)
+		}
+		var shown struct {
+			Retries *int `json:"retries"`
+		}
+		if err := json.Unmarshal([]byte(extractJSON(result.Stdout)), &shown); err != nil {
+			st.Fatalf("workflow config show --json is not valid JSON: %v\n%s", err, result.Stdout)
+		}
+		if shown.Retries == nil || *shown.Retries != 2 {
+			st.Fatalf("stored retries = %v, want 2", shown.Retries)
+		}
+	})
+
+	step(t, "config_set_parallel_compatibility", func(st *testing.T) {
+		result := runCLI(t, "workflow", "config", "set", wfID, "--parallel", "2", "--json")
+		if result.ExitCode != 0 {
+			st.Fatalf("workflow config set --parallel failed: %s", result.Stderr)
+		}
+		if !strings.Contains(result.Stderr, "revyl auth billing") || !strings.Contains(result.Stdout, "workflow_parallelism_ignored") {
+			st.Fatalf("workflow config set --parallel output = %s %s, want compatibility notice", result.Stdout, result.Stderr)
 		}
 	})
 
