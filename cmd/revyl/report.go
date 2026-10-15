@@ -440,6 +440,10 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 		fmt.Println(separator)
 	}
 
+	if report.RuntimeCheckerFindings != nil && len(*report.RuntimeCheckerFindings) > 0 {
+		printRuntimeCheckerFindings(*report.RuntimeCheckerFindings)
+	}
+
 	ui.Println()
 	ui.PrintLink("Report", reportURL)
 
@@ -570,6 +574,44 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+var runtimeCheckerKindLabels = map[api.IOSRuntimeCheckerKind]string{
+	api.IOSRuntimeCheckerKindTsanDataRace:        "Data race",
+	api.IOSRuntimeCheckerKindTsanSwiftAccessRace: "Swift access race",
+	api.IOSRuntimeCheckerKindTsanOther:           "ThreadSanitizer",
+	api.IOSRuntimeCheckerKindMainThreadChecker:   "Main thread",
+}
+
+// printRuntimeCheckerFindings lists ThreadSanitizer and Main Thread Checker
+// findings with the first frame of each finding's first stack.
+func printRuntimeCheckerFindings(findings []api.IOSRuntimeCheckerFindingSummary) {
+	ui.Println()
+	ui.PrintKeyValue("Runtime checkers:", fmt.Sprintf("%d finding(s)", len(findings)))
+	for _, finding := range findings {
+		label := runtimeCheckerKindLabels[finding.Kind]
+		if label == "" {
+			label = string(finding.Kind)
+		}
+		icon := ui.WarningStyle.Render("⚠")
+		if finding.Kind != api.IOSRuntimeCheckerKindMainThreadChecker {
+			icon = ui.ErrorStyle.Render("✗")
+		}
+		fmt.Printf("    %s %s  %s  %s\n",
+			icon,
+			ui.DimStyle.Render(label),
+			ui.InfoStyle.Render(truncateStep(sanitizeDesc(finding.Title), 72)),
+			ui.DimStyle.Render(fmt.Sprintf("×%d", finding.Occurrences)))
+		if len(finding.Stacks) > 0 && len(finding.Stacks[0].Frames) > 0 {
+			frame := finding.Stacks[0].Frames[0]
+			where := frame.Symbol
+			if location := stringValue(frame.Location); location != "" {
+				where += " — " + location
+			}
+			fmt.Printf("      %s\n", ui.DimStyle.Render(truncateStep(sanitizeDesc(where), 96)))
+		}
+	}
+	ui.PrintDim("    Full stacks: revyl test report <id> --json (runtime_checker_findings)")
 }
 
 func buildUserFacingReportJSON(raw []byte) ([]byte, error) {

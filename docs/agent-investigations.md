@@ -186,6 +186,34 @@ identifies a capture still in progress. Parser failures are errors, never a
 successful search of a silently truncated file. Zero matches in a complete
 capture differ from `evidence_unavailable`.
 
+iOS builds compiled with ThreadSanitizer, AddressSanitizer, or
+UndefinedBehaviorSanitizer also run with Main Thread Checker.
+Their reports are deduplicated into `runtime_checker_findings` on
+`reports.get` / `test report --json` and `reports.summary` / `run summary`:
+each finding has a `kind` (`tsan_data_race`, `tsan_swift_access_race`,
+`tsan_other`, `main_thread_checker`, `address_sanitizer`,
+`undefined_behavior_sanitizer`), `title`, `occurrences`, and demangled
+`stacks`. Nullable `first_observed_at` and `last_observed_at` are UTC observation
+times for the timed occurrences in each group. Each occurrence carries its
+observation time from guest-local capture; these approximate when the checker
+header was read, not the exact time of the underlying violation.
+Untimed occurrences still count without clearing known observation times. Older
+reports and groups with no timed occurrences have missing or null timestamps.
+The web report maps available times to its recording and supports seeking to either
+endpoint. In `reports.inspect`, read `/runtime_checker_findings` as a field.
+Absolute source paths in new findings are shortened to the filename, line, and
+column; relative source paths are preserved. This applies to locations, stack
+frames, summaries, and diagnostic excerpts. Existing saved reports are unchanged.
+TSan grouping uses app stack symbols and source locations before shortening paths,
+keeping distinct race sites separate.
+The diagnostic excerpt is only in the web report. Device logs do not contain
+complete sanitizer output. An absent findings field does not prove an app is
+free of runtime issues: the build may lack instrumentation, capture may be
+unavailable, or the exercised code may not have triggered a diagnostic.
+AddressSanitizer normally terminates the app after a memory violation;
+UndefinedBehaviorSanitizer may report and continue, depending on build and
+runtime options. Findings do not require the test itself to pass.
+
 Screenshot and video URLs remain evidence locators. Retrieving a URL does not
 inspect pixels or motion. Shell agents can open selected media with their image
 or video tools; hosted Atlas Chat currently attaches exact Atlas observations,

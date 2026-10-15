@@ -1032,6 +1032,36 @@ func (e GrounderType) Valid() bool {
 	}
 }
 
+// Defines values for IOSRuntimeCheckerKind.
+const (
+	IOSRuntimeCheckerKindAddressSanitizer           IOSRuntimeCheckerKind = "address_sanitizer"
+	IOSRuntimeCheckerKindMainThreadChecker          IOSRuntimeCheckerKind = "main_thread_checker"
+	IOSRuntimeCheckerKindTsanDataRace               IOSRuntimeCheckerKind = "tsan_data_race"
+	IOSRuntimeCheckerKindTsanOther                  IOSRuntimeCheckerKind = "tsan_other"
+	IOSRuntimeCheckerKindTsanSwiftAccessRace        IOSRuntimeCheckerKind = "tsan_swift_access_race"
+	IOSRuntimeCheckerKindUndefinedBehaviorSanitizer IOSRuntimeCheckerKind = "undefined_behavior_sanitizer"
+)
+
+// Valid indicates whether the value is a known member of the IOSRuntimeCheckerKind enum.
+func (e IOSRuntimeCheckerKind) Valid() bool {
+	switch e {
+	case IOSRuntimeCheckerKindAddressSanitizer:
+		return true
+	case IOSRuntimeCheckerKindMainThreadChecker:
+		return true
+	case IOSRuntimeCheckerKindTsanDataRace:
+		return true
+	case IOSRuntimeCheckerKindTsanOther:
+		return true
+	case IOSRuntimeCheckerKindTsanSwiftAccessRace:
+		return true
+	case IOSRuntimeCheckerKindUndefinedBehaviorSanitizer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IosSigningInputsExportMethod.
 const (
 	IosSigningInputsExportMethodAdHoc           IosSigningInputsExportMethod = "ad-hoc"
@@ -5169,6 +5199,37 @@ type HotReloadRelayRevokeResponse struct {
 	Revoked bool   `json:"revoked"`
 }
 
+// IOSRuntimeCheckerFindingSummary A deduplicated checker report without its raw report text.
+type IOSRuntimeCheckerFindingSummary struct {
+	DedupKey        string                   `json:"dedup_key"`
+	FirstObservedAt *time.Time               `json:"first_observed_at,omitempty"`
+	Kind            IOSRuntimeCheckerKind    `json:"kind"`
+	LastObservedAt  *time.Time               `json:"last_observed_at,omitempty"`
+	Location        *string                  `json:"location,omitempty"`
+	Occurrences     int                      `json:"occurrences"`
+	ProcessIds      []int                    `json:"process_ids"`
+	Stacks          []IOSRuntimeCheckerStack `json:"stacks"`
+	Summary         *string                  `json:"summary,omitempty"`
+	Title           string                   `json:"title"`
+}
+
+// IOSRuntimeCheckerFrame defines model for IOSRuntimeCheckerFrame.
+type IOSRuntimeCheckerFrame struct {
+	Image    string  `json:"image"`
+	Index    int     `json:"index"`
+	Location *string `json:"location,omitempty"`
+	Symbol   string  `json:"symbol"`
+}
+
+// IOSRuntimeCheckerKind defines model for IOSRuntimeCheckerKind.
+type IOSRuntimeCheckerKind string
+
+// IOSRuntimeCheckerStack defines model for IOSRuntimeCheckerStack.
+type IOSRuntimeCheckerStack struct {
+	Frames []IOSRuntimeCheckerFrame `json:"frames"`
+	Title  string                   `json:"title"`
+}
+
 // IfBlock Block for conditional logic.
 type IfBlock struct {
 	// Condition Condition to evaluate (alternative to 'step_description')
@@ -6443,59 +6504,60 @@ type ReportContextResponse struct {
 	//
 	// This schema is still actively used and stored in the reports.device_metadata
 	// column in the database.
-	DeviceMetadata         *DeviceMetadata              `json:"device_metadata,omitempty"`
-	DeviceModel            *string                      `json:"device_model,omitempty"`
-	DeviceStatePartial     *bool                        `json:"device_state_partial,omitempty"`
-	DeviceStateUrl         *string                      `json:"device_state_url,omitempty"`
-	DurationSeconds        *float32                     `json:"duration_seconds,omitempty"`
-	EffectiveFailedSteps   *int                         `json:"effective_failed_steps,omitempty"`
-	EffectivePassedSteps   *int                         `json:"effective_passed_steps,omitempty"`
-	EffectivePendingSteps  *int                         `json:"effective_pending_steps,omitempty"`
-	EffectiveRunningSteps  *int                         `json:"effective_running_steps,omitempty"`
-	EffectiveWarningSteps  *int                         `json:"effective_warning_steps,omitempty"`
-	ErrorMessage           *string                      `json:"error_message,omitempty"`
-	ErrorType              *string                      `json:"error_type,omitempty"`
-	ExecutionId            *string                      `json:"execution_id,omitempty"`
-	FailedSteps            *int                         `json:"failed_steps,omitempty"`
-	HardwareMetricsPartial *bool                        `json:"hardware_metrics_partial,omitempty"`
-	HardwareMetricsUrl     *string                      `json:"hardware_metrics_url,omitempty"`
-	Id                     string                       `json:"id"`
-	LaunchEnvVarIds        *[]string                    `json:"launch_env_var_ids,omitempty"`
-	LaunchEnvVarKeys       *[]string                    `json:"launch_env_var_keys,omitempty"`
-	LaunchEnvVarSnapshot   *[]LaunchEnvVarSnapshotEntry `json:"launch_env_var_snapshot,omitempty"`
-	Locale                 *string                      `json:"locale,omitempty"`
-	NetworkRequestsPartial *bool                        `json:"network_requests_partial,omitempty"`
-	NetworkRequestsUrl     *string                      `json:"network_requests_url,omitempty"`
-	OrgId                  string                       `json:"org_id"`
-	OsVersion              *string                      `json:"os_version,omitempty"`
-	PassedSteps            *int                         `json:"passed_steps,omitempty"`
-	PerfettoTraceUrl       *string                      `json:"perfetto_trace_url,omitempty"`
-	Platform               *string                      `json:"platform,omitempty"`
-	ReportUrl              *string                      `json:"report_url,omitempty"`
-	ResolvedBuildId        *string                      `json:"resolved_build_id,omitempty"`
-	ScreenHeight           *int                         `json:"screen_height,omitempty"`
-	ScreenWidth            *int                         `json:"screen_width,omitempty"`
-	SessionId              *string                      `json:"session_id,omitempty"`
-	SessionStatus          *string                      `json:"session_status,omitempty"`
-	StartedAt              *time.Time                   `json:"started_at,omitempty"`
-	Steps                  *[]ReportContextStepResponse `json:"steps,omitempty"`
-	Success                *bool                        `json:"success,omitempty"`
-	SystemPrompt           *string                      `json:"system_prompt,omitempty"`
-	TestGoalSummary        *string                      `json:"test_goal_summary,omitempty"`
-	TestId                 *string                      `json:"test_id,omitempty"`
-	TestName               *string                      `json:"test_name,omitempty"`
-	TestVersionId          *string                      `json:"test_version_id,omitempty"`
-	TestVersionNumber      *int                         `json:"test_version_number,omitempty"`
-	Tldr                   *ReportContextResponse_Tldr  `json:"tldr,omitempty"`
-	TotalSteps             *int                         `json:"total_steps,omitempty"`
-	TotalValidations       *int                         `json:"total_validations,omitempty"`
-	TraceId                *string                      `json:"trace_id,omitempty"`
-	UpdatedAt              *string                      `json:"updated_at,omitempty"`
-	ValidationsPassed      *int                         `json:"validations_passed,omitempty"`
-	VideoUrl               *string                      `json:"video_url,omitempty"`
-	WarningSteps           *int                         `json:"warning_steps,omitempty"`
-	WhepUrl                *string                      `json:"whep_url,omitempty"`
-	WorkflowExecutionId    *string                      `json:"workflow_execution_id,omitempty"`
+	DeviceMetadata         *DeviceMetadata                    `json:"device_metadata,omitempty"`
+	DeviceModel            *string                            `json:"device_model,omitempty"`
+	DeviceStatePartial     *bool                              `json:"device_state_partial,omitempty"`
+	DeviceStateUrl         *string                            `json:"device_state_url,omitempty"`
+	DurationSeconds        *float32                           `json:"duration_seconds,omitempty"`
+	EffectiveFailedSteps   *int                               `json:"effective_failed_steps,omitempty"`
+	EffectivePassedSteps   *int                               `json:"effective_passed_steps,omitempty"`
+	EffectivePendingSteps  *int                               `json:"effective_pending_steps,omitempty"`
+	EffectiveRunningSteps  *int                               `json:"effective_running_steps,omitempty"`
+	EffectiveWarningSteps  *int                               `json:"effective_warning_steps,omitempty"`
+	ErrorMessage           *string                            `json:"error_message,omitempty"`
+	ErrorType              *string                            `json:"error_type,omitempty"`
+	ExecutionId            *string                            `json:"execution_id,omitempty"`
+	FailedSteps            *int                               `json:"failed_steps,omitempty"`
+	HardwareMetricsPartial *bool                              `json:"hardware_metrics_partial,omitempty"`
+	HardwareMetricsUrl     *string                            `json:"hardware_metrics_url,omitempty"`
+	Id                     string                             `json:"id"`
+	LaunchEnvVarIds        *[]string                          `json:"launch_env_var_ids,omitempty"`
+	LaunchEnvVarKeys       *[]string                          `json:"launch_env_var_keys,omitempty"`
+	LaunchEnvVarSnapshot   *[]LaunchEnvVarSnapshotEntry       `json:"launch_env_var_snapshot,omitempty"`
+	Locale                 *string                            `json:"locale,omitempty"`
+	NetworkRequestsPartial *bool                              `json:"network_requests_partial,omitempty"`
+	NetworkRequestsUrl     *string                            `json:"network_requests_url,omitempty"`
+	OrgId                  string                             `json:"org_id"`
+	OsVersion              *string                            `json:"os_version,omitempty"`
+	PassedSteps            *int                               `json:"passed_steps,omitempty"`
+	PerfettoTraceUrl       *string                            `json:"perfetto_trace_url,omitempty"`
+	Platform               *string                            `json:"platform,omitempty"`
+	ReportUrl              *string                            `json:"report_url,omitempty"`
+	ResolvedBuildId        *string                            `json:"resolved_build_id,omitempty"`
+	RuntimeCheckerFindings *[]IOSRuntimeCheckerFindingSummary `json:"runtime_checker_findings,omitempty"`
+	ScreenHeight           *int                               `json:"screen_height,omitempty"`
+	ScreenWidth            *int                               `json:"screen_width,omitempty"`
+	SessionId              *string                            `json:"session_id,omitempty"`
+	SessionStatus          *string                            `json:"session_status,omitempty"`
+	StartedAt              *time.Time                         `json:"started_at,omitempty"`
+	Steps                  *[]ReportContextStepResponse       `json:"steps,omitempty"`
+	Success                *bool                              `json:"success,omitempty"`
+	SystemPrompt           *string                            `json:"system_prompt,omitempty"`
+	TestGoalSummary        *string                            `json:"test_goal_summary,omitempty"`
+	TestId                 *string                            `json:"test_id,omitempty"`
+	TestName               *string                            `json:"test_name,omitempty"`
+	TestVersionId          *string                            `json:"test_version_id,omitempty"`
+	TestVersionNumber      *int                               `json:"test_version_number,omitempty"`
+	Tldr                   *ReportContextResponse_Tldr        `json:"tldr,omitempty"`
+	TotalSteps             *int                               `json:"total_steps,omitempty"`
+	TotalValidations       *int                               `json:"total_validations,omitempty"`
+	TraceId                *string                            `json:"trace_id,omitempty"`
+	UpdatedAt              *string                            `json:"updated_at,omitempty"`
+	ValidationsPassed      *int                               `json:"validations_passed,omitempty"`
+	VideoUrl               *string                            `json:"video_url,omitempty"`
+	WarningSteps           *int                               `json:"warning_steps,omitempty"`
+	WhepUrl                *string                            `json:"whep_url,omitempty"`
+	WorkflowExecutionId    *string                            `json:"workflow_execution_id,omitempty"`
 }
 
 // ReportContextResponse_Tldr defines model for ReportContextResponse.Tldr.

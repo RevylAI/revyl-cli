@@ -46,6 +46,7 @@ type Report struct {
 	DeviceStatePartial     bool
 	NetworkRequestsPartial bool
 	HardwareMetricsPartial bool
+	RuntimeCheckerFindings []api.IOSRuntimeCheckerFindingSummary
 }
 
 // ReportStep is the subset of a context-step record the inspector
@@ -120,6 +121,9 @@ func FetchReportReference(ctx context.Context, client *api.Client, taskID, kind 
 	}
 	if src.HardwareMetricsPartial != nil {
 		out.HardwareMetricsPartial = *src.HardwareMetricsPartial
+	}
+	if src.RuntimeCheckerFindings != nil {
+		out.RuntimeCheckerFindings = *src.RuntimeCheckerFindings
 	}
 	if out.StartedAt != "" && out.CompletedAt != "" {
 		if s, err := time.Parse(time.RFC3339, out.StartedAt); err == nil {

@@ -970,6 +970,22 @@ func printSummary(cmd *cobra.Command, s runinspect.Summary) error {
 		}
 	}
 
+	if len(s.RuntimeCheckerFindings) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "RUNTIME CHECKERS")
+		for _, finding := range s.RuntimeCheckerFindings {
+			fmt.Fprintf(w, "  [%s] %s ×%d\n", finding.Kind, finding.Title, finding.Occurrences)
+			if len(finding.Stacks) > 0 && len(finding.Stacks[0].Frames) > 0 {
+				frame := finding.Stacks[0].Frames[0]
+				fmt.Fprintf(w, "       at: %s", frame.Symbol)
+				if frame.Location != nil && *frame.Location != "" {
+					fmt.Fprintf(w, " (%s)", *frame.Location)
+				}
+				fmt.Fprintln(w)
+			}
+		}
+	}
+
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "ARTIFACTS")
 	a := s.Artifacts

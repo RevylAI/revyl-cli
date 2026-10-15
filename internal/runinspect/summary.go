@@ -23,18 +23,19 @@ import (
 // shared by `revyl run summary` (CLI JSON mode) and the
 // get_run_summary MCP tool.
 type Summary struct {
-	TaskID             string          `json:"task_id,omitempty"`
-	TestID             string          `json:"test_id,omitempty"`
-	TestName           string          `json:"test_name,omitempty"`
-	Platform           string          `json:"platform,omitempty"`
-	RunSuccess         *bool           `json:"run_success,omitempty"`
-	DurationSeconds    *float64        `json:"duration_seconds,omitempty"`
-	TotalSteps         int             `json:"total_steps,omitempty"`
-	FailedSteps        int             `json:"failed_steps,omitempty"`
-	FailedStepIndex    *int            `json:"failed_step_index,omitempty"`
-	Steps              []SummaryStep   `json:"steps,omitempty"`
-	Artifacts          Artifacts       `json:"artifacts"`
-	IdentityHighlights []IdentityField `json:"identity_highlights,omitempty"`
+	TaskID                 string                                `json:"task_id,omitempty"`
+	TestID                 string                                `json:"test_id,omitempty"`
+	TestName               string                                `json:"test_name,omitempty"`
+	Platform               string                                `json:"platform,omitempty"`
+	RunSuccess             *bool                                 `json:"run_success,omitempty"`
+	DurationSeconds        *float64                              `json:"duration_seconds,omitempty"`
+	TotalSteps             int                                   `json:"total_steps,omitempty"`
+	FailedSteps            int                                   `json:"failed_steps,omitempty"`
+	FailedStepIndex        *int                                  `json:"failed_step_index,omitempty"`
+	Steps                  []SummaryStep                         `json:"steps,omitempty"`
+	Artifacts              Artifacts                             `json:"artifacts"`
+	IdentityHighlights     []IdentityField                       `json:"identity_highlights,omitempty"`
+	RuntimeCheckerFindings []api.IOSRuntimeCheckerFindingSummary `json:"runtime_checker_findings,omitempty"`
 }
 
 // SummaryStep is the per-step shape inside Summary.
@@ -73,7 +74,8 @@ func BuildSummary(report *Report, identity []IdentityField) Summary {
 			HardwareMetricsAvailable: report.HardwareMetricsURL != "",
 			PerfettoTraceAvailable:   report.PerfettoTraceURL != "",
 		},
-		IdentityHighlights: identity,
+		IdentityHighlights:     identity,
+		RuntimeCheckerFindings: report.RuntimeCheckerFindings,
 	}
 	for _, s := range report.Steps {
 		out.Steps = append(out.Steps, SummaryStep{
