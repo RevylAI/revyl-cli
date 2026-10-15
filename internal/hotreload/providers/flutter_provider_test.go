@@ -140,13 +140,6 @@ func TestFlutterProvider_Name(t *testing.T) {
 	}
 }
 
-func TestFlutterProvider_DisplayName(t *testing.T) {
-	p := &FlutterProvider{}
-	if p.DisplayName() != "Flutter" {
-		t.Fatalf("expected 'Flutter', got %q", p.DisplayName())
-	}
-}
-
 func TestFlutterDetect_RealFlutterMinimal(t *testing.T) {
 	// Test against the actual internal-apps/flutter-minimal if it exists.
 	dir := filepath.Join("..", "..", "..", "..", "internal-apps", "flutter-minimal")

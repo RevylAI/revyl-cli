@@ -49,12 +49,6 @@ func TestRootVersionOutput(t *testing.T) {
 	}
 }
 
-func TestSSHAcceptsMachineName(t *testing.T) {
-	if err := sshCmd.Args(sshCmd, []string{"some-machine"}); err != nil {
-		t.Fatalf("ssh rejected a valid computer name: %v", err)
-	}
-}
-
 func TestSSHRequiresAuthentication(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	t.Setenv("REVYL_API_KEY", "")

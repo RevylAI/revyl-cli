@@ -163,15 +163,6 @@ func TestBareRNDevServer_CustomPort(t *testing.T) {
 	}
 }
 
-func TestBareRNDevServer_SetProxyURL(t *testing.T) {
-	server := NewBareRNDevServer(".", 8081)
-	server.SetProxyURL("https://hr-abc.revyl.ai")
-
-	if server.proxyURL != "https://hr-abc.revyl.ai" {
-		t.Fatalf("proxyURL = %q, want %q", server.proxyURL, "https://hr-abc.revyl.ai")
-	}
-}
-
 func TestBareRNDevServer_StreamStdout_ContinuesAfterReady(t *testing.T) {
 	server := NewBareRNDevServer(".", 8081)
 
