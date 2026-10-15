@@ -1,0 +1,24 @@
+{
+  "name": "revyl",
+  "displayName": "Revyl",
+  "version": "0.1.0",
+  "description": "Open your mobile app's Revyl Atlas map and live cloud iOS and Android device sessions inside Grok through Revyl's hosted MCP server. Sign in with your Revyl account on first connection; no API key or local install needed.",
+  "author": {
+    "name": "Revyl",
+    "email": "support@revyl.ai",
+    "url": "https://github.com/RevylAI"
+  },
+  "homepage": "https://revyl.com",
+  "repository": "https://github.com/RevylAI/revyl-cli",
+  "license": "MIT",
+  "keywords": [
+    "revyl",
+    "revyl atlas",
+    "revyl device",
+    "mobile testing",
+    "ios simulator",
+    "android emulator"
+  ],
+  "logo": "assets/icon.svg",
+  "skills": "./skills/"
+}
