@@ -55,6 +55,9 @@ func copyConfigFixture(t *testing.T, src string) string {
 		}
 
 		if d.IsDir() {
+			if d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
