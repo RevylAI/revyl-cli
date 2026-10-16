@@ -563,8 +563,15 @@ func normalizeBuildRecipe(build AuthoredBuild, recipe AuthoredBuildRecipe, root,
 	if recipe.BuildCommands != nil {
 		commands = cloneBuildStepItems(*recipe.BuildCommands)
 	}
+	framework := build.Framework
+	if (framework == "ios" || framework == "android") && len(recipePath) > 0 {
+		platform := recipePath[len(recipePath)-1]
+		if platform == "ios" || platform == "android" {
+			framework = platform
+		}
+	}
 	return EffectiveBuildRecipe{
-		Framework: build.Framework, SetupCommands: cloneBuildStepItems(recipe.SetupCommands), BuildCommands: commands,
+		Framework: framework, SetupCommands: cloneBuildStepItems(recipe.SetupCommands), BuildCommands: commands,
 		SelectedProjectRoot: root, ExecutionDirectory: root, OutputPath: cloneStringPointer(recipe.OutputPath),
 		Image: cloneStringPointer(recipe.Image), TimeoutSeconds: cloneIntPointer(recipe.TimeoutSeconds), Env: env,
 		SecretRefs: secretRefs, Caches: mergeCaches(build.Caches, recipe.Caches),

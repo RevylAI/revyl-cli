@@ -19,8 +19,13 @@
                 "app_id": "22222222-2222-4222-8222-222222222222",
                 "recipe": {
                   "framework": "expo",
-                  "setup_commands": ["npm ci"],
-                  "build_commands": ["npm run ios", "npm run ios"],
+                  "setup_commands": [
+                    "npm ci"
+                  ],
+                  "build_commands": [
+                    "npm run ios",
+                    "npm run ios"
+                  ],
                   "selected_project_root": "apps/mobile",
                   "execution_directory": "apps/mobile",
                   "output_path": "build/app.ipa",
@@ -28,15 +33,23 @@
                     "GLOBAL": "one",
                     "SHARED": "recipe"
                   },
-                  "secret_refs": ["TOKEN", "CERT"],
+                  "secret_refs": [
+                    "TOKEN",
+                    "CERT"
+                  ],
                   "caches": [
                     {
                       "key": "dependencies",
-                      "paths": ["node_modules"]
+                      "paths": [
+                        "node_modules"
+                      ]
                     },
                     {
                       "key": "shared",
-                      "paths": ["global", "ios"]
+                      "paths": [
+                        "global",
+                        "ios"
+                      ]
                     }
                   ]
                 }
@@ -52,22 +65,30 @@
                 "recipe": {
                   "framework": "expo",
                   "setup_commands": [],
-                  "build_commands": ["./gradlew assembleRelease"],
+                  "build_commands": [
+                    "./gradlew assembleRelease"
+                  ],
                   "selected_project_root": "apps/mobile",
                   "execution_directory": "apps/mobile",
                   "env": {
                     "GLOBAL": "one",
                     "SHARED": "inherited"
                   },
-                  "secret_refs": ["TOKEN"],
+                  "secret_refs": [
+                    "TOKEN"
+                  ],
                   "caches": [
                     {
                       "key": "dependencies",
-                      "paths": ["node_modules"]
+                      "paths": [
+                        "node_modules"
+                      ]
                     },
                     {
                       "key": "shared",
-                      "paths": ["global"]
+                      "paths": [
+                        "global"
+                      ]
                     }
                   ]
                 }
@@ -78,8 +99,13 @@
         "review_policy": {
           "enabled": true,
           "review_triggers": {
-            "paths": ["apps/**", "docs/**"],
-            "labels": ["preview"],
+            "paths": [
+              "apps/**",
+              "docs/**"
+            ],
+            "labels": [
+              "preview"
+            ],
             "drafts": false
           },
           "build": {
@@ -92,15 +118,23 @@
               "kind": "cursor",
               "model_id": "cursor-default"
             },
-            "always_verify": ["login", "checkout"]
+            "always_verify": [
+              "login",
+              "checkout"
+            ]
           },
-          "workflow_ids": ["44444444-4444-4444-8444-444444444444"],
+          "workflow_ids": [
+            "44444444-4444-4444-8444-444444444444"
+          ],
           "strict_build_check": true
         },
         "session": {
           "idle_timeout_seconds": 300,
           "auth_bypass": {
-            "launch_vars": ["AUTH_TOKEN", "AUTH_MODE"]
+            "launch_vars": [
+              "AUTH_TOKEN",
+              "AUTH_MODE"
+            ]
           }
         }
       },
@@ -171,8 +205,13 @@
                 "app_id": "22222222-2222-4222-8222-222222222222",
                 "recipe": {
                   "framework": "expo",
-                  "setup_commands": ["npm ci"],
-                  "build_commands": ["npm run ios", "npm run ios"],
+                  "setup_commands": [
+                    "npm ci"
+                  ],
+                  "build_commands": [
+                    "npm run ios",
+                    "npm run ios"
+                  ],
                   "selected_project_root": "mobile",
                   "execution_directory": "mobile",
                   "output_path": "build/app.ipa",
@@ -181,7 +220,9 @@
                   "caches": [
                     {
                       "key": "deps",
-                      "paths": ["node_modules"]
+                      "paths": [
+                        "node_modules"
+                      ]
                     }
                   ]
                 }
@@ -229,7 +270,9 @@
                 "recipe": {
                   "framework": "ios",
                   "setup_commands": [],
-                  "build_commands": ["fixture build"],
+                  "build_commands": [
+                    "fixture build"
+                  ],
                   "selected_project_root": ".",
                   "execution_directory": ".",
                   "env": {
@@ -258,7 +301,9 @@
             }
           },
           "proof_of_changes": null,
-          "workflow_ids": ["cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
+          "workflow_ids": [
+            "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+          ],
           "strict_build_check": true
         },
         "session": {}
@@ -313,12 +358,17 @@
                 "recipe": {
                   "framework": "react_native",
                   "setup_commands": [],
-                  "build_commands": ["npm run review"],
+                  "build_commands": [
+                    "npm run review"
+                  ],
                   "selected_project_root": "apps/mobile",
                   "execution_directory": "apps/mobile",
                   "output_path": "review/app.ipa",
                   "env": {},
-                  "secret_refs": ["COMMON_SECRET", "IOS_SECRET"],
+                  "secret_refs": [
+                    "COMMON_SECRET",
+                    "IOS_SECRET"
+                  ],
                   "caches": []
                 }
               }
@@ -333,7 +383,9 @@
                 "recipe": {
                   "framework": "react_native",
                   "setup_commands": [],
-                  "build_commands": ["./gradlew assemble"],
+                  "build_commands": [
+                    "./gradlew assemble"
+                  ],
                   "selected_project_root": "apps/mobile",
                   "execution_directory": "apps/mobile",
                   "output_path": "android/app.apk",
@@ -362,7 +414,9 @@
               "kind": "cursor",
               "model_id": "fixture-model"
             },
-            "always_verify": ["login"]
+            "always_verify": [
+              "login"
+            ]
           },
           "workflow_ids": [],
           "strict_build_check": true
@@ -412,7 +466,9 @@
                 "recipe": {
                   "framework": "android",
                   "setup_commands": [],
-                  "build_commands": ["./gradlew assemble"],
+                  "build_commands": [
+                    "./gradlew assemble"
+                  ],
                   "selected_project_root": ".",
                   "execution_directory": ".",
                   "output_path": "app/build/outputs/app.apk",
@@ -671,6 +727,1368 @@
         "build_definition_hashes": {},
         "review_policy_hash": null
       }
+    },
+    {
+      "name": "mixed_android_ios",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "0b14eb4e92a2898821a803453d1ae8ccb4be45c42e4680160337f2f4f817f88c",
+        "build_profile_hashes": {
+          "development": "3ea1cf8ad213074f28f5b6ad0337bb65e46141563e74a4eda05f6e879d5d514e"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_android_android",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "90ad1b5025be3dcb904b4a3b2195d1d66e29f6f89608bb65449cc46485608631",
+        "build_profile_hashes": {
+          "development": "4951abdeaf5247fda0a22e0343fb473818487a4b8f578f1336779801387816c3"
+        },
+        "build_definition_hashes": {
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "3901c3a1875ec9d81d038ea9b0f1fe79453851110651746753e2117550b5b222",
+        "build_profile_hashes": {
+          "development": "44eacd09b317e9da5dfc4f8b005a12254c930d8df24471bbca3f895369e066f6"
+        },
+        "build_definition_hashes": {
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_android_ios_android",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "4984691c9ffee1e7511c3d0e5d8be968556864c119cbdb21ed30767487926cc0",
+        "build_profile_hashes": {
+          "development": "69c7f376f7683a4293c21713f9a437afd272f3df45d079ddd8796acee0d1fd5f"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b",
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_android_ios_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "d8b3d5cb26ce2506ff172700f9a6faf13d86bd0cc89ce37ac921c49e7c923f8d",
+        "build_profile_hashes": {
+          "development": "db5dffae6611833163a51cba459e8845e12d07e01a32fa692902b2b1ddf21191"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_android_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "50cd0ca3d347d0897019ac3aec20df486d3953ebe781e59970a6807d28a57b59",
+        "build_profile_hashes": {
+          "development": "e205588299da64ff82959d8c709d656cf978d4a7b7e5a417f1811b46efb6024b"
+        },
+        "build_definition_hashes": {
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_android_ios_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: android\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "270b595a412306226c9b4a51e11ec6b9862a21eb905a63dd2b472e10bc31e001",
+        "build_profile_hashes": {
+          "development": "6e1afe0b18f3f88774cea962a04583a8aa36b552fc1bb08adfa056659181cdb0"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b",
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_ios",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "17f64f805bd9907840b811ac9618eb3ac4a8dbe85977838f7d7dc35e6553acd1",
+        "build_profile_hashes": {
+          "development": "3ea1cf8ad213074f28f5b6ad0337bb65e46141563e74a4eda05f6e879d5d514e"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_android",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "65ee3159bd1892523977f5d4c85910aa269c1142e832060256526fae19966931",
+        "build_profile_hashes": {
+          "development": "4951abdeaf5247fda0a22e0343fb473818487a4b8f578f1336779801387816c3"
+        },
+        "build_definition_hashes": {
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "c828d7ed54134d73042cc744d59d5ebe038effc300e40337212ae955993a4d5c",
+        "build_profile_hashes": {
+          "development": "44eacd09b317e9da5dfc4f8b005a12254c930d8df24471bbca3f895369e066f6"
+        },
+        "build_definition_hashes": {
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_ios_android",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "ba85f49477069fe11c4224d9265a9dc792df128a99c563d03c5ba7c3fc9ba6bd",
+        "build_profile_hashes": {
+          "development": "69c7f376f7683a4293c21713f9a437afd272f3df45d079ddd8796acee0d1fd5f"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b",
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_ios_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "261d10225621eb0a01403804379b684d40565b29a7aa962ef8638c9f2fad6d80",
+        "build_profile_hashes": {
+          "development": "db5dffae6611833163a51cba459e8845e12d07e01a32fa692902b2b1ddf21191"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "4cb5dc55ce211b03b069ac5eba2e4ca8970eb2f8c1a0f31e7e643966662f7091",
+        "build_profile_hashes": {
+          "development": "e205588299da64ff82959d8c709d656cf978d4a7b7e5a417f1811b46efb6024b"
+        },
+        "build_definition_hashes": {
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_ios_ios_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: ios\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "e0ecccfc6a5db0183f318b0ee041bbf4f759ee226f490a945035a309cec51c87",
+        "build_profile_hashes": {
+          "development": "6e1afe0b18f3f88774cea962a04583a8aa36b552fc1bb08adfa056659181cdb0"
+        },
+        "build_definition_hashes": {
+          "development:ios": "3880c4720e5592ec42bba21de6c588ba23fb1515571bbce870d48e1cf2278d3b",
+          "development:android": "4592dc8621aaf4863c61913edbdbec3cc74187ca3f4abed94517bb4fb33045cc",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_ios",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "66f47d6c8c675d65b72682086b698a40e864c6511e47aaf79cdff524aaac126e",
+        "build_profile_hashes": {
+          "development": "bf89c1bf6c49569abf019a9c5f7296db46ac3fcbffe25b903e6a36c34544fee4"
+        },
+        "build_definition_hashes": {
+          "development:ios": "346d68af1704af1b91f9a7b6ea6938c26dfdeb49c2ae75ebf3ca9876a5ec9b80"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_android",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "3364ad9404ae3fd3ed083ea877afa107910bd8cd186ed1e9f7038b936329f46c",
+        "build_profile_hashes": {
+          "development": "466edc4111e24a0b2fd673cb1f6dd0187c3cbd506a6660d26ed03840d13b8d62"
+        },
+        "build_definition_hashes": {
+          "development:android": "d7181e24b9c09f22161b22ee10d0f9ba92e135779bc8fcfd6e3e3a67a9df6b57"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "2f4f599d34460c020eca37116f7233c658e70bf5d79d6c4e1861c4b1c561013b",
+        "build_profile_hashes": {
+          "development": "44eacd09b317e9da5dfc4f8b005a12254c930d8df24471bbca3f895369e066f6"
+        },
+        "build_definition_hashes": {
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_ios_android",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "94811b889ecedad6521cdb1b4d7f1cdb2dc29dfaff33833259df56756764199e",
+        "build_profile_hashes": {
+          "development": "cc32d29b8aa28aa4c858d7cbfa81c07e388044605b9ebac9f29009c29385081e"
+        },
+        "build_definition_hashes": {
+          "development:ios": "346d68af1704af1b91f9a7b6ea6938c26dfdeb49c2ae75ebf3ca9876a5ec9b80",
+          "development:android": "d7181e24b9c09f22161b22ee10d0f9ba92e135779bc8fcfd6e3e3a67a9df6b57"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_ios_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "83c427247c5556971478bf7050d6c5194fde92f961f22eeeb7e4d2ae4b033120",
+        "build_profile_hashes": {
+          "development": "5f16d6d07e174e18ea23896b85744649e062f2f0069c341514ffb6178e83ac8c"
+        },
+        "build_definition_hashes": {
+          "development:ios": "346d68af1704af1b91f9a7b6ea6938c26dfdeb49c2ae75ebf3ca9876a5ec9b80",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "68ba7ed098833137dfb136c4f3a609df3527a9760a8b44d4adcc420dc5081d8c",
+        "build_profile_hashes": {
+          "development": "a93ab98ba8f30995cd9a6df99aa0fa15f9b5d40f8a14ff288556fee8513abfe5"
+        },
+        "build_definition_hashes": {
+          "development:android": "d7181e24b9c09f22161b22ee10d0f9ba92e135779bc8fcfd6e3e3a67a9df6b57",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "mixed_expo_ios_android_web",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 10000000-0000-4000-8000-000000000001\nbuild:\n  framework: expo\n  profiles:\n    development:\n      ios:\n        build_commands: [build]\n        output_path: build/ios.artifact\n      android:\n        build_commands: [build]\n        output_path: build/android.artifact\n      web:\n        build_commands: [build]\n        output_path: dist\n",
+      "expected_project_id": "10000000-0000-4000-8000-000000000001",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/ios.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/android.artifact",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": null,
+                "recipe": {
+                  "framework": "web",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "dist",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [],
+                  "run": {
+                    "port": 3000,
+                    "healthcheck": "/",
+                    "start_timeout_seconds": 60,
+                    "env_keys": [],
+                    "secret_names": []
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "9993ddcdfeab93b5b9b576cdd71c929f269d3af75fc0b43b81c52360936235e8",
+        "build_profile_hashes": {
+          "development": "06a34fe3f7850cd5e2d6cf0c59b81c4c777d76d8f00ef3778bab6f5c607d9dd1"
+        },
+        "build_definition_hashes": {
+          "development:ios": "346d68af1704af1b91f9a7b6ea6938c26dfdeb49c2ae75ebf3ca9876a5ec9b80",
+          "development:android": "d7181e24b9c09f22161b22ee10d0f9ba92e135779bc8fcfd6e3e3a67a9df6b57",
+          "development:web": "446703c1a67c3111c061b5ada725db5a7bd60034434b3036e2d07ca6b71dc4aa"
+        },
+        "review_policy_hash": null
+      }
     }
   ],
   "invalid_cases": [
@@ -689,7 +2107,9 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["mystery"]
+        "path": [
+          "mystery"
+        ]
       }
     },
     {
@@ -707,7 +2127,13 @@
       "expected_error": {
         "stage": "contract",
         "code": "missing_field",
-        "path": ["build", "profiles", "dev", "ios", "build_commands"]
+        "path": [
+          "build",
+          "profiles",
+          "dev",
+          "ios",
+          "build_commands"
+        ]
       }
     },
     {
@@ -716,7 +2142,11 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["build", "profiles", "qa.us"]
+        "path": [
+          "build",
+          "profiles",
+          "qa.us"
+        ]
       }
     },
     {
@@ -725,7 +2155,14 @@
       "expected_error": {
         "stage": "normalization",
         "code": "environment_secret_collision",
-        "path": ["build", "profiles", "dev", "ios", "env", "TOKEN"]
+        "path": [
+          "build",
+          "profiles",
+          "dev",
+          "ios",
+          "env",
+          "TOKEN"
+        ]
       }
     },
     {
@@ -734,7 +2171,11 @@
       "expected_error": {
         "stage": "normalization",
         "code": "path_escapes_repository",
-        "path": ["session", "before_script", "script_path"]
+        "path": [
+          "session",
+          "before_script",
+          "script_path"
+        ]
       }
     },
     {
@@ -747,7 +2188,9 @@
       "expected_error": {
         "stage": "normalization",
         "code": "invalid_relative_directory",
-        "path": ["repository_relative_project_root"]
+        "path": [
+          "repository_relative_project_root"
+        ]
       }
     },
     {
@@ -760,7 +2203,9 @@
       "expected_error": {
         "stage": "normalization",
         "code": "invalid_relative_directory",
-        "path": ["execution_directory"]
+        "path": [
+          "execution_directory"
+        ]
       }
     },
     {
@@ -778,7 +2223,13 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["build", "profiles", "dev", "ios", "mystery"]
+        "path": [
+          "build",
+          "profiles",
+          "dev",
+          "ios",
+          "mystery"
+        ]
       }
     },
     {
@@ -787,7 +2238,10 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["build", "framework"]
+        "path": [
+          "build",
+          "framework"
+        ]
       }
     },
     {
@@ -796,7 +2250,10 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "idle_timeout_seconds"]
+        "path": [
+          "session",
+          "idle_timeout_seconds"
+        ]
       }
     },
     {
@@ -805,7 +2262,10 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "idle_timeout_seconds"]
+        "path": [
+          "session",
+          "idle_timeout_seconds"
+        ]
       }
     },
     {
@@ -814,7 +2274,11 @@
       "expected_error": {
         "stage": "normalization",
         "code": "invalid_before_script_path",
-        "path": ["session", "before_script", "script_path"]
+        "path": [
+          "session",
+          "before_script",
+          "script_path"
+        ]
       }
     },
     {
@@ -823,7 +2287,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_project_root_mismatch",
-        "path": ["build", "root"]
+        "path": [
+          "build",
+          "root"
+        ]
       }
     },
     {
@@ -832,7 +2299,9 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_container_invalid",
-        "path": ["before_session"]
+        "path": [
+          "before_session"
+        ]
       }
     },
     {
@@ -841,7 +2310,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_unsupported_field",
-        "path": ["auth_bypass", "refresh_command"]
+        "path": [
+          "auth_bypass",
+          "refresh_command"
+        ]
       }
     },
     {
@@ -850,7 +2322,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_platform_ambiguous",
-        "path": ["build", "command"]
+        "path": [
+          "build",
+          "command"
+        ]
       }
     },
     {
@@ -859,7 +2334,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_review_profile_collision",
-        "path": ["pr_review", "builds"]
+        "path": [
+          "pr_review",
+          "builds"
+        ]
       }
     },
     {
@@ -868,7 +2346,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_framework_ambiguous",
-        "path": ["pr_review", "builds"]
+        "path": [
+          "pr_review",
+          "builds"
+        ]
       }
     },
     {
@@ -877,7 +2358,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_server_lookup_required",
-        "path": ["pr_review", "preset"]
+        "path": [
+          "pr_review",
+          "preset"
+        ]
       }
     },
     {
@@ -886,7 +2370,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_review_build_missing",
-        "path": ["pr_review", "builds"]
+        "path": [
+          "pr_review",
+          "builds"
+        ]
       }
     },
     {
@@ -895,7 +2382,12 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_server_lookup_required",
-        "path": ["pr_review", "builds", "ios", "app"]
+        "path": [
+          "pr_review",
+          "builds",
+          "ios",
+          "app"
+        ]
       }
     },
     {
@@ -904,7 +2396,10 @@
       "expected_error": {
         "stage": "legacy_translation",
         "code": "legacy_boolean_invalid",
-        "path": ["pr_review", "skip_drafts"]
+        "path": [
+          "pr_review",
+          "skip_drafts"
+        ]
       }
     },
     {
@@ -913,7 +2408,13 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["build", "profiles", "development", "web", "url"]
+        "path": [
+          "build",
+          "profiles",
+          "development",
+          "web",
+          "url"
+        ]
       }
     },
     {
@@ -922,7 +2423,13 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["build", "profiles", "development", "web", "app_id"]
+        "path": [
+          "build",
+          "profiles",
+          "development",
+          "web",
+          "app_id"
+        ]
       }
     },
     {
@@ -931,7 +2438,10 @@
       "expected_error": {
         "stage": "contract",
         "code": "missing_field",
-        "path": ["build", "framework"]
+        "path": [
+          "build",
+          "framework"
+        ]
       }
     },
     {
@@ -940,7 +2450,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "missing_field",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -949,7 +2464,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "missing_field",
-        "path": ["session", "auth_bypass", "sign_in", "secret"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "secret"
+        ]
       }
     },
     {
@@ -958,7 +2478,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "value"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "value"
+        ]
       }
     },
     {
@@ -967,7 +2492,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -976,7 +2506,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -985,7 +2520,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -994,7 +2534,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -1003,7 +2548,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -1012,7 +2562,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "path"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "path"
+        ]
       }
     },
     {
@@ -1021,7 +2576,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "redirect"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "redirect"
+        ]
       }
     },
     {
@@ -1030,7 +2590,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "redirect"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "redirect"
+        ]
       }
     },
     {
@@ -1039,7 +2604,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "secret"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "secret"
+        ]
       }
     },
     {
@@ -1048,7 +2618,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["session", "auth_bypass", "sign_in", "persona"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "persona"
+        ]
       }
     },
     {
@@ -1057,7 +2632,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "ttl_seconds"
+        ]
       }
     },
     {
@@ -1066,7 +2646,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "ttl_seconds"
+        ]
       }
     },
     {
@@ -1075,7 +2660,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "ttl_seconds"
+        ]
       }
     },
     {
@@ -1084,7 +2674,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "redirect"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "redirect"
+        ]
       }
     },
     {
@@ -1093,7 +2688,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "unknown_field",
-        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+        "path": [
+          "session",
+          "auth_bypass",
+          "sign_in",
+          "ttl_seconds"
+        ]
       }
     },
     {
@@ -1102,7 +2702,12 @@
       "expected_error": {
         "stage": "contract",
         "code": "invalid_contract",
-        "path": ["build", "profiles", "preview", "web"]
+        "path": [
+          "build",
+          "profiles",
+          "preview",
+          "web"
+        ]
       }
     },
     {
@@ -1111,7 +2716,11 @@
       "expected_error": {
         "stage": "contract",
         "code": "profile_url_only",
-        "path": ["pr_review", "build", "profile"]
+        "path": [
+          "pr_review",
+          "build",
+          "profile"
+        ]
       }
     }
   ]
