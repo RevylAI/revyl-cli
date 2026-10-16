@@ -24,11 +24,20 @@
                   "selected_project_root": "apps/mobile",
                   "execution_directory": "apps/mobile",
                   "output_path": "build/app.ipa",
-                  "env": { "GLOBAL": "one", "SHARED": "recipe" },
+                  "env": {
+                    "GLOBAL": "one",
+                    "SHARED": "recipe"
+                  },
                   "secret_refs": ["TOKEN", "CERT"],
                   "caches": [
-                    { "key": "dependencies", "paths": ["node_modules"] },
-                    { "key": "shared", "paths": ["global", "ios"] }
+                    {
+                      "key": "dependencies",
+                      "paths": ["node_modules"]
+                    },
+                    {
+                      "key": "shared",
+                      "paths": ["global", "ios"]
+                    }
                   ]
                 }
               }
@@ -46,11 +55,20 @@
                   "build_commands": ["./gradlew assembleRelease"],
                   "selected_project_root": "apps/mobile",
                   "execution_directory": "apps/mobile",
-                  "env": { "GLOBAL": "one", "SHARED": "inherited" },
+                  "env": {
+                    "GLOBAL": "one",
+                    "SHARED": "inherited"
+                  },
                   "secret_refs": ["TOKEN"],
                   "caches": [
-                    { "key": "dependencies", "paths": ["node_modules"] },
-                    { "key": "shared", "paths": ["global"] }
+                    {
+                      "key": "dependencies",
+                      "paths": ["node_modules"]
+                    },
+                    {
+                      "key": "shared",
+                      "paths": ["global"]
+                    }
                   ]
                 }
               }
@@ -64,10 +82,16 @@
             "labels": ["preview"],
             "drafts": false
           },
-          "build": { "kind": "revyl", "profile": "ios-dev" },
+          "build": {
+            "kind": "revyl",
+            "profile": "ios-dev"
+          },
           "proof_of_changes": {
             "enabled": true,
-            "harness": { "kind": "cursor", "model_id": "cursor-default" },
+            "harness": {
+              "kind": "cursor",
+              "model_id": "cursor-default"
+            },
             "always_verify": ["login", "checkout"]
           },
           "workflow_ids": ["44444444-4444-4444-8444-444444444444"],
@@ -75,7 +99,9 @@
         },
         "session": {
           "idle_timeout_seconds": 300,
-          "auth_bypass": { "launch_vars": ["AUTH_TOKEN", "AUTH_MODE"] }
+          "auth_bypass": {
+            "launch_vars": ["AUTH_TOKEN", "AUTH_MODE"]
+          }
         }
       },
       "expected_hashes": {
@@ -103,10 +129,16 @@
         "profiles": [],
         "review_policy": {
           "enabled": false,
-          "review_triggers": { "paths": [], "labels": [], "drafts": false },
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
           "build": {
             "kind": "ci_upload_to_revyl",
-            "app_ids": { "ios": "22222222-2222-4222-8222-222222222222" }
+            "app_ids": {
+              "ios": "22222222-2222-4222-8222-222222222222"
+            }
           },
           "proof_of_changes": null,
           "workflow_ids": [],
@@ -146,7 +178,12 @@
                   "output_path": "build/app.ipa",
                   "env": {},
                   "secret_refs": [],
-                  "caches": [{ "key": "deps", "paths": ["node_modules"] }]
+                  "caches": [
+                    {
+                      "key": "deps",
+                      "paths": ["node_modules"]
+                    }
+                  ]
                 }
               }
             ]
@@ -195,7 +232,11 @@
                   "build_commands": ["fixture build"],
                   "selected_project_root": ".",
                   "execution_directory": ".",
-                  "env": { "COUNT": "01", "DATE": "2026-08-11", "FLAG": "yes" },
+                  "env": {
+                    "COUNT": "01",
+                    "DATE": "2026-08-11",
+                    "FLAG": "yes"
+                  },
                   "secret_refs": [],
                   "caches": []
                 }
@@ -205,10 +246,16 @@
         ],
         "review_policy": {
           "enabled": true,
-          "review_triggers": { "paths": [], "labels": [], "drafts": false },
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
           "build": {
             "kind": "ci_upload_to_revyl",
-            "app_ids": { "ios": "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }
+            "app_ids": {
+              "ios": "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+            }
           },
           "proof_of_changes": null,
           "workflow_ids": ["cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
@@ -300,11 +347,21 @@
         ],
         "review_policy": {
           "enabled": true,
-          "review_triggers": { "paths": [], "labels": [], "drafts": false },
-          "build": { "kind": "revyl", "profile": "pr-review" },
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
+          "build": {
+            "kind": "revyl",
+            "profile": "pr-review"
+          },
           "proof_of_changes": {
             "enabled": true,
-            "harness": { "kind": "cursor", "model_id": "fixture-model" },
+            "harness": {
+              "kind": "cursor",
+              "model_id": "fixture-model"
+            },
             "always_verify": ["login"]
           },
           "workflow_ids": [],
@@ -312,8 +369,12 @@
         },
         "session": {
           "idle_timeout_seconds": 600,
-          "before_script": { "timeout_seconds": 120 },
-          "auth_bypass": { "launch_vars": [] }
+          "before_script": {
+            "timeout_seconds": 120
+          },
+          "auth_bypass": {
+            "launch_vars": []
+          }
         }
       },
       "expected_hashes": {
@@ -364,7 +425,9 @@
           }
         ],
         "review_policy": null,
-        "session": { "idle_timeout_seconds": 1800 }
+        "session": {
+          "idle_timeout_seconds": 1800
+        }
       },
       "expected_hashes": {
         "project_configuration_hash": "28ad06f4b84f030bacdb14dec7d3264d774a1cbd8835e8193c4eea79999f45b0",
@@ -374,6 +437,238 @@
         "build_definition_hashes": {
           "development:android": "17ee089a5bafcc713e7ce4c0227d5f00fb3a29b1902eda3b6a5cc229bde74f6f"
         },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "web_only_profile_omits_framework_and_normalizes_to_url_only_profile",
+      "context": {
+        "repository_relative_project_root": "apps/web",
+        "execution_directory": "apps/web"
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  idle_timeout_seconds: 600\nbuild:\n  profiles:\n    development:\n      web:\n        app_id: 55555555-5555-4555-8555-555555555555\n",
+      "expected_projection": {
+        "session": {
+          "idle_timeout_seconds": 600
+        },
+        "framework": "web",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "web",
+                "app_id": "55555555-5555-4555-8555-555555555555",
+                "recipe": null
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "f4fb69bb992aacc468206ad31fe77280ec2a42187cbc608c8b5e597b789f7f70",
+        "build_profile_hashes": {
+          "development": "c4de7fbc031db924b0e47525abec5f2cdb2b116a76dfba65c78971d4c59829dc"
+        },
+        "build_definition_hashes": {
+          "development:web": "00556d4b78abbf61d3ee4f979d6b933f98c8a1cb617d686eb253344293736f19"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "web_recipe_beside_phone_recipe_leaves_phone_meaning_unchanged",
+      "context": {
+        "repository_relative_project_root": "apps/web",
+        "execution_directory": "apps/web"
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  framework: expo\n  profiles:\n    development:\n      ios:\n        build_commands: [npx expo run:ios]\n      web:\n        app_id: 55555555-5555-4555-8555-555555555555\n    preview:\n      web:\n        app_id: 66666666-6666-4666-8666-666666666666\n",
+      "expected_projection": {
+        "session": {},
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": null,
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "npx expo run:ios"
+                  ],
+                  "selected_project_root": "apps/web",
+                  "execution_directory": "apps/web",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": "55555555-5555-4555-8555-555555555555",
+                "recipe": null
+              }
+            ]
+          },
+          {
+            "name": "preview",
+            "configurations": [
+              {
+                "platform": "web",
+                "app_id": "66666666-6666-4666-8666-666666666666",
+                "recipe": null
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "1297b6790a2c3f85248264ac758bdebf91d685724376504951fbd2da4a7b99b6",
+        "build_profile_hashes": {
+          "development": "9eeb0f0948af58ec0f6a6d1ac88998f6783f0e765523b1a60c40c06045352897",
+          "preview": "1b66146afee331f1ce0566b3f03873ebb8f33018a5ff09f4f560076a526c882c"
+        },
+        "build_definition_hashes": {
+          "development:ios": "ec2c4ace2f45e82d5823ad32a6df6fbba9cf43617bf26740a90cdcd318e971d4",
+          "development:web": "00556d4b78abbf61d3ee4f979d6b933f98c8a1cb617d686eb253344293736f19",
+          "preview:web": "00556d4b78abbf61d3ee4f979d6b933f98c8a1cb617d686eb253344293736f19"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "url_only_web_beside_android_recipe_with_external_ci_review",
+      "context": {
+        "repository_relative_project_root": "apps/app",
+        "execution_directory": "apps/app"
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  framework: react_native\n  profiles:\n    preview:\n      android:\n        app_id: 33333333-3333-4333-8333-333333333333\n        build_commands: [./gradlew assembleDebug]\n        output_path: android/app/build/outputs/apk/debug/app-debug.apk\n      web:\n        app_id: 55555555-5555-4555-8555-555555555555\npr_review:\n  build:\n    kind: ci_upload_to_revyl\n    app_ids:\n      web: 55555555-5555-4555-8555-555555555555\n",
+      "expected_projection": {
+        "session": {},
+        "framework": "react_native",
+        "profiles": [
+          {
+            "name": "preview",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": "33333333-3333-4333-8333-333333333333",
+                "recipe": {
+                  "framework": "react_native",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "./gradlew assembleDebug"
+                  ],
+                  "selected_project_root": "apps/app",
+                  "execution_directory": "apps/app",
+                  "output_path": "android/app/build/outputs/apk/debug/app-debug.apk",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              },
+              {
+                "platform": "web",
+                "app_id": "55555555-5555-4555-8555-555555555555",
+                "recipe": null
+              }
+            ]
+          }
+        ],
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "web": "55555555-5555-4555-8555-555555555555"
+            }
+          },
+          "proof_of_changes": null,
+          "workflow_ids": [],
+          "strict_build_check": true
+        }
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "5fd347f15d13676193085bb282ab04e1d1e6571cbfb014b21786c36e66b37ce8",
+        "build_profile_hashes": {
+          "preview": "73c46e3ebf27e03b552de2414cb30b05662551c412645cfc22ce9161cf77a8b5"
+        },
+        "build_definition_hashes": {
+          "preview:android": "38e47513887ada5a33fca554b50a056f9f7e3bf044ced1f7e643d80d485dccc4",
+          "preview:web": "00556d4b78abbf61d3ee4f979d6b933f98c8a1cb617d686eb253344293736f19"
+        },
+        "review_policy_hash": "8250821302c43aa433e1199d2b0a63dc7b5343eae309326d81807fbc638a87a1"
+      }
+    },
+    {
+      "name": "web_sign_in_defaults",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_projection": {
+        "session": {
+          "auth_bypass": {
+            "launch_vars": [],
+            "sign_in": {
+              "path": "/__e2e__/login",
+              "secret": "REVYL_SIGN_IN_SECRET",
+              "persona": "default"
+            }
+          }
+        },
+        "framework": null,
+        "profiles": [],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "b279eda1f03d2c79e3a23c014cb160e0dd00482b9101e0aa356ce97acc47a5ab",
+        "build_profile_hashes": {},
+        "build_definition_hashes": {},
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "web_sign_in_explicit_with_mobile_bypass",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  idle_timeout_seconds: 900\n  auth_bypass:\n    launch_vars: [AUTH_MODE]\n    deep_link: myapp://revyl-auth?token=${AUTH_TOKEN}\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      persona: viewer\n",
+      "expected_projection": {
+        "session": {
+          "idle_timeout_seconds": 900,
+          "auth_bypass": {
+            "launch_vars": [
+              "AUTH_MODE"
+            ],
+            "deep_link": "myapp://revyl-auth?token=${AUTH_TOKEN}",
+            "sign_in": {
+              "path": "/__e2e__/login",
+              "secret": "REVYL_SIGN_IN_SECRET",
+              "persona": "viewer"
+            }
+          }
+        },
+        "framework": null,
+        "profiles": [],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "24d0e9ffcbb255de78373e7fcb9d948269ddce31612040d64735a4d9e42fd9a2",
+        "build_profile_hashes": {},
+        "build_definition_hashes": {},
         "review_policy_hash": null
       }
     }
@@ -610,6 +905,213 @@
         "stage": "legacy_translation",
         "code": "legacy_boolean_invalid",
         "path": ["pr_review", "skip_drafts"]
+      }
+    },
+    {
+      "name": "web_recipe_rejects_unknown_field",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  profiles:\n    development:\n      web:\n        app_id: 55555555-5555-4555-8555-555555555555\n        url: https://example.com\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["build", "profiles", "development", "web", "url"]
+      }
+    },
+    {
+      "name": "web_recipe_app_id_must_be_uuid",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  profiles:\n    development:\n      web:\n        app_id: not-a-uuid\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["build", "profiles", "development", "web", "app_id"]
+      }
+    },
+    {
+      "name": "phone_recipe_beside_web_still_requires_framework",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  profiles:\n    development:\n      android:\n        build_commands: [./gradlew assembleDebug]\n      web:\n        app_id: 55555555-5555-4555-8555-555555555555\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "missing_field",
+        "path": ["build", "framework"]
+      }
+    },
+    {
+      "name": "sign_in_missing_path",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "missing_field",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_missing_secret",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "missing_field",
+        "path": ["session", "auth_bypass", "sign_in", "secret"]
+      }
+    },
+    {
+      "name": "sign_in_unknown_field",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      value: literal-secret\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "value"]
+      }
+    },
+    {
+      "name": "sign_in_path_protocol_relative",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: //evil.test/login\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_path_absolute_url",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: https://evil.test/login\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_path_with_query",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: '/login?next=/'\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_path_backslash",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: '/\\evil.test'\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_path_too_long",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_path_not_a_string",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: 7\n      secret: REVYL_SIGN_IN_SECRET\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "path"]
+      }
+    },
+    {
+      "name": "sign_in_redirect_absolute_url",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      redirect: https://evil.test/\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "redirect"]
+      }
+    },
+    {
+      "name": "sign_in_redirect_fragment",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      redirect: '/dashboard#runs'\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "redirect"]
+      }
+    },
+    {
+      "name": "sign_in_secret_is_not_a_variable_name",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: 'not a name'\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "secret"]
+      }
+    },
+    {
+      "name": "sign_in_persona_invalid",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      persona: Admin\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "auth_bypass", "sign_in", "persona"]
+      }
+    },
+    {
+      "name": "sign_in_ttl_below_minimum",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      ttl_seconds: 29\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+      }
+    },
+    {
+      "name": "sign_in_ttl_above_maximum",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      ttl_seconds: 301\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+      }
+    },
+    {
+      "name": "sign_in_ttl_quoted",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      ttl_seconds: '120'\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+      }
+    },
+    {
+      "name": "sign_in_redirect_removed",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      redirect: /dashboard\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "redirect"]
+      }
+    },
+    {
+      "name": "sign_in_ttl_removed",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      ttl_seconds: 120\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["session", "auth_bypass", "sign_in", "ttl_seconds"]
+      }
+    },
+    {
+      "name": "web_profile_without_app_id_or_recipe",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  profiles:\n    preview:\n      web: {}\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["build", "profiles", "preview", "web"]
+      }
+    },
+    {
+      "name": "managed_review_of_url_only_web_profile",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  profiles:\n    preview:\n      web:\n        app_id: 66666666-6666-4666-8666-666666666666\npr_review:\n  build:\n    kind: revyl\n    profile: preview\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "profile_url_only",
+        "path": ["pr_review", "build", "profile"]
       }
     }
   ]

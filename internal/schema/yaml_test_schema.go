@@ -15,6 +15,7 @@ Before writing test YAML, read the app's source code to understand screen struct
 ## Critical Behavior for Test Generation
 **IMPORTANT**: When generating tests, DO NOT include manual navigation at the start:
 - **Mobile tests**: Automatically open the app at test start
+- **Web tests**: Automatically open the Web app's URL in a desktop browser at test start
 - Do NOT add an "open_app" block as the first step unless testing a specific app launch scenario
 
 ## Test Structure
@@ -23,7 +24,7 @@ Before writing test YAML, read the app's source code to understand screen struct
 test:
   metadata:
     name: "test-name"           # Required: Test name
-    platform: "ios"             # Required: "ios" or "android"
+    platform: "ios"             # Required: "ios", "android", or "web"
     tags:                       # Optional: Tag names for categorization
       - "smoke"
       - "regression"
@@ -184,6 +185,34 @@ constituent blocks at execution time.
 Use ` + "`revyl module list`" + ` to find available modules,
 or ` + "`revyl module insert <name>`" + ` to generate a ready-to-paste snippet.
 
+## Web Tests
+
+A test with ` + "`platform: \"web\"`" + ` runs against a Web app in a 1280x800 desktop browser.
+Its build name must be a Web app. Web tests support instructions, validation,
+extraction, if, while, code_execution, and module_import blocks, and only these
+manual step types:
+
+` + "```yaml" + `
+- type: manual
+  step_type: wait
+  step_description: "3"
+
+- type: manual
+  step_type: navigate
+  step_description: "https://example.com/path"
+
+# Go back in the browser history
+- type: manual
+  step_type: back
+
+- type: manual
+  step_type: end
+` + "```" + `
+
+Device steps (open_app, kill_app, go_home, set_location, set_appearance,
+set_orientation, set_font_size, pinch, download_file, play_audio) are mobile-only,
+and a Web test that uses them is rejected.
+
 ## Variable System
 
 ### Syntax
@@ -270,7 +299,7 @@ Before generating a test, verify:
 3. [ ] Validations describe VISIBLE elements
 4. [ ] Instructions are specific enough to be actionable
 5. [ ] Test does NOT assume pre-existing app state
-6. [ ] Platform is specified (ios or android)
+6. [ ] Platform is specified (ios, android, or web)
 7. [ ] Build name matches a configured app
 
 ## Complete Example
@@ -333,7 +362,8 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 		"purpose": "Schema for generating YAML test files",
 		"criticalBehavior": map[string]interface{}{
 			"autoAppOpen":        true,
-			"supportedPlatforms": []string{"ios", "android"},
+			"supportedPlatforms": []string{"ios", "android", "web"},
+			"webManualStepTypes": []string{"wait", "navigate", "back", "end"},
 			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "set_orientation", "set_appearance", "download_file", "end"},
 		},
 		"buildSelection": map[string]interface{}{
@@ -442,7 +472,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			"Validations describe VISIBLE elements",
 			"Instructions are specific enough",
 			"Test does NOT assume pre-existing app state",
-			"Platform is specified (ios or android)",
+			"Platform is specified (ios, android, or web)",
 		},
 	}
 }

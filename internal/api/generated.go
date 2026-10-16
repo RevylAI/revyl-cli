@@ -94,6 +94,7 @@ func (e ActiveDeviceSessionsResponseConcurrencyMode) Valid() bool {
 const (
 	AppPlatformAndroid AppPlatform = "Android"
 	AppPlatformIOS     AppPlatform = "iOS"
+	AppPlatformWeb     AppPlatform = "web"
 )
 
 // Valid indicates whether the value is a known member of the AppPlatform enum.
@@ -102,6 +103,8 @@ func (e AppPlatform) Valid() bool {
 	case AppPlatformAndroid:
 		return true
 	case AppPlatformIOS:
+		return true
+	case AppPlatformWeb:
 		return true
 	default:
 		return false
@@ -385,6 +388,7 @@ const (
 	AuthoredBuildFrameworkFlutter     AuthoredBuildFramework = "flutter"
 	AuthoredBuildFrameworkIos         AuthoredBuildFramework = "ios"
 	AuthoredBuildFrameworkReactNative AuthoredBuildFramework = "react_native"
+	AuthoredBuildFrameworkWeb         AuthoredBuildFramework = "web"
 )
 
 // Valid indicates whether the value is a known member of the AuthoredBuildFramework enum.
@@ -399,6 +403,8 @@ func (e AuthoredBuildFramework) Valid() bool {
 	case AuthoredBuildFrameworkIos:
 		return true
 	case AuthoredBuildFrameworkReactNative:
+		return true
+	case AuthoredBuildFrameworkWeb:
 		return true
 	default:
 		return false
@@ -460,6 +466,7 @@ func (e BillingPlanTermsPlan) Valid() bool {
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
 	BuildConfigPlatformIos     BuildConfigPlatform = "ios"
+	BuildConfigPlatformWeb     BuildConfigPlatform = "web"
 )
 
 // Valid indicates whether the value is a known member of the BuildConfigPlatform enum.
@@ -468,6 +475,8 @@ func (e BuildConfigPlatform) Valid() bool {
 	case BuildConfigPlatformAndroid:
 		return true
 	case BuildConfigPlatformIos:
+		return true
+	case BuildConfigPlatformWeb:
 		return true
 	default:
 		return false
@@ -478,6 +487,7 @@ func (e BuildConfigPlatform) Valid() bool {
 const (
 	BuildRecipePlatformAndroid BuildRecipePlatform = "android"
 	BuildRecipePlatformIos     BuildRecipePlatform = "ios"
+	BuildRecipePlatformWeb     BuildRecipePlatform = "web"
 )
 
 // Valid indicates whether the value is a known member of the BuildRecipePlatform enum.
@@ -486,6 +496,8 @@ func (e BuildRecipePlatform) Valid() bool {
 	case BuildRecipePlatformAndroid:
 		return true
 	case BuildRecipePlatformIos:
+		return true
+	case BuildRecipePlatformWeb:
 		return true
 	default:
 		return false
@@ -957,6 +969,24 @@ func (e DashboardMetricsDashboardState) Valid() bool {
 	case DashboardMetricsDashboardStateMature:
 		return true
 	case DashboardMetricsDashboardStateOnboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceSessionDetailResponseViewerKind.
+const (
+	DeviceSessionDetailResponseViewerKindNone DeviceSessionDetailResponseViewerKind = "none"
+	DeviceSessionDetailResponseViewerKindWhep DeviceSessionDetailResponseViewerKind = "whep"
+)
+
+// Valid indicates whether the value is a known member of the DeviceSessionDetailResponseViewerKind enum.
+func (e DeviceSessionDetailResponseViewerKind) Valid() bool {
+	switch e {
+	case DeviceSessionDetailResponseViewerKindNone:
+		return true
+	case DeviceSessionDetailResponseViewerKindWhep:
 		return true
 	default:
 		return false
@@ -1984,6 +2014,7 @@ func (e CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection) Valid() bo
 const (
 	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "android"
 	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformIos     CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "ios"
+	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformWeb     CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "web"
 )
 
 // Valid indicates whether the value is a known member of the CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform enum.
@@ -1992,6 +2023,26 @@ func (e CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatfo
 	case CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid:
 		return true
 	case CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformIos:
+		return true
+	case CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformWeb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds.
+const (
+	ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKindsWebBundle   ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds = "web_bundle"
+	ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKindsWebExternal ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds = "web_external"
+)
+
+// Valid indicates whether the value is a known member of the ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds enum.
+func (e ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds) Valid() bool {
+	switch e {
+	case ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKindsWebBundle:
+		return true
+	case ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKindsWebExternal:
 		return true
 	default:
 		return false
@@ -2297,6 +2348,7 @@ type ActionRange struct {
 // ActiveDeviceSessionItem Active session, with build attribution fixed to the session starting build.
 type ActiveDeviceSessionItem struct {
 	AppId                     *string                 `json:"app_id,omitempty"`
+	AppName                   *string                 `json:"app_name,omitempty"`
 	AppPackage                *string                 `json:"app_package,omitempty"`
 	BilledTo                  *string                 `json:"billed_to,omitempty"`
 	BranchId                  *string                 `json:"branch_id,omitempty"`
@@ -3106,10 +3158,16 @@ type AuthInfo struct {
 	UserRole                *string             `json:"user_role,omitempty"`
 }
 
-// AuthoredAuthBypass Optional launch-variable and deep-link auth bypass.
+// AuthoredAuthBypass Optional launch-variable, deep-link, and sign-in-link auth bypass.
 type AuthoredAuthBypass struct {
 	DeepLink   *string   `json:"deep_link,omitempty"`
 	LaunchVars *[]string `json:"launch_vars,omitempty"`
+
+	// SignIn Worker-minted sign-in link opened before a session is handed over.
+	//
+	// ``secret`` names an org secret launch variable whose value signs the code;
+	// the value itself never appears in configuration. Only Web sessions act on it.
+	SignIn *AuthoredSignIn `json:"sign_in,omitempty"`
 }
 
 // AuthoredBeforeScript Optional setup script run before a device session.
@@ -3122,7 +3180,7 @@ type AuthoredBeforeScript struct {
 type AuthoredBuild struct {
 	Caches    *[]ProjectBuildCache             `json:"caches,omitempty"`
 	Env       *map[string]string               `json:"env,omitempty"`
-	Framework AuthoredBuildFramework           `json:"framework"`
+	Framework *AuthoredBuildFramework          `json:"framework,omitempty"`
 	Profiles  *map[string]AuthoredBuildProfile `json:"profiles,omitempty"`
 	Secrets   *[]string                        `json:"secrets,omitempty"`
 }
@@ -3130,13 +3188,16 @@ type AuthoredBuild struct {
 // AuthoredBuildFramework defines model for AuthoredBuild.Framework.
 type AuthoredBuildFramework string
 
-// AuthoredBuildProfile The optional iOS and Android recipes under one customer-authored name.
+// AuthoredBuildProfile The optional iOS, Android, and Web recipes under one customer-authored name.
 type AuthoredBuildProfile struct {
 	// Android One authored profile/platform recipe before inheritance or defaulting.
 	Android *AuthoredBuildRecipe `json:"android,omitempty"`
 
 	// Ios One authored profile/platform recipe before inheritance or defaulting.
 	Ios *AuthoredBuildRecipe `json:"ios,omitempty"`
+
+	// Web An executable Web recipe or an app-only external-CI declaration.
+	Web *AuthoredWebRecipe `json:"web,omitempty"`
 }
 
 // AuthoredBuildRecipe One authored profile/platform recipe before inheritance or defaulting.
@@ -3147,6 +3208,7 @@ type AuthoredBuildRecipe struct {
 	Env            *map[string]string                        `json:"env,omitempty"`
 	Image          *string                                   `json:"image,omitempty"`
 	OutputPath     *string                                   `json:"output_path,omitempty"`
+	Run            *AuthoredWebRun                           `json:"run,omitempty"`
 	Secrets        *[]string                                 `json:"secrets,omitempty"`
 	SetupCommands  *[]AuthoredBuildRecipe_SetupCommands_Item `json:"setup_commands,omitempty"`
 	TimeoutSeconds *int                                      `json:"timeout_seconds,omitempty"`
@@ -3172,6 +3234,7 @@ type AuthoredBuildRecipe_SetupCommands_Item struct {
 type AuthoredExternalCIAppIds struct {
 	Android *openapi_types.UUID `json:"android,omitempty"`
 	Ios     *openapi_types.UUID `json:"ios,omitempty"`
+	Web     *openapi_types.UUID `json:"web,omitempty"`
 }
 
 // AuthoredExternalCIReviewBuild A non-runnable expectation satisfied by customer CI uploads.
@@ -3256,12 +3319,22 @@ type AuthoredRevylConfig struct {
 
 // AuthoredSession Authored project-wide device-session settings.
 type AuthoredSession struct {
-	// AuthBypass Optional launch-variable and deep-link auth bypass.
+	// AuthBypass Optional launch-variable, deep-link, and sign-in-link auth bypass.
 	AuthBypass *AuthoredAuthBypass `json:"auth_bypass,omitempty"`
 
 	// BeforeScript Optional setup script run before a device session.
 	BeforeScript       *AuthoredBeforeScript `json:"before_script,omitempty"`
 	IdleTimeoutSeconds *int                  `json:"idle_timeout_seconds,omitempty"`
+}
+
+// AuthoredSignIn Worker-minted sign-in link opened before a session is handed over.
+//
+// “secret“ names an org secret launch variable whose value signs the code;
+// the value itself never appears in configuration. Only Web sessions act on it.
+type AuthoredSignIn struct {
+	Path    string  `json:"path"`
+	Persona *string `json:"persona,omitempty"`
+	Secret  string  `json:"secret"`
 }
 
 // AuthoredStrictCICheck Authored strict build-check behavior.
@@ -3293,6 +3366,46 @@ type AuthoredTypedBuildStep struct {
 	IosSigning *IosSigningInputs `json:"ios-signing,omitempty"`
 	Name       *string           `json:"name,omitempty"`
 	Run        *string           `json:"run,omitempty"`
+}
+
+// AuthoredWebRecipe An executable Web recipe or an app-only external-CI declaration.
+type AuthoredWebRecipe struct {
+	AppId          *openapi_types.UUID                     `json:"app_id,omitempty"`
+	BuildCommands  *[]AuthoredWebRecipe_BuildCommands_Item `json:"build_commands,omitempty"`
+	Caches         *[]ProjectBuildCache                    `json:"caches,omitempty"`
+	Env            *map[string]string                      `json:"env,omitempty"`
+	Image          *string                                 `json:"image,omitempty"`
+	OutputPath     *string                                 `json:"output_path,omitempty"`
+	Run            *AuthoredWebRun                         `json:"run,omitempty"`
+	Secrets        *[]string                               `json:"secrets,omitempty"`
+	SetupCommands  *[]AuthoredWebRecipe_SetupCommands_Item `json:"setup_commands,omitempty"`
+	TimeoutSeconds *int                                    `json:"timeout_seconds,omitempty"`
+}
+
+// AuthoredWebRecipeBuildCommands0 defines model for .
+type AuthoredWebRecipeBuildCommands0 = string
+
+// AuthoredWebRecipe_BuildCommands_Item defines model for AuthoredWebRecipe.build_commands.Item.
+type AuthoredWebRecipe_BuildCommands_Item struct {
+	union json.RawMessage
+}
+
+// AuthoredWebRecipeSetupCommands0 defines model for .
+type AuthoredWebRecipeSetupCommands0 = string
+
+// AuthoredWebRecipe_SetupCommands_Item defines model for AuthoredWebRecipe.setup_commands.Item.
+type AuthoredWebRecipe_SetupCommands_Item struct {
+	union json.RawMessage
+}
+
+// AuthoredWebRun defines model for AuthoredWebRun.
+type AuthoredWebRun struct {
+	EnvKeys             *[]string `json:"env_keys,omitempty"`
+	Healthcheck         *string   `json:"healthcheck,omitempty"`
+	Port                *int      `json:"port,omitempty"`
+	SecretNames         *[]string `json:"secret_names,omitempty"`
+	Start               *string   `json:"start,omitempty"`
+	StartTimeoutSeconds *int      `json:"start_timeout_seconds,omitempty"`
 }
 
 // BillingPlanTerms defines model for BillingPlanTerms.
@@ -3525,6 +3638,7 @@ type BuildConfig struct {
 	IsDefault    *bool                `json:"is_default,omitempty"`
 	Name         *string              `json:"name,omitempty"`
 	Platform     *BuildConfigPlatform `json:"platform,omitempty"`
+	Run          *WebBuildRun         `json:"run,omitempty"`
 	SecretRefs   *[]string            `json:"secret_refs,omitempty"`
 	SourceSubdir *string              `json:"source_subdir,omitempty"`
 	Steps        *[]BuildStep         `json:"steps,omitempty"`
@@ -3716,6 +3830,7 @@ type BuildRecipe struct {
 
 	// Profile Name of the build profile this recipe came from, such as development.
 	Profile      *string       `json:"profile,omitempty"`
+	Run          *WebBuildRun  `json:"run,omitempty"`
 	SecretRefs   *[]string     `json:"secret_refs,omitempty"`
 	SetupSteps   *[]RecipeStep `json:"setup_steps,omitempty"`
 	SourceSubdir *string       `json:"source_subdir,omitempty"`
@@ -3745,10 +3860,12 @@ type BuildResolutionRequest struct {
 type BuildResolutionResponse struct {
 	// AppName The app's name, for messages that name it
 	AppName          *string                                  `json:"app_name,omitempty"`
+	ArtifactKind     *string                                  `json:"artifact_kind,omitempty"`
 	ArtifactUrl      *string                                  `json:"artifact_url,omitempty"`
 	BranchId         *openapi_types.UUID                      `json:"branch_id,omitempty"`
 	BranchName       *string                                  `json:"branch_name,omitempty"`
 	BuildVarId       openapi_types.UUID                       `json:"build_var_id"`
+	DeployUrl        *string                                  `json:"deploy_url,omitempty"`
 	DownloadUrl      *string                                  `json:"download_url,omitempty"`
 	Platform         string                                   `json:"platform"`
 	ResolutionStatus *BuildResolutionResponseResolutionStatus `json:"resolution_status,omitempty"`
@@ -3770,6 +3887,7 @@ type BuildResponse struct {
 	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
 	BranchName             *string                                   `json:"branch_name,omitempty"`
 	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	DeployUrl              *string                                   `json:"deploy_url,omitempty"`
 	DownloadUrl            *string                                   `json:"download_url,omitempty"`
 	Id                     *openapi_types.UUID                       `json:"id,omitempty"`
 	IsBranchPinned         *bool                                     `json:"is_branch_pinned,omitempty"`
@@ -3847,6 +3965,14 @@ type BuildUploadCompleteRequest struct {
 	// Pin True pins the destination branch to this build. False, the default, never changes a pin: a branch following Latest uses this build because it is the newest, and a pinned branch keeps its pin
 	Pin       *bool              `json:"pin,omitempty"`
 	VersionId openapi_types.UUID `json:"version_id"`
+	Web       *WebBuildMetadata  `json:"web,omitempty"`
+}
+
+// BuildUploadCompleteResponse defines model for BuildUploadCompleteResponse.
+type BuildUploadCompleteResponse struct {
+	Message  string    `json:"message"`
+	Version  string    `json:"version"`
+	Warnings *[]string `json:"warnings,omitempty"`
 }
 
 // BuildUploadSessionRequest Request to open a staging upload session for a new build artifact.
@@ -4522,11 +4648,15 @@ type DeviceSessionDetailResponse struct {
 	TraceId                   *string                                   `json:"trace_id,omitempty"`
 	UserEmail                 *string                                   `json:"user_email,omitempty"`
 	UserId                    *string                                   `json:"user_id,omitempty"`
+	ViewerKind                *DeviceSessionDetailResponseViewerKind    `json:"viewer_kind,omitempty"`
 	WhepUrl                   *string                                   `json:"whep_url,omitempty"`
 	WorkflowExecutionId       *string                                   `json:"workflow_execution_id,omitempty"`
 	WorkflowName              *string                                   `json:"workflow_name,omitempty"`
 	WorkflowRunId             *string                                   `json:"workflow_run_id,omitempty"`
 }
+
+// DeviceSessionDetailResponseViewerKind defines model for DeviceSessionDetailResponse.ViewerKind.
+type DeviceSessionDetailResponseViewerKind string
 
 // DeviceSessionHistoryItem Session history row, with build attribution fixed to its starting build.
 type DeviceSessionHistoryItem struct {
@@ -6211,6 +6341,8 @@ type RedeemCLIDeviceCredentialResponse struct {
 
 // RemoteBuildArchiveSource Archive source previously uploaded through the remote upload-url endpoint.
 type RemoteBuildArchiveSource struct {
+	CommitSha *string `json:"commit_sha,omitempty"`
+
 	// Key S3 source archive key returned by upload-url.
 	Key  string `json:"key"`
 	Type string `json:"type"`
@@ -6218,11 +6350,12 @@ type RemoteBuildArchiveSource struct {
 
 // RemoteBuildGitSource Git source checked out by the remote build runner.
 type RemoteBuildGitSource struct {
-	Lfs      *bool   `json:"lfs,omitempty"`
-	PatchKey *string `json:"patch_key,omitempty"`
-	Ref      *string `json:"ref,omitempty"`
-	RepoUrl  string  `json:"repo_url"`
-	Type     string  `json:"type"`
+	CommitSha *string `json:"commit_sha,omitempty"`
+	Lfs       *bool   `json:"lfs,omitempty"`
+	PatchKey  *string `json:"patch_key,omitempty"`
+	Ref       *string `json:"ref,omitempty"`
+	RepoUrl   string  `json:"repo_url"`
+	Type      string  `json:"type"`
 }
 
 // RemoteBuildLogEvent defines model for RemoteBuildLogEvent.
@@ -6643,6 +6776,7 @@ type ResolvedBuild struct {
 	BranchName   *string                 `json:"branch_name,omitempty"`
 	BuildName    *string                 `json:"build_name,omitempty"`
 	BuildVarId   openapi_types.UUID      `json:"build_var_id"`
+	DeployUrl    *string                 `json:"deploy_url,omitempty"`
 	Description  *string                 `json:"description,omitempty"`
 	DownloadUrl  *string                 `json:"download_url,omitempty"`
 	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
@@ -6847,6 +6981,7 @@ type StartDeviceInfo struct {
 
 	// Viewport Model for viewport dimensions used in browser sessions.
 	Viewport       *Viewport           `json:"viewport,omitempty"`
+	Web            *WebSessionOptions  `json:"web,omitempty"`
 	WorkerWsServer interface{}         `json:"worker_ws_server,omitempty"`
 	WorkflowRunId  *openapi_types.UUID `json:"workflow_run_id,omitempty"`
 }
@@ -7703,6 +7838,67 @@ type Viewport struct {
 	Width  *int `json:"width,omitempty"`
 }
 
+// WebBuildMetadata defines model for WebBuildMetadata.
+type WebBuildMetadata struct {
+	Artifact  *string      `json:"artifact,omitempty"`
+	Run       *WebBuildRun `json:"run,omitempty"`
+	Sha256    string       `json:"sha256"`
+	SizeBytes int          `json:"size_bytes"`
+}
+
+// WebBuildRun defines model for WebBuildRun.
+type WebBuildRun struct {
+	EnvKeys             *[]string `json:"env_keys,omitempty"`
+	Healthcheck         *string   `json:"healthcheck,omitempty"`
+	Port                *int      `json:"port,omitempty"`
+	SecretNames         *[]string `json:"secret_names,omitempty"`
+	Start               *string   `json:"start,omitempty"`
+	StartTimeoutSeconds *int      `json:"start_timeout_seconds,omitempty"`
+}
+
+// WebExternalBuildRequest defines model for WebExternalBuildRequest.
+type WebExternalBuildRequest struct {
+	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName        *string             `json:"branch_name,omitempty"`
+	CommitSha         *string             `json:"commit_sha,omitempty"`
+	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+
+	// Metadata Free-form build annotations, including CI metadata, as for artifact uploads
+	Metadata *map[string]interface{} `json:"metadata,omitempty"`
+	Url      string                  `json:"url"`
+}
+
+// WebSessionOptions defines model for WebSessionOptions.
+type WebSessionOptions struct {
+	// SignIn A caller's sign-in link naming, never carrying, its org secret.
+	SignIn *WebSignInRequest `json:"sign_in,omitempty"`
+
+	// Viewport Portrait widths up to 600 CSS pixels use mobile layout and touch input.
+	//
+	// Other dimensions use desktop layout. The browser keeps its default user
+	// agent. Device scale defaults to 1 and accepts fractional values from 1 to 3;
+	// encoded capture dimensions follow the browser's rounded physical surface.
+	Viewport *WebViewport `json:"viewport,omitempty"`
+}
+
+// WebSignInRequest A caller's sign-in link naming, never carrying, its org secret.
+type WebSignInRequest struct {
+	Path       string  `json:"path"`
+	Persona    *string `json:"persona,omitempty"`
+	SecretName string  `json:"secret_name"`
+}
+
+// WebViewport Portrait widths up to 600 CSS pixels use mobile layout and touch input.
+//
+// Other dimensions use desktop layout. The browser keeps its default user
+// agent. Device scale defaults to 1 and accepts fractional values from 1 to 3;
+// encoded capture dimensions follow the browser's rounded physical surface.
+type WebViewport struct {
+	DeviceScaleFactor *float32 `json:"device_scale_factor,omitempty"`
+	Height            *int     `json:"height,omitempty"`
+	Width             *int     `json:"width,omitempty"`
+}
+
 // WhileBlock Block for loop logic.
 type WhileBlock struct {
 	// Children Blocks to execute in the loop
@@ -8195,7 +8391,16 @@ type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 
 	// AttributedToCloudAgentConversationId Filter the build/job collection by cloud-agent conversation (requires include_jobs=true)
 	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+
+	// ArtifactKind Restrict to external URL builds; requires include_jobs=false
+	ArtifactKind *string `form:"artifact_kind,omitempty" json:"artifact_kind,omitempty"`
+
+	// ArtifactKinds Restrict to these Web artifact kinds; requires include_jobs=false and cannot be combined with artifact_kind
+	ArtifactKinds *[]ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds `form:"artifact_kinds,omitempty" json:"artifact_kinds,omitempty"`
 }
+
+// ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
+type ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds string
 
 // CreateBuildFromUploadApiV1AppsAppIdBuildsPostParams defines parameters for CreateBuildFromUploadApiV1AppsAppIdBuildsPost.
 type CreateBuildFromUploadApiV1AppsAppIdBuildsPostParams struct {
@@ -8887,6 +9092,9 @@ type UpdateBranchApiV1AppsAppIdBranchesBranchIdPatchJSONRequestBody = BuildBranc
 
 // CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody defines body for CreateBuildFromUploadApiV1AppsAppIdBuildsPost for application/json ContentType.
 type CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody = BuildCreateFromUploadRequest
+
+// RegisterWebExternalBuildApiV1AppsAppIdBuildsExternalPostJSONRequestBody defines body for RegisterWebExternalBuildApiV1AppsAppIdBuildsExternalPost for application/json ContentType.
+type RegisterWebExternalBuildApiV1AppsAppIdBuildsExternalPostJSONRequestBody = WebExternalBuildRequest
 
 // CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost for application/json ContentType.
 type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
@@ -11317,6 +11525,130 @@ func (t AuthoredProofOfChanges_Harness) MarshalJSON() ([]byte, error) {
 }
 
 func (t *AuthoredProofOfChanges_Harness) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAuthoredWebRecipeBuildCommands0 returns the union data inside the AuthoredWebRecipe_BuildCommands_Item as a AuthoredWebRecipeBuildCommands0
+func (t AuthoredWebRecipe_BuildCommands_Item) AsAuthoredWebRecipeBuildCommands0() (AuthoredWebRecipeBuildCommands0, error) {
+	var body AuthoredWebRecipeBuildCommands0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredWebRecipeBuildCommands0 overwrites any union data inside the AuthoredWebRecipe_BuildCommands_Item as the provided AuthoredWebRecipeBuildCommands0
+func (t *AuthoredWebRecipe_BuildCommands_Item) FromAuthoredWebRecipeBuildCommands0(v AuthoredWebRecipeBuildCommands0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredWebRecipeBuildCommands0 performs a merge with any union data inside the AuthoredWebRecipe_BuildCommands_Item, using the provided AuthoredWebRecipeBuildCommands0
+func (t *AuthoredWebRecipe_BuildCommands_Item) MergeAuthoredWebRecipeBuildCommands0(v AuthoredWebRecipeBuildCommands0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthoredTypedBuildStep returns the union data inside the AuthoredWebRecipe_BuildCommands_Item as a AuthoredTypedBuildStep
+func (t AuthoredWebRecipe_BuildCommands_Item) AsAuthoredTypedBuildStep() (AuthoredTypedBuildStep, error) {
+	var body AuthoredTypedBuildStep
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredTypedBuildStep overwrites any union data inside the AuthoredWebRecipe_BuildCommands_Item as the provided AuthoredTypedBuildStep
+func (t *AuthoredWebRecipe_BuildCommands_Item) FromAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredTypedBuildStep performs a merge with any union data inside the AuthoredWebRecipe_BuildCommands_Item, using the provided AuthoredTypedBuildStep
+func (t *AuthoredWebRecipe_BuildCommands_Item) MergeAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthoredWebRecipe_BuildCommands_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthoredWebRecipe_BuildCommands_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAuthoredWebRecipeSetupCommands0 returns the union data inside the AuthoredWebRecipe_SetupCommands_Item as a AuthoredWebRecipeSetupCommands0
+func (t AuthoredWebRecipe_SetupCommands_Item) AsAuthoredWebRecipeSetupCommands0() (AuthoredWebRecipeSetupCommands0, error) {
+	var body AuthoredWebRecipeSetupCommands0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredWebRecipeSetupCommands0 overwrites any union data inside the AuthoredWebRecipe_SetupCommands_Item as the provided AuthoredWebRecipeSetupCommands0
+func (t *AuthoredWebRecipe_SetupCommands_Item) FromAuthoredWebRecipeSetupCommands0(v AuthoredWebRecipeSetupCommands0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredWebRecipeSetupCommands0 performs a merge with any union data inside the AuthoredWebRecipe_SetupCommands_Item, using the provided AuthoredWebRecipeSetupCommands0
+func (t *AuthoredWebRecipe_SetupCommands_Item) MergeAuthoredWebRecipeSetupCommands0(v AuthoredWebRecipeSetupCommands0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthoredTypedBuildStep returns the union data inside the AuthoredWebRecipe_SetupCommands_Item as a AuthoredTypedBuildStep
+func (t AuthoredWebRecipe_SetupCommands_Item) AsAuthoredTypedBuildStep() (AuthoredTypedBuildStep, error) {
+	var body AuthoredTypedBuildStep
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredTypedBuildStep overwrites any union data inside the AuthoredWebRecipe_SetupCommands_Item as the provided AuthoredTypedBuildStep
+func (t *AuthoredWebRecipe_SetupCommands_Item) FromAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredTypedBuildStep performs a merge with any union data inside the AuthoredWebRecipe_SetupCommands_Item, using the provided AuthoredTypedBuildStep
+func (t *AuthoredWebRecipe_SetupCommands_Item) MergeAuthoredTypedBuildStep(v AuthoredTypedBuildStep) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthoredWebRecipe_SetupCommands_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthoredWebRecipe_SetupCommands_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

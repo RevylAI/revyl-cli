@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -2480,15 +2481,16 @@ func (c *Client) uploadFileWithHeadersAndRetry(ctx context.Context, uploadURL st
 // BuildVersion represents a build version.
 // Matches backend BuildVersionResponse schema.
 type BuildVersion struct {
-	BranchID    string                 `json:"branch_id,omitempty"`
-	BranchName  string                 `json:"branch_name,omitempty"`
-	ID          string                 `json:"id"`
-	Version     string                 `json:"version"`
-	UploadedAt  string                 `json:"uploaded_at"`
-	PackageName string                 `json:"package_name,omitempty"`
-	PackageID   string                 `json:"package_id,omitempty"`
-	IsCurrent   bool                   `json:"is_current,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ArtifactKind string                 `json:"artifact_kind,omitempty"`
+	BranchID     string                 `json:"branch_id,omitempty"`
+	BranchName   string                 `json:"branch_name,omitempty"`
+	ID           string                 `json:"id"`
+	Version      string                 `json:"version"`
+	UploadedAt   string                 `json:"uploaded_at"`
+	PackageName  string                 `json:"package_name,omitempty"`
+	PackageID    string                 `json:"package_id,omitempty"`
+	IsCurrent    bool                   `json:"is_current,omitempty"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // BuildVersionsPage represents a paginated build versions response.
@@ -3560,7 +3562,7 @@ type CreateAppRequest struct {
 	// Name is the display name for the app.
 	Name string `json:"name"`
 
-	// Platform is the target platform (ios or android).
+	// Platform is the target platform (ios, android, or web).
 	Platform string `json:"platform"`
 
 	// Description is an optional description.
@@ -3590,7 +3592,7 @@ type CreateAppResponse struct {
 //   - *CreateAppResponse: The created app
 //   - error: Any error that occurred
 func (c *Client) CreateApp(ctx context.Context, req *CreateAppRequest) (*CreateAppResponse, error) {
-	// Normalize platform to match backend enum (iOS, Android)
+	// Normalize platform to match backend enum (iOS, Android, web).
 	normalizedReq := &CreateAppRequest{
 		Name:        req.Name,
 		Platform:    normalizePlatform(req.Platform),
@@ -3613,16 +3615,18 @@ func (c *Client) CreateApp(ctx context.Context, req *CreateAppRequest) (*CreateA
 // normalizePlatform converts platform strings to backend enum format.
 //
 // Parameters:
-//   - platform: The platform string (e.g., "ios", "android", "iOS", "Android")
+//   - platform: The platform string (e.g., "ios", "android", "web")
 //
 // Returns:
-//   - string: The normalized platform ("iOS" or "Android")
+//   - string: The normalized platform ("iOS", "Android", or "web")
 func normalizePlatform(platform string) string {
 	switch strings.ToLower(platform) {
 	case "ios":
 		return "iOS"
 	case "android":
 		return "Android"
+	case "web":
+		return "web"
 	default:
 		return platform
 	}
@@ -4287,8 +4291,9 @@ type StartDeviceRequest struct {
 	BranchName        string             `json:"branch_name,omitempty"`
 	BuildSelection    BuildSelectionMode `json:"build_selection,omitempty"`
 	PinnedBuildID     string             `json:"pinned_build_id,omitempty"`
-	// Platform is the target platform (ios or android).
-	Platform string `json:"platform"`
+	// Platform is the target platform (ios, android, or web).
+	Platform string            `json:"platform"`
+	Web      *DeviceWebOptions `json:"web,omitempty"`
 
 	// TestID is the test ID to associate with this device session.
 	// Required unless IsSimulation is true.
@@ -4385,6 +4390,11 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	}
 	if err := validateContextBranchName(req.ContextBranchName); err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(req.Platform, "web") {
+		canonicalRequest := *req
+		canonicalRequest.Platform = "web"
+		req = &canonicalRequest
 	}
 	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
 		withoutContext := *req
@@ -4567,6 +4577,9 @@ type DeviceSessionDetail struct {
 	BuildID         string                 `json:"build_id,omitempty"`
 	BranchID        string                 `json:"branch_id,omitempty"`
 	BranchName      string                 `json:"branch_name,omitempty"`
+	BuildVersion    *string                `json:"build_version,omitempty"`
+	CommitSHA       *string                `json:"commit_sha,omitempty"`
+	ViewerKind      *string                `json:"viewer_kind,omitempty"`
 	ID              string                 `json:"id"`
 	OrgID           string                 `json:"org_id"`
 	Source          *string                `json:"source"`
@@ -4593,6 +4606,23 @@ type DeviceSessionDetail struct {
 	TestName        *string                `json:"test_name"`
 	UserEmail       *string                `json:"user_email"`
 	CanCancel       bool                   `json:"can_cancel"`
+}
+
+var webAppFailurePattern = regexp.MustCompile(`; app_failure=([a-z_]{1,64}); (.+)$`)
+
+// FailureReason returns the user-facing reason a session failed: the sentence
+// from a "web_session_failed: ...; app_failure=<code>; <sentence>" error
+// message, otherwise the trimmed error message, otherwise "". Unknown codes
+// are treated like known ones so new codes need no client release.
+func (s DeviceSessionDetail) FailureReason() string {
+	if s.ErrorMessage == nil {
+		return ""
+	}
+	message := strings.TrimSpace(*s.ErrorMessage)
+	if match := webAppFailurePattern.FindStringSubmatch(message); match != nil {
+		return strings.TrimSpace(match[2])
+	}
+	return message
 }
 
 func (s DeviceSessionDetail) StopConfirmed() bool {
@@ -5969,8 +5999,12 @@ type DeviceOpenURLRequest struct {
 // proxyNoRetryActions lists worker actions that are not idempotent.
 // Retrying these creates duplicate side-effects (e.g. duplicate agent steps).
 var proxyNoRetryActions = map[string]bool{
-	"execute_step":  true,
-	"install_async": true,
+	"input":             true,
+	"execute_step":      true,
+	"install_async":     true,
+	"push_notification": true,
+	"scroll":            true,
+	"open_url":          true,
 }
 
 var proxyLongRunningActions = map[string]bool{
@@ -5978,6 +6012,49 @@ var proxyLongRunningActions = map[string]bool{
 }
 
 func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action string, body interface{}) ([]byte, int, error) {
+	data, statusCode, _, err := c.ProxyWorkerRequestWithScreenToken(ctx, workflowRunID, action, body, false)
+	return data, statusCode, err
+}
+
+type WorkerResolveTargetRequest struct {
+	Target      string `json:"target"`
+	SessionID   string `json:"session_id,omitempty"`
+	ScreenToken string `json:"screen_token,omitempty"`
+}
+
+type WorkerResolveTargetResponse struct {
+	X           *int   `json:"x"`
+	Y           *int   `json:"y"`
+	Found       bool   `json:"found"`
+	Error       string `json:"error,omitempty"`
+	ScreenToken string `json:"screen_token,omitempty"`
+}
+
+type RuntimeWorkerFailure struct {
+	Error              string `json:"error"`
+	ExecutionUncertain bool   `json:"execution_uncertain"`
+	ActionApplied      *bool  `json:"action_applied"`
+	Recorded           *bool  `json:"recorded"`
+	FailureStage       string `json:"failure_stage,omitempty"`
+	InputDispatched    *bool  `json:"input_dispatched,omitempty"`
+}
+
+type RuntimeLiveSummary struct {
+	Sequence     int64   `json:"sequence"`
+	Kind         string  `json:"kind"`
+	Outcome      string  `json:"outcome"`
+	URLOrigin    *string `json:"url_origin,omitempty"`
+	RoutePattern *string `json:"route_pattern,omitempty"`
+	StatusCode   *int    `json:"status_code,omitempty"`
+}
+
+type RuntimeSummaryPage struct {
+	Entries             []RuntimeLiveSummary `json:"entries"`
+	NextCursor          int64                `json:"next_cursor"`
+	DroppedBeforeCursor bool                 `json:"dropped_before_cursor"`
+}
+
+func (c *Client) ProxyWorkerRequestWithScreenToken(ctx context.Context, workflowRunID, action string, body interface{}, noRetry bool) ([]byte, int, string, error) {
 	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
 
 	method := proxyWorkerMethodForAction(action)
@@ -5989,22 +6066,35 @@ func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action s
 	var err error
 	if proxyLongRunningActions[action] {
 		resp, err = c.doRequestOnceWithClient(ctx, method, path, body, c.uploadClient)
-	} else if proxyNoRetryActions[action] {
+	} else if noRetry || proxyNoRetryActions[action] {
 		resp, err = c.doRequestOnce(ctx, method, path, body)
 	} else {
 		resp, err = c.doRequest(ctx, method, path, body)
 	}
 	if err != nil {
-		return nil, 0, fmt.Errorf("proxy request failed for %s: %w", action, err)
+		return nil, 0, "", fmt.Errorf("proxy request failed for %s: %w", action, err)
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("failed to read proxy response: %w", err)
+	var responseReader io.Reader = resp.Body
+	if noRetry {
+		responseReader = io.LimitReader(resp.Body, 16*1024*1024+1)
 	}
-
-	return data, resp.StatusCode, nil
+	data, err := io.ReadAll(responseReader)
+	if err != nil {
+		return nil, resp.StatusCode, "", fmt.Errorf("failed to read proxy response: %w", err)
+	}
+	if noRetry && len(data) > 16*1024*1024 {
+		return nil, resp.StatusCode, "", fmt.Errorf("proxy response exceeded the size limit")
+	}
+	screenToken := ""
+	if action == "screenshot" && resp.StatusCode == http.StatusOK {
+		values := resp.Header.Values("X-Revyl-Screen-Token")
+		if len(values) == 1 && len(values[0]) <= 8192 && !strings.ContainsAny(values[0], "\r\n") {
+			screenToken = values[0]
+		}
+	}
+	return data, resp.StatusCode, screenToken, nil
 }
 
 func proxyWorkerMethodForAction(action string) string {
@@ -6029,7 +6119,7 @@ func proxyWorkerMethodForAction(action string) string {
 		base = action[:idx]
 	}
 	switch base {
-	case "screenshot", "health", "device_info", "step_status", "install_status", "hierarchy", "performance_metrics", "network_requests", "device_logs":
+	case "screenshot", "health", "device_info", "step_status", "install_status", "hierarchy", "performance_metrics", "network_requests", "device_logs", "logs", "requests", "tabs":
 		return http.MethodGet
 	default:
 		return http.MethodPost

@@ -112,6 +112,26 @@ func TestResolveDeviceSelection_DefaultsOSVersionForTestRun(t *testing.T) {
 	}
 }
 
+func TestResolveDeviceSelection_RefusesDeviceFlagsForWebTest(t *testing.T) {
+	const testID = "11111111-2222-4333-8444-666666666666"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.Contains(r.URL.Path, testID) {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"` + testID + `","name":"checkout","platform":"web"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	cmd := newStopTestCommand(t)
+	_, _, err := resolveDeviceSelection(cmd, testID, api.NewClientWithBaseURL("test-key", server.URL), false, "iPhone 16", "iOS 27.0")
+	if err == nil || !strings.Contains(err.Error(), "is a Web test") {
+		t.Fatalf("resolveDeviceSelection() error = %v, want the Web test refusal", err)
+	}
+}
+
 func TestRunTestExec_NoWaitJSONListsTheDefaultedRuntime(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-key")
 	testutil.SetHomeDir(t, t.TempDir())

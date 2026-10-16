@@ -372,3 +372,31 @@ func TestCachePathsSupportHomeDirectories(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthoredContractValidatesSignInStruct(t *testing.T) {
+	path, secret := "/__e2e__/login", "REVYL_SIGN_IN_SECRET"
+	badPath, badPersona := "https://evil.test/", "Admin"
+	for _, test := range []struct {
+		name   string
+		signIn AuthoredSignIn
+		field  string
+	}{
+		{"missing path", AuthoredSignIn{Secret: &secret}, "path"},
+		{"missing secret", AuthoredSignIn{Path: &path}, "secret"},
+		{"absolute path", AuthoredSignIn{Path: &badPath, Secret: &secret}, "path"},
+		{"invalid persona", AuthoredSignIn{Path: &path, Secret: &secret, Persona: &badPersona}, "persona"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			signIn := test.signIn
+			authored := AuthoredConfig{Project: AuthoredProject{ID: "11111111-1111-4111-8111-111111111111"}, Session: &AuthoredSession{AuthBypass: &AuthoredAuthBypass{SignIn: &signIn}}}
+			var configErr *ConfigError
+			if err := authored.ValidateContract(); !errors.As(err, &configErr) || !reflect.DeepEqual(configErr.Path, []string{"session", "auth_bypass", "sign_in", test.field}) {
+				t.Fatalf("ValidateContract() = %v, want error at %s", err, test.field)
+			}
+		})
+	}
+	valid := AuthoredConfig{Project: AuthoredProject{ID: "11111111-1111-4111-8111-111111111111"}, Session: &AuthoredSession{AuthBypass: &AuthoredAuthBypass{SignIn: &AuthoredSignIn{Path: &path, Secret: &secret}}}}
+	if err := valid.ValidateContract(); err != nil {
+		t.Fatalf("ValidateContract() = %v", err)
+	}
+}

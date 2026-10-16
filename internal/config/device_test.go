@@ -132,6 +132,9 @@ func TestDeviceConfigContextRejectsInvalidSessionSettings(t *testing.T) {
 		"session: {}\nauth_bypass:\n  deep_link: example://auth\n",
 		"session: {}\nsession: {}\n",
 		"session: [\n",
+		"session:\n  auth_bypass:\n    sign_in:\n      path: https://evil.test/login\n      secret: REVYL_SIGN_IN_SECRET\n",
+		"session:\n  auth_bypass:\n    sign_in:\n      path: /login\n      secret_value: hunter2\n",
+		"auth_bypass:\n  sign_in:\n    path: /login\n    secret: REVYL_SIGN_IN_SECRET\n",
 	} {
 		t.Run(content, func(t *testing.T) {
 			root := writeDeviceConfigFixture(t, content, true)
@@ -211,4 +214,25 @@ func writeDeviceConfigFixture(t *testing.T, content string, gitRepository bool) 
 		}
 	}
 	return root
+}
+
+func TestDeviceConfigContextReadsSignInWithDefaults(t *testing.T) {
+	root := writeDeviceConfigFixture(t, "session:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n", true)
+	deviceContext, err := ResolveDeviceConfigContext(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := deviceContext.ReadSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.AuthBypass == nil || session.AuthBypass.SignIn == nil {
+		t.Fatalf("auth_bypass = %+v, want sign_in", session.AuthBypass)
+	}
+	signIn := session.AuthBypass.SignIn
+	got := []any{*signIn.Path, *signIn.Secret, *signIn.Persona}
+	want := []any{"/__e2e__/login", "REVYL_SIGN_IN_SECRET", "default"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sign_in = %v, want %v", got, want)
+	}
 }

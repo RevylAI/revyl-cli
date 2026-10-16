@@ -1,12 +1,16 @@
 ---
 name: revyl-cli-auth-bypass
-description: Set up test-only auth bypass for Revyl runs across Expo, React Native, native iOS, native Android, and Flutter apps.
+description: Set up test-only auth bypass for Revyl runs across Web, Expo, React Native, native iOS, native Android, and Flutter apps.
 disable-model-invocation: true
 ---
 
 # Revyl Auth Bypass Skill
 
 Use this skill only when the user explicitly asks to set up test-only auth bypass for a Revyl test or dev loop. Detect the app stack, apply the shared safety contract, then implement the handler in that stack. This is app code guidance, not a Revyl authentication shortcut.
+
+For Web, read [manual Web setup](references/web.md) first and use its signed
+server-route contract instead of the mobile deep-link flow below. It includes
+Next.js and static Vite examples; `revyl init` does not choose their defaults.
 
 ## Native Agent Behavior
 

@@ -17,17 +17,20 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/launchvars"
 )
 
 type fakeExploreAPI struct {
-	apps          map[string]*api.App
-	searchResults []api.App
-	launchVars    []api.OrgLaunchVariable
-	launch        *api.ExplorationLaunchResponse
-	reports       []*api.ExplorationRunReportResponse
-	reportErr     error
-	reportCalls   int
-	cancelled     bool
+	apps           map[string]*api.App
+	searchResults  []api.App
+	launchVars     []api.OrgLaunchVariable
+	launchVarCalls int
+	launch         *api.ExplorationLaunchResponse
+	launchCalls    int
+	reports        []*api.ExplorationRunReportResponse
+	reportErr      error
+	reportCalls    int
+	cancelled      bool
 }
 
 func (f *fakeExploreAPI) GetApp(_ context.Context, id string) (*api.App, error) {
@@ -43,10 +46,12 @@ func (f *fakeExploreAPI) SearchApps(context.Context, string, string, int) (*api.
 }
 
 func (f *fakeExploreAPI) ListOrgLaunchVariables(context.Context) (*api.OrgLaunchVariablesResponse, error) {
+	f.launchVarCalls++
 	return &api.OrgLaunchVariablesResponse{Result: f.launchVars}, nil
 }
 
 func (f *fakeExploreAPI) LaunchExploration(context.Context, string, *api.ExplorationLaunchRequest) (*api.ExplorationLaunchResponse, error) {
+	f.launchCalls++
 	if f.launch != nil {
 		return f.launch, nil
 	}
@@ -100,7 +105,7 @@ func TestBuildExploreLaunchRequestResolvesExplicitAppAndOptions(t *testing.T) {
 	exploreDeviceModel = "iPhone 16"
 	exploreOSVersion = "18.5"
 
-	request, app, err := buildExploreLaunchRequest(context.Background(), client, []string{"My App"})
+	request, app, err := buildExploreLaunchRequest(&cobra.Command{}, client, []string{"My App"})
 	if err != nil {
 		t.Fatalf("buildExploreLaunchRequest(): %v", err)
 	}
@@ -121,6 +126,226 @@ func TestBuildExploreLaunchRequestResolvesExplicitAppAndOptions(t *testing.T) {
 	}
 	if request.EnvVars == nil || (*request.EnvVars)["API_HOST"] != "staging" {
 		t.Fatalf("env vars = %#v", request.EnvVars)
+	}
+}
+
+func TestBuildExploreWebLaunchRequest(t *testing.T) {
+	for _, selection := range []string{"explicit platform", "inferred by ID", "inferred by name", "default durations"} {
+		t.Run(selection, func(t *testing.T) {
+			resetExploreFlagsForTest(t)
+			t.Setenv(launchvars.InheritedIDsEnv, "invalid-inherited-id")
+			appID, buildID := uuid.NewString(), uuid.NewString()
+			webApp := api.App{ID: appID, Name: "Web App", Platform: "web"}
+			client := &fakeExploreAPI{
+				apps:          map[string]*api.App{appID: &webApp},
+				searchResults: []api.App{webApp},
+			}
+			cmd := &cobra.Command{}
+			configureExploreRunFlags(cmd)
+			flags := []string{
+				"--build-id", buildID,
+				"--instructions", "Map account settings",
+				"--auth-instructions", "Use the configured sign-in",
+			}
+			idleSeconds := 900
+			if selection != "default durations" {
+				flags = append(flags, "--max-duration", "30m", "--idle-timeout", "60m")
+				idleSeconds = 3600
+			}
+			args := []string{appID}
+			if selection == "explicit platform" {
+				flags = append(flags, "--platform", " WEB ")
+			} else if selection == "inferred by name" {
+				args = []string{webApp.Name}
+			}
+			if err := cmd.ParseFlags(flags); err != nil {
+				t.Fatal(err)
+			}
+			request, app, err := buildExploreLaunchRequest(cmd, client, args)
+			if err != nil {
+				t.Fatalf("buildExploreLaunchRequest(): %v", err)
+			}
+			if app.ID != appID || request.Platform == nil || *request.Platform != "web" {
+				t.Fatalf("app/platform = %s/%v", app.ID, request.Platform)
+			}
+			encoded, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]interface{}
+			if err := json.Unmarshal(encoded, &payload); err != nil {
+				t.Fatal(err)
+			}
+			for key, want := range map[string]interface{}{
+				"platform": "web", "build_id": buildID,
+				"lane_count": float64(3), "swarm_strategy": "balanced",
+				"max_duration_seconds": float64(1800), "idle_timeout_seconds": float64(idleSeconds),
+				"seed_instructions": "Map account settings", "auth_instructions": "Use the configured sign-in",
+			} {
+				if payload[key] != want {
+					t.Errorf("payload[%q] = %v, want %v", key, payload[key], want)
+				}
+			}
+			for _, key := range []string{"device_model", "os_version", "launch_env_var_ids", "env_vars", "run_config"} {
+				if _, present := payload[key]; present {
+					t.Errorf("Web payload contains %q", key)
+				}
+			}
+			if client.launchVarCalls != 0 {
+				t.Fatalf("resolved launch variables %d times for Web", client.launchVarCalls)
+			}
+		})
+	}
+}
+
+func TestExploreWebRejectsInvalidFlagsBeforeLaunch(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"device", []string{"--device-model", "iPhone 16"}, "--device-model is not available"},
+		{"empty device", []string{"--device-model="}, "--device-model is not available"},
+		{"os", []string{"--os-version", "18.5"}, "--os-version is not available"},
+		{"stored variables", []string{"--launch-var", "AUTH_TOKEN"}, "--launch-var is not available"},
+		{"inline variables", []string{"--launch-env", "INVALID"}, "--launch-env is not available"},
+		{"disable inherited", []string{"--no-inherited-launch-vars"}, "--no-inherited-launch-vars is not available"},
+		{"explicit inheritance", []string{"--no-inherited-launch-vars=false"}, "--no-inherited-launch-vars is not available"},
+		{"max duration", []string{"--max-duration", "30m1s"}, "--max-duration must be between"},
+		{"idle timeout", []string{"--idle-timeout", "60m1s"}, "--idle-timeout must be between"},
+		{"minimum duration", []string{"--max-duration", "59s"}, "--max-duration must be between"},
+		{"minimum idle", []string{"--idle-timeout", "59s"}, "--idle-timeout must be between"},
+		{"fractional duration", []string{"--max-duration", "60.5s"}, "--max-duration must use whole seconds"},
+		{"fractional idle", []string{"--idle-timeout", "60.5s"}, "--idle-timeout must use whole seconds"},
+		{"invalid build", []string{"--build-id", "not-a-uuid"}, "build ID must be a UUID"},
+		{"mismatched platform", []string{"--platform", "ios"}, "does not match app platform web"},
+	}
+	for _, explicitPlatform := range []bool{false, true} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%s/explicit=%t", tc.name, explicitPlatform), func(t *testing.T) {
+				resetExploreFlagsForTest(t)
+				t.Setenv("REVYL_API_KEY", "test-key")
+				appID := uuid.NewString()
+				client := &fakeExploreAPI{apps: map[string]*api.App{
+					appID: {ID: appID, Name: "Web App", Platform: "web"},
+				}}
+				previous := exploreNewClient
+				exploreNewClient = func(string, bool) exploreAPI { return client }
+				t.Cleanup(func() { exploreNewClient = previous })
+				cmd := &cobra.Command{}
+				configureExploreRunFlags(cmd)
+				flags := []string{"--no-wait"}
+				if explicitPlatform {
+					flags = append(flags, "--platform", "web")
+				}
+				flags = append(flags, tc.flags...)
+				if err := cmd.ParseFlags(flags); err != nil {
+					t.Fatal(err)
+				}
+				err := runExploreRun(cmd, []string{appID})
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("runExploreRun() error = %v, want %q", err, tc.want)
+				}
+				if client.launchCalls != 0 || client.launchVarCalls != 0 {
+					t.Fatalf("invalid Web flags made API calls: launch=%d, variables=%d", client.launchCalls, client.launchVarCalls)
+				}
+			})
+		}
+	}
+}
+
+func TestExploreMobileDurationLimitsRemainUnchanged(t *testing.T) {
+	for _, platform := range []string{"ios", "android"} {
+		t.Run(platform, func(t *testing.T) {
+			resetExploreFlagsForTest(t)
+			exploreNoInheritedLaunchVars = true
+			exploreMaxDuration, exploreIdleTimeout = 2*time.Hour, 2*time.Hour
+			appID := uuid.NewString()
+			client := &fakeExploreAPI{apps: map[string]*api.App{
+				appID: {ID: appID, Name: "Mobile App", Platform: platform},
+			}}
+			request, _, err := buildExploreLaunchRequest(&cobra.Command{}, client, []string{appID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *request.MaxDurationSeconds != 7200 || *request.IdleTimeoutSeconds != 7200 {
+				t.Fatalf("mobile durations = %d, %d", *request.MaxDurationSeconds, *request.IdleTimeoutSeconds)
+			}
+		})
+	}
+}
+
+func TestResolveCanonicalConfiguredExploreWebApp(t *testing.T) {
+	appID, mobileAppID, secondAppID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	for _, tc := range []struct {
+		name       string
+		platform   string
+		webAppIDs  []string
+		includeIOS bool
+		wantErr    string
+	}{
+		{"inferred", "", []string{appID}, false, ""},
+		{"select web", "web", []string{appID}, true, ""},
+		{"same app across profiles", "web", []string{appID, appID}, false, ""},
+		{"ambiguous web apps", "web", []string{appID, secondAppID}, false, "multiple web apps"},
+		{"missing web app", "web", nil, true, "no configured app for platform web"},
+		{"platform required", "", []string{appID}, true, "--platform ios|android|web"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			project := &config.ProjectContext{Aggregate: &config.NormalizedProjectAggregate{}}
+			for _, id := range tc.webAppIDs {
+				project.Aggregate.Profiles = append(project.Aggregate.Profiles, config.NormalizedBuildProfile{
+					Configurations: []config.NormalizedPlatformConfiguration{{Platform: "web", AppID: &id}},
+				})
+			}
+			if tc.includeIOS {
+				project.Aggregate.Profiles = append(project.Aggregate.Profiles, config.NormalizedBuildProfile{
+					Configurations: []config.NormalizedPlatformConfiguration{{Platform: "ios", AppID: &mobileAppID}},
+				})
+			}
+			client := &fakeExploreAPI{apps: map[string]*api.App{appID: {ID: appID, Name: "Configured Web App", Platform: "web"}}}
+			app, err := resolveCanonicalConfiguredExploreApp(context.Background(), client, project, tc.platform)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || app.ID != appID {
+				t.Fatalf("app = %#v, error = %v", app, err)
+			}
+		})
+	}
+}
+
+func TestBuildExploreLaunchRequestInfersConfiguredWebApp(t *testing.T) {
+	for _, explicitPlatform := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit=%t", explicitPlatform), func(t *testing.T) {
+			resetExploreFlagsForTest(t)
+			t.Setenv(launchvars.InheritedIDsEnv, "invalid-inherited-id")
+			root := t.TempDir()
+			gitInitBuildRepository(t, root)
+			appID := uuid.NewString()
+			writeProjectBuildConfig(t, root, "project: {id: "+buildTestProjectID+"}\nbuild:\n  profiles:\n    preview:\n      web: {app_id: "+appID+"}\n")
+			withWorkingDirectory(t, root)
+			client := &fakeExploreAPI{apps: map[string]*api.App{
+				appID: {ID: appID, Name: "Configured Web App", Platform: "web"},
+			}}
+			cmd := &cobra.Command{}
+			configureExploreRunFlags(cmd)
+			if explicitPlatform {
+				if err := cmd.ParseFlags([]string{"--platform", "web"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			request, app, err := buildExploreLaunchRequest(cmd, client, nil)
+			if err != nil {
+				t.Fatalf("buildExploreLaunchRequest(): %v", err)
+			}
+			if app.ID != appID || request.Platform == nil || *request.Platform != "web" {
+				t.Fatalf("configured app/platform = %s/%v", app.ID, request.Platform)
+			}
+		})
 	}
 }
 
@@ -501,7 +726,7 @@ func TestExploreBranchSelectorPreservesOmissionAndExplicitMode(t *testing.T) {
 			resetExploreFlagsForTest(t)
 			exploreBranchName, exploreBuildSelection, exploreAllBranches = tc.branch, tc.mode, tc.allBranches
 			client := &fakeExploreAPI{searchResults: []api.App{{ID: uuid.NewString(), Name: "App", Platform: "ios"}}}
-			req, _, err := buildExploreLaunchRequest(context.Background(), client, []string{"App"})
+			req, _, err := buildExploreLaunchRequest(&cobra.Command{}, client, []string{"App"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -529,7 +754,7 @@ func TestExploreBranchSelectorPreservesOmissionAndExplicitMode(t *testing.T) {
 func TestExploreRejectsExactBuildAndLatestBeforeResolvingApp(t *testing.T) {
 	resetExploreFlagsForTest(t)
 	exploreBuildID, exploreBuildSelection = uuid.NewString(), "latest"
-	if _, _, err := buildExploreLaunchRequest(context.Background(), &fakeExploreAPI{}, []string{"App"}); err == nil || !strings.Contains(err.Error(), "exact build") {
+	if _, _, err := buildExploreLaunchRequest(&cobra.Command{}, &fakeExploreAPI{}, []string{"App"}); err == nil || !strings.Contains(err.Error(), "exact build") {
 		t.Fatalf("error=%v", err)
 	}
 }

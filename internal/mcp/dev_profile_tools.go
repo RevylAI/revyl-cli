@@ -22,6 +22,7 @@ type InteractInput struct {
 	StartTarget     string  `json:"start_target,omitempty" jsonschema:"Visible drag start target."`
 	EndTarget       string  `json:"end_target,omitempty" jsonschema:"Visible drag end target."`
 	Text            string  `json:"text,omitempty" jsonschema:"Text for type interaction."`
+	TextEnv         string  `json:"text_env,omitempty" jsonschema:"Local environment variable name for type interaction; mutually exclusive with text."`
 	ClearFirst      bool    `json:"clear_first,omitempty" jsonschema:"Clear the field before typing."`
 	Direction       string  `json:"direction,omitempty" jsonschema:"Swipe direction: up down left right."`
 	DurationMs      int     `json:"duration_ms,omitempty" jsonschema:"Gesture duration in milliseconds."`
@@ -347,7 +348,7 @@ func (s *Server) dispatchInteract(
 		}, s.handleDeviceTap)
 	case "type":
 		return dispatchDevProfileAction(ctx, req, action, DeviceTypeInput{
-			Target: target, Text: input.Text, ClearFirst: input.ClearFirst,
+			Target: target, Text: input.Text, TextEnv: input.TextEnv, ClearFirst: input.ClearFirst,
 			SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 		}, s.handleDeviceType)
 	case "swipe":
@@ -440,6 +441,7 @@ func (s *Server) dispatchGroundedDrag(
 	}
 	toolResult, output, handlerErr := dispatchDevProfileAction(ctx, req, "drag", DeviceDragInput{
 		StartX: start.X, StartY: start.Y, EndX: end.X, EndY: end.Y,
+		ScreenToken:  screenToken,
 		SessionIndex: input.SessionIndex, SessionID: input.SessionID,
 	}, s.handleDeviceDrag)
 	if output.Result == nil {

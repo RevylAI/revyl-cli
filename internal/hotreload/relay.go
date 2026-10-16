@@ -94,6 +94,8 @@ type relayEnvelope struct {
 	Text           string              `json:"text,omitempty"`
 	Binary         bool                `json:"binary,omitempty"`
 	CloseCode      int                 `json:"close_code,omitempty"`
+	Subprotocols   []string            `json:"subprotocols,omitempty"`
+	Subprotocol    string              `json:"subprotocol,omitempty"`
 }
 
 const maxRelayResponseWindow = 64
@@ -115,8 +117,22 @@ type relayHTTPStream struct {
 }
 
 type relayWSStream struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn   *websocket.Conn
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (s *relayWSStream) close(closeCode int) {
+	s.cancel()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return
+	}
+	if closeCode != 0 {
+		_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, ""), time.Now().Add(2*time.Second))
+	}
+	_ = s.conn.Close()
 }
 
 type relayRuntime struct {
@@ -204,13 +220,12 @@ func (r *relayRuntime) stop() {
 		_ = stream.bodyWriter.Close()
 	}
 	for _, stream := range wsStreams {
-		stream.mu.Lock()
-		_ = stream.conn.Close()
-		stream.mu.Unlock()
+		stream.close(0)
 	}
 }
 
 func (r *relayRuntime) readLoop() {
+	defer r.stop()
 	defer r.signalDisconnect(fmt.Errorf("relay websocket disconnected"))
 	for {
 		_, message, err := r.conn.ReadMessage()
@@ -255,7 +270,15 @@ func (r *relayRuntime) sendEnvelope(env relayEnvelope) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode relay message: %w", err)
 	}
-	return r.conn.WriteMessage(websocket.TextMessage, payload)
+	if err := r.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		_ = r.conn.Close()
+		return err
+	}
+	if err := r.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		_ = r.conn.Close()
+		return err
+	}
+	return nil
 }
 
 func (r *relayRuntime) handleEnvelope(env relayEnvelope) {
@@ -494,6 +517,27 @@ func (r *relayRuntime) handleHTTPResponseCredit(env relayEnvelope) {
 }
 
 func (r *relayRuntime) handleWSStart(env relayEnvelope) {
+	ctx, cancel := context.WithCancel(r.ctx)
+	stream := &relayWSStream{cancel: cancel}
+	r.streamMu.Lock()
+	r.wsStreams[env.StreamID] = stream
+	r.streamMu.Unlock()
+	go r.runWSStream(ctx, stream, env)
+}
+
+func (r *relayRuntime) runWSStream(ctx context.Context, stream *relayWSStream, env relayEnvelope) {
+	defer func() {
+		stream.close(0)
+		r.streamMu.Lock()
+		delete(r.wsStreams, env.StreamID)
+		r.streamMu.Unlock()
+	}()
+	for _, protocol := range env.Subprotocols {
+		if !validRelaySubprotocol(protocol) {
+			_ = r.sendEnvelope(relayEnvelope{Kind: "stream.error", StreamID: env.StreamID, Message: "invalid websocket subprotocol offer"})
+			return
+		}
+	}
 	targetURL := url.URL{
 		Scheme:   "ws",
 		Host:     fmt.Sprintf("127.0.0.1:%d", r.localPort),
@@ -501,9 +545,21 @@ func (r *relayRuntime) handleWSStart(env relayEnvelope) {
 		RawQuery: env.Query,
 	}
 
-	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
-	localConn, _, err := dialer.DialContext(r.ctx, targetURL.String(), relayHeadersToHTTP(env.Headers))
+	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second, Subprotocols: env.Subprotocols}
+	stopDialCancellation := func() bool { return false }
+	defer func() { stopDialCancellation() }()
+	dialer.NetDialContext = func(dialCtx context.Context, network, address string) (net.Conn, error) {
+		conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(dialCtx, network, address)
+		if err == nil {
+			stopDialCancellation = context.AfterFunc(ctx, func() { _ = conn.Close() })
+		}
+		return conn, err
+	}
+	localConn, response, err := dialer.DialContext(ctx, targetURL.String(), relayHeadersToHTTP(env.Headers))
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		if isLocalConnectionRefused(err) {
 			r.signalFailure(RuntimeFailure{
 				Kind:   RuntimeFailureLocalDevServerDown,
@@ -521,61 +577,71 @@ func (r *relayRuntime) handleWSStart(env relayEnvelope) {
 		return
 	}
 
-	stream := &relayWSStream{conn: localConn}
-	r.streamMu.Lock()
-	r.wsStreams[env.StreamID] = stream
-	r.streamMu.Unlock()
-
-	if err := r.sendEnvelope(relayEnvelope{
-		Kind:     "ws.opened",
-		StreamID: env.StreamID,
-	}); err != nil {
-		stream.mu.Lock()
-		_ = localConn.Close()
+	stream.mu.Lock()
+	if ctx.Err() != nil {
 		stream.mu.Unlock()
+		_ = localConn.Close()
+		return
+	}
+	stream.conn = localConn
+	stream.mu.Unlock()
+	selected := localConn.Subprotocol()
+	selectionValid := len(response.Header.Values("Sec-WebSocket-Protocol")) == 0
+	if selected != "" && len(response.Header.Values("Sec-WebSocket-Protocol")) == 1 {
+		offered := false
+		for _, protocol := range env.Subprotocols {
+			offered = offered || protocol == selected
+		}
+		selectionValid = validRelaySubprotocol(selected) && offered
+	}
+	if !selectionValid {
+		_ = r.sendEnvelope(relayEnvelope{Kind: "stream.error", StreamID: env.StreamID, Message: "invalid upstream websocket subprotocol selection"})
 		return
 	}
 
-	go func() {
-		defer func() {
-			r.streamMu.Lock()
-			delete(r.wsStreams, env.StreamID)
-			r.streamMu.Unlock()
-			stream.mu.Lock()
-			_ = localConn.Close()
-			stream.mu.Unlock()
-		}()
+	if err := r.sendEnvelope(relayEnvelope{
+		Kind:        "ws.opened",
+		StreamID:    env.StreamID,
+		Subprotocol: selected,
+	}); err != nil {
+		return
+	}
 
-		for {
-			messageType, payload, err := localConn.ReadMessage()
-			if err != nil {
-				closeCode := websocket.CloseNormalClosure
-				if ce, ok := err.(*websocket.CloseError); ok {
-					closeCode = ce.Code
-				}
-				_ = r.sendEnvelope(relayEnvelope{
-					Kind:      "ws.close",
-					StreamID:  env.StreamID,
-					CloseCode: closeCode,
-				})
-				return
+	for {
+		messageType, payload, err := localConn.ReadMessage()
+		if err != nil {
+			closeCode := websocket.CloseNormalClosure
+			if ce, ok := err.(*websocket.CloseError); ok {
+				closeCode = ce.Code
 			}
-
-			msg := relayEnvelope{
-				Kind:     "ws.message",
-				StreamID: env.StreamID,
-				Binary:   messageType == websocket.BinaryMessage,
-			}
-			if msg.Binary {
-				msg.BodyChunkB64 = base64.StdEncoding.EncodeToString(payload)
-			} else {
-				msg.Text = string(payload)
-			}
-			if err := r.sendEnvelope(msg); err != nil {
-				return
-			}
+			_ = r.sendEnvelope(relayEnvelope{
+				Kind:      "ws.close",
+				StreamID:  env.StreamID,
+				CloseCode: closeCode,
+			})
+			return
 		}
-	}()
+
+		msg := relayEnvelope{
+			Kind:     "ws.message",
+			StreamID: env.StreamID,
+			Binary:   messageType == websocket.BinaryMessage,
+		}
+		if msg.Binary {
+			msg.BodyChunkB64 = base64.StdEncoding.EncodeToString(payload)
+		} else {
+			msg.Text = string(payload)
+		}
+		if err := r.sendEnvelope(msg); err != nil {
+			return
+		}
+	}
+}
+
+func validRelaySubprotocol(protocol string) bool {
+	return protocol != "" && strings.IndexFunc(protocol, func(c rune) bool {
+		return c <= 32 || c >= 127 || strings.ContainsRune("()<>@,;:\\\"/[]?={}", c)
+	}) == -1
 }
 
 func (r *relayRuntime) handleWSMessage(env relayEnvelope) {
@@ -603,8 +669,18 @@ func (r *relayRuntime) handleWSMessage(env relayEnvelope) {
 	}
 
 	stream.mu.Lock()
-	defer stream.mu.Unlock()
-	_ = stream.conn.WriteMessage(messageType, data)
+	if stream.conn == nil {
+		stream.mu.Unlock()
+		return
+	}
+	err := stream.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err == nil {
+		err = stream.conn.WriteMessage(messageType, data)
+	}
+	stream.mu.Unlock()
+	if err != nil {
+		stream.close(0)
+	}
 }
 
 func (r *relayRuntime) handleWSClose(env relayEnvelope) {
@@ -614,14 +690,7 @@ func (r *relayRuntime) handleWSClose(env relayEnvelope) {
 	if stream == nil {
 		return
 	}
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-	_ = stream.conn.WriteControl(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(env.CloseCode, ""),
-		time.Now().Add(2*time.Second),
-	)
-	_ = stream.conn.Close()
+	stream.close(env.CloseCode)
 }
 
 func (r *relayRuntime) handleStreamError(env relayEnvelope) {
@@ -635,9 +704,7 @@ func (r *relayRuntime) handleStreamError(env relayEnvelope) {
 		_ = httpStream.bodyWriter.CloseWithError(fmt.Errorf("%s", env.Message))
 	}
 	if wsStream != nil {
-		wsStream.mu.Lock()
-		_ = wsStream.conn.Close()
-		wsStream.mu.Unlock()
+		wsStream.close(0)
 	}
 }
 

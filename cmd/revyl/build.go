@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--profile <name>] [--platform ios|android] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--pin] [--detach] [--no-cache] [--json]",
+	Use:   "build [--profile <name>] [--platform ios|android|web] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--pin] [--detach] [--no-cache] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -62,14 +62,21 @@ its pin. Pass --pin to pin the branch to the new build.
 To match a GitHub PR or GitLab MR from any CI runner, pass --repo namespace/name
 and --commit with the full built commit SHA. Add --pr to select a review explicitly.
 These flags override detected SCM identity; GitHub Actions, GitLab CI, and
-Buildkite are detected automatically.`,
+Buildkite are detected automatically.
+
+With --platform web, --url is a deployment URL (for example a preview deploy)
+that Revyl registers as a build of the Web app named by --app or by
+build.profiles.<name>.web.app_id. Re-registering the same URL and commit makes
+that build the app's latest.`,
 	Example: `  revyl build upload --file ./app.apk --app <id>
   revyl build upload --file ./build/App.app.zip --platform ios --yes
   revyl build upload --url https://artifacts.example.com/app.apk --app <id>
   revyl build upload --url https://artifacts.example.com/app.ipa --header "Authorization: Bearer <token>"
   revyl build upload --file ./app.apk --version 1.2.3 --json
   revyl build upload --file ./app.apk --app <id> --branch staging --pin
-  revyl build upload --file ./app.apk --app <id> --preview --json`,
+  revyl build upload --file ./app.apk --app <id> --preview --json
+  revyl build upload --platform web --url https://pr-42.example.dev --json
+  revyl build upload --platform web --url https://pr-42.example.dev --repo owner/name --commit <full-sha> --pr 42`,
 	RunE: runBuildUpload,
 }
 
@@ -204,7 +211,7 @@ func init() {
 	buildStatusCmd.Flags().SortFlags = false
 
 	buildCmd.Flags().StringVar(&buildCommandProfile, "profile", "", "Named build profile from .revyl/config.yaml")
-	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform (ios or android)")
+	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform (ios, android, or web)")
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
 	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", true, "Run on Revyl cloud build runners (default; --remote=false selects local execution)")
 	buildCmd.Flags().BoolVar(&buildCommandLocal, "local", false, "Run the build on this machine and upload the artifact instead of building in the cloud")
@@ -229,13 +236,13 @@ func init() {
 	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the uploaded artifact (default: auto-generated)")
 	registerBuildPinFlags(buildUploadCmd)
 	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App name or ID to upload to")
-	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Mobile platform (ios or android)")
+	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Platform: ios or android, or web to register a deployment URL")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
 	buildUploadCmd.Flags().BoolVar(&uploadPreviewFlag, "preview", false, "Print a URL that starts a simulator with this build when opened")
 	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
-	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions)")
+	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions), or the HTTPS deployment URL with --platform web")
 	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
 	registerBuildUploadSCMFlags(buildUploadCmd)
 	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on Revyl's cloud build runners")
@@ -324,6 +331,10 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
+	}
+
+	if strings.EqualFold(strings.TrimSpace(uploadPlatformFlag), "web") {
+		return runWebURLUpload(cmd, apiKey)
 	}
 
 	if err := validateUploadSourceFlags(uploadFileFlag, uploadURLFlag, uploadHeaderFlags); err != nil {

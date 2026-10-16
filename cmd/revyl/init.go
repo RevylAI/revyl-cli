@@ -42,6 +42,9 @@ Detects your build system, writes .revyl/config.yaml, then optionally
 walks you through authentication, app creation, agent skills, and first build.
 You can exit at any point — the config is saved after each step.
 
+Web projects require manual configuration; no framework or preview host is guessed.
+See https://docs.revyl.ai/remote-builds/configuration#web-recipes.
+
 Use -y to skip all prompts and just create the config file.
 
 Examples:
@@ -1169,6 +1172,7 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 	} else {
 		ui.PrintWarning("Could not detect build system")
 		ui.PrintInfo("You can configure this manually in .revyl/config.yaml")
+		ui.PrintInfo("Web setup: https://docs.revyl.ai/remote-builds/configuration#web-recipes")
 		printNestedMobileAppHints(cwd)
 	}
 

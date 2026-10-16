@@ -259,7 +259,7 @@ func init() {
 	// test cancel flags (inherits global --json)
 
 	// test create flags
-	testCreateCmd.Flags().StringVar(&createTestPlatform, "platform", "", "Target platform (android, ios)")
+	testCreateCmd.Flags().StringVar(&createTestPlatform, "platform", "", "Target platform (android, ios, web)")
 	testCreateCmd.Flags().StringVar(&createTestAppID, "app", "", "App ID to associate with the test")
 	testCreateCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
 	testCreateCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")

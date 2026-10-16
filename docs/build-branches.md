@@ -75,6 +75,9 @@ on Latest.
 pins, like `--pin`; `--set-current=false` and `--no-set-current` do nothing.
 Each prints a warning on stderr, and `--json` output is unchanged.
 
+Web URL registration (`revyl build upload --platform web --url ...`) rejects
+`--pin`, `--set-current`, and `--no-set-current`.
+
 Changing the app's default branch doesn't change saved selections. Apps created
 before branches started with `base` pinned to the build they ran. When uploads
 stopped pinning, every branch pinned to its newest usable build moved to

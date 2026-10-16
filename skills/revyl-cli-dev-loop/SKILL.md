@@ -1,11 +1,15 @@
 ---
 name: revyl-cli-dev-loop
-description: Generic CLI-first Revyl dev loop for hot reload, rebuild-loop, and device exploration.
+description: CLI-first Revyl dev loop for mobile hot reload, rebuild-loop, device exploration, and manual Web project setup.
 ---
 
 # Revyl CLI Dev Loop Skill
 
 Use this skill when the user wants the generic Revyl CLI dev loop instead of MCP tool-by-tool orchestration. Start from the app's real stack, keep the session running, and use the device as the source of truth.
+
+For Web projects, read the [manual Web setup guide](https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/references/web.md)
+before configuring or starting a session. Use explicit Web recipes or registered
+preview URLs, not the mobile detection/dev-loop steps below.
 
 ## Native Agent Behavior
 
@@ -350,4 +354,3 @@ dev-client link that Expo prints, not just the raw `*.exp.direct` URL:
 CURSOR_AGENT=1 npx expo start --tunnel --dev-client
 revyl dev --no-build --app-id <app-id> --tunnel '<full Expo dev-client link>'
 ```
-

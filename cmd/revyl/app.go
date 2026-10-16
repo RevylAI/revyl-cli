@@ -38,11 +38,12 @@ var appCreateCmd = &cobra.Command{
 	Short: "Create a new app",
 	Long: `Create a new app in your organization.
 
-An app stores uploaded app builds so tests can reference them.
+An app stores mobile builds or Web URL builds so sessions can reference them.
 
 Examples:
   revyl app create --name "My App" --platform android
   revyl app create --name "iOS Dev Client" --platform ios
+  revyl app create --name "My Web App" --platform web
   revyl app create --name "My App" --platform android --json`,
 	RunE: runAppCreate,
 }
@@ -96,12 +97,12 @@ func init() {
 	appCmd.AddCommand(appStoreKitCmd)
 
 	appCreateCmd.Flags().StringVar(&appCreateName, "name", "", "Name for the app (required)")
-	appCreateCmd.Flags().StringVar(&appCreatePlatform, "platform", "", "Target platform: ios or android (required)")
+	appCreateCmd.Flags().StringVar(&appCreatePlatform, "platform", "", "Target platform: ios, android, or web (required)")
 	appCreateCmd.Flags().BoolVar(&appCreateJSON, "json", false, "Output result as JSON")
 	_ = appCreateCmd.MarkFlagRequired("name")
 	_ = appCreateCmd.MarkFlagRequired("platform")
 
-	appListCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
+	appListCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios, web)")
 	appListCmd.Flags().StringVar(&appListSearch, "search", "", "Search by app name")
 	appListCmd.Flags().BoolVar(&appListJSON, "json", false, "Output results as JSON")
 
@@ -125,8 +126,8 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 
 	// Validate platform
 	platform := strings.ToLower(appCreatePlatform)
-	if platform != "ios" && platform != "android" {
-		ui.PrintError("Invalid platform '%s'. Must be 'ios' or 'android'.", appCreatePlatform)
+	if platform != "ios" && platform != "android" && platform != "web" {
+		ui.PrintError("Invalid platform '%s'. Must be 'ios', 'android', or 'web'.", appCreatePlatform)
 		return fmt.Errorf("invalid platform: %s", appCreatePlatform)
 	}
 
@@ -141,7 +142,7 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 	// remote app so a legacy or malformed file cannot fail only after the
 	// external side effect. JSON creation remains deliberately configless.
 	var projectContext *config.ProjectContext
-	if !jsonOutput {
+	if !jsonOutput && platform != "web" {
 		cwd, cwdErr := os.Getwd()
 		if cwdErr != nil {
 			return fmt.Errorf("failed to get current directory: %w", cwdErr)
@@ -183,6 +184,13 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintSuccess("Created app: %s", result.Name)
 	ui.PrintInfo("  App ID:    %s", result.ID)
+	if platform == "web" {
+		ui.PrintInfo("  Platform:  Web")
+		ui.Println()
+		ui.PrintInfo("Next:")
+		ui.PrintDim("  revyl device start --platform web --app %s --url https://example.com/", result.ID)
+		return nil
+	}
 	ui.PrintInfo("  Platform:  %s", platform)
 	ui.Println()
 
@@ -262,7 +270,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("No apps found in your organization")
 		ui.Println()
 		ui.PrintInfo("Create one with:")
-		ui.PrintDim("  revyl app create --name \"My App\" --platform <ios|android>")
+		ui.PrintDim("  revyl app create --name \"My App\" --platform <ios|android|web>")
 		return nil
 	}
 
@@ -281,7 +289,11 @@ func runAppList(cmd *cobra.Command, args []string) error {
 		if app.LatestVersion != "" {
 			latestVer = app.LatestVersion
 		}
-		table.AddRow(app.Name, app.Platform, fmt.Sprintf("%d", app.VersionsCount), latestVer, app.ID, app.DefaultBranchName)
+		platformLabel := app.Platform
+		if strings.EqualFold(platformLabel, "web") {
+			platformLabel = "Web"
+		}
+		table.AddRow(app.Name, platformLabel, fmt.Sprintf("%d", app.VersionsCount), latestVer, app.ID, app.DefaultBranchName)
 	}
 
 	table.Render()

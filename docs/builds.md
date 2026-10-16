@@ -23,7 +23,7 @@ selects for hot reload. Check the generated Xcode scheme: without an existing
 `revyl init --detect` to read the generated scheme.
 
 Cloud builds require a Git worktree and an accessible, same-platform app UUID
-in the recipe's `app_id`. Use `revyl app list --platform ios` (or `android`)
+in the recipe's `app_id`. Use `revyl app list --platform ios` (or `android` or `web`)
 to find an app, or `revyl app create` to create one. Cloud builds consume
 metered compute credits and require available capacity; failures never fall
 back to local execution.
@@ -165,6 +165,14 @@ pass `--remote`; test/workflow `--build` continuations remain local, and
 Use `revyl build upload` to upload an artifact produced by your own pipeline.
 To associate it with a GitHub PR, see
 [Use your own CI](https://docs.revyl.ai/integrations/github#use-your-own-ci).
+
+## Web builds
+
+`revyl build --platform web` uses the same local or remote managed build path.
+Configure `build.profiles.<name>.web` with explicit `build_commands` and an
+`output_path` directory. Static sites need `index.html`; server-rendered apps
+also supply `run.start` and package their runtime dependencies in that directory.
+See [Web builds](web-builds.md) for recipes and runtime variable names.
 
 ## Build branches and defaults
 

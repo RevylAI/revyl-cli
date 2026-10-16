@@ -20,6 +20,7 @@ type EndedSession struct {
 	EndedAt            time.Time          `json:"ended_at"`
 	Reason             EndedSessionReason `json:"reason"`
 	IdleTimeoutSeconds int                `json:"idle_timeout_seconds,omitempty"`
+	FailureReason      string             `json:"failure_reason,omitempty"`
 }
 
 // EndedSessionReason is the bounded cause recorded for an ended session.
@@ -64,6 +65,7 @@ func endedSessionFromPrune(session *DeviceSession, detail *api.DeviceSessionDeta
 		ended.IdleTimeoutSeconds = int(seconds)
 	}
 
+	ended.FailureReason = webFailureReason(detail)
 	status := strings.ToLower(detail.Status)
 	errorMessage := ""
 	if detail.ErrorMessage != nil {
@@ -137,6 +139,9 @@ func (e *EndedSession) endedPhrase(now time.Time) string {
 		why = " because it was cancelled"
 	case EndedSessionFailed:
 		why = " because it failed on the device worker"
+		if e.FailureReason != "" {
+			why = " because it failed: " + e.FailureReason
+		}
 	case EndedSessionTimedOut:
 		why = " because it timed out"
 	}

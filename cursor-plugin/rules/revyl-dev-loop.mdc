@@ -1,5 +1,5 @@
 ---
-description: Route mobile run/preview/device/verify requests to the Revyl CLI and skills.
+description: Route mobile and Web setup/run/preview/device/verify requests to the Revyl CLI and skills.
 globs:
 alwaysApply: false
 ---
@@ -7,7 +7,10 @@ alwaysApply: false
 # Revyl (mobile dev loops + cloud devices)
 
 Use this rule when the user asks to run, change, preview, debug, screenshot, or
-verify a mobile app on a Revyl device.
+verify a mobile or Web app on a Revyl device.
+
+For Web setup, load `revyl-cli-auth-bypass` and its `references/web.md` guide
+first. Configure the project by hand; do not apply mobile detection defaults.
 
 Drive devices with the Revyl CLI. Load `revyl-cli-dev-loop` for the device loop.
 Use shell CLI commands as the default path.

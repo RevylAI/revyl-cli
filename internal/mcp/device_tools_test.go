@@ -617,12 +617,12 @@ func TestInputValidation_StartDeviceSession(t *testing.T) {
 		{
 			name:      "empty platform",
 			input:     StartDeviceSessionInput{Platform: ""},
-			wantError: "platform is required (ios or android)",
+			wantError: "platform is required (ios, android, or web)",
 		},
 		{
 			name:      "invalid platform",
 			input:     StartDeviceSessionInput{Platform: "desktop"},
-			wantError: "platform must be 'ios' or 'android'",
+			wantError: "platform must be 'ios', 'android', or 'web'",
 		},
 	}
 

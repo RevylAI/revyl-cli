@@ -38,7 +38,7 @@ func validateSessionNode(session *yaml.Node) error {
 		if err := validateMappingNode(bypass, []string{"session", "auth_bypass"}, true); err != nil {
 			return err
 		}
-		if err := validateAllowedKeys(bypass, []string{"session", "auth_bypass"}, "launch_vars", "deep_link"); err != nil {
+		if err := validateAllowedKeys(bypass, []string{"session", "auth_bypass"}, "launch_vars", "deep_link", "sign_in"); err != nil {
 			return err
 		}
 		if err := validateStringSequence(mappingValue(bypass, "launch_vars"), []string{"session", "auth_bypass", "launch_vars"}); err != nil {
@@ -47,12 +47,63 @@ func validateSessionNode(session *yaml.Node) error {
 		if err := validateStringNode(mappingValue(bypass, "deep_link"), []string{"session", "auth_bypass", "deep_link"}, true); err != nil {
 			return err
 		}
+		if err := validateSignInNode(mappingValue(bypass, "sign_in")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSignInNode checks each field's presence, type, and value in
+// declaration order so the first reported error matches the Python contract.
+func validateSignInNode(signIn *yaml.Node) error {
+	path := []string{"session", "auth_bypass", "sign_in"}
+	if signIn == nil || nodeIsNull(signIn) {
+		return nil
+	}
+	if err := validateMappingNode(signIn, path, true); err != nil {
+		return err
+	}
+	if err := validateAllowedKeys(signIn, path, "path", "secret", "persona"); err != nil {
+		return err
+	}
+	fields := []struct {
+		name     string
+		required bool
+		valid    func(string) bool
+	}{
+		{"path", true, ValidateSignInAppPath},
+		{"secret", true, ValidateLaunchVariableName},
+		{"persona", false, ValidateSignInPersona},
+	}
+	for _, field := range fields {
+		fieldPath := append(append([]string{}, path...), field.name)
+		node := mappingValue(signIn, field.name)
+		if node == nil || (!field.required && nodeIsNull(node)) {
+			if field.required {
+				return newConfigError("contract", "missing_field", fieldPath, "")
+			}
+			continue
+		}
+		if err := validateStringNode(node, fieldPath, false); err != nil {
+			return err
+		}
+		if !field.valid(node.Value) {
+			return newConfigError("contract", "invalid_contract", fieldPath, "")
+		}
 	}
 	return nil
 }
 
 func normalizeSession(session AuthoredSession, repositoryRelativeProjectRoot string) (AuthoredSession, error) {
 	session = cloneAuthoredSession(session)
+	if session.AuthBypass != nil && session.AuthBypass.SignIn != nil {
+		signIn := session.AuthBypass.SignIn
+		if signIn.Persona == nil {
+			persona := DefaultSignInPersona
+			signIn.Persona = &persona
+		}
+	}
 	if session.BeforeScript == nil || session.BeforeScript.ScriptPath == nil {
 		return session, nil
 	}

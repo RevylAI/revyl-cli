@@ -48,7 +48,12 @@ credential store, so the key never reaches argv. If it reports no key, run
 "revyl auth login" and post the approval URL it prints as a clickable markdown
 link — the user can approve from any browser.
 
-Dev loop (run from the app directory containing .revyl/config.yaml):
+For Web projects, first read the manual Web setup guide:
+https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/references/web.md
+Author the recipe from the app's source; init does not detect Web defaults.
+Use its Web build/upload/start flow rather than the mobile dev loop below.
+
+Mobile dev loop (run from the app directory containing .revyl/config.yaml):
 
 ` + "```bash" + `
 # Start in the background. Returns JSON as soon as the simulator is watchable;

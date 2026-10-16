@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -300,11 +301,13 @@ func validateContractKeys(root *yaml.Node) error {
 		if err := validateAllowedKeys(build, []string{"build"}, "framework", "env", "secrets", "caches", "profiles"); err != nil {
 			return err
 		}
-		if mappingValue(build, "framework") == nil {
-			return newConfigError("contract", "missing_field", []string{"build", "framework"}, "")
-		}
-		if err := validateEnumStringNode(mappingValue(build, "framework"), []string{"build", "framework"}, "ios", "android", "react_native", "expo", "flutter"); err != nil {
-			return err
+		if framework := mappingValue(build, "framework"); framework != nil || !profileNodesAreWebOnly(mappingValue(build, "profiles")) {
+			if framework == nil {
+				return newConfigError("contract", "missing_field", []string{"build", "framework"}, "")
+			}
+			if err := validateEnumStringNode(framework, []string{"build", "framework"}, "ios", "android", "react_native", "expo", "flutter", "web"); err != nil {
+				return err
+			}
 		}
 		if err := validateStringMap(mappingValue(build, "env"), []string{"build", "env"}); err != nil {
 			return err
@@ -327,10 +330,10 @@ func validateContractKeys(root *yaml.Node) error {
 				if err := validateMappingNode(profile, profilePath, false); err != nil {
 					return err
 				}
-				if err := validateAllowedKeys(profile, profilePath, "ios", "android"); err != nil {
+				if err := validateAllowedKeys(profile, profilePath, "ios", "android", "web"); err != nil {
 					return err
 				}
-				for _, platform := range []string{"ios", "android"} {
+				for _, platform := range []string{"ios", "android", "web"} {
 					recipe := mappingValue(profile, platform)
 					if recipe == nil || nodeIsNull(recipe) {
 						continue
@@ -339,11 +342,18 @@ func validateContractKeys(root *yaml.Node) error {
 					if err := validateMappingNode(recipe, recipePath, true); err != nil {
 						return err
 					}
-					if err := validateAllowedKeys(recipe, recipePath, "app_id", "setup_commands", "build_commands", "output_path", "image", "timeout_seconds", "env", "secrets", "caches"); err != nil {
+					if err := validateAllowedKeys(recipe, recipePath, "app_id", "setup_commands", "build_commands", "output_path", "image", "timeout_seconds", "env", "secrets", "caches", "run"); err != nil {
 						return err
 					}
 					if mappingValue(recipe, "build_commands") == nil {
-						return newConfigError("contract", "missing_field", append(recipePath, "build_commands"), "")
+						if platform != "web" {
+							return newConfigError("contract", "missing_field", append(recipePath, "build_commands"), "")
+						}
+						for index := 0; index < len(recipe.Content); index += 2 {
+							if recipe.Content[index].Value != "app_id" {
+								return newConfigError("contract", "missing_field", append(recipePath, "build_commands"), "Web build recipes require build_commands; omit recipe fields to keep an app-ID-only URL profile")
+							}
+						}
 					}
 					if err := validateStringNode(mappingValue(recipe, "app_id"), append(recipePath, "app_id"), true); err != nil {
 						return err
@@ -371,12 +381,41 @@ func validateContractKeys(root *yaml.Node) error {
 					if err := validateCacheNodes(mappingValue(recipe, "caches"), append(recipePath, "caches")); err != nil {
 						return err
 					}
+					if run := mappingValue(recipe, "run"); run != nil && !nodeIsNull(run) {
+						if platform != "web" {
+							return authoredContractError(append(recipePath, "run"), "run is only supported for web recipes")
+						}
+						if err := validateWebRunNode(run, append(recipePath, "run")); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
 	}
 
 	return validateReviewKeys(mappingValue(root, "pr_review"))
+}
+
+func profileNodesAreWebOnly(profiles *yaml.Node) bool {
+	if profiles == nil || profiles.Kind != yaml.MappingNode || len(profiles.Content) == 0 {
+		return false
+	}
+	for index := 1; index < len(profiles.Content); index += 2 {
+		profile := profiles.Content[index]
+		if profile.Kind != yaml.MappingNode {
+			return false
+		}
+		for _, platform := range []string{"ios", "android"} {
+			if recipe := mappingValue(profile, platform); recipe != nil && !nodeIsNull(recipe) {
+				return false
+			}
+		}
+		if web := mappingValue(profile, "web"); web == nil || nodeIsNull(web) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateReviewKeys(review *yaml.Node) error {
@@ -436,10 +475,10 @@ func validateReviewKeys(review *yaml.Node) error {
 			if err := validateMappingNode(appIDs, append(unionPath, "app_ids"), true); err != nil {
 				return err
 			}
-			if err := validateAllowedKeys(appIDs, append(unionPath, "app_ids"), "ios", "android"); err != nil {
+			if err := validateAllowedKeys(appIDs, append(unionPath, "app_ids"), "ios", "android", "web"); err != nil {
 				return err
 			}
-			for _, platform := range []string{"ios", "android"} {
+			for _, platform := range []string{"ios", "android", "web"} {
 				if err := validateStringNode(mappingValue(appIDs, platform), append(unionPath, "app_ids", platform), true); err != nil {
 					return err
 				}
@@ -766,6 +805,13 @@ func canonicalizeAuthoredConfigUUIDs(authored *AuthoredConfig) error {
 		profileNames := sortedMapKeys(authored.Build.Profiles)
 		for _, profileName := range profileNames {
 			profile := authored.Build.Profiles[profileName]
+			if profile.Web != nil && profile.Web.AppID != nil {
+				value, parseErr := canonicalUUID(*profile.Web.AppID, []string{"build", "profiles", profileName, "web", "app_id"})
+				if parseErr != nil {
+					return parseErr
+				}
+				profile.Web.AppID = &value
+			}
 			for _, platform := range []string{"ios", "android"} {
 				var recipe *AuthoredBuildRecipe
 				if platform == "ios" {
@@ -801,6 +847,7 @@ func canonicalizeAuthoredConfigUUIDs(authored *AuthoredConfig) error {
 		}{
 			{platform: "ios", value: &authored.PRReview.Build.AppIDs.IOS},
 			{platform: "android", value: &authored.PRReview.Build.AppIDs.Android},
+			{platform: "web", value: &authored.PRReview.Build.AppIDs.Web},
 		} {
 			if *candidate.value == nil {
 				continue
@@ -876,16 +923,32 @@ func ResolveProfilePlatform(aggregate NormalizedProjectAggregate, explicitProfil
 	}
 
 	eligible := map[string][]string{}
+	urlOnlyProfiles := []string{}
 	for _, profile := range aggregate.Profiles {
 		platforms := []string{}
+		urlOnly := false
 		for _, configuration := range profile.Configurations {
-			if explicitPlatform == "" || configuration.Platform == explicitPlatform {
-				platforms = append(platforms, configuration.Platform)
+			if explicitPlatform != "" && configuration.Platform != explicitPlatform {
+				continue
 			}
+			if configuration.Recipe == nil {
+				urlOnly = true
+				continue
+			}
+			platforms = append(platforms, configuration.Platform)
 		}
 		if len(platforms) > 0 {
 			eligible[profile.Name] = platforms
+		} else if urlOnly {
+			urlOnlyProfiles = append(urlOnlyProfiles, profile.Name)
 		}
+	}
+	urlOnlyTarget := explicitProfile
+	if urlOnlyTarget == "" && len(eligible) == 0 && len(urlOnlyProfiles) > 0 {
+		urlOnlyTarget = urlOnlyProfiles[0]
+	}
+	if slices.Contains(urlOnlyProfiles, urlOnlyTarget) {
+		return ProfilePlatformSelection{}, newConfigError("selection", "profile_url_only", []string{"build", "profiles", urlOnlyTarget, "web"}, URLOnlyProfileMessage(urlOnlyTarget))
 	}
 	if explicitProfile != "" && explicitPlatform != "" {
 		if _, profileEligible := eligible[explicitProfile]; !profileEligible {
@@ -934,6 +997,11 @@ func ResolveProfilePlatform(aggregate NormalizedProjectAggregate, explicitProfil
 	return ProfilePlatformSelection{Resolved: &ResolvedProfilePlatform{Profile: profileName, Platform: platforms[0]}}, nil
 }
 
+// URLOnlyProfileMessage explains why a build path cannot build a URL-only Web profile.
+func URLOnlyProfileMessage(profile string) string {
+	return fmt.Sprintf("profile %s is URL-only; add build_commands and output_path, or register previews with `revyl build upload --url`", profile)
+}
+
 // ValidateExecutionRecipe applies runnability only after selection.
 func ValidateExecutionRecipe(recipe EffectiveBuildRecipe) error {
 	if err := recipe.ValidateContract(); err != nil {
@@ -958,9 +1026,26 @@ func ValidatePublication(aggregate NormalizedProjectAggregate, context Publicati
 			} else if _, exists := context.ActiveAppIDs[*configuration.AppID]; !exists {
 				return newConfigError("validation", "app_not_active_for_organization", append(path, "app_id"), "")
 			}
+			if configuration.Recipe == nil {
+				continue
+			}
 			for _, secret := range configuration.Recipe.SecretRefs {
 				if _, exists := context.AvailableSecretRefs[secret]; !exists {
 					return newConfigError("validation", "secret_not_available_for_organization", append(path, "secrets"), "")
+				}
+			}
+			if run := configuration.Recipe.Run; run != nil {
+				for _, name := range run.EnvKeys {
+					_, exists := context.AvailableLaunchVars[name]
+					_, secret := context.AvailableSecretRefs[name]
+					if !exists || secret {
+						return newConfigError("validation", "launch_var_not_available_for_organization", append(path, "run", "env_keys"), "run.env_keys must name existing plaintext organization launch variables")
+					}
+				}
+				for _, name := range run.SecretNames {
+					if _, exists := context.AvailableSecretRefs[name]; !exists {
+						return newConfigError("validation", "secret_not_available_for_organization", append(path, "run", "secret_names"), "run.secret_names must name existing encrypted organization launch variables")
+					}
 				}
 			}
 		}
@@ -972,7 +1057,7 @@ func ValidatePublication(aggregate NormalizedProjectAggregate, context Publicati
 			}
 		}
 		if aggregate.ReviewPolicy.Build.AppIDs != nil {
-			for platform, appID := range map[string]*string{"ios": aggregate.ReviewPolicy.Build.AppIDs.IOS, "android": aggregate.ReviewPolicy.Build.AppIDs.Android} {
+			for platform, appID := range map[string]*string{"ios": aggregate.ReviewPolicy.Build.AppIDs.IOS, "android": aggregate.ReviewPolicy.Build.AppIDs.Android, "web": aggregate.ReviewPolicy.Build.AppIDs.Web} {
 				if appID != nil {
 					if _, exists := context.ActiveAppIDs[*appID]; !exists {
 						return newConfigError("validation", "app_not_active_for_organization", []string{"pr_review", "build", "app_ids", platform}, "")

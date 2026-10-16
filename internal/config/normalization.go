@@ -36,11 +36,14 @@ type NormalizedBuildProfile struct {
 	Configurations   []NormalizedPlatformConfiguration `json:"configurations"`
 }
 
+// NormalizedPlatformConfiguration pairs a platform app with its build recipe.
+// A Web configuration with a nil Recipe is a URL-only target that Revyl never
+// builds; its previews are URL builds registered for AppID.
 type NormalizedPlatformConfiguration struct {
-	Platform            string               `json:"platform"`
-	AppID               *string              `json:"app_id,omitempty"`
-	Recipe              EffectiveBuildRecipe `json:"recipe"`
-	BuildDefinitionHash string               `json:"build_definition_hash"`
+	Platform            string                `json:"platform"`
+	AppID               *string               `json:"app_id,omitempty"`
+	Recipe              *EffectiveBuildRecipe `json:"recipe"`
+	BuildDefinitionHash string                `json:"build_definition_hash"`
 }
 
 type NormalizedReviewPolicy struct {
@@ -156,8 +159,9 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 	}
 	normalizedRecipeBytes := 0
 	if authored.Build != nil {
-		framework := authored.Build.Framework
-		aggregate.Framework = &framework
+		if framework := authored.Build.Framework; framework != "" {
+			aggregate.Framework = &framework
+		}
 		profileNames := make([]string, 0, len(authored.Build.Profiles))
 		for name := range authored.Build.Profiles {
 			profileNames = append(profileNames, name)
@@ -166,12 +170,19 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 		for _, name := range profileNames {
 			profile := authored.Build.Profiles[name]
 			normalizedProfile := NormalizedBuildProfile{Name: name, Configurations: []NormalizedPlatformConfiguration{}}
-			for _, platform := range []string{"ios", "android"} {
+			for _, platform := range []string{"ios", "android", "web"} {
 				var recipe *AuthoredBuildRecipe
 				if platform == "ios" {
 					recipe = profile.IOS
-				} else {
+				} else if platform == "android" {
 					recipe = profile.Android
+				} else if profile.Web.HasBuildRecipe() {
+					recipe = (*AuthoredBuildRecipe)(profile.Web)
+				} else if profile.Web != nil {
+					normalizedProfile.Configurations = append(normalizedProfile.Configurations, NormalizedPlatformConfiguration{
+						Platform: platform, AppID: cloneStringPointer(profile.Web.AppID), BuildDefinitionHash: urlOnlyBuildDefinitionHash(),
+					})
+					continue
 				}
 				if recipe == nil {
 					continue
@@ -180,6 +191,13 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 				effective, normalizeErr := normalizeBuildRecipe(*authored.Build, *recipe, root, executionDirectory, recipePath)
 				if normalizeErr != nil {
 					return nil, normalizeErr
+				}
+				if platform == "web" {
+					effective.Framework = "web"
+					if effective.Run == nil {
+						run := DefaultWebRun()
+						effective.Run = &run
+					}
 				}
 				encodedRecipe, encodeErr := CanonicalRevylJSON(effective)
 				if encodeErr != nil {
@@ -191,7 +209,7 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 				}
 				definitionHash := hashCanonicalRevylJSON("build-definition", encodedRecipe)
 				normalizedProfile.Configurations = append(normalizedProfile.Configurations, NormalizedPlatformConfiguration{
-					Platform: platform, AppID: cloneStringPointer(recipe.AppID), Recipe: effective, BuildDefinitionHash: definitionHash,
+					Platform: platform, AppID: cloneStringPointer(recipe.AppID), Recipe: &effective, BuildDefinitionHash: definitionHash,
 				})
 			}
 			profileProjection := make([]any, 0, len(normalizedProfile.Configurations))
@@ -205,6 +223,10 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 				return nil, err
 			}
 			aggregate.Profiles = append(aggregate.Profiles, normalizedProfile)
+		}
+		if aggregate.Framework == nil && len(aggregate.Profiles) > 0 {
+			framework := "web"
+			aggregate.Framework = &framework
 		}
 	}
 
@@ -273,6 +295,9 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 			if authored.Session.AuthBypass.DeepLink != nil {
 				authBypass["deep_link"] = *authored.Session.AuthBypass.DeepLink
 			}
+			if signIn := authored.Session.AuthBypass.SignIn; signIn != nil {
+				authBypass["sign_in"] = signInProjection(*signIn)
+			}
 			session["auth_bypass"] = authBypass
 		}
 		projection["session"] = session
@@ -287,15 +312,27 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 			if profile.Android != nil {
 				profileProjection["android"] = authoredBuildRecipeFileProjection(*profile.Android)
 			}
+			if profile.Web != nil {
+				web := map[string]any{}
+				if profile.Web.HasBuildRecipe() {
+					web = authoredBuildRecipeFileProjection(AuthoredBuildRecipe(*profile.Web))
+				} else if profile.Web.AppID != nil {
+					web["app_id"] = *profile.Web.AppID
+				}
+				profileProjection["web"] = web
+			}
 			profiles[name] = profileProjection
 		}
-		projection["build"] = map[string]any{
-			"framework": authored.Build.Framework,
-			"env":       nonNilMap(authored.Build.Env),
-			"secrets":   nonNilSlice(authored.Build.Secrets),
-			"caches":    nonNilSlice(authored.Build.Caches),
-			"profiles":  profiles,
+		build := map[string]any{
+			"env":      nonNilMap(authored.Build.Env),
+			"secrets":  nonNilSlice(authored.Build.Secrets),
+			"caches":   nonNilSlice(authored.Build.Caches),
+			"profiles": profiles,
 		}
+		if authored.Build.Framework != "" {
+			build["framework"] = authored.Build.Framework
+		}
+		projection["build"] = build
 	}
 	if authored.PRReview != nil {
 		enabled := true
@@ -375,6 +412,9 @@ func authoredBuildRecipeFileProjection(recipe AuthoredBuildRecipe) map[string]an
 	if recipe.TimeoutSeconds != nil {
 		projection["timeout_seconds"] = *recipe.TimeoutSeconds
 	}
+	if recipe.Run != nil {
+		projection["run"] = CloneWebRun(recipe.Run)
+	}
 	return projection
 }
 
@@ -390,6 +430,9 @@ func authoredReviewBuildFileProjection(build AuthoredReviewBuild) map[string]any
 		}
 		if build.AppIDs.Android != nil {
 			appIDs["android"] = *build.AppIDs.Android
+		}
+		if build.AppIDs.Web != nil {
+			appIDs["web"] = *build.AppIDs.Web
 		}
 		projection["app_ids"] = appIDs
 	}
@@ -422,13 +465,16 @@ func configCollectionItemCount(authored AuthoredConfig) int {
 			count += len(cache.Paths)
 		}
 		for _, profile := range build.Profiles {
-			for _, recipe := range []*AuthoredBuildRecipe{profile.IOS, profile.Android} {
+			for _, recipe := range []*AuthoredBuildRecipe{profile.IOS, profile.Android, (*AuthoredBuildRecipe)(profile.Web)} {
 				if recipe == nil {
 					continue
 				}
 				count += len(recipe.SetupCommands) + len(recipe.Env) + len(recipe.Secrets) + len(recipe.Caches)
 				if recipe.BuildCommands != nil {
 					count += len(*recipe.BuildCommands)
+				}
+				if recipe.Run != nil {
+					count += len(recipe.Run.EnvKeys) + len(recipe.Run.SecretNames)
 				}
 				for _, cache := range recipe.Caches {
 					count += len(cache.Paths)
@@ -478,6 +524,10 @@ func ProjectHashProjection(aggregate NormalizedProjectAggregate) map[string]any 
 	}
 }
 
+func urlOnlyBuildDefinitionHash() string {
+	return hashCanonicalRevylJSON("build-definition", []byte("null"))
+}
+
 func normalizeRelativeDirectory(value, field string) (string, error) {
 	if value == "." {
 		return value, nil
@@ -518,6 +568,7 @@ func normalizeBuildRecipe(build AuthoredBuild, recipe AuthoredBuildRecipe, root,
 		SelectedProjectRoot: root, ExecutionDirectory: root, OutputPath: cloneStringPointer(recipe.OutputPath),
 		Image: cloneStringPointer(recipe.Image), TimeoutSeconds: cloneIntPointer(recipe.TimeoutSeconds), Env: env,
 		SecretRefs: secretRefs, Caches: mergeCaches(build.Caches, recipe.Caches),
+		Run: CloneWebRun(recipe.Run),
 	}, nil
 }
 
@@ -553,7 +604,7 @@ func normalizeReviewPolicy(review AuthoredPRReview) (*NormalizedReviewPolicy, ma
 	}
 	build := NormalizedReviewBuild{Kind: review.Build.Kind, Profile: cloneStringPointer(review.Build.Profile)}
 	if review.Build.AppIDs != nil {
-		build.AppIDs = &AuthoredExternalCIAppIDs{IOS: cloneStringPointer(review.Build.AppIDs.IOS), Android: cloneStringPointer(review.Build.AppIDs.Android)}
+		build.AppIDs = &AuthoredExternalCIAppIDs{IOS: cloneStringPointer(review.Build.AppIDs.IOS), Android: cloneStringPointer(review.Build.AppIDs.Android), Web: cloneStringPointer(review.Build.AppIDs.Web)}
 	}
 	var proof *NormalizedProof
 	if review.ProofOfChanges != nil {
@@ -604,7 +655,20 @@ func normalizeSessionProjection(session AuthoredSession) map[string]any {
 		if session.AuthBypass.DeepLink != nil {
 			auth["deep_link"] = *session.AuthBypass.DeepLink
 		}
+		if session.AuthBypass.SignIn != nil {
+			auth["sign_in"] = signInProjection(*session.AuthBypass.SignIn)
+		}
 		result["auth_bypass"] = auth
+	}
+	return result
+}
+
+func signInProjection(signIn AuthoredSignIn) map[string]any {
+	result := map[string]any{}
+	for key, value := range map[string]*string{"path": signIn.Path, "secret": signIn.Secret, "persona": signIn.Persona} {
+		if value != nil {
+			result[key] = *value
+		}
 	}
 	return result
 }
@@ -616,6 +680,9 @@ func cloneAuthoredSession(session AuthoredSession) AuthoredSession {
 	}
 	if session.AuthBypass != nil {
 		result.AuthBypass = &AuthoredAuthBypass{LaunchVars: orderedUniqueStrings(session.AuthBypass.LaunchVars), DeepLink: cloneStringPointer(session.AuthBypass.DeepLink)}
+		if signIn := session.AuthBypass.SignIn; signIn != nil {
+			result.AuthBypass.SignIn = &AuthoredSignIn{Path: cloneStringPointer(signIn.Path), Secret: cloneStringPointer(signIn.Secret), Persona: cloneStringPointer(signIn.Persona)}
+		}
 	}
 	return result
 }

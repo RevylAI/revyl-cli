@@ -47,6 +47,46 @@ revyl explore run "My App" --branch staging \
 Store secret values in Revyl and use their keys or IDs with `--launch-var`.
 Keep values out of prompts, flags, logs and committed workflow files.
 
+## Web exploration
+
+Web sessions and the separate Web exploration feature flag must be enabled for
+your organization before you can launch a Web exploration.
+
+```bash
+revyl explore run "My Web App" --platform web --max-duration 20m
+revyl explore run --platform web --idle-timeout 30m
+```
+
+Web exploration uses the Web app's selected build and automatically applies the
+app project's `session.auth_bypass.sign_in` configuration: its sign-in path,
+stored secret name, and optional persona. The CLI does not send sign-in details.
+Without that configuration, exploration starts signed out. `--auth-instructions`
+provides guidance, not a replacement for configured sign-in; never put
+credentials in instructions.
+
+`--device-model`, `--os-version`, `--launch-var`, `--launch-env`, and
+`--no-inherited-launch-vars` are not supported for Web. Inherited launch
+variables are ignored automatically. Web `--max-duration` defaults to 30 minutes
+and cannot exceed `30m`; `--idle-timeout` defaults to 15 minutes and cannot
+exceed `60m`. Both require whole seconds and a minimum of `1m`. The requested
+explorer count must not exceed your organization's Web concurrency limit.
+
+Each Web explorer defaults to 20 planner turns, with at most 8 browser actions
+per turn, in a 1280×800 browser viewport. The API supports up to 50 planner
+turns through `max_turns`; the CLI has no flag to change that limit.
+
+Web exploration is scoped to the session's origin after startup and configured
+sign-in. Navigation accepts relative paths and absolute URLs on that origin, but
+refuses other origins. If an interaction leaves that origin, the explorer goes
+back and records the detour; it stops if it cannot return.
+
+The submit guard lets explorers open and fill risky screens but blocks
+committing sign-up or registration; organization, workspace, or team creation;
+invitations; subscriptions, upgrades, purchases, checkout, or payment; deletion,
+removal, or deactivation; and sign-out. It also refuses navigating to a URL
+whose path or query names one of those actions, such as `/logout`. Instructions
+cannot override this guard.
+
 ## Keep main or staging current
 
 Feature-branch and PR builds don't contain the merged code, and merging a PR

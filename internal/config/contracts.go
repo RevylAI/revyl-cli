@@ -52,13 +52,78 @@ type AuthoredBeforeScript struct {
 
 // AuthoredAuthBypass is the canonical session auth-bypass shape.
 type AuthoredAuthBypass struct {
-	LaunchVars []string `json:"launch_vars,omitempty" yaml:"launch_vars,omitempty"`
-	DeepLink   *string  `json:"deep_link,omitempty" yaml:"deep_link,omitempty"`
+	LaunchVars []string        `json:"launch_vars,omitempty" yaml:"launch_vars,omitempty"`
+	DeepLink   *string         `json:"deep_link,omitempty" yaml:"deep_link,omitempty"`
+	SignIn     *AuthoredSignIn `json:"sign_in,omitempty" yaml:"sign_in,omitempty"`
+}
+
+// AuthoredSignIn declares a worker-minted sign-in link opened before a session
+// is handed over. Secret names an org secret launch variable; its value never
+// appears in configuration. Web sessions act on it.
+type AuthoredSignIn struct {
+	Path    *string `json:"path,omitempty" yaml:"path,omitempty"`
+	Secret  *string `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Persona *string `json:"persona,omitempty" yaml:"persona,omitempty"`
+}
+
+const (
+	maxSignInPathRunes       = 512
+	DefaultSignInPersona     = "default"
+	signInPersonaPattern     = `^[a-z0-9_-]{1,32}$`
+	launchVariableNameSyntax = `^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`
+)
+
+var (
+	signInPersonaRegexp      = regexp.MustCompile(signInPersonaPattern)
+	launchVariableNameRegexp = regexp.MustCompile(launchVariableNameSyntax)
+)
+
+// ValidateSignInAppPath checks a relative app path on the build URL's origin.
+func ValidateSignInAppPath(value string) bool {
+	return strings.HasPrefix(value, "/") &&
+		!strings.HasPrefix(value, "//") &&
+		utf8.RuneCountInString(value) <= maxSignInPathRunes &&
+		!strings.ContainsAny(value, "\\#?") &&
+		strings.IndexFunc(value, func(r rune) bool { return r <= 32 || r == 127 }) < 0
+}
+
+// ValidateSignInPersona checks the opaque persona claim.
+func ValidateSignInPersona(value string) bool {
+	return signInPersonaRegexp.MatchString(value)
+}
+
+// ValidateLaunchVariableName checks an org launch-variable key reference.
+func ValidateLaunchVariableName(value string) bool {
+	return launchVariableNameRegexp.MatchString(value)
+}
+
+func validateAuthoredSignIn(signIn *AuthoredSignIn) error {
+	if signIn == nil {
+		return nil
+	}
+	path := []string{"session", "auth_bypass", "sign_in"}
+	field := func(name string) []string { return append(append([]string{}, path...), name) }
+	if signIn.Path == nil {
+		return newConfigError("contract", "missing_field", field("path"), "")
+	}
+	if !ValidateSignInAppPath(*signIn.Path) {
+		return authoredContractError(field("path"), "session.auth_bypass.sign_in.path must be a relative app path without a query")
+	}
+	if signIn.Secret == nil {
+		return newConfigError("contract", "missing_field", field("secret"), "")
+	}
+	if !ValidateLaunchVariableName(*signIn.Secret) {
+		return authoredContractError(field("secret"), "session.auth_bypass.sign_in.secret must name an org launch variable")
+	}
+	if signIn.Persona != nil && !ValidateSignInPersona(*signIn.Persona) {
+		return authoredContractError(field("persona"), "session.auth_bypass.sign_in.persona must match "+signInPersonaPattern)
+	}
+	return nil
 }
 
 // AuthoredBuild contains the project framework, inherited defaults, and profiles.
 type AuthoredBuild struct {
-	Framework string                          `json:"framework" yaml:"framework"`
+	Framework string                          `json:"framework,omitempty" yaml:"framework,omitempty"`
 	Env       map[string]string               `json:"env,omitempty" yaml:"env,omitempty"`
 	Secrets   []string                        `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	Caches    []BuildCache                    `json:"caches,omitempty" yaml:"caches,omitempty"`
@@ -69,6 +134,40 @@ type AuthoredBuild struct {
 type AuthoredBuildProfile struct {
 	IOS     *AuthoredBuildRecipe `json:"ios,omitempty" yaml:"ios,omitempty"`
 	Android *AuthoredBuildRecipe `json:"android,omitempty" yaml:"android,omitempty"`
+	Web     *AuthoredWebRecipe   `json:"web,omitempty" yaml:"web,omitempty"`
+}
+
+type AuthoredWebRecipe AuthoredBuildRecipe
+
+type AuthoredWebRun struct {
+	Start               *string  `json:"start,omitempty" yaml:"start,omitempty"`
+	Port                int      `json:"port" yaml:"port"`
+	Healthcheck         string   `json:"healthcheck" yaml:"healthcheck"`
+	StartTimeoutSeconds int      `json:"start_timeout_seconds" yaml:"start_timeout_seconds"`
+	EnvKeys             []string `json:"env_keys" yaml:"env_keys"`
+	SecretNames         []string `json:"secret_names" yaml:"secret_names"`
+}
+
+func (r *AuthoredWebRecipe) HasBuildRecipe() bool {
+	return r != nil && (r.BuildCommands != nil || len(r.SetupCommands) > 0 || r.OutputPath != nil || r.Image != nil || r.TimeoutSeconds != nil || len(r.Env) > 0 || len(r.Secrets) > 0 || len(r.Caches) > 0 || r.Run != nil)
+}
+
+func (p AuthoredBuildProfile) hasPhoneRecipe() bool {
+	return p.IOS != nil || p.Android != nil
+}
+
+// FrameworkOptional reports whether every profile is Web-only, the one shape
+// whose build needs no phone framework.
+func (b AuthoredBuild) FrameworkOptional() bool {
+	if len(b.Profiles) == 0 {
+		return false
+	}
+	for _, profile := range b.Profiles {
+		if profile.hasPhoneRecipe() {
+			return false
+		}
+	}
+	return true
 }
 
 // AuthoredBuildRecipe is one pre-inheritance platform recipe.
@@ -84,6 +183,7 @@ type AuthoredBuildRecipe struct {
 	Env            map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	Secrets        []string          `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	Caches         []BuildCache      `json:"caches,omitempty" yaml:"caches,omitempty"`
+	Run            *AuthoredWebRun   `json:"run,omitempty" yaml:"run,omitempty"`
 }
 
 // AuthoredPRReview is the canonical project-scoped review policy.
@@ -115,6 +215,7 @@ type AuthoredReviewBuild struct {
 type AuthoredExternalCIAppIDs struct {
 	IOS     *string `json:"ios,omitempty" yaml:"ios,omitempty"`
 	Android *string `json:"android,omitempty" yaml:"android,omitempty"`
+	Web     *string `json:"web,omitempty" yaml:"web,omitempty"`
 }
 
 // AuthoredProofOfChanges is the canonical proof policy.
@@ -150,6 +251,7 @@ type EffectiveBuildRecipe struct {
 	Env                 map[string]string `json:"env"`
 	SecretRefs          []string          `json:"secret_refs"`
 	Caches              []BuildCache      `json:"caches"`
+	Run                 *AuthoredWebRun   `json:"run,omitempty"`
 }
 
 // ConfigurationContractError is the stable machine-readable compilation error.
@@ -176,10 +278,15 @@ func (c AuthoredConfig) ValidateContract() error {
 				return authoredContractError([]string{"session", "before_script", "timeout_seconds"}, err.Error())
 			}
 		}
+		if c.Session.AuthBypass != nil {
+			if err := validateAuthoredSignIn(c.Session.AuthBypass.SignIn); err != nil {
+				return err
+			}
+		}
 	}
 
 	if c.Build != nil {
-		if !validProjectFramework(c.Build.Framework) {
+		if !validProjectFramework(c.Build.Framework) && (c.Build.Framework != "" || !c.Build.FrameworkOptional()) {
 			return authoredContractError([]string{"build", "framework"}, "build.framework is unsupported")
 		}
 		if err := validateCachesAtPath([]string{"build", "caches"}, c.Build.Caches); err != nil {
@@ -195,7 +302,7 @@ func (c AuthoredConfig) ValidateContract() error {
 			if err := validateProfileName("build.profiles", profileName); err != nil {
 				return authoredContractError([]string{"build", "profiles", profileName}, err.Error())
 			}
-			if profile.IOS == nil && profile.Android == nil {
+			if !profile.hasPhoneRecipe() && profile.Web == nil {
 				return authoredContractError(
 					[]string{"build", "profiles", profileName},
 					fmt.Sprintf("build.profiles.%s must declare a platform recipe", profileName),
@@ -206,6 +313,24 @@ func (c AuthoredConfig) ValidateContract() error {
 			}
 			if err := validateAuthoredRecipe(profileName, "android", profile.Android); err != nil {
 				return err
+			}
+			if profile.Web.HasBuildRecipe() {
+				if err := validateAuthoredRecipe(profileName, "web", (*AuthoredBuildRecipe)(profile.Web)); err != nil {
+					return err
+				}
+			} else if profile.Web != nil && profile.Web.AppID == nil {
+				return authoredContractError(
+					[]string{"build", "profiles", profileName, "web"},
+					fmt.Sprintf("build.profiles.%s.web needs app_id for a URL-only target, or build_commands and output_path for a bundle", profileName),
+				)
+			}
+			if profile.Web != nil && profile.Web.AppID != nil {
+				if _, err := uuid.Parse(*profile.Web.AppID); err != nil {
+					return authoredContractError(
+						[]string{"build", "profiles", profileName, "web", "app_id"},
+						fmt.Sprintf("build.profiles.%s.web.app_id must be a UUID", profileName),
+					)
+				}
 			}
 		}
 	}
@@ -286,14 +411,18 @@ func (c AuthoredConfig) ValidateContract() error {
 		if c.Build == nil {
 			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile requires build profiles")
 		}
-		if _, ok := c.Build.Profiles[*c.PRReview.Build.Profile]; !ok {
+		reviewProfile, ok := c.Build.Profiles[*c.PRReview.Build.Profile]
+		if !ok {
 			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile must name a declared profile")
+		}
+		if !reviewProfile.hasPhoneRecipe() && !reviewProfile.Web.HasBuildRecipe() {
+			return newConfigError("contract", "profile_url_only", []string{"pr_review", "build", "profile"}, URLOnlyProfileMessage(*c.PRReview.Build.Profile))
 		}
 	case "ci_upload_to_revyl":
 		if c.PRReview.Build.Profile != nil {
 			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile is managed-build-only")
 		}
-		if c.PRReview.Build.AppIDs == nil || (c.PRReview.Build.AppIDs.IOS == nil && c.PRReview.Build.AppIDs.Android == nil) {
+		if c.PRReview.Build.AppIDs == nil || (c.PRReview.Build.AppIDs.IOS == nil && c.PRReview.Build.AppIDs.Android == nil && c.PRReview.Build.AppIDs.Web == nil) {
 			return authoredContractError([]string{"pr_review", "build", "app_ids"}, "pr_review.build.app_ids must contain at least one platform")
 		}
 		for _, candidate := range []struct {
@@ -302,6 +431,7 @@ func (c AuthoredConfig) ValidateContract() error {
 		}{
 			{platform: "ios", appID: c.PRReview.Build.AppIDs.IOS},
 			{platform: "android", appID: c.PRReview.Build.AppIDs.Android},
+			{platform: "web", appID: c.PRReview.Build.AppIDs.Web},
 		} {
 			if candidate.appID != nil {
 				if _, err := uuid.Parse(*candidate.appID); err != nil {
@@ -347,6 +477,19 @@ func (r EffectiveBuildRecipe) ValidateContract() error {
 	if err := validateCachesAtPath([]string{"caches"}, r.Caches); err != nil {
 		return err
 	}
+	if r.Framework == "web" {
+		if r.OutputPath == nil {
+			return fmt.Errorf("web output_path must name an output directory")
+		}
+		if err := validateWebOutputPath(*r.OutputPath); err != nil {
+			return err
+		}
+	} else if r.Run != nil {
+		return fmt.Errorf("run is only supported for web recipes")
+	}
+	if r.Run != nil {
+		return validateWebRun(r.Run, []string{"run"})
+	}
 	return nil
 }
 
@@ -383,6 +526,19 @@ func validateAuthoredRecipe(profileName, platform string, recipe *AuthoredBuildR
 	}
 	if err := validateCachesAtPath(append(append([]string{}, configPath...), "caches"), recipe.Caches); err != nil {
 		return err
+	}
+	if platform == "web" {
+		if recipe.OutputPath == nil || strings.TrimSpace(*recipe.OutputPath) == "" {
+			return authoredContractError(append(configPath, "output_path"), fieldPath+".output_path must name the output directory")
+		}
+		if err := validateWebOutputPath(*recipe.OutputPath); err != nil {
+			return authoredContractError(append(configPath, "output_path"), err.Error())
+		}
+		if recipe.Run != nil {
+			return validateWebRun(recipe.Run, append(configPath, "run"))
+		}
+	} else if recipe.Run != nil {
+		return authoredContractError(append(configPath, "run"), "run is only supported for web recipes")
 	}
 	return nil
 }
@@ -476,7 +632,7 @@ func authoredContractError(path []string, message string) error {
 
 func validProjectFramework(framework string) bool {
 	switch framework {
-	case "ios", "android", "react_native", "expo", "flutter":
+	case "ios", "android", "react_native", "expo", "flutter", "web":
 		return true
 	default:
 		return false

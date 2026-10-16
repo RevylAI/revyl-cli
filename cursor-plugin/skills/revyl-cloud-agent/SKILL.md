@@ -7,6 +7,9 @@ description: Revyl conventions for Cursor Cloud/background agents - CLI install,
 
 Use this skill whenever you are running as a Cursor Cloud/background agent (headless Linux VM) and working with Revyl. Drive devices with the CLI. Do not use the plugin's `revyl-workspace` MCP tools here: they need an interactive sign-in and draw views a headless VM cannot show.
 
+For Web projects, first read [manual Web setup](../revyl-cli-auth-bypass/references/web.md)
+and use its explicit recipe/preview-URL flow instead of the mobile dev loop.
+
 ## Environment Ground Rules (non-negotiable)
 
 - The VM is headless and non-interactive. Never start the `revyl dev` TUI.
@@ -17,6 +20,7 @@ Use this skill whenever you are running as a Cursor Cloud/background agent (head
 ```bash
 export PATH="$HOME/.revyl/bin:$HOME/.local/bin:$PATH"
 ```
+
 The plugin cache is not on PATH. Do not invoke `${CURSOR_PLUGIN_ROOT}` or the
 cached binary as the shell command.
 

@@ -6,6 +6,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -20,11 +21,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/beforesession"
 	"github.com/revyl/cli/internal/config"
@@ -83,9 +90,12 @@ func resolveIdleTimeout(d time.Duration) time.Duration {
 }
 
 type DeviceSession struct {
-	BuildID    string `json:"build_id,omitempty"`
-	BranchID   string `json:"branch_id,omitempty"`
-	BranchName string `json:"branch_name,omitempty"`
+	AppName      string `json:"-"`
+	BuildID      string `json:"build_id,omitempty"`
+	BuildVersion string `json:"build_version,omitempty"`
+	CommitSHA    string `json:"commit_sha,omitempty"`
+	BranchID     string `json:"branch_id,omitempty"`
+	BranchName   string `json:"branch_name,omitempty"`
 	// Index is the local session index (tmux-style numbering, 0-based).
 	Index int `json:"index"`
 
@@ -108,7 +118,7 @@ type DeviceSession struct {
 	// WhepURL is the raw WebRTC playback URL for the active device stream.
 	WhepURL *string `json:"whep_url,omitempty"`
 
-	// Platform is "ios" or "android".
+	// Platform is "ios", "android", or "web".
 	Platform string `json:"platform"`
 
 	// ScreenWidth is the device screen width in pixels (0 when unknown).
@@ -164,9 +174,11 @@ type sessionCacheMutation struct {
 }
 
 type screenAnchorState struct {
-	Token      string
-	ImageBytes []byte
-	ImagePath  string
+	Token              string
+	ImageBytes         []byte
+	ImagePath          string
+	RuntimeScreenToken string
+	SessionID          string
 }
 
 // DeviceSessionManager manages multiple concurrent device sessions.
@@ -304,7 +316,7 @@ func shortPrefix(s string, max int) string {
 // IDs using WorkflowRunID matches.
 func reconcileSessionIDsByWorkflow(sessions map[int]*DeviceSession, backendIDsByWorkflow map[string]string) {
 	for _, s := range sessions {
-		if s == nil || s.WorkflowRunID == "" {
+		if s == nil || s.WorkflowRunID == "" || s.Platform == "web" {
 			continue
 		}
 		if backendID, ok := backendIDsByWorkflow[s.WorkflowRunID]; ok {
@@ -343,7 +355,11 @@ func (m *DeviceSessionManager) ensureOrgInfoLocked(ctx context.Context) error {
 //
 // StartSessionOptions configures device provisioning behavior.
 type StartSessionOptions struct {
-	Platform string
+	Platform     string
+	Web          *api.DeviceWebOptions
+	WebURL       string
+	WebCommitSHA string
+	OnPhase      func(string)
 
 	// Optional app selection inputs.
 	// Priority for app installation is:
@@ -424,12 +440,17 @@ func (m *DeviceSessionManager) StartSession(
 	defer m.mu.Unlock()
 
 	platform := strings.ToLower(strings.TrimSpace(opts.Platform))
-	if platform != "ios" && platform != "android" {
-		return -1, nil, fmt.Errorf("platform must be 'ios' or 'android'")
+	if platform != "ios" && platform != "android" && platform != "web" {
+		return -1, nil, fmt.Errorf("platform must be 'ios', 'android', or 'web'")
+	}
+	if err := ValidateWebSessionStartOptions(opts); err != nil {
+		return -1, nil, err
 	}
 	launchVars := opts.LaunchVars
 	var inheritedLaunchConfigurationIDs []string
-	if strings.TrimSpace(opts.TestID) != "" && len(launchVars) > 0 {
+	if platform == "web" {
+		launchVars = nil
+	} else if strings.TrimSpace(opts.TestID) != "" && len(launchVars) > 0 {
 		ui.PrintWarning("Ignoring --launch-var for test-backed device start; attached test launch vars will be used")
 		launchVars = nil
 	} else if strings.TrimSpace(opts.TestID) == "" {
@@ -443,28 +464,38 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	idleTimeout := resolveIdleTimeout(opts.IdleTimeout)
+	if platform == "web" && opts.IdleTimeout == 0 {
+		idleTimeout = 10 * time.Minute
+	}
 
-	artifactOptions := startdevice.StartArtifactOptions{
-		AppID: opts.AppID, BuildVersionID: opts.BuildVersionID, AppURL: opts.AppURL, AppPackage: opts.AppPackage,
-		BranchID: opts.BranchID, BranchName: opts.BranchName, BuildSelection: opts.BuildSelection,
-		ContextBranchName: opts.ContextBranchName,
-	}
 	testSelectsBuild := opts.TestID != "" && opts.AppID == "" && opts.BuildVersionID == "" && opts.AppURL == ""
-	if testSelectsBuild {
-		artifactOptions.BranchID, artifactOptions.BranchName, artifactOptions.BuildSelection = "", "", ""
-		artifactOptions.ContextBranchName = ""
+	var resolvedArtifact startdevice.ResolvedStartArtifact
+	var resolvedLaunchConfigurationIDs []string
+	var err error
+	if platform == "web" {
+		resolvedArtifact, err = m.resolveWebStartArtifact(ctx, opts)
+	} else {
+		artifactOptions := startdevice.StartArtifactOptions{
+			AppID: opts.AppID, BuildVersionID: opts.BuildVersionID, AppURL: opts.AppURL, AppPackage: opts.AppPackage,
+			BranchID: opts.BranchID, BranchName: opts.BranchName, BuildSelection: opts.BuildSelection,
+			ContextBranchName: opts.ContextBranchName,
+		}
+		if testSelectsBuild {
+			artifactOptions.BranchID, artifactOptions.BranchName, artifactOptions.BuildSelection = "", "", ""
+			artifactOptions.ContextBranchName = ""
+		}
+		resolvedArtifact, err = startdevice.ResolveStartArtifact(ctx, m.apiClient, artifactOptions)
+		if err != nil {
+			return -1, nil, err
+		}
+		resolvedLaunchConfigurationIDs, err = startdevice.ResolveLaunchConfigurationSelection(
+			ctx,
+			m.apiClient,
+			inheritedLaunchConfigurationIDs,
+			launchVars,
+			opts.LaunchArgSets,
+		)
 	}
-	resolvedArtifact, err := startdevice.ResolveStartArtifact(ctx, m.apiClient, artifactOptions)
-	if err != nil {
-		return -1, nil, err
-	}
-	resolvedLaunchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
-		ctx,
-		m.apiClient,
-		inheritedLaunchConfigurationIDs,
-		launchVars,
-		opts.LaunchArgSets,
-	)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -472,7 +503,14 @@ func (m *DeviceSessionManager) StartSession(
 	// Build the start device request
 	req := &api.StartDeviceRequest{
 		Platform:     platform,
-		IsSimulation: strings.TrimSpace(opts.TestID) == "",
+		IsSimulation: platform != "web" && strings.TrimSpace(opts.TestID) == "",
+		Web:          opts.Web,
+	}
+	if platform == "web" {
+		if req.Web == nil {
+			req.Web = &api.DeviceWebOptions{}
+		}
+		req.SessionID = uuid.NewString()
 	}
 	if idleTimeout > 0 {
 		req.IdleTimeoutSeconds = int(idleTimeout.Seconds())
@@ -561,8 +599,25 @@ func (m *DeviceSessionManager) StartSession(
 	if resp.TraceId != nil {
 		traceID = strings.TrimSpace(*resp.TraceId)
 	}
+	if platform == "web" && sessionID != req.SessionID {
+		return -1, nil, m.requestRuntimeStartCleanup(req.SessionID, fmt.Errorf("web start acknowledgement did not preserve its canonical session ID"))
+	}
 	if opts.OnStartAccepted != nil {
 		opts.OnStartAccepted(sessionID)
+	}
+	if platform == "web" {
+		now := time.Now()
+		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
+		frame, screenToken, err := m.waitForRuntimeReadyLocked(ctx, session, deviceWorkerReadyTimeout, opts.OnPhase)
+		if err != nil {
+			return -1, nil, m.requestRuntimeStartCleanup(sessionID, err)
+		}
+		index, err := m.registerStartedSession(session)
+		if err != nil {
+			return -1, nil, m.requestRuntimeStartCleanup(sessionID, fmt.Errorf("web session registration failed: %w", err))
+		}
+		m.screenAnchors[index] = &screenAnchorState{ImageBytes: frame, RuntimeScreenToken: screenToken, SessionID: sessionID}
+		return index, session, nil
 	}
 
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, deviceWorkerReadyTimeout)
@@ -677,6 +732,84 @@ func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (i
 	return idx, nil
 }
 
+func (m *DeviceSessionManager) requestRuntimeStartCleanup(sessionID string, startErr error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := m.apiClient.StopDeviceSession(ctx, sessionID)
+	var pending *api.DeviceSessionStopPendingError
+	if err != nil && !errors.As(err, &pending) {
+		return fmt.Errorf("%w; cleanup request failed; run 'revyl device stop -s %s'", startErr, sessionID)
+	}
+	return startErr
+}
+
+func (m *DeviceSessionManager) readRuntimeReadyLocked(ctx context.Context, session *DeviceSession) ([]byte, string, error) {
+	detail, err := m.apiClient.GetDeviceSessionByID(ctx, session.SessionID)
+	if err != nil {
+		return nil, "", err
+	}
+	if detail.ID != session.SessionID || !isWebSessionDetail(detail) {
+		return nil, "", fmt.Errorf("web control requires the requested Web session")
+	}
+	switch detail.Status {
+	case "failed", "completed", "cancelled", "timeout", "stopping":
+		return nil, "", webSessionEndedBeforeReadyError(detail)
+	case "running":
+		if stringValue(detail.ViewerKind) == "" && detail.WorkflowRunID == nil {
+			return nil, "", &WorkerHTTPError{StatusCode: 503, Path: "/screenshot", Code: "not_ready"}
+		}
+		if stringValue(detail.ViewerKind) != string(api.DeviceSessionDetailResponseViewerKindWhep) || detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" || (session.WorkflowRunID != "" && session.WorkflowRunID != *detail.WorkflowRunID) {
+			return nil, "", fmt.Errorf("web session has not published its admitted running runtime state")
+		}
+	case "queued", "starting":
+		return nil, "", &WorkerHTTPError{StatusCode: 503, Path: "/screenshot", Code: "not_ready"}
+	default:
+		return nil, "", fmt.Errorf("web session returned an invalid lifecycle state")
+	}
+	session.WorkflowRunID = *detail.WorkflowRunID
+	frame, status, screenToken, err := m.apiClient.ProxyWorkerRequestWithScreenToken(ctx, session.WorkflowRunID, "screenshot", nil, true)
+	if err != nil {
+		return nil, "", fmt.Errorf("web screenshot observation unavailable")
+	}
+	if status >= 400 {
+		return nil, "", &WorkerHTTPError{StatusCode: status, Path: "/screenshot", Code: "not_ready"}
+	}
+	width, height, valid := pngDimensions(frame)
+	if status != 200 || screenToken == "" || !valid || width > 11520 || height > 6480 {
+		return nil, "", fmt.Errorf("web screenshot observation omitted a valid PNG or screen_token")
+	}
+	applyBackendRuntimeInfo(session, detail)
+	session.ScreenWidth, session.ScreenHeight = width, height
+	session.WorkerBaseURL, session.WhepURL = "", nil
+	return frame, screenToken, nil
+}
+
+func (m *DeviceSessionManager) waitForRuntimeReadyLocked(ctx context.Context, session *DeviceSession, timeout time.Duration, onPhase func(string)) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if onPhase != nil {
+		onPhase("initializing")
+	}
+	for {
+		frame, screenToken, err := m.readRuntimeReadyLocked(ctx, session)
+		if err == nil {
+			if onPhase != nil {
+				onPhase("ready")
+			}
+			return frame, screenToken, nil
+		}
+		var workerErr *WorkerHTTPError
+		if !errors.As(err, &workerErr) || workerErr.StatusCode != 503 {
+			return nil, "", err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, "", fmt.Errorf("web readiness observation timed out or was cancelled: %w", ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
 // StopSession stops a specific session by index and releases the device.
 //
 // Parameters:
@@ -743,7 +876,10 @@ func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session 
 	}
 	var resp *api.CancelDeviceResponse
 	var err error
-	if session.WorkflowRunID == "" && session.SessionID != "" {
+	if session.Platform == "web" && session.SessionID == "" {
+		return fmt.Errorf("web stop requires its canonical session ID")
+	}
+	if (session.Platform == "web" || session.WorkflowRunID == "") && session.SessionID != "" {
 		resp, err = m.apiClient.StopDeviceSession(ctx, session.SessionID)
 	} else {
 		resp, err = m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
@@ -932,6 +1068,21 @@ func (m *DeviceSessionManager) ListSessions() []*DeviceSession {
 		result = append(result, m.sessions[idx])
 	}
 	return result
+}
+
+func SessionDisplayLabel(session *DeviceSession) string {
+	if !strings.EqualFold(strings.TrimSpace(session.Platform), "web") {
+		if strings.TrimSpace(session.Platform) == "" {
+			return "Unknown"
+		}
+		return session.Platform
+	}
+
+	label := "Web · Chrome"
+	if appName := strings.TrimSpace(session.AppName); appName != "" {
+		label += " · " + appName
+	}
+	return label
 }
 
 // ActiveIndex returns the current active session index (-1 if none).
@@ -1145,7 +1296,7 @@ func (m *DeviceSessionManager) MarkScreenshotAnchorWithImage(index int, imageByt
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.sessions[index]; !ok {
+	if _, ok := m.sessions[index]; !ok && (m.screenAnchors[index] == nil || m.screenAnchors[index].RuntimeScreenToken == "") {
 		return ""
 	}
 	if m.screenAnchors == nil {
@@ -1153,11 +1304,19 @@ func (m *DeviceSessionManager) MarkScreenshotAnchorWithImage(index int, imageByt
 	}
 
 	token := fmt.Sprintf("screen-%d-%d", index, time.Now().UnixNano())
+	runtimeToken := ""
+	sessionID := ""
+	if anchor := m.screenAnchors[index]; anchor != nil && bytes.Equal(anchor.ImageBytes, imageBytes) {
+		runtimeToken = anchor.RuntimeScreenToken
+		sessionID = anchor.SessionID
+	}
 	imageCopy := make([]byte, len(imageBytes))
 	copy(imageCopy, imageBytes)
 	m.screenAnchors[index] = &screenAnchorState{
-		Token:      token,
-		ImageBytes: imageCopy,
+		Token:              token,
+		ImageBytes:         imageCopy,
+		RuntimeScreenToken: runtimeToken,
+		SessionID:          sessionID,
 	}
 	return token
 }
@@ -1196,6 +1355,18 @@ func (m *DeviceSessionManager) PersistAnchorImage(index int, screenToken string,
 	if err != nil {
 		return "", err
 	}
+	if anchor.RuntimeScreenToken != "" {
+		data, marshalErr := json.Marshal(struct {
+			SessionID   string `json:"session_id"`
+			ScreenToken string `json:"screen_token"`
+		}{anchor.SessionID, anchor.RuntimeScreenToken})
+		if marshalErr != nil {
+			return "", marshalErr
+		}
+		if _, err := m.writePNGArtifact(filepath.Join("screenshots", fmt.Sprintf("session-%d", index)), token+".json", data); err != nil {
+			return "", err
+		}
+	}
 
 	m.mu.Lock()
 	if current, ok := m.screenAnchors[index]; ok && current != nil && current.Token == token {
@@ -1203,6 +1374,40 @@ func (m *DeviceSessionManager) PersistAnchorImage(index int, screenToken string,
 	}
 	m.mu.Unlock()
 	return path, nil
+}
+
+func (m *DeviceSessionManager) RuntimeScreenTokenForAnchor(session *DeviceSession, screenToken string) (string, error) {
+	if session == nil || session.Platform != "web" || screenToken == "" {
+		return "", nil
+	}
+	m.mu.RLock()
+	anchor := m.screenAnchors[session.Index]
+	if anchor != nil && anchor.Token == screenToken && anchor.RuntimeScreenToken != "" && anchor.SessionID == session.SessionID {
+		token := anchor.RuntimeScreenToken
+		m.mu.RUnlock()
+		return token, nil
+	}
+	m.mu.RUnlock()
+	if !regexp.MustCompile(`^screen--?[0-9]+-[0-9]+$`).MatchString(screenToken) {
+		return "", fmt.Errorf("stale_target: screen_token is not a local screenshot anchor; capture a fresh screenshot")
+	}
+	directory, err := privatefs.OpenDirectory(m.artifactRootDirectory(), filepath.Join(".revyl", "mcp", "screenshots", fmt.Sprintf("session-%d", session.Index)))
+	if err != nil {
+		return "", fmt.Errorf("stale_target: screenshot anchor is unavailable; capture a fresh screenshot")
+	}
+	defer func() { _ = directory.Close() }()
+	data, err := directory.ReadFile(screenToken + ".json")
+	if err != nil || len(data) > 16384 {
+		return "", fmt.Errorf("stale_target: runtime screenshot anchor is unavailable; capture a fresh screenshot")
+	}
+	var stored struct {
+		SessionID   string `json:"session_id"`
+		ScreenToken string `json:"screen_token"`
+	}
+	if json.Unmarshal(data, &stored) != nil || stored.SessionID != session.SessionID || stored.ScreenToken == "" || len(stored.ScreenToken) > 8192 {
+		return "", fmt.Errorf("stale_target: runtime screenshot anchor does not match this session; capture a fresh screenshot")
+	}
+	return stored.ScreenToken, nil
 }
 
 // LoadAnchorImage returns the anchored screenshot bytes and persisted path.
@@ -1293,7 +1498,16 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 	// Cancel on backend
 	var cancelErr error
 	if m.apiClient != nil && session != nil {
-		resp, err := m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
+		var resp *api.CancelDeviceResponse
+		var err error
+		if session.Platform == "web" && session.SessionID == "" {
+			return fmt.Errorf("web stop requires its canonical session ID")
+		}
+		if session.Platform == "web" && session.SessionID != "" {
+			resp, err = m.apiClient.StopDeviceSession(ctx, session.SessionID)
+		} else {
+			resp, err = m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
+		}
 		if err != nil {
 			ui.PrintDebug("CancelDevice failed for %s: %v", session.WorkflowRunID, err)
 			cancelErr = fmt.Errorf("backend cancel failed: %w", err)
@@ -1892,6 +2106,10 @@ func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSessio
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if session.Platform == "web" {
+		alive, reason := m.CheckSessionAlive(ctx, session)
+		return reason, !alive
+	}
 	resp, err := m.apiClient.GetWorkerWSURL(ctx, session.WorkflowRunID)
 	if err != nil {
 		return "", false // can't reach backend either
@@ -1935,6 +2153,18 @@ func (m *DeviceSessionManager) sessionStateGuidance(session *DeviceSession) stri
 func (m *DeviceSessionManager) CheckSessionAlive(ctx context.Context, session *DeviceSession) (alive bool, reason string) {
 	if session == nil || m.apiClient == nil {
 		return true, ""
+	}
+	if session.Platform == "web" {
+		detail, err := m.apiClient.GetDeviceSessionByID(ctx, session.SessionID)
+		if err != nil {
+			return true, ""
+		}
+		switch detail.Status {
+		case "completed", "failed", "cancelled", "timeout", "stopping":
+			return false, webSessionEndedReason(detail)
+		default:
+			return true, ""
+		}
 	}
 	resp, err := m.apiClient.GetWorkerWSURL(ctx, session.WorkflowRunID)
 	if err != nil {
@@ -1990,6 +2220,16 @@ type workerHealthResponse struct {
 func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (workerHealthResponse, error) {
 	if session == nil {
 		return workerHealthResponse{}, fmt.Errorf("no session")
+	}
+	if session.Platform == "web" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		probe := *session
+		_, _, err := m.readRuntimeReadyLocked(ctx, &probe)
+		if err != nil {
+			return workerHealthResponse{}, err
+		}
+		return workerHealthResponse{Status: "observed", DeviceConnected: true, ScreenWidth: probe.ScreenWidth, ScreenHeight: probe.ScreenHeight}, nil
 	}
 	if m.apiClient != nil && strings.TrimSpace(session.WorkflowRunID) != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2111,9 +2351,17 @@ type WorkerHTTPResponse struct {
 // Callers can inspect StatusCode and Path with errors.As for compatibility
 // fallback handling.
 type WorkerHTTPError struct {
-	StatusCode int
-	Path       string
-	Body       string
+	StatusCode         int
+	Path               string
+	Body               string
+	Code               string
+	ExecutionUncertain bool
+	ActionApplied      *bool
+	Recorded           *bool
+	InputDispatched    *bool
+	cause              error
+	sessionTraceID     string
+	failureStage       string
 }
 
 // WorkerActionResponse captures the standard worker action envelope used by
@@ -2168,6 +2416,14 @@ func EnsureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
 		return errors.New(errMsg)
 	}
 	return nil
+}
+
+func EnsureWorkerNavigationSucceeded(respBody []byte, platform string) error {
+	expectedAction := "open_url"
+	if platform == "web" {
+		expectedAction = "navigate"
+	}
+	return EnsureWorkerActionSucceeded(respBody, expectedAction)
 }
 
 // DeviceDownloadFileRequest is the canonical request body for download_file.
@@ -2255,7 +2511,63 @@ func (e *WorkerHTTPError) Error() string {
 	if e == nil {
 		return "worker request failed"
 	}
-	return fmt.Sprintf("worker returned %d on %s", e.StatusCode, e.Path)
+	path := e.Path
+	if e.cause != nil {
+		action := strings.SplitN(strings.TrimPrefix(path, "/"), "?", 2)[0]
+		switch action {
+		case "resolve_target", "screenshot", "health", "tabs", "logs", "requests", "step_status", "step_cancel", "step_output":
+			path = "/" + action
+		default:
+			if runtimeInputAction(action) {
+				path = "/" + action
+			} else {
+				path = "/worker_request"
+			}
+		}
+	}
+	message := fmt.Sprintf("worker returned %d on %s", e.StatusCode, path)
+	if e.Code != "" {
+		message = fmt.Sprintf("worker %s on %s (HTTP %d)", e.Code, path, e.StatusCode)
+	}
+	if e.ExecutionUncertain {
+		guidance := "execution_uncertain: the action may have been applied; do not repeat it automatically. Inspect the session report before deciding what to do next"
+		if e.cause == nil && e.failureStage == "" && e.sessionTraceID == "" && e.InputDispatched == nil {
+			return guidance
+		}
+		message = guidance + "; " + message
+	} else if e.Code == "input_blocked" {
+		message = "This input was blocked before it reached the page."
+	} else if e.Code == "request_timeout" && e.InputDispatched != nil && *e.InputDispatched && e.ActionApplied != nil && *e.ActionApplied {
+		guidance := "action_applied: input was delivered before the timeout; do not repeat it. Inspect the session report"
+		if e.failureStage == "settle" || e.failureStage == "publication" {
+			guidance = "action_applied: input was delivered; only " + e.failureStage + " timed out; do not repeat it. Inspect the session report"
+		}
+		message = guidance + "; " + message
+	} else if e.ActionApplied != nil && *e.ActionApplied && e.Recorded != nil && !*e.Recorded {
+		message = "action_applied: the action was applied but recording failed; do not repeat it. Inspect the session report"
+	} else if e.Code == "stale_target" {
+		message = "stale_target: the screen changed; capture a fresh screenshot and resolve the target again before another action"
+	}
+	if e.cause != nil {
+		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassForError(e.cause))
+	}
+	if e.failureStage != "" {
+		message += "; failure_stage=" + e.failureStage
+	}
+	if e.Code == "request_timeout" && e.InputDispatched != nil {
+		message += fmt.Sprintf("; input_dispatched=%t", *e.InputDispatched)
+	}
+	if traceID, err := trace.TraceIDFromHex(strings.ToLower(e.sessionTraceID)); err == nil {
+		message += "; session_trace_id=" + traceID.String()
+	}
+	return message
+}
+
+func (e *WorkerHTTPError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
 }
 
 // DownloadFileForSession executes the worker download_file action and returns
@@ -2846,18 +3158,97 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 	if err != nil {
 		return nil, err
 	}
-	respBody, statusCode, err := m.apiClient.ProxyWorkerRequest(ctx, session.WorkflowRunID, action, body)
+	respBody, statusCode, screenToken, err := m.apiClient.ProxyWorkerRequestWithScreenToken(ctx, session.WorkflowRunID, action, body, session.Platform == "web")
 	if err != nil {
+		if session.Platform == "web" {
+			var networkErr net.Error
+			if !errors.Is(err, context.Canceled) && errors.As(err, &networkErr) && networkErr.Timeout() {
+				err = analytics.WithFailureClass(err, analytics.FailureClassTimeout)
+			}
+			code := "connection_closed"
+			switch analytics.FailureClassForError(err) {
+			case analytics.FailureClassTimeout:
+				code = "request_timeout"
+			case analytics.FailureClassCancelled:
+				code = "request_cancelled"
+			}
+			failure := &WorkerHTTPError{StatusCode: statusCode, Path: path, Code: code, ExecutionUncertain: runtimeInputAction(action), cause: err, sessionTraceID: session.TraceID}
+			return nil, analytics.WithSafeDiagnostic(failure, failure.Error())
+		}
 		return nil, err
 	}
 	if statusCode >= 400 {
-		return nil, &WorkerHTTPError{
-			StatusCode: statusCode,
-			Path:       path,
-			Body:       string(respBody),
+		code := ""
+		var failure api.RuntimeWorkerFailure
+		if session.Platform == "web" {
+			code = "protocol_error"
+			if json.Unmarshal(respBody, &failure) != nil {
+				failure = api.RuntimeWorkerFailure{}
+			} else {
+				switch failure.Error {
+				case "input_blocked":
+					code = failure.Error
+				case "stale_target", "not_available_on_platform", "not_ready", "target_not_found", "invalid_request", "invalid_coordinates", "request_timeout", "observer_failed", "report_not_available", "grounding_failed", "connection_closed", "protocol_error", "unauthorized", "internal_error", "invalid_endpoint", "capacity_exhausted", "unsafe_navigation", "invalid_action", "capture_failed", "browser_crashed", "navigation_failed", "step_output_not_available":
+					code = failure.Error
+				}
+			}
+			if runtimeInputAction(action) && (code == "request_timeout" || code == "connection_closed" || code == "protocol_error") {
+				knownTimeoutOutcome := code == "request_timeout" && failure.InputDispatched != nil &&
+					(!*failure.InputDispatched && (failure.ActionApplied == nil || !*failure.ActionApplied) ||
+						*failure.InputDispatched && failure.ActionApplied != nil && *failure.ActionApplied)
+				if !knownTimeoutOutcome {
+					failure.ExecutionUncertain = true
+				}
+			}
+			respBody = nil
 		}
+		workerErr := &WorkerHTTPError{
+			StatusCode:         statusCode,
+			Path:               path,
+			Body:               string(respBody),
+			Code:               code,
+			ExecutionUncertain: failure.ExecutionUncertain,
+			ActionApplied:      failure.ActionApplied,
+			Recorded:           failure.Recorded,
+		}
+		if session.Platform == "web" {
+			workerErr.cause = &api.APIError{StatusCode: statusCode}
+			if code == "request_timeout" {
+				workerErr.cause = analytics.WithFailureClass(workerErr.cause, analytics.FailureClassTimeout)
+				workerErr.InputDispatched = failure.InputDispatched
+				switch failure.FailureStage {
+				case "grounding", "capture", "guard", "input", "settle", "publication":
+					workerErr.failureStage = failure.FailureStage
+				}
+			}
+			if failure.Error == "protocol_error" && failure.FailureStage == "response_validation" {
+				workerErr.failureStage = failure.FailureStage
+			}
+			workerErr.sessionTraceID = session.TraceID
+			return nil, analytics.WithSafeDiagnostic(workerErr, workerErr.Error())
+		}
+		return nil, workerErr
+	}
+	if action == "screenshot" && session.Platform == "web" {
+		if screenToken == "" {
+			return nil, fmt.Errorf("web screenshot omitted its screen_token; capture a fresh screenshot before grounding")
+		}
+		m.mu.Lock()
+		if m.screenAnchors == nil {
+			m.screenAnchors = make(map[int]*screenAnchorState)
+		}
+		m.screenAnchors[session.Index] = &screenAnchorState{ImageBytes: append([]byte(nil), respBody...), RuntimeScreenToken: screenToken, SessionID: session.SessionID}
+		m.mu.Unlock()
 	}
 	return respBody, nil
+}
+
+func runtimeInputAction(action string) bool {
+	switch action {
+	case "tap", "tap_target", "double_tap", "longpress", "drag", "swipe", "input", "clear_text", "key", "open_url", "navigate", "back", "hover", "scroll", "select", "reload", "forward", "hotkey", "tab_switch", "tab_close", "viewport", "clear_state":
+		return true
+	}
+	return false
 }
 
 // WorkerRequest sends a worker action request to the active session.
@@ -2919,6 +3310,29 @@ func (m *DeviceSessionManager) WorkerRequestOnSession(ctx context.Context, sessi
 		return nil, fmt.Errorf("no session resolved for worker request %s", path)
 	}
 	respBody, err := m.workerRequestForSession(ctx, session, path, body)
+	if session.Platform == "web" && path == "/input" {
+		if err != nil {
+			var workerErr *WorkerHTTPError
+			if errors.As(err, &workerErr) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("web text input failed; %s", m.nextStep(nextStepDiagnose))
+		}
+		type inputResponse struct {
+			Success   *bool       `json:"success"`
+			LatencyMs json.Number `json:"latency_ms,omitempty"`
+			X         *int        `json:"x,omitempty"`
+			Y         *int        `json:"y,omitempty"`
+		}
+		var response inputResponse
+		if json.Unmarshal(respBody, &response) != nil || response.Success == nil {
+			return nil, &WorkerHTTPError{Path: path, Code: "protocol_error", ExecutionUncertain: true}
+		}
+		return json.Marshal(struct {
+			inputResponse
+			api.WorkerActionTiming
+		}{inputResponse: response, WorkerActionTiming: api.ParseWorkerActionTiming(respBody)})
+	}
 	if err != nil {
 		return nil, m.explainWorkerSessionState(session, err)
 	}
@@ -2951,14 +3365,38 @@ func (m *DeviceSessionManager) lockInputAction(ctx context.Context, session *Dev
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
 // Retrying these creates duplicate work (e.g. duplicate agent steps).
 var nonIdempotentPaths = map[string]bool{
+	"/input":             true,
 	"/execute_step":      true,
 	"/install_async":     true,
 	"/push_notification": true,
+	"/scroll":            true,
+	"/open_url":          true,
+}
+
+func CheckDeviceActionPlatform(session *DeviceSession, action string) error {
+	action = strings.TrimPrefix(strings.SplitN(action, "?", 2)[0], "/")
+	if session != nil && session.Platform != "web" && (action == "scroll" || action == "select") {
+		return &api.APIError{StatusCode: http.StatusNotImplemented, Code: "not_available_on_platform", Message: fmt.Sprintf("%s is not supported on this platform; use a Web session", action)}
+	}
+	if session == nil || session.Platform != "web" {
+		return nil
+	}
+	switch action {
+	case "hierarchy", "code_execution", "code-execution", "pinch", "shake", "install", "install_async", "launch", "relaunch", "home", "go_home", "go-home", "kill_app", "kill-app", "open-app", "set_location", "push_notification", "push", "performance_metrics", "performance", "perf", "device-state", "state", "device_state", "download_file", "download-file":
+		return &api.APIError{StatusCode: http.StatusNotImplemented, Code: "not_available_on_platform", Message: fmt.Sprintf("%s is not available on platform web", action)}
+	}
+	if strings.HasPrefix(action, "set-") || strings.HasPrefix(action, "set_") || strings.HasPrefix(action, "device_state/") {
+		return fmt.Errorf("%s is not available on platform web", action)
+	}
+	return nil
 }
 
 // workerRequestForSession is the internal implementation that sends a worker
 // action request to a given session using the backend relay.
 func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
+	if err := CheckDeviceActionPlatform(session, path); err != nil {
+		return nil, err
+	}
 	if path == "/input" {
 		unlock, err := m.lockInputAction(ctx, session)
 		if err != nil {
@@ -2973,6 +3411,9 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 	respBody, err := m.proxyWorkerRequestForSession(ctx, session, path, body)
 	if err == nil {
 		return respBody, nil
+	}
+	if session.Platform == "web" {
+		return nil, err
 	}
 
 	// Non-idempotent actions must not be retried -- return errors directly.
@@ -3029,6 +3470,9 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 // operation hands its failure back to the caller, so internal polling and
 // fallback loops keep reading the raw status without extra backend lookups.
 func (m *DeviceSessionManager) explainWorkerSessionState(session *DeviceSession, err error) error {
+	if session != nil && session.Platform == "web" {
+		return err
+	}
 	var workerErr *WorkerHTTPError
 	if !errors.As(err, &workerErr) {
 		return err
@@ -3095,12 +3539,13 @@ func (m *DeviceSessionManager) ScreenshotOnSession(ctx context.Context, session 
 // DeviceLogsPollResponse is the JSON contract returned by the worker
 // /device_logs endpoint.
 type DeviceLogsPollResponse struct {
-	Success        bool     `json:"success"`
-	Platform       string   `json:"platform"`
-	SessionID      string   `json:"session_id,omitempty"`
-	NextCursor     string   `json:"next_cursor"`
-	CaptureRunning bool     `json:"capture_running"`
-	Items          []string `json:"items"`
+	Success        bool                    `json:"success"`
+	Platform       string                  `json:"platform"`
+	SessionID      string                  `json:"session_id,omitempty"`
+	NextCursor     string                  `json:"next_cursor"`
+	CaptureRunning bool                    `json:"capture_running"`
+	Items          []string                `json:"items"`
+	RuntimeSummary *api.RuntimeSummaryPage `json:"runtime_summary,omitempty"`
 }
 
 // PerfSampleItem is a single performance sample from the worker.
@@ -3170,6 +3615,7 @@ type NetworkPollResponse struct {
 	NextCursor     string                   `json:"next_cursor"`
 	CaptureRunning bool                     `json:"capture_running"`
 	Items          []LiveNetworkRequestItem `json:"items"`
+	RuntimeSummary *api.RuntimeSummaryPage  `json:"runtime_summary,omitempty"`
 }
 
 // PollDeviceLogsForSession fetches incremental device logs from a session.
@@ -3203,6 +3649,13 @@ func (m *DeviceSessionManager) PollDeviceLogsForSession(ctx context.Context, ind
 //   - *DeviceLogsPollResponse: Parsed response with new lines and next_cursor.
 //   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollDeviceLogsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int) (*DeviceLogsPollResponse, error) {
+	if session.Platform == "web" {
+		page, err := m.pollRuntimeSummaries(ctx, session, "logs", cursor, limit)
+		if err != nil {
+			return nil, err
+		}
+		return &DeviceLogsPollResponse{Success: true, Platform: "web", SessionID: session.SessionID, NextCursor: strconv.FormatInt(page.NextCursor, 10), RuntimeSummary: page}, nil
+	}
 	path := fmt.Sprintf("/device_logs?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
 	respBody, err := m.WorkerRequestOnSession(ctx, session, path, nil)
 	if err != nil {
@@ -3292,6 +3745,13 @@ func (m *DeviceSessionManager) PollNetworkRequestsForSession(ctx context.Context
 //   - *NetworkPollResponse: Parsed response with new rows and next_cursor.
 //   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollNetworkRequestsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int, maxBytes int) (*NetworkPollResponse, error) {
+	if session.Platform == "web" {
+		page, err := m.pollRuntimeSummaries(ctx, session, "requests", cursor, limit)
+		if err != nil {
+			return nil, err
+		}
+		return &NetworkPollResponse{Success: true, Platform: "web", SessionID: session.SessionID, NextCursor: strconv.FormatInt(page.NextCursor, 10), RuntimeSummary: page}, nil
+	}
 	path := fmt.Sprintf(
 		"/network_requests?cursor=%s&limit=%d&max_bytes=%d",
 		url.QueryEscape(cursor),
@@ -3309,28 +3769,35 @@ func (m *DeviceSessionManager) PollNetworkRequestsOnSession(ctx context.Context,
 	return &result, nil
 }
 
+func (m *DeviceSessionManager) pollRuntimeSummaries(ctx context.Context, session *DeviceSession, action, cursor string, limit int) (*api.RuntimeSummaryPage, error) {
+	parsedCursor, err := strconv.ParseInt(cursor, 10, 64)
+	if err != nil || parsedCursor < 0 || limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("runtime summaries require a nonnegative cursor and a limit from 1 to 100")
+	}
+	body, err := m.WorkerRequestOnSession(ctx, session, fmt.Sprintf("/%s?cursor=%d&limit=%d", action, parsedCursor, limit), nil)
+	if err != nil {
+		return nil, err
+	}
+	var page api.RuntimeSummaryPage
+	if json.Unmarshal(body, &page) != nil || page.Entries == nil || len(page.Entries) > 100 || page.NextCursor < 0 {
+		return nil, fmt.Errorf("runtime summaries returned an invalid response")
+	}
+	return &page, nil
+}
+
 // ---------------------------------------------------------------------------
 // Grounding Client - resolves target descriptions to coordinates
 // ---------------------------------------------------------------------------
 
 // ResolvedTarget holds the result of resolving a target string to coordinates.
 type ResolvedTarget struct {
-	X int
-	Y int
+	X           int
+	Y           int
+	ScreenToken string
 }
 
-type workerResolveTargetRequest struct {
-	Target       string `json:"target"`
-	SessionID    string `json:"session_id,omitempty"`
-	GrounderType string `json:"grounder_type,omitempty"`
-}
-
-type workerResolveTargetResponse struct {
-	X     *int   `json:"x"`
-	Y     *int   `json:"y"`
-	Found bool   `json:"found"`
-	Error string `json:"error,omitempty"`
-}
+type workerResolveTargetRequest = api.WorkerResolveTargetRequest
+type workerResolveTargetResponse = api.WorkerResolveTargetResponse
 
 // ResolveTarget takes a natural language target description, captures a screenshot,
 // resolves it via the worker grounding endpoint, and returns device-space pixel
@@ -3412,6 +3879,13 @@ func (m *DeviceSessionManager) ResolveTargetFromAnchor(
 	if err != nil {
 		return nil, err
 	}
+	if session.Platform == "web" {
+		runtimeToken, err := m.RuntimeScreenTokenForAnchor(session, screenToken)
+		if err != nil {
+			return nil, err
+		}
+		return m.resolveTargetViaWorkerWithToken(ctx, session, target, runtimeToken)
+	}
 	screenshotBytes, _, err := m.LoadAnchorImage(session.Index, screenToken)
 	if err != nil {
 		return nil, fmt.Errorf("load screenshot anchor for grounding: %w", err)
@@ -3427,7 +3901,7 @@ func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, sess
 		return resolved, nil
 	}
 
-	if !shouldFallbackToBackendGrounding(workerErr) {
+	if session.Platform == "web" || !shouldFallbackToBackendGrounding(workerErr) {
 		return nil, m.explainWorkerSessionState(session, workerErr)
 	}
 
@@ -3466,9 +3940,14 @@ func shouldFallbackToBackendGrounding(err error) bool {
 // resolveTargetViaWorkerForSession resolves coordinates through the worker's
 // /resolve_target endpoint, which returns device-space coordinates.
 func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
+	return m.resolveTargetViaWorkerWithToken(ctx, session, target, "")
+}
+
+func (m *DeviceSessionManager) resolveTargetViaWorkerWithToken(ctx context.Context, session *DeviceSession, target, screenToken string) (*ResolvedTarget, error) {
 	body := workerResolveTargetRequest{
-		Target:    target,
-		SessionID: session.SessionID,
+		Target:      target,
+		SessionID:   session.SessionID,
+		ScreenToken: screenToken,
 	}
 	respBody, err := m.workerRequestForSession(ctx, session, "/resolve_target", body)
 	if err != nil {
@@ -3482,7 +3961,9 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Cont
 
 	if !resolvedResp.Found {
 		errMsg := fmt.Sprintf("could not locate '%s' in the screenshot", target)
-		if resolvedResp.Error != "" {
+		if session.Platform == "web" {
+			errMsg = "target_not_found: resolve a visible target from a fresh screenshot"
+		} else if resolvedResp.Error != "" {
 			errMsg = resolvedResp.Error
 		}
 		return nil, fmt.Errorf("%s. %s", errMsg, m.nextStep(nextStepScreenshot))
@@ -3490,10 +3971,14 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Cont
 	if resolvedResp.X == nil || resolvedResp.Y == nil {
 		return nil, fmt.Errorf("worker resolve_target response omitted resolved coordinates")
 	}
+	if session.Platform == "web" && (resolvedResp.ScreenToken == "" || len(resolvedResp.ScreenToken) > 8192 || *resolvedResp.X < 0 || *resolvedResp.Y < 0) {
+		return nil, fmt.Errorf("worker resolve_target omitted a valid screen_token or coordinates; capture a fresh screenshot")
+	}
 
 	return &ResolvedTarget{
-		X: *resolvedResp.X,
-		Y: *resolvedResp.Y,
+		X:           *resolvedResp.X,
+		Y:           *resolvedResp.Y,
+		ScreenToken: resolvedResp.ScreenToken,
 	}, nil
 }
 
@@ -3652,7 +4137,10 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	reconcileSessionIDsByWorkflow(m.sessions, backendIDsByWorkflow)
 	for _, ls := range m.sessions {
 		if bs, ok := backendSessionByID[ls.SessionID]; ok {
-			ls.WhepURL = bs.WhepUrl
+			ls.AppName = stringValue(bs.AppName)
+			if ls.Platform != "web" {
+				ls.WhepURL = bs.WhepUrl
+			}
 			if bs.TraceId != nil {
 				ls.TraceID = strings.TrimSpace(*bs.TraceId)
 			}
@@ -3661,7 +4149,11 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			applyBackendIdleTimeout(ls, bs)
 			continue
 		}
+		if ls.Platform == "web" {
+			continue
+		}
 		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
+			ls.AppName = stringValue(bs.AppName)
 			ls.SessionID = bs.Id
 			ls.WhepURL = bs.WhepUrl
 			if bs.TraceId != nil {
@@ -3725,6 +4217,33 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if isOtherProofRunSession(bs.SourceMetadata, activeResp.ProofRunId) {
 			continue
 		}
+		if bs.Platform == "web" {
+			detail, err := m.apiClient.GetDeviceSessionByID(ctx, bs.Id)
+			if err == nil && !isWebSessionDetail(detail) {
+				continue
+			}
+			if err != nil || detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" || stringValue(detail.ViewerKind) != string(api.DeviceSessionDetailResponseViewerKindWhep) || detail.Status != "running" {
+				m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
+				continue
+			}
+			session := &DeviceSession{Index: m.nextIndex, SessionID: bs.Id, WorkflowRunID: *detail.WorkflowRunID, Platform: "web", AppName: stringValue(bs.AppName), ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(bs.Id)), StartedAt: time.Now(), LastActivity: time.Now(), IdleTimeout: 10 * time.Minute}
+			frame, token, err := m.readRuntimeReadyLocked(ctx, session)
+			if err != nil {
+				m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
+				continue
+			}
+			m.nextIndex++
+			if bs.StartedAt != nil {
+				session.StartedAt = *bs.StartedAt
+			}
+			applyBackendLastActivity(session, bs)
+			applyBackendIdleTimeout(session, bs)
+			m.sessions[session.Index] = session
+			m.screenAnchors[session.Index] = &screenAnchorState{ImageBytes: frame, RuntimeScreenToken: token, SessionID: bs.Id}
+			addedSessions = append(addedSessions, session)
+			m.resetIdleTimerForSessionLocked(session.Index, context.Background())
+			continue
+		}
 
 		// Need to resolve worker URL
 		workerBaseURL := ""
@@ -3774,6 +4293,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 		session := &DeviceSession{
 			Index:         idx,
+			AppName:       stringValue(bs.AppName),
 			SessionID:     bs.Id,
 			WorkflowRunID: workflowRunID,
 			TraceID:       traceID,
@@ -3854,11 +4374,23 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	// Check if already known locally.
 	for idx, s := range m.sessions {
 		if s.SessionID == sessionID {
+			var frame []byte
+			var token string
+			if s.Platform == "web" {
+				var err error
+				frame, token, err = m.readRuntimeReadyLocked(ctx, s)
+				if err != nil {
+					return -1, nil, err
+				}
+			}
 			previousActiveIndex := m.activeIndex
 			m.activeIndex = idx
 			if err := m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true, selectedSession: s}); err != nil {
 				m.activeIndex = previousActiveIndex
 				return -1, nil, fmt.Errorf("could not save the attached session: %w", err)
+			}
+			if s.Platform == "web" {
+				m.screenAnchors[s.Index] = &screenAnchorState{ImageBytes: frame, RuntimeScreenToken: token, SessionID: s.SessionID}
 			}
 			return idx, s, nil
 		}
@@ -3867,6 +4399,14 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	session, err := m.resolveSessionByIDLocked(ctx, sessionID)
 	if err != nil {
 		return -1, nil, err
+	}
+	var runtimeFrame []byte
+	var runtimeToken string
+	if session.Platform == "web" {
+		runtimeFrame, runtimeToken, err = m.readRuntimeReadyLocked(ctx, session)
+		if err != nil {
+			return -1, nil, err
+		}
 	}
 
 	previousActiveIndex := m.activeIndex
@@ -3893,6 +4433,9 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 		return -1, nil, fmt.Errorf("could not save the attached session: %w", err)
 	}
 	idx = session.Index
+	if session.Platform == "web" {
+		m.screenAnchors[idx] = &screenAnchorState{ImageBytes: runtimeFrame, RuntimeScreenToken: runtimeToken, SessionID: session.SessionID}
+	}
 
 	return idx, session, nil
 }
@@ -3969,6 +4512,14 @@ func (m *DeviceSessionManager) resolveSessionByIDLocked(ctx context.Context, ses
 	if detail.Platform != nil {
 		platform = *detail.Platform
 	}
+	if platform == "web" {
+		if detail.ID != sessionID {
+			return nil, fmt.Errorf("Web session response did not match the requested session")
+		}
+		if status != "running" || stringValue(detail.ViewerKind) != string(api.DeviceSessionDetailResponseViewerKindWhep) {
+			return nil, fmt.Errorf("web session has not published ready viewer state")
+		}
+	}
 
 	startedAt := time.Now()
 	if detail.StartedAt != nil {
@@ -3993,6 +4544,7 @@ func (m *DeviceSessionManager) resolveSessionByIDLocked(ctx context.Context, ses
 		IdleTimeout:   5 * time.Minute,
 	}
 	applyBackendScreenDimensions(session, detail.ScreenWidth, detail.ScreenHeight)
+	applyBackendRuntimeInfo(session, detail)
 	return session, nil
 }
 

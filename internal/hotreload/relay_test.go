@@ -10,7 +10,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"reflect"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,6 +26,337 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
+
+type relayWriteFailureConn struct {
+	net.Conn
+	writeErr  error
+	failWrite atomic.Bool
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (c *relayWriteFailureConn) Write(payload []byte) (int, error) {
+	if c.failWrite.Load() {
+		return 0, c.writeErr
+	}
+	return c.Conn.Write(payload)
+}
+
+func (c *relayWriteFailureConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
+func newRelayWriteFailureWebSocket(t *testing.T, writeErr error) (*websocket.Conn, *websocket.Conn, *relayWriteFailureConn) {
+	t.Helper()
+	peerReady := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		peer, err := (&websocket.Upgrader{}).Upgrade(w, req, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		peerReady <- peer
+	}))
+	t.Cleanup(server.Close)
+	var raw *relayWriteFailureConn
+	dialer := websocket.Dialer{NetDialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		raw = &relayWriteFailureConn{Conn: conn, writeErr: writeErr, closed: make(chan struct{})}
+		return raw, nil
+	}, HandshakeTimeout: time.Second}
+	conn, _, err := dialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	select {
+	case peer := <-peerReady:
+		t.Cleanup(func() { _ = peer.Close() })
+		return conn, peer, raw
+	case <-time.After(time.Second):
+		t.Fatal("peer did not upgrade")
+	}
+	return nil, nil, nil
+}
+
+func TestRelayTransportWriteFailureTriggersDisconnectCleanup(t *testing.T) {
+	for name, writeErr := range map[string]error{"write error": io.ErrClosedPipe, "timeout": os.ErrDeadlineExceeded} {
+		t.Run(name, func(t *testing.T) {
+			conn, _, raw := newRelayWriteFailureWebSocket(t, writeErr)
+			disconnected := make(chan error, 1)
+			runtime := newRelayRuntime(context.Background(), freePort(t), conn, nil, nil, func(err error) { disconnected <- err }, nil)
+			defer runtime.stop()
+			streamCtx, cancel := context.WithCancel(runtime.ctx)
+			runtime.wsStreams["pending"] = &relayWSStream{cancel: cancel}
+			runtime.start()
+			raw.failWrite.Store(true)
+			if err := runtime.sendEnvelope(relayEnvelope{Kind: "ping"}); err == nil {
+				t.Fatal("expected write failure")
+			}
+			select {
+			case <-disconnected:
+			case <-time.After(time.Second):
+				t.Fatal("poisoned transport did not trigger disconnect")
+			}
+			select {
+			case <-raw.closed:
+			case <-time.After(time.Second):
+				t.Fatal("poisoned transport remains open")
+			}
+			select {
+			case <-streamCtx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("transport failure leaked pending stream context")
+			}
+		})
+	}
+}
+
+func TestRelayLocalWebSocketWriteFailureClosesOnlyFailedStream(t *testing.T) {
+	for name, writeErr := range map[string]error{"write error": io.ErrClosedPipe, "timeout": os.ErrDeadlineExceeded} {
+		t.Run(name, func(t *testing.T) {
+			local, _, raw := newRelayWriteFailureWebSocket(t, writeErr)
+			transport, peer := newRelayRuntimeTestWebSocket(t)
+			defer peer.Close()
+			runtime := newRelayRuntime(context.Background(), freePort(t), transport, nil, nil, nil, nil)
+			defer runtime.stop()
+			streamCtx, cancel := context.WithCancel(runtime.ctx)
+			runtime.wsStreams["local"] = &relayWSStream{conn: local, cancel: cancel}
+			raw.failWrite.Store(true)
+			finished := make(chan struct{})
+			go func() {
+				runtime.handleWSMessage(relayEnvelope{Kind: "ws.message", StreamID: "local", Text: "hmr"})
+				close(finished)
+			}()
+			select {
+			case <-finished:
+			case <-time.After(time.Second):
+				t.Fatal("stream cleanup deadlocked")
+			}
+			select {
+			case <-raw.closed:
+			case <-time.After(time.Second):
+				t.Fatal("failed local socket remains open")
+			}
+			select {
+			case <-streamCtx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("failed local stream context not cancelled")
+			}
+			if runtime.ctx.Err() != nil {
+				t.Fatal("local failure stopped whole transport")
+			}
+			if err := runtime.sendEnvelope(relayEnvelope{Kind: "ping"}); err != nil {
+				t.Fatal(err)
+			}
+			_ = peer.SetReadDeadline(time.Now().Add(time.Second))
+			var ping relayEnvelope
+			if err := peer.ReadJSON(&ping); err != nil || ping.Kind != "ping" {
+				t.Fatalf("shared transport no longer works: %+v %v", ping, err)
+			}
+		})
+	}
+}
+
+func TestRelayWebSocketSubprotocolAndHMRPaths(t *testing.T) {
+	tests := []struct {
+		name, path, query, selected string
+		offered                     []string
+		selectionHeaders            []string
+		reject                      bool
+	}{
+		{name: "vite", path: "/", offered: []string{"vite-hmr"}, selected: "vite-hmr"},
+		{name: "second offer", path: "/", offered: []string{"first", "second"}, selected: "second"},
+		{name: "unoffered", path: "/", offered: []string{"vite-hmr"}, selected: "other", reject: true},
+		{name: "invalid selection", path: "/", offered: []string{"vite-hmr"}, selected: "vite-hmr, other", reject: true},
+		{name: "duplicate selection", path: "/", offered: []string{"vite-hmr"}, selectionHeaders: []string{"vite-hmr", "vite-hmr"}, reject: true},
+		{name: "empty selection header", path: "/", selectionHeaders: []string{""}, reject: true},
+		{name: "selection without offer", path: "/", selected: "vite-hmr", reject: true},
+		{name: "no selection", path: "/", offered: []string{"vite-hmr"}},
+		{name: "plain", path: "/socket"},
+		{name: "metro", path: "/hot", query: "platform=ios&bundleEntry=.%2Findex"},
+		{name: "expo", path: "/_expo/devtools/plugin", query: "platform=android"},
+		{name: "next webpack", path: "/_next/webpack-hmr", query: "page=%2F"},
+		{name: "next turbopack", path: "/_next/webpack-hmr", query: "id=fixture-client"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := make(chan *http.Request, 1)
+			localClosed := make(chan struct{}, 1)
+			local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests <- req
+				upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+				headers := make(http.Header)
+				if tt.selected != "" {
+					headers.Set("Sec-WebSocket-Protocol", tt.selected)
+				}
+				if tt.selectionHeaders != nil {
+					headers["Sec-WebSocket-Protocol"] = tt.selectionHeaders
+				}
+				conn, err := upgrader.Upgrade(w, req, headers)
+				if err != nil {
+					t.Errorf("local upgrade: %v", err)
+					return
+				}
+				defer conn.Close()
+				defer func() { localClosed <- struct{}{} }()
+				for {
+					kind, payload, err := conn.ReadMessage()
+					if err != nil {
+						return
+					}
+					if err := conn.WriteMessage(kind, payload); err != nil {
+						return
+					}
+				}
+			}))
+			defer local.Close()
+			localURL, err := url.Parse(local.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			port, err := strconv.Atoi(localURL.Port())
+			if err != nil {
+				t.Fatal(err)
+			}
+			clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+			defer serverConn.Close()
+			runtime := newRelayRuntime(context.Background(), port, clientConn, nil, nil, nil, nil)
+			defer runtime.stop()
+			runtime.start()
+			if err := serverConn.WriteJSON(relayEnvelope{
+				Kind: "ws.start", StreamID: "negotiation", Path: tt.path, Query: tt.query, Subprotocols: tt.offered,
+				Headers: map[string][]string{"Sec-WebSocket-Protocol": {"must-not-be-forwarded"}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			var opened relayEnvelope
+			if err := serverConn.ReadJSON(&opened); err != nil {
+				t.Fatal(err)
+			}
+			req := <-requests
+			if req.URL.Path != tt.path || req.URL.RawQuery != tt.query || !reflect.DeepEqual(websocket.Subprotocols(req), tt.offered) {
+				t.Fatalf("request path/query/protocols = %s?%s %v", req.URL.Path, req.URL.RawQuery, websocket.Subprotocols(req))
+			}
+			if tt.reject {
+				if opened.Kind != "stream.error" {
+					t.Fatalf("got %+v, want stream.error", opened)
+				}
+			} else {
+				if opened.Kind != "ws.opened" || opened.Subprotocol != tt.selected {
+					t.Fatalf("opened = %+v", opened)
+				}
+				text := `{"type":"update"}`
+				if strings.HasPrefix(tt.name, "next ") {
+					text = `{"event":"client-success","clientId":"fixture-client"}`
+				}
+				for _, message := range []relayEnvelope{
+					{Kind: "ws.message", StreamID: "negotiation", Text: text},
+					{Kind: "ws.message", StreamID: "negotiation", Binary: true, BodyChunkB64: "AQID"},
+				} {
+					if err := serverConn.WriteJSON(message); err != nil {
+						t.Fatal(err)
+					}
+					var echoed relayEnvelope
+					if err := serverConn.ReadJSON(&echoed); err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(echoed, message) {
+						t.Fatalf("echo = %+v, want %+v", echoed, message)
+					}
+				}
+				if err := serverConn.WriteJSON(relayEnvelope{Kind: "ws.close", StreamID: "negotiation", CloseCode: websocket.CloseNormalClosure}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-localClosed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("local websocket leaked")
+			}
+		})
+	}
+}
+
+func TestRelaySubprotocolTokens(t *testing.T) {
+	for _, protocol := range []string{"vite-hmr", "graphql-transport-ws", "!#$%&'*+-.^_`|~"} {
+		if !validRelaySubprotocol(protocol) {
+			t.Fatalf("valid token %q rejected", protocol)
+		}
+	}
+	for _, protocol := range []string{"", "a b", "a,b", "a/b", "a\tb", "a\r\nb", "é", "\"a\"", "a=b"} {
+		if validRelaySubprotocol(protocol) {
+			t.Fatalf("invalid token %q accepted", protocol)
+		}
+	}
+}
+
+func TestRelayWebSocketPendingHandshakeCleanup(t *testing.T) {
+	for _, mode := range []string{"cancel", "disconnect", "stop"} {
+		t.Run(mode, func(t *testing.T) {
+			started := make(chan struct{})
+			release := make(chan struct{})
+			local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				close(started)
+				<-release
+				w.WriteHeader(http.StatusBadGateway)
+			}))
+			defer local.Close()
+			defer close(release)
+			localURL, _ := url.Parse(local.URL)
+			port, _ := strconv.Atoi(localURL.Port())
+			clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+			defer serverConn.Close()
+			runtime := newRelayRuntime(context.Background(), port, clientConn, nil, nil, nil, nil)
+			defer runtime.stop()
+			runtime.start()
+			if err := serverConn.WriteJSON(relayEnvelope{Kind: "ws.start", StreamID: "pending", Path: "/", Subprotocols: []string{"vite-hmr"}}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("handshake did not start")
+			}
+			switch mode {
+			case "cancel":
+				if err := serverConn.WriteJSON(relayEnvelope{Kind: "ws.close", StreamID: "pending"}); err != nil {
+					t.Fatal(err)
+				}
+				if err := serverConn.WriteJSON(relayEnvelope{Kind: "ping"}); err != nil {
+					t.Fatal(err)
+				}
+				_ = serverConn.SetReadDeadline(time.Now().Add(time.Second))
+				var pong relayEnvelope
+				if err := serverConn.ReadJSON(&pong); err != nil || pong.Kind != "pong" {
+					t.Fatalf("read loop blocked: %+v %v", pong, err)
+				}
+			case "disconnect":
+				_ = serverConn.Close()
+			case "stop":
+				runtime.stop()
+			}
+			deadline := time.Now().Add(time.Second)
+			for {
+				runtime.streamMu.Lock()
+				count := len(runtime.wsStreams)
+				runtime.streamMu.Unlock()
+				if count == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("pending websocket stream leaked")
+				}
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+}
 
 func TestCheckRelayConnectivity_UsesHealthCheckEndpoint(t *testing.T) {
 	var requestedPath string

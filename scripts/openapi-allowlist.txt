@@ -103,6 +103,7 @@ POST /api/v1/apps/builds/{version_id}/extract-package-id
 POST /api/v1/apps/remote
 POST /api/v1/apps/remote/upload-url
 POST /api/v1/apps/{app_id}/builds
+POST /api/v1/apps/{app_id}/builds/external
 POST /api/v1/apps/{app_id}/builds/from-url
 POST /api/v1/apps/{app_id}/builds/multipart-upload/resume
 POST /api/v1/apps/{app_id}/builds/multipart-upload/start

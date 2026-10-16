@@ -42,7 +42,7 @@ var catalog = []Skill{
 	},
 	{
 		Name:        skills.RevylCLIDevLoopName,
-		Description: "CLI-first dev loop for starting sessions, exploring flows, and converting successful paths into tests.",
+		Description: "CLI-first dev loop and manual Web setup for starting sessions, exploring flows, and converting successful paths into tests.",
 		Content:     skills.RevylCLIDevLoopContent,
 	},
 	{
@@ -67,7 +67,7 @@ var catalog = []Skill{
 	},
 	{
 		Name:        skills.RevylCLIAuthBypassName,
-		Description: "Set up test-only auth bypass across mobile app stacks using Revyl launch variables and device verification.",
+		Description: "Set up test-only auth bypass across Web and mobile app stacks using Revyl launch variables and device verification.",
 		Content:     skills.RevylCLIAuthBypassContent,
 	},
 	{

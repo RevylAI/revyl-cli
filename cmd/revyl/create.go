@@ -235,7 +235,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	platform := createTestPlatform
 	if platform == "" {
 		// Prompt user to select platform
-		platformOptions := []string{"android", "ios"}
+		platformOptions := []string{"android", "ios", "web"}
 		idx, err := ui.PromptSelect("Select platform:", platformOptions)
 		if err != nil {
 			return fmt.Errorf("platform selection cancelled: %w", err)
@@ -807,6 +807,9 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("platform selection cancelled: %w", err)
 		}
 		platform = platformOptions[idx]
+	}
+	if strings.EqualFold(strings.TrimSpace(platform), "web") {
+		return fmt.Errorf("interactive test creation is not available for Web tests yet: run 'revyl test create %s --platform web' without --interactive, then 'revyl test run %s'", testName, testName)
 	}
 
 	// Auto-detect app_id when canonical profiles agree on one app for the

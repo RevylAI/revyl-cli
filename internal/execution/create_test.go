@@ -461,3 +461,28 @@ func TestResolveCanonicalConfiguredAppID_RejectsDistinctProfileApps(t *testing.T
 		t.Fatalf("error = %v, want explicit app guidance", err)
 	}
 }
+
+func TestResolveCanonicalConfiguredAppID_ResolvesWebApp(t *testing.T) {
+	iosAppID := "app-ios"
+	webAppID := "app-web"
+	project := &config.ProjectContext{
+		Aggregate: &config.NormalizedProjectAggregate{
+			Profiles: []config.NormalizedBuildProfile{
+				{
+					Name: "development",
+					Configurations: []config.NormalizedPlatformConfiguration{
+						{Platform: "ios", AppID: &iosAppID},
+						{Platform: "web", AppID: &webAppID},
+					},
+				},
+			},
+		},
+	}
+
+	if got, err := ResolveCanonicalConfiguredAppID(project, "web"); err != nil || got != webAppID {
+		t.Fatalf("ResolveCanonicalConfiguredAppID(web) = %q, %v; want %s", got, err, webAppID)
+	}
+	if got, err := ResolveCanonicalConfiguredAppID(project, "ios"); err != nil || got != iosAppID {
+		t.Fatalf("ResolveCanonicalConfiguredAppID(ios) = %q, %v; want %s", got, err, iosAppID)
+	}
+}

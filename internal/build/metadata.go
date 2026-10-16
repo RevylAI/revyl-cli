@@ -111,6 +111,17 @@ func CollectMetadataWithContext(ctx context.Context, workDir, buildCommand, plat
 	return metadata
 }
 
+// CIMetadata returns the provider-neutral SCM keys that match uploaded builds
+// with pull requests, or nil outside CI without explicit SCM flags.
+func CIMetadata(ctx context.Context, platform string) map[string]interface{} {
+	metadata := map[string]interface{}{}
+	attachCIMetadata(ctx, metadata, platform)
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
+}
+
 // attachCIMetadata adds the provider-neutral SCM keys used to match uploaded
 // builds with pull requests.
 func attachCIMetadata(ctx context.Context, metadata map[string]interface{}, platform string) {

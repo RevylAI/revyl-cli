@@ -222,7 +222,7 @@ func ResolveCanonicalConfiguredAppID(project *config.ProjectContext, runtimePlat
 	}
 
 	runtimePlatform = normalizeCreatePlatform(runtimePlatform)
-	if runtimePlatform != "ios" && runtimePlatform != "android" {
+	if runtimePlatform != "ios" && runtimePlatform != "android" && runtimePlatform != "web" {
 		return "", nil
 	}
 

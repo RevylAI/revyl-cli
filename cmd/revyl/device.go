@@ -91,36 +91,36 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 
 // resolveTargetOrCoords checks whether --target was provided or --x/--y were
 // explicitly set. Uses cobra's Changed() to distinguish "not provided" from 0.
-func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager, session *mcppkg.DeviceSession) (int, int, error) {
+func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager, session *mcppkg.DeviceSession) (int, int, string, error) {
 	target, _ := cmd.Flags().GetString("target")
 	xChanged := cmd.Flags().Changed("x")
 	yChanged := cmd.Flags().Changed("y")
 
 	if target != "" && (xChanged || yChanged) {
-		return 0, 0, fmt.Errorf("provide --target OR --x/--y, not both")
+		return 0, 0, "", fmt.Errorf("provide --target OR --x/--y, not both")
 	}
 	if target == "" && !xChanged && !yChanged {
-		return 0, 0, fmt.Errorf("provide --target (element description) or --x/--y (coordinates)")
+		return 0, 0, "", fmt.Errorf("provide --target (element description) or --x/--y (coordinates)")
 	}
 	if (xChanged && !yChanged) || (!xChanged && yChanged) {
-		return 0, 0, fmt.Errorf("both --x and --y are required when using coordinates")
+		return 0, 0, "", fmt.Errorf("both --x and --y are required when using coordinates")
 	}
 
 	if target != "" {
 		resolved, err := mgr.ResolveTargetOnSession(cmd.Context(), session, target)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, "", err
 		}
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 		if !jsonOutput {
 			ui.PrintInfo("Resolved '%s' -> (%d, %d)", target, resolved.X, resolved.Y)
 		}
-		return resolved.X, resolved.Y, nil
+		return resolved.X, resolved.Y, resolved.ScreenToken, nil
 	}
 
 	x, _ := cmd.Flags().GetInt("x")
 	y, _ := cmd.Flags().GetInt("y")
-	return x, y, nil
+	return x, y, "", nil
 }
 
 // deviceScreenCenter returns the center of the session's screen in device
@@ -287,7 +287,7 @@ func handleDeviceStartPostLaunchFailure(
 
 func validateLiveNetworkPlatform(platform string) error {
 	normalized := strings.ToLower(strings.TrimSpace(platform))
-	if normalized == "ios" {
+	if normalized == "ios" || normalized == "web" {
 		return nil
 	}
 	if normalized == "" {
@@ -305,19 +305,22 @@ func validateLiveNetworkPlatform(platform string) error {
 // success/latency so that downstream consumers like Trailblaze can render
 // click overlays without additional round-trips.
 type ActionResult struct {
-	Action     string      `json:"action"`
-	X          int         `json:"x"`
-	Y          int         `json:"y"`
-	Target     string      `json:"target,omitempty"`
-	Success    bool        `json:"success"`
-	Error      string      `json:"error,omitempty"`
-	LatencyMs  json.Number `json:"latency_ms,omitempty"`
-	DurationMs int         `json:"duration_ms,omitempty"`
-	Text       string      `json:"text,omitempty"`
-	Direction  string      `json:"direction,omitempty"`
-	Scale      float64     `json:"scale,omitempty"`
-	EndX       int         `json:"end_x,omitempty"`
-	EndY       int         `json:"end_y,omitempty"`
+	Action                    string      `json:"action"`
+	X                         int         `json:"x"`
+	Y                         int         `json:"y"`
+	Target                    string      `json:"target,omitempty"`
+	Success                   bool        `json:"success"`
+	Error                     string      `json:"error,omitempty"`
+	LatencyMs                 json.Number `json:"latency_ms,omitempty"`
+	DurationMs                int         `json:"duration_ms,omitempty"`
+	Text                      string      `json:"text,omitempty"`
+	Direction                 string      `json:"direction,omitempty"`
+	Scale                     float64     `json:"scale,omitempty"`
+	EndX                      int         `json:"end_x,omitempty"`
+	EndY                      int         `json:"end_y,omitempty"`
+	GroundingBundleDurationMs json.Number `json:"grounding_bundle_duration_ms,omitempty"`
+	InputDurationMs           json.Number `json:"input_duration_ms,omitempty"`
+	SettleDurationMs          json.Number `json:"settle_duration_ms,omitempty"`
 }
 
 // workerActionResponseFull extends the base workerActionResponse (in dev.go)
@@ -360,6 +363,10 @@ func buildActionResult(action string, x, y int, target string, workerBody []byte
 		}
 		result.Error = wr.Error
 	}
+	timing := api.ParseWorkerActionTiming(workerBody)
+	result.GroundingBundleDurationMs = timing.GroundingBundleDurationMs
+	result.InputDurationMs = timing.InputDurationMs
+	result.SettleDurationMs = timing.SettleDurationMs
 	return result
 }
 
@@ -786,6 +793,24 @@ var deviceStartCmd = &cobra.Command{
   revyl device start --platform ios --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
+		if strings.EqualFold(strings.TrimSpace(platform), "web") {
+			return runWebDeviceStart(cmd)
+		}
+		for _, name := range []string{"url", "commit", "viewport"} {
+			if cmd.Flags().Changed(name) {
+				return fmt.Errorf("--%s is only available on platform web; pass --platform web", name)
+			}
+		}
+		app, _ := cmd.Flags().GetString("app")
+		if cmd.Flags().Changed("app") {
+			appID, _ := cmd.Flags().GetString("app-id")
+			if appID != "" && appID != app {
+				return fmt.Errorf("--app and --app-id must name the same app")
+			}
+			if err := cmd.Flags().Set("app-id", app); err != nil {
+				return err
+			}
+		}
 		platformExplicit := cmd.Flags().Changed("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser, _ := cmd.Flags().GetBool("open")
@@ -1288,14 +1313,29 @@ var deviceScreenshotCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		screenToken := ""
+		if session.Platform == "web" {
+			screenToken = mgr.MarkScreenshotAnchorWithImage(session.Index, imgBytes)
+			if _, err := mgr.PersistAnchorImage(session.Index, screenToken, imgBytes); err != nil {
+				return fmt.Errorf("persist runtime screenshot anchor: %w", err)
+			}
+		}
 		out, _ := cmd.Flags().GetString("out")
 		if out != "" {
 			if err := writePrivateRuntimeFile(out, imgBytes); err != nil {
 				return err
 			}
-			jsonOrPrint(cmd, map[string]string{"path": out, "bytes": fmt.Sprintf("%d", len(imgBytes))}, fmt.Sprintf("Screenshot saved: %s", out))
+			output := map[string]string{"path": out, "bytes": fmt.Sprintf("%d", len(imgBytes))}
+			if screenToken != "" {
+				output["screen_token"] = screenToken
+			}
+			jsonOrPrint(cmd, output, fmt.Sprintf("Screenshot saved: %s", out))
 		} else {
-			jsonOrPrint(cmd, map[string]int{"bytes": len(imgBytes)}, fmt.Sprintf("Screenshot captured (%d bytes). Use --out <path> to save.", len(imgBytes)))
+			output := map[string]interface{}{"bytes": len(imgBytes)}
+			if screenToken != "" {
+				output["screen_token"] = screenToken
+			}
+			jsonOrPrint(cmd, output, fmt.Sprintf("Screenshot captured (%d bytes). Use --out <path> to save.", len(imgBytes)))
 		}
 		return nil
 	},
@@ -1366,15 +1406,15 @@ var deviceTapCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			body := map[string]interface{}{"x": resolved.X, "y": resolved.Y, "target": target}
+			if resolved.ScreenToken != "" {
+				body["screen_token"] = resolved.ScreenToken
+			}
 			respBody, err := mgr.WorkerRequestOnSession(
 				cmd.Context(),
 				session,
 				"/tap",
-				map[string]interface{}{
-					"x":      resolved.X,
-					"y":      resolved.Y,
-					"target": target,
-				},
+				body,
 			)
 			if err != nil {
 				return err
@@ -1392,11 +1432,14 @@ var deviceTapCmd = &cobra.Command{
 			return nil
 		}
 
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
+		x, y, screenToken, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
 		body := map[string]interface{}{"x": x, "y": y}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
+		}
 		if target != "" {
 			body["target"] = target
 		}
@@ -1422,12 +1465,15 @@ var deviceDoubleTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
+		x, y, screenToken, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
 		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
+		}
 		if target != "" {
 			body["target"] = target
 		}
@@ -1453,7 +1499,7 @@ var deviceLongPressCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
+		x, y, screenToken, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1463,6 +1509,9 @@ var deviceLongPressCmd = &cobra.Command{
 		}
 		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y, "duration_ms": dur}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
+		}
 		if target != "" {
 			body["target"] = target
 		}
@@ -1479,10 +1528,23 @@ var deviceLongPressCmd = &cobra.Command{
 
 var deviceTypeCmd = &cobra.Command{
 	Use:   "type",
-	Short: "Type text (--target or --x/--y, plus --text)",
+	Short: "Type text (--target or --x/--y, plus --text or --text-env)",
 	Example: `  revyl device type --target "email field" --text "user@example.com"
+  revyl device type --target "password field" --text-env TEST_PASSWORD
   revyl device type --x 200 --y 300 --text "hello"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		text, _ := cmd.Flags().GetString("text")
+		textEnv, _ := cmd.Flags().GetString("text-env")
+		if cmd.Flags().Changed("text") && cmd.Flags().Changed("text-env") {
+			return fmt.Errorf("--text and --text-env are mutually exclusive")
+		}
+		if cmd.Flags().Changed("text-env") && textEnv == "" {
+			return fmt.Errorf("--text-env requires an environment variable name")
+		}
+		text, err := mcppkg.ResolveDeviceTypeText(text, textEnv)
+		if err != nil {
+			return err
+		}
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
@@ -1491,38 +1553,53 @@ var deviceTypeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		text, _ := cmd.Flags().GetString("text")
-		if text == "" {
-			return fmt.Errorf("--text is required")
-		}
 		target, _ := cmd.Flags().GetString("target")
 		if target == "" && !cmd.Flags().Changed("x") && !cmd.Flags().Changed("y") {
 			return fmt.Errorf(
 				"device type needs the field to type into: the device focuses a field by tapping it, so pass --target or --x/--y, for example 'revyl device type --target \"email field\" --text \"<text>\"'",
 			)
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
+		x, y, screenToken, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
 		clearFirst, _ := cmd.Flags().GetBool("clear-first")
 		body := map[string]interface{}{"x": x, "y": y, "text": text, "clear_first": clearFirst}
+		if session.Platform == "web" && textEnv != "" {
+			body["password_only"] = true
+		}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
+		}
 		if target != "" {
 			body["target"] = target
 		}
 		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/input", body)
 		if err != nil {
+			if textEnv != "" && session.Platform != "web" {
+				return fmt.Errorf("device text input failed; run 'revyl device doctor' to inspect the session")
+			}
 			return err
 		}
 		result := buildActionResult("type", x, y, target, respBody)
-		result.Text = text
+		message := fmt.Sprintf("Typed text at (%d, %d)", x, y)
+		if session.Platform != "web" && textEnv == "" {
+			result.Text = text
+			message = fmt.Sprintf("Typed '%s' at (%d, %d)", text, x, y)
+		} else {
+			result.Target = target
+			result.Error = ""
+			if !result.Success {
+				result.Error = "text input failed; inspect the session with device doctor"
+			}
+		}
 		if err := requireActionSuccess(result); err != nil {
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
 				jsonOrPrint(cmd, result, "")
 			}
 			return err
 		}
-		jsonOrPrint(cmd, result, fmt.Sprintf("Typed '%s' at (%d, %d)", text, x, y))
+		jsonOrPrint(cmd, result, message)
 		return nil
 	},
 }
@@ -1552,6 +1629,7 @@ var deviceSwipeCmd = &cobra.Command{
 		}
 		target, _ := cmd.Flags().GetString("target")
 		var x, y int
+		var screenToken string
 		if target == "" && !cmd.Flags().Changed("x") && !cmd.Flags().Changed("y") {
 			x, y, err = deviceScreenCenter(cmd.Context(), mgr, session)
 			if err != nil {
@@ -1561,7 +1639,7 @@ var deviceSwipeCmd = &cobra.Command{
 			recordAppliedDefault(cmd, appliedDefault{Flag: "x", Value: strconv.Itoa(x), Reason: "screen_center"})
 			recordAppliedDefault(cmd, appliedDefault{Flag: "y", Value: strconv.Itoa(y), Reason: "screen_center"})
 		} else {
-			x, y, err = resolveTargetOrCoords(cmd, mgr, session)
+			x, y, screenToken, err = resolveTargetOrCoords(cmd, mgr, session)
 			if err != nil {
 				return err
 			}
@@ -1571,6 +1649,9 @@ var deviceSwipeCmd = &cobra.Command{
 			dur = 500
 		}
 		body := map[string]interface{}{"x": x, "y": y, "direction": direction, "duration_ms": dur}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
+		}
 		if target != "" {
 			body["target"] = target
 		}
@@ -1653,7 +1734,7 @@ var devicePinchCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
+		x, y, screenToken, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1667,6 +1748,9 @@ var devicePinchCmd = &cobra.Command{
 			"y":           y,
 			"scale":       scale,
 			"duration_ms": durationMs,
+		}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
 		}
 		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/pinch", body)
 		if err != nil {
@@ -1692,11 +1776,14 @@ var deviceClearTextCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
+		x, y, screenToken, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
-		body := map[string]int{"x": x, "y": y}
+		body := map[string]interface{}{"x": x, "y": y}
+		if screenToken != "" {
+			body["screen_token"] = screenToken
+		}
 		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/clear_text", body)
 		if err != nil {
 			return err
@@ -1737,12 +1824,21 @@ var deviceBackCmd = &cobra.Command{
 
 var deviceKeyCmd = &cobra.Command{
 	Use:   "key [key]",
-	Short: "Send a non-printable key (ENTER or BACKSPACE)",
+	Short: "Press a key or Web keyboard shortcut",
 	Example: `  revyl device key ENTER
   revyl device key BACKSPACE
-  revyl device key --key ENTER`,
+  revyl device key --key ENTER
+  revyl device key Escape
+  revyl device key "Meta+K"`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		rawKey, _ := cmd.Flags().GetString("key")
+		if len(args) > 0 && args[0] != "" {
+			rawKey = args[0]
+		}
+		if rawKey == "" {
+			return fmt.Errorf("key is required: revyl device key <key-or-chord>")
+		}
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
@@ -1751,30 +1847,17 @@ var deviceKeyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		rawKey, _ := cmd.Flags().GetString("key")
-		if len(args) > 0 && args[0] != "" {
-			rawKey = args[0]
-		}
-		if rawKey == "" {
-			return fmt.Errorf("key is required: revyl device key <ENTER|BACKSPACE>")
-		}
-		normalized := strings.ToUpper(strings.TrimSpace(rawKey))
-		switch normalized {
-		case "RETURN":
-			normalized = "ENTER"
-		case "DELETE":
-			normalized = "BACKSPACE"
-		}
-		if normalized != "ENTER" && normalized != "BACKSPACE" {
-			return fmt.Errorf("--key must be ENTER or BACKSPACE")
-		}
-		body := map[string]string{"key": normalized}
-		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/key", body)
+		respBody, err := mgr.PressKeyOnSession(cmd.Context(), session, rawKey)
 		if err != nil {
 			return err
 		}
 		result := buildActionResult("key", 0, 0, "", respBody)
-		jsonOrPrint(cmd, result, fmt.Sprintf("Sent key %s", normalized))
+		message := "Pressed key"
+		if session.Platform != "web" {
+			key, _ := mcppkg.ParseDeviceKey(rawKey, session.Platform)
+			message = fmt.Sprintf("Sent key %s", key.Key)
+		}
+		jsonOrPrint(cmd, result, message)
 		return nil
 	},
 }
@@ -2047,7 +2130,7 @@ func navigateDevice(ctx context.Context, requester workerSessionRequester, sessi
 	if err != nil {
 		return err
 	}
-	return ensureWorkerActionSucceeded(respBody, "open_url")
+	return mcppkg.EnsureWorkerNavigationSucceeded(respBody, session.Platform)
 }
 
 var deviceSetLocationCmd = &cobra.Command{
@@ -2811,7 +2894,12 @@ var deviceListCmd = &cobra.Command{
 			}
 			idShort := truncatePrefix(s.SessionID, 8)
 			uptime := time.Since(s.StartedAt).Round(time.Second)
-			fmt.Printf("%s %-3s %-10s %-10s %-12s %s\n", marker, index, s.Platform, s.Status, idShort, uptime)
+			label := mcppkg.SessionDisplayLabel(s.DeviceSession)
+			status := s.Status
+			if status == "" {
+				status = "running"
+			}
+			fmt.Printf("%s %-3s %-10s %-10s %-12s %s\n", marker, index, label, status, idShort, uptime)
 		}
 		if notReady != nil {
 			ui.PrintDim("Sessions without a # have no ready device yet; target one by ID, e.g. -s %s.", notReady.SessionID)
@@ -2825,13 +2913,13 @@ var deviceListCmd = &cobra.Command{
 // backend's status, such as "queued" or "starting".
 type deviceListEntry struct {
 	*mcppkg.DeviceSession
-	Status string `json:"status"`
+	Status string `json:"status,omitempty"`
 }
 
 func deviceListEntries(attached []*mcppkg.DeviceSession, notReady []mcppkg.DeviceSession) []deviceListEntry {
 	entries := make([]deviceListEntry, 0, len(attached)+len(notReady))
 	for _, session := range attached {
-		entries = append(entries, deviceListEntry{DeviceSession: session, Status: "running"})
+		entries = append(entries, deviceListEntry{DeviceSession: session})
 	}
 	for i := range notReady {
 		session := &notReady[i]
@@ -3077,6 +3165,13 @@ Use --no-follow for a single snapshot.`,
 				return fmt.Errorf("failed to poll network requests: %w", pollErr)
 			}
 			cursor = resp.NextCursor
+			if resp.RuntimeSummary != nil {
+				data, err := json.Marshal(resp.RuntimeSummary)
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(data))
+			}
 
 			if len(resp.Items) > 0 {
 				if jsonOutput {
@@ -3095,7 +3190,7 @@ Use --no-follow for a single snapshot.`,
 				return nil
 			}
 
-			if !resp.CaptureRunning && len(resp.Items) == 0 {
+			if resp.RuntimeSummary == nil && !resp.CaptureRunning && len(resp.Items) == 0 {
 				if !jsonOutput {
 					ui.PrintDim("  Capture not running, waiting...")
 				}
@@ -3161,7 +3256,11 @@ By default, polls continuously (--follow) printing one captured log line per ent
 		}
 
 		for {
-			resp, pollErr := pollLogsWithRetry(ctx, mgr, session, cursor, 200)
+			limit := 200
+			if platform == "web" {
+				limit = 100
+			}
+			resp, pollErr := pollLogsWithRetry(ctx, mgr, session, cursor, limit)
 			if pollErr != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -3170,6 +3269,13 @@ By default, polls continuously (--follow) printing one captured log line per ent
 			}
 			cursor = resp.NextCursor
 
+			if resp.RuntimeSummary != nil {
+				data, err := json.Marshal(resp.RuntimeSummary)
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(data))
+			}
 			if len(resp.Items) > 0 {
 				if jsonOutput {
 					data, _ := json.Marshal(resp)
@@ -3185,7 +3291,7 @@ By default, polls continuously (--follow) printing one captured log line per ent
 				return nil
 			}
 
-			if !resp.CaptureRunning && len(resp.Items) == 0 {
+			if resp.RuntimeSummary == nil && !resp.CaptureRunning && len(resp.Items) == 0 {
 				if !jsonOutput {
 					ui.PrintDim("  Capture not running, waiting...")
 				}
@@ -3461,7 +3567,11 @@ func init() {
 	sessionFlag := registerSessionTargetFlags
 
 	// Start
-	deviceStartCmd.Flags().String("platform", "", "Platform: ios or android (inferred from --app-id/--build-version-id when omitted, defaults to ios)")
+	deviceStartCmd.Flags().String("platform", "", "Platform: ios, android, or web (Web requires --app; phone platform inferred when omitted)")
+	deviceStartCmd.Flags().String("app", "", "App UUID (alias for --app-id); required for Web")
+	deviceStartCmd.Flags().String("url", "", "Create or reuse an HTTPS URL build on --app before starting Web")
+	deviceStartCmd.Flags().String("commit", "", "Commit SHA identity for --url on platform web")
+	deviceStartCmd.Flags().String("viewport", "1280x800", "Web viewport WIDTHxHEIGHT (width 320–3840, height 240–2160)")
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
@@ -3525,7 +3635,8 @@ func init() {
 	deviceTypeCmd.Flags().String("target", "", "Element description (grounded)")
 	deviceTypeCmd.Flags().Int("x", 0, "X coordinate (raw)")
 	deviceTypeCmd.Flags().Int("y", 0, "Y coordinate (raw)")
-	deviceTypeCmd.Flags().String("text", "", "Text to type (required)")
+	deviceTypeCmd.Flags().String("text", "", "Text to type (mutually exclusive with --text-env)")
+	deviceTypeCmd.Flags().String("text-env", "", "Local environment variable name containing text to type; never pass its value")
 	deviceTypeCmd.Flags().Bool("clear-first", true, "Clear field before typing")
 	deviceTypeCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceTypeCmd)
@@ -3573,7 +3684,7 @@ func init() {
 	sessionFlag(deviceBackCmd)
 
 	// Key
-	deviceKeyCmd.Flags().String("key", "", "Key to send (ENTER or BACKSPACE)")
+	deviceKeyCmd.Flags().String("key", "", "Key or Web chord (Escape, Tab, Enter, Meta+K); phones support ENTER/BACKSPACE")
 	deviceKeyCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceKeyCmd)
 

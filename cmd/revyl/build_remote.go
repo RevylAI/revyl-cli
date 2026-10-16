@@ -84,6 +84,7 @@ type remoteBuildPlatformConfig struct {
 	Secrets       []string
 	Caches        []config.BuildCache
 	Framework     string
+	Run           *config.AuthoredWebRun
 	// TimeoutSeconds is the optional build.platforms.<PlatformKey>.timeout, nil
 	// when unset so the trigger request omits it and the server default applies.
 	TimeoutSeconds *int
@@ -110,6 +111,14 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		return fmt.Errorf("remote build requires a resolved project profile and platform")
 	}
 	resolved := *opts.Resolved
+	var webSourceCommitSHA string
+	if resolved.Platform == "web" && !remoteBuildUsesGitSource(resolved.Source) {
+		var err error
+		webSourceCommitSHA, err = webBuildSourceCommitSHA(ctx, worktreeRoot)
+		if err != nil {
+			return err
+		}
+	}
 	var err error
 	resolved.Env = mergeRemoteBuildEnv(resolved.Env, opts.Env)
 	resolved.Secrets, err = mergeBuildSecretRefs(resolved.Secrets, opts.Secrets)
@@ -296,7 +305,12 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	if err != nil {
 		return err
 	}
-	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, opts.TimeoutSeconds)
+	var triggerResp *api.RemoteBuildTriggerResponse
+	if resolved.Platform == "web" {
+		triggerResp, err = client.TriggerManagedWebBuild(ctx, triggerReq, managedWebRun(resolved.Run), webSourceCommitSHA, opts.TimeoutSeconds)
+	} else {
+		triggerResp, err = client.TriggerRemoteBuild(ctx, triggerReq, opts.TimeoutSeconds)
+	}
 	if !debugOutput && interactiveOutput {
 		ui.StopSpinner()
 	}
@@ -873,6 +887,9 @@ func normalizeRemoteGitSource(source config.BuildSource) config.BuildSource {
 }
 
 func defaultRemoteArtifactType(platform string) string {
+	if platform == "web" {
+		return "web_bundle"
+	}
 	if platform == "android" {
 		return "apk"
 	}

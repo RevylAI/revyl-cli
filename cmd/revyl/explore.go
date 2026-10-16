@@ -116,7 +116,7 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: app default)")
 	cmd.Flags().StringVar(&exploreBuildSelection, "build-selection", "", "Build choice: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
 	cmd.Flags().BoolVar(&exploreAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
-	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios or android")
+	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios, android, or web")
 	cmd.Flags().IntVar(&exploreExplorerCount, "explorers", 3, "Number of parallel explorers")
 	cmd.Flags().StringVar(&exploreStrategy, "strategy", "balanced", "Exploration strategy: balanced, surface-sweep, journey-focus, or hard-edges")
 	cmd.Flags().StringVar(&exploreInstructions, "instructions", "", "Instructions shared by every explorer")
@@ -126,8 +126,8 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&exploreNoInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore inherited launch variables")
 	cmd.Flags().StringVar(&exploreDeviceModel, "device-model", "", "Device model target")
 	cmd.Flags().StringVar(&exploreOSVersion, "os-version", "", "OS version target")
-	cmd.Flags().DurationVar(&exploreMaxDuration, "max-duration", 30*time.Minute, "Maximum exploration duration")
-	cmd.Flags().DurationVar(&exploreIdleTimeout, "idle-timeout", 15*time.Minute, "Stop an idle explorer after this duration")
+	cmd.Flags().DurationVar(&exploreMaxDuration, "max-duration", 30*time.Minute, "Maximum exploration duration (web: at most 30m)")
+	cmd.Flags().DurationVar(&exploreIdleTimeout, "idle-timeout", 15*time.Minute, "Stop an idle explorer after this duration (web: at most 60m)")
 	cmd.Flags().DurationVar(&exploreTimeout, "timeout", defaultExploreTimeout, "Maximum time to wait locally")
 	cmd.Flags().BoolVar(&exploreNoWait, "no-wait", false, "Return after the exploration is queued")
 	cmd.Flags().BoolVar(&exploreOpen, "open", false, "Open the report in a browser")
@@ -169,7 +169,7 @@ func runExploreRun(cmd *cobra.Command, args []string) error {
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	client := exploreNewClient(apiKey, devMode)
 
-	request, app, err := buildExploreLaunchRequest(cmd.Context(), client, args)
+	request, app, err := buildExploreLaunchRequest(cmd, client, args)
 	if err != nil {
 		return err
 	}
@@ -304,10 +304,11 @@ func exploreCancelOutput(result *api.ExplorationCancelResponse, devMode bool) ex
 }
 
 func buildExploreLaunchRequest(
-	ctx context.Context,
+	cmd *cobra.Command,
 	client exploreAPI,
 	args []string,
 ) (*api.ExplorationLaunchRequest, *api.App, error) {
+	ctx := cmd.Context()
 	buildSelection, err := resolveAllBranchesSelection(allBranchesFlagName, exploreAllBranches, "build-selection", exploreBuildSelection,
 		allBranchesConflict{flag: "--branch", set: exploreBranchName != ""},
 		allBranchesConflict{flag: "--build-id", set: strings.TrimSpace(exploreBuildID) != ""},
@@ -328,12 +329,6 @@ func buildExploreLaunchRequest(
 	}
 	if exploreExplorerCount < 1 || exploreExplorerCount > 100 {
 		return nil, nil, fmt.Errorf("--explorers must be between 1 and 100")
-	}
-	if err := validateExploreDuration("--max-duration", exploreMaxDuration, time.Minute, 2*time.Hour); err != nil {
-		return nil, nil, err
-	}
-	if err := validateExploreDuration("--idle-timeout", exploreIdleTimeout, time.Minute, 2*time.Hour); err != nil {
-		return nil, nil, err
 	}
 	if exploreTimeout <= 0 {
 		return nil, nil, fmt.Errorf("--timeout must be greater than zero")
@@ -357,6 +352,52 @@ func buildExploreLaunchRequest(
 		return nil, nil, fmt.Errorf("--platform %s does not match app platform %s", platform, appPlatform)
 	}
 	platform = appPlatform
+	maxDuration, maxIdleTimeout := 2*time.Hour, 2*time.Hour
+	if platform == "web" {
+		for _, name := range []string{"device-model", "os-version", "launch-var", "launch-env", "no-inherited-launch-vars"} {
+			if cmd.Flags().Changed(name) {
+				return nil, nil, fmt.Errorf("--%s is not available on platform web", name)
+			}
+		}
+		maxDuration, maxIdleTimeout = 30*time.Minute, time.Hour
+	}
+	if err := validateExploreDuration("--max-duration", exploreMaxDuration, time.Minute, maxDuration); err != nil {
+		return nil, nil, err
+	}
+	if err := validateExploreDuration("--idle-timeout", exploreIdleTimeout, time.Minute, maxIdleTimeout); err != nil {
+		return nil, nil, err
+	}
+
+	request := &api.ExplorationLaunchRequest{
+		Platform:           stringPointer(platform),
+		LaneCount:          intPointer(exploreExplorerCount),
+		SwarmStrategy:      stringPointer(strategy),
+		MaxDurationSeconds: intPointer(int(exploreMaxDuration.Seconds())),
+		IdleTimeoutSeconds: intPointer(int(exploreIdleTimeout.Seconds())),
+	}
+	if value := strings.TrimSpace(exploreInstructions); value != "" {
+		request.SeedInstructions = &value
+	}
+	if value := strings.TrimSpace(exploreAuthInstructions); value != "" {
+		request.AuthInstructions = &value
+	}
+	if exploreBranchName != "" {
+		request.BranchName = &exploreBranchName
+	}
+	if buildSelection != "" {
+		mode := api.BuildSelectionMode(buildSelection)
+		request.BuildSelection = &mode
+	}
+	if value := strings.TrimSpace(exploreBuildID); value != "" {
+		parsed, parseErr := uuid.Parse(value)
+		if parseErr != nil {
+			return nil, nil, fmt.Errorf("invalid --build-id %q", value)
+		}
+		request.BuildId = &parsed
+	}
+	if platform == "web" {
+		return request, app, nil
+	}
 
 	inlineEnv, err := parseLaunchEnvVars(exploreLaunchEnv)
 	if err != nil {
@@ -384,20 +425,6 @@ func buildExploreLaunchRequest(
 		}
 		typedLaunchIDs = append(typedLaunchIDs, parsed)
 	}
-
-	request := &api.ExplorationLaunchRequest{
-		Platform:           stringPointer(platform),
-		LaneCount:          intPointer(exploreExplorerCount),
-		SwarmStrategy:      stringPointer(strategy),
-		MaxDurationSeconds: intPointer(int(exploreMaxDuration.Seconds())),
-		IdleTimeoutSeconds: intPointer(int(exploreIdleTimeout.Seconds())),
-	}
-	if value := strings.TrimSpace(exploreInstructions); value != "" {
-		request.SeedInstructions = &value
-	}
-	if value := strings.TrimSpace(exploreAuthInstructions); value != "" {
-		request.AuthInstructions = &value
-	}
 	if value := strings.TrimSpace(exploreDeviceModel); value != "" {
 		request.DeviceModel = &value
 	}
@@ -409,20 +436,6 @@ func buildExploreLaunchRequest(
 	}
 	if len(inlineEnv) > 0 {
 		request.EnvVars = &inlineEnv
-	}
-	if exploreBranchName != "" {
-		request.BranchName = &exploreBranchName
-	}
-	if buildSelection != "" {
-		mode := api.BuildSelectionMode(buildSelection)
-		request.BuildSelection = &mode
-	}
-	if value := strings.TrimSpace(exploreBuildID); value != "" {
-		parsed, parseErr := uuid.Parse(value)
-		if parseErr != nil {
-			return nil, nil, fmt.Errorf("invalid --build-id %q", value)
-		}
-		request.BuildId = &parsed
 	}
 	return request, app, nil
 }
@@ -458,34 +471,32 @@ func resolveCanonicalConfiguredExploreApp(
 	project *config.ProjectContext,
 	platform string,
 ) (*api.App, error) {
-	appID := ""
-	if platform != "" {
-		var err error
-		appID, err = execution.ResolveCanonicalConfiguredAppID(project, platform)
-		if err != nil {
-			return nil, fmt.Errorf("%w; pass --platform %s with an explicit app name or ID", err, platform)
-		}
-		if appID == "" {
-			return nil, fmt.Errorf("no configured app for platform %s; pass an app name or ID", platform)
-		}
-	} else {
-		configured := make(map[string]struct{})
-		for _, profile := range project.Aggregate.Profiles {
-			for _, recipe := range profile.Configurations {
-				if recipe.AppID != nil && strings.TrimSpace(*recipe.AppID) != "" {
-					configured[strings.TrimSpace(*recipe.AppID)] = struct{}{}
-				}
+	configured := make(map[string]struct{})
+	for _, profile := range project.Aggregate.Profiles {
+		for _, recipe := range profile.Configurations {
+			if platform != "" && recipe.Platform != platform {
+				continue
+			}
+			if recipe.AppID != nil && strings.TrimSpace(*recipe.AppID) != "" {
+				configured[strings.TrimSpace(*recipe.AppID)] = struct{}{}
 			}
 		}
-		if len(configured) == 0 {
-			return nil, fmt.Errorf("no configured app found; pass an app name or ID")
+	}
+	if len(configured) == 0 {
+		if platform != "" {
+			return nil, fmt.Errorf("no configured app for platform %s; pass an app name or ID", platform)
 		}
-		if len(configured) > 1 {
-			return nil, fmt.Errorf("multiple configured apps found; pass --platform ios|android or an app name or ID")
+		return nil, fmt.Errorf("no configured app found; pass an app name or ID")
+	}
+	if len(configured) > 1 {
+		if platform != "" {
+			return nil, fmt.Errorf("multiple %s apps are configured across build profiles; pass an explicit app name or ID", platform)
 		}
-		for configuredAppID := range configured {
-			appID = configuredAppID
-		}
+		return nil, fmt.Errorf("multiple configured apps found; pass --platform ios|android|web or an app name or ID")
+	}
+	appID := ""
+	for configuredAppID := range configured {
+		appID = configuredAppID
 	}
 
 	app, err := client.GetApp(ctx, appID)
@@ -518,7 +529,7 @@ func resolveConfiguredExploreApp(
 			return nil, fmt.Errorf("no configured app found; pass an app name or ID")
 		}
 		if len(configured) > 1 {
-			return nil, fmt.Errorf("multiple configured apps found; pass --platform ios|android or an app name or ID")
+			return nil, fmt.Errorf("multiple configured apps found; pass --platform ios|android|web or an app name or ID")
 		}
 		for id := range configured {
 			appID = id
@@ -850,10 +861,10 @@ func exploreReportURL(devMode bool, runID string) string {
 
 func normalizeExplorePlatform(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" || value == "ios" || value == "android" {
+	if value == "" || value == "ios" || value == "android" || value == "web" {
 		return value, nil
 	}
-	return "", fmt.Errorf("invalid --platform %q: expected ios or android", value)
+	return "", fmt.Errorf("invalid --platform %q: expected ios, android, or web", value)
 }
 
 func normalizeExploreStrategy(value string) (string, error) {

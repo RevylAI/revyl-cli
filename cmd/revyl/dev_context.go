@@ -902,7 +902,7 @@ func runDevAttach(cmd *cobra.Command, args []string) error {
 			return selectionErr
 		}
 		if selection.Resolved != nil {
-			configuration, ok := platformConfiguration(
+			configuration, ok := buildablePlatformConfiguration(
 				*project.Aggregate,
 				selection.Resolved.Profile,
 				selection.Resolved.Platform,

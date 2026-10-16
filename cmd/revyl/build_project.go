@@ -207,8 +207,8 @@ func validateBuildFlags(cmd *cobra.Command, remoteExecution bool) error {
 		return fmt.Errorf("--local and --remote cannot be used together; use --local for this machine or omit both flags for a cloud build")
 	}
 	platform := strings.TrimSpace(buildCommandPlatform)
-	if platform != "" && platform != "ios" && platform != "android" {
-		return fmt.Errorf("--platform must be ios or android")
+	if platform != "" && platform != "ios" && platform != "android" && platform != "web" {
+		return fmt.Errorf("--platform must be ios or android or web")
 	}
 	if remoteExecution {
 		return nil
@@ -290,14 +290,14 @@ func resolveBuildInvocation(
 		selectionSource = "prompted"
 	}
 
-	configuration, ok := platformConfiguration(*project.Aggregate, profile, platform)
+	configuration, ok := buildablePlatformConfiguration(*project.Aggregate, profile, platform)
 	if !ok {
 		return projectBuildInvocation{}, fmt.Errorf("resolved build recipe is unavailable")
 	}
-	if err := config.ValidateExecutionRecipe(configuration.Recipe); err != nil {
+	if err := config.ValidateExecutionRecipe(*configuration.Recipe); err != nil {
 		return projectBuildInvocation{}, err
 	}
-	recipe := cloneEffectiveBuildRecipe(configuration.Recipe)
+	recipe := cloneEffectiveBuildRecipe(*configuration.Recipe)
 	appID := ""
 	if configuration.AppID != nil {
 		appID = strings.TrimSpace(*configuration.AppID)
@@ -316,13 +316,13 @@ func resolveBuildInvocation(
 	}, nil
 }
 
-func platformConfiguration(aggregate config.NormalizedProjectAggregate, profileName, platform string) (config.NormalizedPlatformConfiguration, bool) {
+func buildablePlatformConfiguration(aggregate config.NormalizedProjectAggregate, profileName, platform string) (config.NormalizedPlatformConfiguration, bool) {
 	for _, profile := range aggregate.Profiles {
 		if profile.Name != profileName {
 			continue
 		}
 		for _, configuration := range profile.Configurations {
-			if configuration.Platform == platform {
+			if configuration.Platform == platform && configuration.Recipe != nil {
 				return configuration, true
 			}
 		}
@@ -332,6 +332,7 @@ func platformConfiguration(aggregate config.NormalizedProjectAggregate, profileN
 
 func cloneEffectiveBuildRecipe(recipe config.EffectiveBuildRecipe) config.EffectiveBuildRecipe {
 	cloned := recipe
+	cloned.Run = config.CloneWebRun(recipe.Run)
 	cloned.SetupCommands = append([]config.BuildStepItem{}, recipe.SetupCommands...)
 	cloned.BuildCommands = append([]config.BuildStepItem{}, recipe.BuildCommands...)
 	cloned.SecretRefs = append([]string{}, recipe.SecretRefs...)
@@ -419,7 +420,9 @@ func performLocalBuild(
 
 	progress.markFailureStage("artifact_resolution")
 	artifactPath := ""
-	if invocation.Recipe.OutputPath != nil && strings.TrimSpace(*invocation.Recipe.OutputPath) != "" {
+	if invocation.Platform == "web" {
+		artifactPath = filepath.Join(invocation.ProjectRoot, *invocation.Recipe.OutputPath)
+	} else if invocation.Recipe.OutputPath != nil && strings.TrimSpace(*invocation.Recipe.OutputPath) != "" {
 		artifactPath, err = build.ResolveArtifactPath(invocation.ProjectRoot, strings.TrimSpace(*invocation.Recipe.OutputPath))
 		if err != nil {
 			return localBuildResult{}, fmt.Errorf("configured output_path was not produced: %w", err)
@@ -474,7 +477,12 @@ func saveBuildAppBinding(invocation projectBuildInvocation, appID string) error 
 	if !ok {
 		return fmt.Errorf("selected build profile is unavailable")
 	}
-	if invocation.Platform == "ios" {
+	if invocation.Platform == "web" {
+		if profile.Web == nil {
+			return fmt.Errorf("selected Web build recipe is unavailable")
+		}
+		profile.Web.AppID = &appID
+	} else if invocation.Platform == "ios" {
 		if profile.IOS == nil {
 			return fmt.Errorf("selected iOS build recipe is unavailable")
 		}
@@ -587,6 +595,9 @@ func performLocalArtifactUpload(
 ) (*api.UploadBuildResponse, error) {
 	if invocation.BranchID == "" && invocation.BranchName == "" {
 		invocation.BranchName, _ = cmd.Flags().GetString("branch")
+	}
+	if invocation.Platform == "web" {
+		return uploadLocalWebBuild(cmd, invocation, artifactPath, duration, client, pin)
 	}
 	preparedArtifact, cleanup, err := prepareLocalArtifact(artifactPath)
 	if err != nil {
@@ -863,6 +874,7 @@ func remoteBuildPlatformConfigFromProject(invocation projectBuildInvocation) rem
 		Secrets:   append([]string(nil), invocation.Recipe.SecretRefs...),
 		Caches:    append([]config.BuildCache(nil), invocation.Recipe.Caches...),
 		Framework: invocation.Recipe.Framework, TimeoutSeconds: invocation.Recipe.TimeoutSeconds,
+		Run: config.CloneWebRun(invocation.Recipe.Run),
 	}
 }
 

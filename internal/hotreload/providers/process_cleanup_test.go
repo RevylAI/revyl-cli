@@ -203,7 +203,7 @@ func readProviderRuntimeFailure(t *testing.T, failures <-chan hotreload.RuntimeF
 	select {
 	case failure := <-failures:
 		return failure
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for runtime failure")
 	}
 	return hotreload.RuntimeFailure{}

@@ -573,7 +573,7 @@ func TestSaveBuildAppBindingUpdatesOnlySelectedRecipeWithCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	configuration, ok := platformConfiguration(*after.Aggregate, "development", "android")
+	configuration, ok := buildablePlatformConfiguration(*after.Aggregate, "development", "android")
 	if !ok || configuration.AppID == nil || *configuration.AppID != appID {
 		t.Fatalf("saved configuration = %+v", configuration)
 	}

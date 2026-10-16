@@ -204,11 +204,11 @@ func resolveDevInvocation(
 		selectionSource = "prompted"
 	}
 
-	configuration, ok := platformConfiguration(*project.Aggregate, profile, platform)
+	configuration, ok := buildablePlatformConfiguration(*project.Aggregate, profile, platform)
 	if !ok {
 		return projectDevInvocation{}, fmt.Errorf("resolved development recipe is unavailable")
 	}
-	if err := config.ValidateExecutionRecipe(configuration.Recipe); err != nil {
+	if err := config.ValidateExecutionRecipe(*configuration.Recipe); err != nil {
 		return projectDevInvocation{}, err
 	}
 
@@ -223,7 +223,7 @@ func resolveDevInvocation(
 		Profile:             profile,
 		Platform:            platform,
 		AppID:               appID,
-		Recipe:              cloneEffectiveBuildRecipe(configuration.Recipe),
+		Recipe:              cloneEffectiveBuildRecipe(*configuration.Recipe),
 		BuildDefinitionHash: configuration.BuildDefinitionHash,
 		SelectionSource:     selectionSource,
 		Session:             cloneDevSession(project.Aggregate.Session),

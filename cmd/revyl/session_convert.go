@@ -72,8 +72,8 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 	}
 
 	platform := resolveSessionConvertPlatform(createTestPlatform, session)
-	if platform != "ios" && platform != "android" {
-		return fmt.Errorf("could not resolve platform for session %s: pass --platform ios or --platform android", sessionID)
+	if platform != "ios" && platform != "android" && platform != "web" {
+		return fmt.Errorf("could not resolve platform for session %s: pass --platform ios, android, or web", sessionID)
 	}
 
 	appID, err := resolveSessionConvertAppID(project.Aggregate, session, platform)

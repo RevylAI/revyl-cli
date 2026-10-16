@@ -260,6 +260,9 @@ func printReviewSetupBuildSummary(build config.AuthoredReviewBuild) {
 		if build.AppIDs.Android != nil {
 			platforms = append(platforms, "Android")
 		}
+		if build.AppIDs.Web != nil {
+			platforms = append(platforms, "Web")
+		}
 	}
 	ui.PrintKeyValue("Review builds:", "CI uploads for "+strings.Join(platforms, " and "))
 }

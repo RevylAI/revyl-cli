@@ -1395,6 +1395,9 @@ func resolveDeviceSelection(
 		}
 		return "", "", fmt.Errorf("failed to fetch test for device validation: %w", err)
 	}
+	if strings.EqualFold(strings.TrimSpace(test.Platform), "web") {
+		return "", "", fmt.Errorf("test %s is a Web test, which runs in a desktop browser: drop --device-model, --os-version, and --device", testID)
+	}
 
 	targetCatalog := loadRuntimeDeviceTargetCatalog(cmd.Context(), client)
 	if !interactive {

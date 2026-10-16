@@ -83,6 +83,14 @@ func TestClassifyFailure(t *testing.T) {
 	}
 }
 
+func TestFailureClassForErrorUsesOwningClassifier(t *testing.T) {
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded, &net.DNSError{IsTimeout: true}, &api.APIError{StatusCode: 503}, errors.New("untyped")} {
+		if got, want := FailureClassForError(err), classifyFailure(err, CommandCompletion{}); got != want {
+			t.Fatalf("failure class=%q, want %q", got, want)
+		}
+	}
+}
+
 func TestBuildFailureStagesAllClassify(t *testing.T) {
 	for _, stage := range []string{
 		"validation", "authentication", "configuration", "secret_validation", "setup", "build",

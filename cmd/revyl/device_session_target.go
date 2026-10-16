@@ -245,6 +245,19 @@ func lookupSessionFlag(cmd *cobra.Command, name string) string {
 //   - *mcppkg.DeviceSession: The resolved session.
 //   - error: A humanized resolution failure naming the next useful action.
 func resolveSessionTarget(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
+	session, err := resolveSessionTargetUnchecked(cmd, mgr)
+	if err != nil {
+		return nil, err
+	}
+	for action := cmd; action != nil && action.Name() != "device"; action = action.Parent() {
+		if err := mcppkg.CheckDeviceActionPlatform(session, action.Name()); err != nil {
+			return nil, err
+		}
+	}
+	return session, nil
+}
+
+func resolveSessionTargetUnchecked(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
 	target, err := sessionTargetFromCommand(cmd)
 	if err != nil {
 		return nil, err

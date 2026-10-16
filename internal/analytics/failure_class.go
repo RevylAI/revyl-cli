@@ -75,6 +75,10 @@ var buildFailureStageClasses = map[string]FailureClass{
 	"source_upload":       FailureClassUpload,
 }
 
+func FailureClassForError(err error) FailureClass {
+	return classifyFailure(err, CommandCompletion{})
+}
+
 // classifyFailure checks the cause before the stage: a typed cause anywhere in
 // the chain wins, and the build stage only classifies otherwise untyped
 // failures.

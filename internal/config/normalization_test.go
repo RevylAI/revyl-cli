@@ -373,7 +373,7 @@ func TestAuthoringExecutionAndPublicationStagesStaySeparate(t *testing.T) {
 	raw := []byte("project: {id: 11111111-1111-4111-8111-111111111111}\nbuild:\n  framework: expo\n  profiles:\n    dev:\n      ios:\n        build_commands: []\n")
 	aggregate := mustCompileConfig(t, raw, CompilationContext{".", "."})
 	recipe := aggregate.Profiles[0].Configurations[0].Recipe
-	assertConfigError(t, ValidateExecutionRecipe(recipe), "validation", "recipe_not_runnable")
+	assertConfigError(t, ValidateExecutionRecipe(*recipe), "validation", "recipe_not_runnable")
 	if err := ValidatePublication(*aggregate, PublicationValidationContext{}); err != nil {
 		t.Fatalf("unmanaged local-only profile publication = %v", err)
 	}

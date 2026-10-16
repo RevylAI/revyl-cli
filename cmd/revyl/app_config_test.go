@@ -20,6 +20,58 @@ const (
 	appTestOtherID   = "33333333-3333-4333-8333-333333333333"
 )
 
+func TestRunAppCreateWebUsesURLBuildFlowWithoutProjectConfig(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		name := "human"
+		if jsonOutput {
+			name = "json"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("REVYL_API_KEY", "fixture-key")
+			repository := t.TempDir()
+			gitInitForAppTest(t, repository)
+			writeProjectAppTestConfig(t, repository, "project:\n  id: not-a-uuid\n")
+			withWorkingDir(t, repository)
+			requests := 0
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/apps/" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				}
+				var input map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input["platform"] != "web" || input["name"] != "Fixture" {
+					t.Errorf("invalid create body %#v", input)
+				}
+				if _, ok := input["project_id"]; ok {
+					t.Error("app create included project")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"fixture-app","name":"Fixture","platform":"web"}`))
+			}))
+			defer backend.Close()
+			t.Setenv("REVYL_BACKEND_URL", backend.URL)
+			originalName, originalPlatform, originalJSON := appCreateName, appCreatePlatform, appCreateJSON
+			t.Cleanup(func() { appCreateName, appCreatePlatform, appCreateJSON = originalName, originalPlatform, originalJSON })
+			appCreateName, appCreatePlatform, appCreateJSON = "Fixture", "Web", jsonOutput
+			cmd := newLeafCommand("create", runAppCreate)
+			output := captureStdout(t, func() {
+				if err := runAppCreate(cmd, nil); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if requests != 1 {
+				t.Fatalf("requests=%d", requests)
+			}
+			if jsonOutput {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(output), &result); err != nil || result["platform"] != "web" {
+					t.Fatalf("invalid JSON output %s", output)
+				}
+			}
+		})
+	}
+}
+
 func TestReplaceAppBindingUpdatesOnlySelectedRecipeWithCAS(t *testing.T) {
 	repository := t.TempDir()
 	gitInitForAppTest(t, repository)

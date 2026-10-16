@@ -101,7 +101,9 @@ func instructionsForProfile(profile Profile, fallback string) string {
 	}
 	return `Revyl runs agent-driven mobile development on cloud devices.
 
-Call start_dev_loop first and return its viewer immediately on success.
+For Web setup, first read https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/references/web.md and use explicit recipes or preview URLs; init does not detect Web defaults.
+
+Mobile flow: Call start_dev_loop first and return its viewer immediately on success.
 If start_dev_loop reports a setup failure, follow its one remediation action and retry start_dev_loop once.
 setup_status is optional diagnostics, not a prerequisite.
 Stop and report the remediation when restart_required is true, or when the one retry fails.
@@ -208,11 +210,13 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 		&mcp.ServerOptions{
 			Instructions: instructionsForProfile(s.profile, `Revyl provides cloud-hosted Android and iOS device interaction for AI agents, plus test/workflow management, modules, scripts, and build management.
 
+For Web setup, first read https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/references/web.md and use explicit recipes or preview URLs; init does not detect Web defaults.
+
 ## Tool Categories
 
 ### Device Interaction
 - **Device Session**: start_device_session, stop_device_session, get_session_info, list_device_sessions, switch_device_session
-- **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag, device_pinch, device_clear_text
+- **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag, device_pinch, device_clear_text, device_scroll (Web), device_select (Web)
 - **Manual Controls**: device_wait, device_back, device_key, device_shake, device_go_home, device_kill_app, device_open_app, device_navigate, device_set_location, device_download_file
 - **Vision**: screenshot
 - **App Management**: install_app, launch_app
@@ -584,7 +588,7 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	// create_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_app",
-		Description: "Create a new app for build uploads.",
+		Description: "Create an iOS or Android app for uploads, or a Web app for URL builds.",
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Create App",
 		},
@@ -2203,7 +2207,7 @@ func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest,
 // CreateAppInput defines input for create_app tool.
 type CreateAppInput struct {
 	Name     string `json:"name" jsonschema:"App name"`
-	Platform string `json:"platform" jsonschema:"Target platform (ios or android)"`
+	Platform string `json:"platform" jsonschema:"Target platform (ios, android, or web)"`
 }
 
 // CreateAppOutput defines output for create_app tool.
@@ -2222,8 +2226,8 @@ func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	platform := strings.ToLower(input.Platform)
-	if platform != "ios" && platform != "android" {
-		return nil, CreateAppOutput{Success: false, Error: "platform must be 'ios' or 'android'"}, nil
+	if platform != "ios" && platform != "android" && platform != "web" {
+		return nil, CreateAppOutput{Success: false, Error: "platform must be 'ios', 'android', or 'web'"}, nil
 	}
 
 	resp, err := s.apiClient.CreateApp(ctx, &api.CreateAppRequest{

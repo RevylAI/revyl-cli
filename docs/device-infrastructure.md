@@ -82,6 +82,138 @@ and `revyl config push` continue to require the canonical format.
 
 ## 3. Control the device and capture evidence
 
+### Web sessions
+
+Web sessions require a Web app and a URL or managed bundle build. Start the app's latest build,
+or create or reuse one from an HTTPS URL before starting:
+
+```bash
+revyl app create --name "My Web App" --platform web --json
+revyl device start --platform web --app YOUR_WEB_APP_ID --json
+revyl device start --platform web --app YOUR_WEB_APP_ID --url https://example.com/ --json
+revyl device start --platform web --app YOUR_WEB_APP_ID --build-version-id YOUR_BUILD_ID --viewport 1280x800 --json
+```
+
+`--app-id` remains an alias for the app selection. Without either, the app comes
+from `build.profiles.<name>.web.app_id` in `.revyl/config.yaml`. To register a
+URL build from CI without starting a session, use
+`revyl build upload --platform web --url <https-url>` (see
+[Web builds](web-builds.md)). `--commit` optionally identifies the URL build
+when used with `--url`. URLs cannot contain credentials, query
+strings, or fragments. No project input or local build is required.
+
+Managed Web builds run inside the session's app container. Revyl verifies the
+bundle, starts its configured command (or a static server), and waits for the
+configured health check before opening Chrome. Runtime `run.env_keys` and
+`run.secret_names` reference organization launch variables; their values are
+available only to the app process, not the browser or automation worker.
+
+The default viewport is 1280x800 and the default Web idle timeout is 600 seconds, unless session configuration or
+`--timeout` overrides it.
+
+#### Signed-in web starts
+
+For apps with a test-only sign-in route, configure a worker-minted link:
+
+```yaml
+session:
+  auth_bypass:
+    sign_in:
+      path: /__e2e__/login
+      secret: REVYL_SIGN_IN_SECRET
+      persona: default
+```
+
+`secret` names a secret key-value launch variable in the session's organization;
+never put its value in the config. The CLI and MCP send only its name. The
+backend binds the session to that variable, and the trusted worker reads its
+value and opens `<build-origin><path>?code=…` before handing over the
+session. Web starts do not run `session.before_script` or the mobile
+launch-variable or deep-link preparation pipeline. Use
+`session.auth_bypass.sign_in` for Web sign-in; any data a Web proof needs must
+already exist in the preview environment, for example seeded by the preview's
+own deploy or a test-login route.
+
+`path` must begin with a single `/` and cannot contain a query, fragment,
+backslash, or whitespace. It is limited to 512 characters. `persona` defaults
+to `default` and must match `[a-z0-9_-]{1,32}`. Every code expires after 120
+seconds. The app's sign-in handler chooses the destination after exchanging
+the code; Revyl does not send a redirect parameter.
+
+The code is an HS256 compact JWS, signed with the UTF-8 secret. Its header is
+`{"alg":"HS256","typ":"JWT"}` and its claims are `iss: "revyl"`, `aud: <build
+origin>` (lowercase, without a default port), `sub: <persona>`, integer `iat`
+and `exp: iat + 120`, and `jti` containing 16 random bytes encoded as
+unpadded base64url. The app must verify the signature, issuer, audience, and
+expiry, consume each `jti` only once, and exchange the code for its own session.
+
+The worker waits up to 30 seconds for navigation to leave the sign-in path on
+the same origin. Failure stops startup with `sign_in_failed`. The signing
+secret and code stay out of workflow inputs, CLI output, and reports; recording
+starts after the redirect. Only the selected variable ID is retained in session
+metadata to authorize the worker's secret read.
+
+The config block is accepted in shared project configuration, but only Web
+sessions act on it. Existing mobile `launch_vars`, `before_script`, and
+`deep_link` behavior is unchanged.
+
+While a Web session is running, organization members who can control it can
+click, scroll, type, and press Enter, Tab, Backspace, Escape, and the arrow keys
+in the live viewer. Each input is recorded as a Manual control step, and typed
+text is never written to the report. Viewers and shared report links get a
+view-only player. Drag and hover are not available in the viewer; use CLI or
+MCP actions for them.
+
+Use the returned `session_id` for screenshots, navigation, taps, typing, reports,
+and stopping. Web screenshots include a local `screen_token`; grounded actions
+carry the matching observation token automatically. A stale target requires a
+fresh screenshot and target resolution. Do not automatically repeat an action
+reported as applied or uncertain.
+
+For private text, use `revyl device type --session-id YOUR_SESSION_ID --target
+"password field" --text-env PASSWORD_ENV_NAME`. The value stays out of command
+arguments and CLI output; on Web, the target must be a password field. Web does
+not support phone-only actions such as app installation, Home, or pinch.
+
+#### Keyboard, scrolling, and native selects
+
+Use keys to dismiss dialogs and test keyboard reachability, rather than assuming
+a clickable element is keyboard-accessible:
+
+```bash
+revyl device key Escape --session-id YOUR_SESSION_ID --json
+revyl device key Tab --session-id YOUR_SESSION_ID
+revyl device key Enter --session-id YOUR_SESSION_ID
+revyl device key "Shift+Tab" --session-id YOUR_SESSION_ID
+revyl device key "Meta+K" --session-id YOUR_SESSION_ID
+revyl device scroll down --amount 600 --session-id YOUR_SESSION_ID --json
+revyl device scroll up --amount 300 --target "Results list" --session-id YOUR_SESSION_ID
+revyl device scroll right --amount 200 --x 400 --y 300 --session-id YOUR_SESSION_ID
+revyl device select "Canada" --target "Country" --session-id YOUR_SESSION_ID --json
+```
+
+Keys are case-insensitive: Enter (Return), Backspace, Tab, Escape (Esc), Delete,
+Space, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, and PageDown.
+Chords use `+` with distinct Ctrl, Alt, Meta, or Shift modifiers and a named key
+or one ASCII letter/digit. Bare letters/digits, function keys, and arbitrary
+text are rejected; use `device type` for text. On iOS and Android only the
+existing Enter and Backspace keys are supported; Return and Delete remain
+their existing aliases.
+
+`scroll` accepts `up`, `down`, `left`, or `right`, either positionally or through
+`--direction`. `--amount` is 1–16384 pixels (default 600). Down and right move
+the viewport toward later content, unlike the finger-motion direction of
+`swipe`. With no target it scrolls at the viewport center. To scroll a nested
+region, supply either `--target` or both `--x` and `--y`; never combine them.
+
+`select` chooses one enabled, visible option by its exact label in a native
+HTML `<select>`, not by its value attribute. Supply `--target` or both coordinates.
+Custom dropdowns need normal taps or keys. Scroll and select are Web-only and
+fail before dispatch on phones. All three commands accept `-s`/`--session-id`
+and `--json`; successful output does not echo the key, option label, or target.
+
+### Phone sessions
+
 Replace the placeholder with your session ID:
 
 ```bash
