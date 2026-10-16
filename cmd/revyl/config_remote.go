@@ -223,14 +223,11 @@ func authoredConfigFromAPI(authored api.AuthoredRevylConfig) (config.AuthoredCon
 	if err != nil {
 		return config.AuthoredConfig{}, fmt.Errorf("decode project configuration: %w", err)
 	}
-	var converted config.AuthoredConfig
-	if err := json.Unmarshal(payload, &converted); err != nil {
+	converted, err := config.ParseAuthoredConfig(payload)
+	if err != nil {
 		return config.AuthoredConfig{}, fmt.Errorf("decode project configuration: %w", err)
 	}
-	if err := converted.ValidateContract(); err != nil {
-		return config.AuthoredConfig{}, err
-	}
-	return converted, nil
+	return *converted, nil
 }
 
 func publicationCompilationContext(local *config.ProjectContext) config.CompilationContext {

@@ -226,7 +226,7 @@ type AuthoredProofOfChanges struct {
 	AlwaysVerify []string              `json:"always_verify,omitempty" yaml:"always_verify,omitempty"`
 }
 
-// AuthoredProofHarness selects the Revyl or Cursor proof executor.
+// AuthoredProofHarness selects the Revyl, Cursor, or Capy proof executor.
 type AuthoredProofHarness struct {
 	Kind    string  `json:"kind" yaml:"kind"`
 	ModelID *string `json:"model_id,omitempty" yaml:"model_id,omitempty"`
@@ -379,7 +379,14 @@ func (c AuthoredConfig) ValidateContract() error {
 			if harness.ModelID != nil {
 				return authoredContractError(
 					[]string{"pr_review", "proof_of_changes", "harness", "model_id"},
-					"pr_review.proof_of_changes.harness.model_id is cursor-only",
+					"pr_review.proof_of_changes.harness.model_id is cursor- or capy-only",
+				)
+			}
+		case "capy":
+			if harness.ModelID != nil && !validCapyProofModelID(*harness.ModelID) {
+				return authoredContractError(
+					[]string{"pr_review", "proof_of_changes", "harness", "model_id"},
+					"pr_review.proof_of_changes.harness.model_id is not an allowlisted Capy model",
 				)
 			}
 		case "cursor":
@@ -446,6 +453,15 @@ func (c AuthoredConfig) ValidateContract() error {
 		return authoredContractError([]string{"pr_review", "build", "kind"}, "pr_review.build.kind is unsupported")
 	}
 	return nil
+}
+
+func validCapyProofModelID(modelID string) bool {
+	switch modelID {
+	case "openai/gpt-6-luna", "openai/gpt-6.1-sol", "anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateContract checks execution-time recipe structure without performing work.

@@ -639,6 +639,30 @@ func (e CacheRetryMode) Valid() bool {
 	}
 }
 
+// Defines values for CapyProofHarnessModelId.
+const (
+	CapyProofHarnessModelIdAnthropicclaudeOpus55   CapyProofHarnessModelId = "anthropic/claude-opus-5-5"
+	CapyProofHarnessModelIdAnthropicclaudeSonnet55 CapyProofHarnessModelId = "anthropic/claude-sonnet-5-5"
+	CapyProofHarnessModelIdOpenaigpt61Sol          CapyProofHarnessModelId = "openai/gpt-6.1-sol"
+	CapyProofHarnessModelIdOpenaigpt6Luna          CapyProofHarnessModelId = "openai/gpt-6-luna"
+)
+
+// Valid indicates whether the value is a known member of the CapyProofHarnessModelId enum.
+func (e CapyProofHarnessModelId) Valid() bool {
+	switch e {
+	case CapyProofHarnessModelIdAnthropicclaudeOpus55:
+		return true
+	case CapyProofHarnessModelIdAnthropicclaudeSonnet55:
+		return true
+	case CapyProofHarnessModelIdOpenaigpt61Sol:
+		return true
+	case CapyProofHarnessModelIdOpenaigpt6Luna:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CleanupLevel.
 const (
 	CleanupLevelDeepClean CleanupLevel = "deep_clean"
@@ -743,12 +767,15 @@ func (e CloudAgentConversationRelatedResourceMatchType) Valid() bool {
 
 // Defines values for CloudAgentProviderKey.
 const (
+	CloudAgentProviderKeyCapy        CloudAgentProviderKey = "capy"
 	CloudAgentProviderKeyCursorCloud CloudAgentProviderKey = "cursor_cloud"
 )
 
 // Valid indicates whether the value is a known member of the CloudAgentProviderKey enum.
 func (e CloudAgentProviderKey) Valid() bool {
 	switch e {
+	case CloudAgentProviderKeyCapy:
+		return true
 	case CloudAgentProviderKeyCursorCloud:
 		return true
 	default:
@@ -4083,6 +4110,24 @@ type CancelTestResponse struct {
 	Success bool    `json:"success"`
 	TaskId  string  `json:"task_id"`
 }
+
+// CapyProofHarness A Capy thread launched against the pull request.
+//
+// The thread runs on the project's own Capy connection, else the
+// organization's, in an enabled Capy project that checks out the repository.
+//
+// Attributes:
+//
+//	kind: Discriminator selecting this harness.
+//	model_id: Optional bounded Capy model selection; omitted uses the
+//	    backend's default Luna-fast selection.
+type CapyProofHarness struct {
+	Kind    string                   `json:"kind"`
+	ModelId *CapyProofHarnessModelId `json:"model_id,omitempty"`
+}
+
+// CapyProofHarnessModelId defines model for CapyProofHarness.ModelId.
+type CapyProofHarnessModelId string
 
 // CheckVariableExistsResponse Response for check variable exists endpoint.
 type CheckVariableExistsResponse struct {
@@ -11551,6 +11596,34 @@ func (t *AuthoredProofOfChanges_Harness) MergeCursorProofHarness(v CursorProofHa
 	return err
 }
 
+// AsCapyProofHarness returns the union data inside the AuthoredProofOfChanges_Harness as a CapyProofHarness
+func (t AuthoredProofOfChanges_Harness) AsCapyProofHarness() (CapyProofHarness, error) {
+	var body CapyProofHarness
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCapyProofHarness overwrites any union data inside the AuthoredProofOfChanges_Harness as the provided CapyProofHarness
+func (t *AuthoredProofOfChanges_Harness) FromCapyProofHarness(v CapyProofHarness) error {
+	v.Kind = "capy"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCapyProofHarness performs a merge with any union data inside the AuthoredProofOfChanges_Harness, using the provided CapyProofHarness
+func (t *AuthoredProofOfChanges_Harness) MergeCapyProofHarness(v CapyProofHarness) error {
+	v.Kind = "capy"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t AuthoredProofOfChanges_Harness) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"kind"`
@@ -11565,6 +11638,8 @@ func (t AuthoredProofOfChanges_Harness) ValueByDiscriminator() (interface{}, err
 		return nil, err
 	}
 	switch discriminator {
+	case "capy":
+		return t.AsCapyProofHarness()
 	case "cursor":
 		return t.AsCursorProofHarness()
 	case "revyl":

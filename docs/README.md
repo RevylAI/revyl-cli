@@ -12,6 +12,7 @@ See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the R
 - [Build Web bundles or register preview deployments](web-builds.md)
 - [Choose build branches and defaults](build-branches.md)
 - [Check GitHub connection status](github-status.md)
+- [Configure Proof of Changes](proof-of-changes.md)
 - [Understand an app with Atlas](atlas.md)
 - [Compose agent investigations and query-backed views](agent-investigations.md)
 - [Update the CLI](upgrade.md)
