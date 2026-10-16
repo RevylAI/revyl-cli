@@ -30,6 +30,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/launcharguments"
+	"github.com/revyl/cli/internal/launchenv"
 	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/privatefs"
 	"github.com/revyl/cli/internal/ui"
@@ -413,6 +414,9 @@ func (m *DeviceSessionManager) StartSession(
 	opts StartSessionOptions,
 ) (int, *DeviceSession, error) {
 	if err := launcharguments.Validate(opts.LaunchArguments); err != nil {
+		return -1, nil, err
+	}
+	if err := launchenv.Validate(opts.LaunchEnv); err != nil {
 		return -1, nil, err
 	}
 

@@ -42,6 +42,20 @@ func TestStartSessionRejectsInvalidLaunchArgumentsBeforeAPIWork(t *testing.T) {
 	}
 }
 
+func TestStartSessionRejectsReservedLaunchEnvBeforeAPIWork(t *testing.T) {
+	manager := NewDeviceSessionManager(nil, t.TempDir())
+	index, session, err := manager.StartSession(context.Background(), StartSessionOptions{
+		Platform:  "ios",
+		LaunchEnv: map[string]string{"DYLD_INSERT_LIBRARIES": "/tmp/x.dylib"},
+	})
+	if index != -1 || session != nil {
+		t.Fatalf("StartSession() = (%d, %#v), want (-1, nil)", index, session)
+	}
+	if err == nil || !strings.Contains(err.Error(), "reserved prefix") {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+}
+
 func TestInputLocksAreScopedToDeviceSession(t *testing.T) {
 	manager := NewDeviceSessionManager(nil, t.TempDir())
 	firstSession := &DeviceSession{SessionID: "session-1"}

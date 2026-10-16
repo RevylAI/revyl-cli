@@ -24,6 +24,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/launchenv"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -1485,64 +1486,12 @@ func parseLaunchEnvVars(pairs []string) (map[string]string, error) {
 			return nil, fmt.Errorf("invalid --launch-env %q: expected KEY=VALUE", raw)
 		}
 		key := strings.TrimSpace(kv[0])
-		if key == "" {
-			return nil, fmt.Errorf("invalid --launch-env %q: empty key", raw)
-		}
-		if !isValidLaunchEnvKey(key) {
-			return nil, fmt.Errorf(
-				"invalid --launch-env %q: key %q must match [A-Za-z_][A-Za-z0-9_.-]*",
-				raw,
-				key,
-			)
-		}
-		if isReservedLaunchEnvKey(key) {
-			return nil, fmt.Errorf(
-				"invalid --launch-env %q: key %q uses a reserved prefix "+
-					"(DYLD_, SIMCTL_CHILD_, COGNISIM_) and is not allowed",
-				raw,
-				key,
-			)
+		if err := launchenv.KeyError(key); err != nil {
+			return nil, fmt.Errorf("invalid --launch-env %q: %w", raw, err)
 		}
 		out[key] = kv[1]
 	}
 	return out, nil
-}
-
-func isValidLaunchEnvKey(key string) bool {
-	if key == "" {
-		return false
-	}
-
-	for i := 0; i < len(key); i++ {
-		ch := key[i]
-		isLetter := (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
-		isDigit := ch >= '0' && ch <= '9'
-		isUnderscore := ch == '_'
-
-		if i == 0 {
-			if !isLetter && !isUnderscore {
-				return false
-			}
-			continue
-		}
-
-		isDotOrHyphen := ch == '.' || ch == '-'
-		if !isLetter && !isDigit && !isUnderscore && !isDotOrHyphen {
-			return false
-		}
-	}
-
-	return true
-}
-
-// isReservedLaunchEnvKey blocks DYLD_/SIMCTL_CHILD_/COGNISIM_ keys, which reach
-// dyld or our namespaces on the device launch path. Keep in sync with
-// cognisim_schemas/utils/launch_env.py.
-func isReservedLaunchEnvKey(key string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(key))
-	return strings.HasPrefix(upper, "DYLD_") ||
-		strings.HasPrefix(upper, "SIMCTL_CHILD_") ||
-		strings.HasPrefix(upper, "COGNISIM_")
 }
 
 // parseLocation parses a "lat,lng" string into float64 values.

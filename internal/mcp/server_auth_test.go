@@ -56,6 +56,10 @@ func TestLaunchArgumentInputsAreExposedOnMCPLaunchTools(t *testing.T) {
 			t, tool.InputSchema, "launch_arguments", []any{"null", "array"},
 		)
 	}
+	requireSchemaPropertyType(
+		t, serverToolByName(t, tools, "start_device_session").InputSchema,
+		"launch_env", "object",
+	)
 }
 
 // TestNewServerAcceptsAPIKeyCredentials verifies persistent API-key login starts MCP successfully.

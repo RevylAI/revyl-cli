@@ -578,21 +578,22 @@ func (s *Server) registerDeviceTools() {
 
 // StartDeviceSessionInput defines input for start_device_session.
 type StartDeviceSessionInput struct {
-	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
-	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
-	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
-	Platform                   string   `json:"platform" jsonschema:"Target platform: ios or android (REQUIRED)"`
-	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`
-	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID"`
-	AppURL                     string   `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
-	AppLink                    string   `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
-	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
-	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs to apply at boot."`
-	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
-	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
-	TestID                     string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
-	IdleTimeout                int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
-	NoOpen                     bool     `json:"no_open,omitempty" jsonschema:"Skip opening the local browser (default: false). The experimental workspace always skips local browser opening."`
+	ProjectDir                 string            `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
+	BranchName                 string            `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
+	BuildSelection             string            `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
+	Platform                   string            `json:"platform" jsonschema:"Target platform: ios or android (REQUIRED)"`
+	AppID                      string            `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`
+	BuildVersionID             string            `json:"build_version_id,omitempty" jsonschema:"Specific build version ID"`
+	AppURL                     string            `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
+	AppLink                    string            `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
+	LaunchVars                 []string          `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
+	LaunchArgSets              []string          `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs to apply at boot."`
+	LaunchArguments            []string          `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
+	LaunchEnv                  map[string]string `json:"launch_env,omitempty" jsonschema:"Inline launch environment variables applied to the app at boot, as KEY to value; they override launch_vars with the same key. Values appear in this conversation, so use launch_vars for secrets."`
+	DisableInheritedLaunchVars bool              `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
+	TestID                     string            `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
+	IdleTimeout                int               `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
+	NoOpen                     bool              `json:"no_open,omitempty" jsonschema:"Skip opening the local browser (default: false). The experimental workspace always skips local browser opening."`
 }
 
 // StartDeviceSessionOutput defines output for start_device_session.
@@ -644,6 +645,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		LaunchVars:                 input.LaunchVars,
 		LaunchArgSets:              input.LaunchArgSets,
 		LaunchArguments:            input.LaunchArguments,
+		LaunchEnv:                  input.LaunchEnv,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 		TestID:                     input.TestID,
 		IdleTimeout:                timeout,

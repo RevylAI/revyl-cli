@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -701,6 +702,57 @@ func TestStartDeviceSessionBrowserPolicy(t *testing.T) {
 				t.Fatalf("opened %d browsers, want %d", len(opened), tc.wantOpens)
 			}
 		})
+	}
+}
+
+func TestStartDeviceSessionSendsLaunchEnv(t *testing.T) {
+	const workflowID = "00000000-0000-0000-0000-000000000004"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04"
+	var sentEnv map[string]string
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/execution/start_device":
+			var body struct {
+				EnvVars map[string]string `json:"env_vars"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode start_device body: %v", err)
+			}
+			sentEnv = body.EnvVars
+			_, _ = fmt.Fprintf(w, `{"workflow_run_id":%q,"session_id":%q}`, workflowID, sessionID)
+		case "/api/v1/execution/streaming/worker-connection/" + workflowID:
+			_, _ = fmt.Fprintf(w, `{"status":"ready","workflow_run_id":%q,"worker_ws_url":%q}`, workflowID, "ws://"+r.Host+"/ws/stream")
+		case "/api/v1/execution/device-proxy/" + workflowID + "/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		case "/api/v1/telemetry/cli-traces":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected API call: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+	mgr := NewDeviceSessionManager(api.NewClientWithBaseURL("test-key", apiServer.URL), t.TempDir())
+	t.Cleanup(func() {
+		mgr.mu.Lock()
+		defer mgr.mu.Unlock()
+		for _, timer := range mgr.idleTimers {
+			timer.Stop()
+		}
+	})
+	server := &Server{sessionMgr: mgr}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	want := map[string]string{"API_URL": "https://staging.example.com", "hp-skip-onboarding": "true"}
+	_, result, err := server.handleStartDeviceSession(ctx, nil, StartDeviceSessionInput{
+		Platform: "android", NoOpen: true, DisableInheritedLaunchVars: true, LaunchEnv: want,
+	})
+	if err != nil || !result.Success {
+		t.Fatalf("start result = %+v, %v", result, err)
+	}
+	if !maps.Equal(sentEnv, want) {
+		t.Fatalf("start_device env_vars = %v, want %v", sentEnv, want)
 	}
 }
 
