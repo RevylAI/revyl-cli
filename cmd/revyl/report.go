@@ -577,14 +577,14 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 }
 
 var runtimeCheckerKindLabels = map[api.IOSRuntimeCheckerKind]string{
-	api.IOSRuntimeCheckerKindTsanDataRace:        "Data race",
-	api.IOSRuntimeCheckerKindTsanSwiftAccessRace: "Swift access race",
-	api.IOSRuntimeCheckerKindTsanOther:           "ThreadSanitizer",
-	api.IOSRuntimeCheckerKindMainThreadChecker:   "Main thread",
+	api.IOSRuntimeCheckerKindCoreDataQueueViolation: "Core Data",
+	api.IOSRuntimeCheckerKindUnclassifiedAppCrash:   "App crash",
+	api.IOSRuntimeCheckerKindTsanDataRace:           "Data race",
+	api.IOSRuntimeCheckerKindTsanSwiftAccessRace:    "Swift access race",
+	api.IOSRuntimeCheckerKindTsanOther:              "ThreadSanitizer",
+	api.IOSRuntimeCheckerKindMainThreadChecker:      "Main thread",
 }
 
-// printRuntimeCheckerFindings lists ThreadSanitizer and Main Thread Checker
-// findings with the first frame of each finding's first stack.
 func printRuntimeCheckerFindings(findings []api.IOSRuntimeCheckerFindingSummary) {
 	ui.Println()
 	ui.PrintKeyValue("Runtime checkers:", fmt.Sprintf("%d finding(s)", len(findings)))
@@ -592,6 +592,44 @@ func printRuntimeCheckerFindings(findings []api.IOSRuntimeCheckerFindingSummary)
 		label := runtimeCheckerKindLabels[finding.Kind]
 		if label == "" {
 			label = string(finding.Kind)
+		}
+		if finding.Kind == api.IOSRuntimeCheckerKindCoreDataQueueViolation || finding.Kind == api.IOSRuntimeCheckerKindUnclassifiedAppCrash {
+			ui.PrintKeyValue(label+":", finding.Title)
+			if summary := stringValue(finding.Summary); summary != "" {
+				ui.PrintDim("    %s", summary)
+			}
+			if finding.FirstObservedAt != nil {
+				ui.PrintDim("    Crash recorded at %s", finding.FirstObservedAt.UTC().Format(time.RFC3339Nano))
+			}
+			if len(finding.Stacks) == 0 {
+				ui.PrintDim("    No app or supported Apple frames available.")
+			} else {
+				ui.PrintDim("    Selected app and Apple frames; symbols and source locations shown when available.")
+				for _, stack := range finding.Stacks {
+					ui.PrintDim("    %s", sanitizeDesc(stack.Title))
+					for _, frame := range stack.Frames {
+						location := ""
+						if frame.Location != nil {
+							location = " — " + sanitizeDesc(*frame.Location)
+						}
+						ui.PrintDim("      #%d %s (%s)%s", frame.Index, sanitizeDesc(frame.Symbol), sanitizeDesc(frame.Image), location)
+						if image := frame.AppImage; image != nil {
+							ui.PrintDim("        Binary: %s", sanitizeDesc(image.Name))
+							if image.OffsetBytes != nil {
+								ui.PrintDim("        Image offset: 0x%x", *image.OffsetBytes)
+							}
+							if image.Architecture != nil {
+								ui.PrintDim("        Architecture: %s", sanitizeDesc(string(*image.Architecture)))
+							}
+							if image.Uuid != nil {
+								ui.PrintDim("        UUID: %s", image.Uuid.String())
+							}
+						}
+					}
+				}
+				ui.PrintDim("    Resolve app frames using the binary UUID and image offset with the matching dSYM.")
+			}
+			continue
 		}
 		icon := ui.WarningStyle.Render("⚠")
 		if finding.Kind != api.IOSRuntimeCheckerKindMainThreadChecker {
@@ -611,7 +649,7 @@ func printRuntimeCheckerFindings(findings []api.IOSRuntimeCheckerFindingSummary)
 			fmt.Printf("      %s\n", ui.DimStyle.Render(truncateStep(sanitizeDesc(where), 96)))
 		}
 	}
-	ui.PrintDim("    Full stacks: revyl test report <id> --json (runtime_checker_findings)")
+	ui.PrintDim("    Available details: revyl test report <id> --json (runtime_checker_findings)")
 }
 
 func buildUserFacingReportJSON(raw []byte) ([]byte, error) {

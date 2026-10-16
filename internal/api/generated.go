@@ -1062,13 +1062,51 @@ func (e GrounderType) Valid() bool {
 	}
 }
 
+// Defines values for IOSCrashAppImageArchitecture.
+const (
+	IOSCrashAppImageArchitectureArm64   IOSCrashAppImageArchitecture = "arm64"
+	IOSCrashAppImageArchitectureArm6432 IOSCrashAppImageArchitecture = "arm64_32"
+	IOSCrashAppImageArchitectureArm64e  IOSCrashAppImageArchitecture = "arm64e"
+	IOSCrashAppImageArchitectureArmv7   IOSCrashAppImageArchitecture = "armv7"
+	IOSCrashAppImageArchitectureArmv7s  IOSCrashAppImageArchitecture = "armv7s"
+	IOSCrashAppImageArchitectureI386    IOSCrashAppImageArchitecture = "i386"
+	IOSCrashAppImageArchitectureX8664   IOSCrashAppImageArchitecture = "x86_64"
+	IOSCrashAppImageArchitectureX8664h  IOSCrashAppImageArchitecture = "x86_64h"
+)
+
+// Valid indicates whether the value is a known member of the IOSCrashAppImageArchitecture enum.
+func (e IOSCrashAppImageArchitecture) Valid() bool {
+	switch e {
+	case IOSCrashAppImageArchitectureArm64:
+		return true
+	case IOSCrashAppImageArchitectureArm6432:
+		return true
+	case IOSCrashAppImageArchitectureArm64e:
+		return true
+	case IOSCrashAppImageArchitectureArmv7:
+		return true
+	case IOSCrashAppImageArchitectureArmv7s:
+		return true
+	case IOSCrashAppImageArchitectureI386:
+		return true
+	case IOSCrashAppImageArchitectureX8664:
+		return true
+	case IOSCrashAppImageArchitectureX8664h:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IOSRuntimeCheckerKind.
 const (
 	IOSRuntimeCheckerKindAddressSanitizer           IOSRuntimeCheckerKind = "address_sanitizer"
+	IOSRuntimeCheckerKindCoreDataQueueViolation     IOSRuntimeCheckerKind = "core_data_queue_violation"
 	IOSRuntimeCheckerKindMainThreadChecker          IOSRuntimeCheckerKind = "main_thread_checker"
 	IOSRuntimeCheckerKindTsanDataRace               IOSRuntimeCheckerKind = "tsan_data_race"
 	IOSRuntimeCheckerKindTsanOther                  IOSRuntimeCheckerKind = "tsan_other"
 	IOSRuntimeCheckerKindTsanSwiftAccessRace        IOSRuntimeCheckerKind = "tsan_swift_access_race"
+	IOSRuntimeCheckerKindUnclassifiedAppCrash       IOSRuntimeCheckerKind = "unclassified_app_crash"
 	IOSRuntimeCheckerKindUndefinedBehaviorSanitizer IOSRuntimeCheckerKind = "undefined_behavior_sanitizer"
 )
 
@@ -1077,6 +1115,8 @@ func (e IOSRuntimeCheckerKind) Valid() bool {
 	switch e {
 	case IOSRuntimeCheckerKindAddressSanitizer:
 		return true
+	case IOSRuntimeCheckerKindCoreDataQueueViolation:
+		return true
 	case IOSRuntimeCheckerKindMainThreadChecker:
 		return true
 	case IOSRuntimeCheckerKindTsanDataRace:
@@ -1084,6 +1124,8 @@ func (e IOSRuntimeCheckerKind) Valid() bool {
 	case IOSRuntimeCheckerKindTsanOther:
 		return true
 	case IOSRuntimeCheckerKindTsanSwiftAccessRace:
+		return true
+	case IOSRuntimeCheckerKindUnclassifiedAppCrash:
 		return true
 	case IOSRuntimeCheckerKindUndefinedBehaviorSanitizer:
 		return true
@@ -5329,6 +5371,17 @@ type HotReloadRelayRevokeResponse struct {
 	Revoked bool   `json:"revoked"`
 }
 
+// IOSCrashAppImage Customer binary identity and relative instruction offset for symbolication.
+type IOSCrashAppImage struct {
+	Architecture *IOSCrashAppImageArchitecture `json:"architecture,omitempty"`
+	Name         string                        `json:"name"`
+	OffsetBytes  *int64                        `json:"offset_bytes,omitempty"`
+	Uuid         *openapi_types.UUID           `json:"uuid,omitempty"`
+}
+
+// IOSCrashAppImageArchitecture defines model for IOSCrashAppImage.Architecture.
+type IOSCrashAppImageArchitecture string
+
 // IOSRuntimeCheckerFindingSummary A deduplicated checker report without its raw report text.
 type IOSRuntimeCheckerFindingSummary struct {
 	DedupKey        string                   `json:"dedup_key"`
@@ -5345,10 +5398,12 @@ type IOSRuntimeCheckerFindingSummary struct {
 
 // IOSRuntimeCheckerFrame defines model for IOSRuntimeCheckerFrame.
 type IOSRuntimeCheckerFrame struct {
-	Image    string  `json:"image"`
-	Index    int     `json:"index"`
-	Location *string `json:"location,omitempty"`
-	Symbol   string  `json:"symbol"`
+	// AppImage Customer binary identity and relative instruction offset for symbolication.
+	AppImage *IOSCrashAppImage `json:"app_image,omitempty"`
+	Image    string            `json:"image"`
+	Index    int               `json:"index"`
+	Location *string           `json:"location,omitempty"`
+	Symbol   string            `json:"symbol"`
 }
 
 // IOSRuntimeCheckerKind defines model for IOSRuntimeCheckerKind.
