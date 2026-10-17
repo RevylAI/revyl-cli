@@ -2382,6 +2382,7 @@ type workerActionResultEnvelope struct {
 	SuccessUpper *bool  `json:"Success"`
 	Action       string `json:"action"`
 	Error        string `json:"error"`
+	StatusCode   *int   `json:"status_code,omitempty"`
 }
 
 // EnsureWorkerActionSucceeded validates the standard worker action envelope.
@@ -2424,6 +2425,17 @@ func EnsureWorkerNavigationSucceeded(respBody []byte, platform string) error {
 		expectedAction = "navigate"
 	}
 	return EnsureWorkerActionSucceeded(respBody, expectedAction)
+}
+
+func WorkerNavigationStatusCode(respBody []byte, platform string) *int {
+	if platform != "web" {
+		return nil
+	}
+	var response workerActionResultEnvelope
+	if json.Unmarshal(respBody, &response) != nil || response.StatusCode == nil {
+		return nil
+	}
+	return response.StatusCode
 }
 
 // DeviceDownloadFileRequest is the canonical request body for download_file.

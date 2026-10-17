@@ -2592,11 +2592,12 @@ type DeviceNavigateInput struct {
 }
 
 type DeviceNavigateOutput struct {
-	Success   bool       `json:"success"`
-	URL       string     `json:"url,omitempty"`
-	ErrorCode string     `json:"error_code,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	NextSteps []NextStep `json:"next_steps,omitempty"`
+	Success    bool       `json:"success"`
+	URL        string     `json:"url,omitempty"`
+	StatusCode *int       `json:"status_code,omitempty"`
+	ErrorCode  string     `json:"error_code,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	NextSteps  []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequest, input DeviceNavigateInput) (*mcp.CallToolResult, DeviceNavigateOutput, error) {
@@ -2627,8 +2628,9 @@ func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequ
 	s.sessionMgr.ClearScreenshotAnchor(session.Index)
 
 	return nil, DeviceNavigateOutput{
-		Success: true,
-		URL:     input.URL,
+		Success:    true,
+		URL:        input.URL,
+		StatusCode: WorkerNavigationStatusCode(respBody, session.Platform),
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "See what loaded"},
 		},

@@ -2112,15 +2112,25 @@ var deviceNavigateCmd = &cobra.Command{
 		if url == "" {
 			return fmt.Errorf("URL is required: revyl device navigate <url>")
 		}
-		if err := navigateDevice(cmd.Context(), mgr, session, url); err != nil {
+		statusCode, err := navigateDeviceResult(cmd.Context(), mgr, session, url)
+		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]string{"url": url, "status": "opened"}, fmt.Sprintf("Opened %s", url))
+		output := map[string]interface{}{"url": url, "status": "opened"}
+		if statusCode != nil {
+			output["status_code"] = *statusCode
+		}
+		jsonOrPrint(cmd, output, fmt.Sprintf("Opened %s", url))
 		return nil
 	},
 }
 
 func navigateDevice(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession, url string) error {
+	_, err := navigateDeviceResult(ctx, requester, session, url)
+	return err
+}
+
+func navigateDeviceResult(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession, url string) (*int, error) {
 	respBody, err := requester.WorkerRequestOnSession(
 		ctx,
 		session,
@@ -2128,9 +2138,12 @@ func navigateDevice(ctx context.Context, requester workerSessionRequester, sessi
 		map[string]string{"url": url},
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return mcppkg.EnsureWorkerNavigationSucceeded(respBody, session.Platform)
+	if err := mcppkg.EnsureWorkerNavigationSucceeded(respBody, session.Platform); err != nil {
+		return nil, err
+	}
+	return mcppkg.WorkerNavigationStatusCode(respBody, session.Platform), nil
 }
 
 var deviceSetLocationCmd = &cobra.Command{
