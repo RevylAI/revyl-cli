@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "revyl",
-  "version": "0.1.0",
-  "description": "Run and verify mobile app changes on Revyl cloud iOS and Android devices from Capy cloud threads, through the pinned Revyl CLI's MCP server.",
+  "version": "0.2.0",
+  "description": "Sign in to Revyl from Capy and run, preview, and verify mobile app changes on Revyl cloud iOS and Android devices from Capy cloud threads.",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai",
@@ -21,9 +21,16 @@
           "connection": "member",
           "secrets": {
             "REVYL_API_KEY": {
-              "description": "Your personal Revyl API key, from Settings → API Keys in the Revyl dashboard. Revyl acts as you in your Revyl organization, so each member adds their own key."
+              "description": "Optional. Your personal Revyl API key, from Settings → API Keys in the Revyl dashboard. With it, dev loops start without a sign-in; without it, the agent posts a Revyl approval link the first time a thread needs the dev loop.",
+              "optional": true
             }
           }
+        },
+        "revyl-workspace": {
+          "auth": {
+            "registration": "discover"
+          },
+          "connection": "member"
         }
       }
     }

@@ -3,8 +3,8 @@
 Run and verify mobile app changes on Revyl cloud iOS and Android devices from
 [Capy](https://capy.ai) cloud threads. The plugin follows the
 [Agent Plugins](https://agent-plugins.org/specification) format that Capy
-installs from GitHub, and contains one STDIO MCP server and one skill. It has
-no hooks.
+installs from GitHub, and contains two MCP servers and one skill. It has no
+hooks.
 
 ## Install
 
@@ -14,19 +14,29 @@ Capy downloads the whole repository behind an install link and refuses one that
 is too large, so install from the public `RevylAI/revyl-cli` repository rather
 than from a larger repository that contains a copy of this folder.
 
-## Credentials
+## Signing in
 
-The `revyl` server's recipe declares one secret, `REVYL_API_KEY`, with
-`connection: member`. Revyl API keys are personal: a key acts as the person
-who created it, with their role, in their Revyl organization. A per-member
-connection keeps every Capy member acting as themselves in Revyl, rather than
-as whoever installed the plugin. Capy passes the key to the server as an
-environment variable. The plugin files hold no credentials.
+Both servers act as one member in their Revyl organization, and both use
+per-member connections, so every Capy member acts as themselves in Revyl. The
+plugin files hold no credentials.
 
-A thread gets the tools only when its owner has added a key, so threads started
-by a Capy service user or an automation without one have no Revyl tools.
+- **`revyl-workspace`** is Revyl's hosted MCP server. Each member clicks
+  **Connect** on the plugin's page and signs in to Revyl in the browser, the
+  same OAuth sign-in the ChatGPT app uses. Capy keeps and refreshes the
+  sign-in, so it lasts across threads. It lists apps and starts, lists,
+  screenshots, and stops device sessions of existing builds.
+- **`revyl`** runs the Revyl CLI on each thread's cloud machine and has the
+  dev loop: remote builds, rebuilds, taps and typing, and semantic validation.
+  Capy can't give a STDIO server an OAuth sign-in, so this server signs in on
+  its own. A member who adds the optional `REVYL_API_KEY` secret (a personal
+  key from **Settings → API Keys** in Revyl) gets dev loops with no prompt.
+  Without it, the agent runs the pinned CLI's `auth login` the first time a
+  thread needs the dev loop and posts an approval link, and the member
+  approves it in the browser. That approval lasts for the thread's machine only. It creates a
+  CLI key in the member's Revyl account, which the agent revokes with
+  `auth logout` when the member is done.
 
-## How the server starts
+## How the dev-loop server starts
 
 Capy runs STDIO servers on each thread's cloud machine, so the plugin works in
 cloud threads only. Capy starts the server with:
@@ -46,7 +56,7 @@ The `dev` profile exposes the CLI's focused dev-loop and device tools:
 `start_dev_loop`, `get_dev_status`, `rebuild`, `wait_for_rebuild`,
 `stop_dev_loop`, `device_session`, `screenshot`, `interact`,
 `device_validation`, `device_navigate`, and `setup_status`. The
-`revyl-capy-dev-loop` skill tells the agent how to use them.
+`revyl-capy-dev-loop` skill tells the agent how to use both servers.
 
 ## Viewing the device
 
@@ -57,11 +67,13 @@ show do not appear in Capy threads.
 
 ## Network endpoints
 
-| Endpoint                                                 | Purpose                                    |
-| -------------------------------------------------------- | ------------------------------------------ |
-| `https://github.com/RevylAI/revyl-cli/releases/download` | Pinned CLI download on first start         |
-| `https://backend.revyl.ai`                               | Revyl API calls made with the member's key |
-| `https://app.revyl.ai`                                   | The live device viewer the agent links to  |
+| Endpoint                                                 | Purpose                                                         |
+| -------------------------------------------------------- | --------------------------------------------------------------- |
+| `https://backend.revyl.ai/api/v1/mcp`                    | The hosted `revyl-workspace` server                             |
+| `https://auth.revyl.ai/oauth/2.1`                        | OAuth sign-in for that server; Capy opens it on **Connect**     |
+| `https://github.com/RevylAI/revyl-cli/releases/download` | Pinned CLI download when a thread first starts the dev loop     |
+| `https://backend.revyl.ai`                               | Revyl API calls from the dev-loop server                        |
+| `https://app.revyl.ai`                                   | The live device viewer and the dev loop's sign-in approval page |
 
 Device sessions and remote builds use your organization's Revyl device and
 build time. Revyl handles apps, sessions, and screenshots under its privacy

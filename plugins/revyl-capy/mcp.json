@@ -11,6 +11,10 @@
         "--profile",
         "dev"
       ]
+    },
+    "revyl-workspace": {
+      "type": "streamable-http",
+      "url": "https://backend.revyl.ai/api/v1/mcp"
     }
   }
 }
