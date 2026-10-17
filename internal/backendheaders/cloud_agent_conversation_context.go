@@ -11,6 +11,9 @@ const (
 	cloudAgentProviderConversationIDHeader = "X-Revyl-Cloud-Agent-Provider-Conversation-Id"
 	cursorConversationIDEnv                = "CURSOR_CONVERSATION_ID"
 	cursorCloudProviderKey                 = "cursor_cloud"
+	revylCloudAgentProviderEnv             = "REVYL_CLOUD_AGENT_PROVIDER"
+	revylCloudAgentConversationIDEnv       = "REVYL_CLOUD_AGENT_CONVERSATION_ID"
+	capyProviderKey                        = "capy"
 )
 
 // validCursorCloudAgentID matches the backend Cursor Cloud Agent identity.
@@ -19,19 +22,50 @@ var validCursorCloudAgentID = regexp.MustCompile(
 	`^bc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
 )
 
-// SetCloudAgentConversationContext adds Cursor Cloud Agent correlation headers.
+// validRevylConversationID matches the canonical Revyl conversation UUID the
+// backend accepts from a Revyl-launched Capy thread.
+var validRevylConversationID = regexp.MustCompile(
+	`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+)
+
+// SetCloudAgentConversationContext adds Cloud Agent correlation headers.
 //
-// Only a real Cloud Agent ID (`bc-<uuid>`) is forwarded. Desktop Cursor chats
-// also set CURSOR_CONVERSATION_ID, but those values are chat UUIDs and must
-// not be claimed as cursor_cloud context.
+// A Capy thread Revyl launched carries REVYL_CLOUD_AGENT_PROVIDER=capy and
+// its Revyl conversation UUID in REVYL_CLOUD_AGENT_CONVERSATION_ID, because
+// Capy exposes no thread identity of its own. Otherwise only a real Cursor
+// Cloud Agent ID (`bc-<uuid>`) from CURSOR_CONVERSATION_ID is forwarded; desktop
+// Cursor chats also set that variable, but their chat UUIDs must not be
+// claimed as cursor_cloud context.
 //
 // Parameters:
 //   - request: Outbound backend request that may receive correlation headers.
 func SetCloudAgentConversationContext(request *http.Request) {
-	if conversationID := os.Getenv(cursorConversationIDEnv); isValidCursorCloudAgentID(conversationID) {
-		request.Header.Set(cloudAgentProviderHeader, cursorCloudProviderKey)
-		request.Header.Set(cloudAgentProviderConversationIDHeader, conversationID)
+	provider, conversationID, ok := cloudAgentConversationContext()
+	if !ok {
+		return
 	}
+	request.Header.Set(cloudAgentProviderHeader, provider)
+	request.Header.Set(cloudAgentProviderConversationIDHeader, conversationID)
+}
+
+// cloudAgentConversationContext reads the provider key and conversation ID
+// this process may present, preferring the pair Revyl set at launch.
+//
+// Returns:
+//   - string: Provider key.
+//   - string: Provider conversation ID.
+//   - bool: False when the environment names no valid conversation.
+func cloudAgentConversationContext() (string, string, bool) {
+	if os.Getenv(revylCloudAgentProviderEnv) == capyProviderKey {
+		conversationID := os.Getenv(revylCloudAgentConversationIDEnv)
+		if validRevylConversationID.MatchString(conversationID) {
+			return capyProviderKey, conversationID, true
+		}
+	}
+	if conversationID := os.Getenv(cursorConversationIDEnv); isValidCursorCloudAgentID(conversationID) {
+		return cursorCloudProviderKey, conversationID, true
+	}
+	return "", "", false
 }
 
 // isValidCursorCloudAgentID reports whether conversationID is a Cursor Cloud Agent ID.

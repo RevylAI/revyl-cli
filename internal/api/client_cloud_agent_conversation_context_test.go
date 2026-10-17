@@ -8,6 +8,7 @@ import (
 )
 
 func TestClientForwardsCloudAgentConversationContext(t *testing.T) {
+	t.Setenv("REVYL_CLOUD_AGENT_PROVIDER", "")
 	t.Setenv("CURSOR_CONVERSATION_ID", "bc-11111111-1111-4111-8111-111111111111")
 
 	var receivedProvider string
