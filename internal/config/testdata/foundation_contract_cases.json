@@ -106,6 +106,29 @@
           }
         }
       }
+    },
+    {
+      "name": "capy_proof_pinned_project",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000004"
+        },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000004"
+            }
+          },
+          "proof_of_changes": {
+            "harness": {
+              "kind": "capy",
+              "model_id": "openai/gpt-6-luna",
+              "capy_project_id": "capy-project-fixture"
+            }
+          }
+        }
+      }
     }
   ],
   "effective_recipes": [
@@ -647,6 +670,60 @@
           "harness",
           "cursor",
           "model_id"
+        ]
+      }
+    },
+    {
+      "name": "capy_project_pin_on_cursor_harness",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": { "ios": "20000000-0000-4000-8000-000000000001" }
+          },
+          "proof_of_changes": {
+            "harness": { "kind": "cursor", "capy_project_id": "capy-project" }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "extra_forbidden",
+        "path": [
+          "pr_review",
+          "proof_of_changes",
+          "harness",
+          "cursor",
+          "capy_project_id"
+        ]
+      }
+    },
+    {
+      "name": "blank_capy_project_pin",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": { "ios": "20000000-0000-4000-8000-000000000001" }
+          },
+          "proof_of_changes": {
+            "harness": { "kind": "capy", "capy_project_id": " " }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": [
+          "pr_review",
+          "proof_of_changes",
+          "harness",
+          "capy",
+          "capy_project_id"
         ]
       }
     },

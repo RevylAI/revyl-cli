@@ -39,6 +39,8 @@ func TestProofHarnessKindsRoundTrip(t *testing.T) {
 
 func TestProofHarnessRejectsUnknownKindAndInvalidModels(t *testing.T) {
 	modelID := "test-model"
+	capyProjectID := "capy-project"
+	blank := " "
 	for _, test := range []struct {
 		name    string
 		harness AuthoredProofHarness
@@ -47,6 +49,9 @@ func TestProofHarnessRejectsUnknownKindAndInvalidModels(t *testing.T) {
 		{name: "unknown", harness: AuthoredProofHarness{Kind: "unknown"}, field: "kind"},
 		{name: "revyl model", harness: AuthoredProofHarness{Kind: "revyl", ModelID: &modelID}, field: "model_id"},
 		{name: "capy model", harness: AuthoredProofHarness{Kind: "capy", ModelID: &modelID}, field: "model_id"},
+		{name: "revyl capy project", harness: AuthoredProofHarness{Kind: "revyl", CapyProjectID: &capyProjectID}, field: "capy_project_id"},
+		{name: "cursor capy project", harness: AuthoredProofHarness{Kind: "cursor", CapyProjectID: &capyProjectID}, field: "capy_project_id"},
+		{name: "blank capy project", harness: AuthoredProofHarness{Kind: "capy", CapyProjectID: &blank}, field: "capy_project_id"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			authored := authoredConfigWithReviewPaths("**")
@@ -78,6 +83,18 @@ func TestCapyHarnessAcceptsDefaultAndAllowlistedModels(t *testing.T) {
 				t.Fatalf("ParseAuthoredConfig() error = %v, want allowlisted model", err)
 			}
 		})
+	}
+}
+
+func TestCapyHarnessCarriesAPinnedProjectIntoTheNormalizedPolicy(t *testing.T) {
+	data := []byte("project: {id: 11111111-1111-4111-8111-111111111111}\npr_review:\n  build: {kind: ci_upload_to_revyl, app_ids: {ios: 22222222-2222-4222-8222-222222222222}}\n  proof_of_changes:\n    enabled: true\n    harness: {kind: capy, capy_project_id: capy-project}\n")
+	aggregate, err := CompileConfigBytes(data, CompilationContext{".", "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := aggregate.ReviewPolicy.ProofOfChanges.Harness
+	if harness.CapyProjectID == nil || *harness.CapyProjectID != "capy-project" {
+		t.Fatalf("normalized harness = %#v, want the pinned Capy project", harness)
 	}
 }
 

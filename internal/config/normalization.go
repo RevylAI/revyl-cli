@@ -76,8 +76,9 @@ type NormalizedProof struct {
 }
 
 type NormalizedProofHarness struct {
-	Kind    string  `json:"kind"`
-	ModelID *string `json:"model_id,omitempty"`
+	Kind          string  `json:"kind"`
+	ModelID       *string `json:"model_id,omitempty"`
+	CapyProjectID *string `json:"capy_project_id,omitempty"`
 }
 
 func CanonicalRevylJSON(value any) ([]byte, error) {
@@ -371,6 +372,9 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 				if authored.PRReview.ProofOfChanges.Harness.ModelID != nil {
 					harness["model_id"] = *authored.PRReview.ProofOfChanges.Harness.ModelID
 				}
+				if authored.PRReview.ProofOfChanges.Harness.CapyProjectID != nil {
+					harness["capy_project_id"] = *authored.PRReview.ProofOfChanges.Harness.CapyProjectID
+				}
 				proof["harness"] = harness
 			}
 			if authored.PRReview.ProofOfChanges.SystemPrompt != nil {
@@ -620,7 +624,7 @@ func normalizeReviewPolicy(review AuthoredPRReview) (*NormalizedReviewPolicy, ma
 			proof.Enabled = *review.ProofOfChanges.Enabled
 		}
 		if review.ProofOfChanges.Harness != nil {
-			proof.Harness = &NormalizedProofHarness{Kind: review.ProofOfChanges.Harness.Kind, ModelID: cloneStringPointer(review.ProofOfChanges.Harness.ModelID)}
+			proof.Harness = &NormalizedProofHarness{Kind: review.ProofOfChanges.Harness.Kind, ModelID: cloneStringPointer(review.ProofOfChanges.Harness.ModelID), CapyProjectID: cloneStringPointer(review.ProofOfChanges.Harness.CapyProjectID)}
 		}
 	}
 	strict := true

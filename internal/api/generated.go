@@ -4121,9 +4121,13 @@ type CancelTestResponse struct {
 //	kind: Discriminator selecting this harness.
 //	model_id: Optional bounded Capy model selection; omitted uses the
 //	    backend's default Luna-fast selection.
+//	capy_project_id: Optional Capy project to run in. Omitted picks the
+//	    first enabled project that checks out the repository; set, the
+//	    launch fails rather than use any other project.
 type CapyProofHarness struct {
-	Kind    string                   `json:"kind"`
-	ModelId *CapyProofHarnessModelId `json:"model_id,omitempty"`
+	CapyProjectId *string                  `json:"capy_project_id,omitempty"`
+	Kind          string                   `json:"kind"`
+	ModelId       *CapyProofHarnessModelId `json:"model_id,omitempty"`
 }
 
 // CapyProofHarnessModelId defines model for CapyProofHarness.ModelId.

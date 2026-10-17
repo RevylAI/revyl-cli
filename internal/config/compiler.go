@@ -511,6 +511,9 @@ func validateReviewKeys(review *yaml.Node) error {
 				return newConfigError("contract", "invalid_contract", append(proofPath, "harness"), "harness.kind is required")
 			}
 			allowedKeys := []string{"kind", "model_id"}
+			if kind == "capy" {
+				allowedKeys = append(allowedKeys, "capy_project_id")
+			}
 			if err := validateAllowedKeys(harness, append(proofPath, "harness", kind), allowedKeys...); err != nil {
 				return err
 			}
@@ -518,6 +521,9 @@ func validateReviewKeys(review *yaml.Node) error {
 				return err
 			}
 			if err := validateStringNode(mappingValue(harness, "model_id"), append(proofPath, "harness", kind, "model_id"), true); err != nil {
+				return err
+			}
+			if err := validateStringNode(mappingValue(harness, "capy_project_id"), append(proofPath, "harness", kind, "capy_project_id"), true); err != nil {
 				return err
 			}
 		}

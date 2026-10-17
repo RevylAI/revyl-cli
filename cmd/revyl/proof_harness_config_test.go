@@ -19,6 +19,10 @@ func TestConfigPushRoundTripsProofHarnessKinds(t *testing.T) {
 				modelID := "test-model"
 				local.Authored.PRReview.ProofOfChanges.Harness.ModelID = &modelID
 			}
+			if kind == "capy" {
+				capyProjectID := "capy-project"
+				local.Authored.PRReview.ProofOfChanges.Harness.CapyProjectID = &capyProjectID
+			}
 			client := &fakeProjectConfigurationClient{
 				readResult: &api.ProjectConfigurationReadResponse{State: api.ProjectConfigurationReadResponseStateAbsent},
 				replaceResult: &api.ProjectConfigurationReplaceResponse{

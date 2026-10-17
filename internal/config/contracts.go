@@ -228,8 +228,9 @@ type AuthoredProofOfChanges struct {
 
 // AuthoredProofHarness selects the Revyl, Cursor, or Capy proof executor.
 type AuthoredProofHarness struct {
-	Kind    string  `json:"kind" yaml:"kind"`
-	ModelID *string `json:"model_id,omitempty" yaml:"model_id,omitempty"`
+	Kind          string  `json:"kind" yaml:"kind"`
+	ModelID       *string `json:"model_id,omitempty" yaml:"model_id,omitempty"`
+	CapyProjectID *string `json:"capy_project_id,omitempty" yaml:"capy_project_id,omitempty"`
 }
 
 // AuthoredStrictCICheck controls whether a failed build emits a failing SCM check.
@@ -389,6 +390,12 @@ func (c AuthoredConfig) ValidateContract() error {
 					"pr_review.proof_of_changes.harness.model_id is not an allowlisted Capy model",
 				)
 			}
+			if harness.CapyProjectID != nil && (strings.TrimSpace(*harness.CapyProjectID) == "" || utf8.RuneCountInString(*harness.CapyProjectID) > 255) {
+				return authoredContractError(
+					[]string{"pr_review", "proof_of_changes", "harness", "capy_project_id"},
+					"pr_review.proof_of_changes.harness.capy_project_id must contain 1-255 nonblank characters",
+				)
+			}
 		case "cursor":
 			if harness.ModelID != nil && (strings.TrimSpace(*harness.ModelID) == "" || utf8.RuneCountInString(*harness.ModelID) > 255) {
 				return authoredContractError(
@@ -400,6 +407,12 @@ func (c AuthoredConfig) ValidateContract() error {
 			return authoredContractError(
 				[]string{"pr_review", "proof_of_changes", "harness", "kind"},
 				"pr_review.proof_of_changes.harness.kind is unsupported",
+			)
+		}
+		if harness.CapyProjectID != nil && harness.Kind != "capy" {
+			return authoredContractError(
+				[]string{"pr_review", "proof_of_changes", "harness", "capy_project_id"},
+				"pr_review.proof_of_changes.harness.capy_project_id is capy-only",
 			)
 		}
 	}
