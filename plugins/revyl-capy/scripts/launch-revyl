@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# Starts the plugin-pinned Revyl CLI through the runtime shared with the Codex
+# plugin, whose codex host mode is plain CLI mode: no Cursor attribution and no
+# PATH publishing. Both scripts run through sh, so neither depends on file
+# modes surviving plugin installation.
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${PLUGIN_DATA:-}" ]; then
+  default_cache_dir=$PLUGIN_DATA/runtime
+else
+  default_cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}/revyl/capy-plugin
+fi
+REVYL_PLUGIN_HOST=codex
+REVYL_PLUGIN_CACHE_DIR=${REVYL_PLUGIN_CACHE_DIR:-$default_cache_dir}
+export REVYL_PLUGIN_HOST REVYL_PLUGIN_CACHE_DIR
+exec sh "$SCRIPT_DIR/launch-runtime" "$@"

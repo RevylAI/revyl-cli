@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "revyl",
+  "version": "0.1.0",
+  "description": "Run and verify mobile app changes on Revyl cloud iOS and Android devices from Capy cloud threads, through the pinned Revyl CLI's MCP server.",
+  "author": {
+    "name": "Revyl",
+    "email": "support@revyl.ai",
+    "url": "https://revyl.com"
+  },
+  "homepage": "https://revyl.com",
+  "repository": "https://github.com/RevylAI/revyl-cli",
+  "license": "MIT",
+  "keywords": ["revyl", "mobile", "ios", "android", "testing", "verification"],
+  "extensions": {
+    "ai.capy": {
+      "displayName": "Revyl",
+      "icon": "assets/icon.svg",
+      "recipes": {
+        "revyl": {
+          "connection": "member",
+          "secrets": {
+            "REVYL_API_KEY": {
+              "description": "Your personal Revyl API key, from Settings → API Keys in the Revyl dashboard. Revyl acts as you in your Revyl organization, so each member adds their own key."
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "revyl": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "${PLUGIN_ROOT}/scripts/launch-revyl",
+        "mcp",
+        "serve",
+        "--profile",
+        "dev"
+      ]
+    }
+  }
+}
