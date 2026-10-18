@@ -329,22 +329,23 @@ func attachTestRunBuild(ctx context.Context, client *api.Client, result *RunTest
 //   - OnProgress: Optional callback for progress updates
 //   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 type RunWorkflowParams struct {
-	WorkflowNameOrID  string
-	Retries           int
-	Timeout           int
-	DevMode           bool
-	IOSAppID          string // Optional iOS app ID override
-	AndroidAppID      string // Optional Android app ID override
-	IOSBuild          string // Optional iOS build version to pin (requires IOSAppID)
-	AndroidBuild      string // Optional Android build version to pin (requires AndroidAppID)
-	IOSBuildID        string
-	AndroidBuildID    string
-	IOSBranchID       string
-	AndroidBranchID   string
-	BranchName        string
-	ContextBranchName string
-	BuildSelection    string
-	NoWait            bool
+	ConcurrencyLimitOverride *int
+	WorkflowNameOrID         string
+	Retries                  int
+	Timeout                  int
+	DevMode                  bool
+	IOSAppID                 string // Optional iOS app ID override
+	AndroidAppID             string // Optional Android app ID override
+	IOSBuild                 string // Optional iOS build version to pin (requires IOSAppID)
+	AndroidBuild             string // Optional Android build version to pin (requires AndroidAppID)
+	IOSBuildID               string
+	AndroidBuildID           string
+	IOSBranchID              string
+	AndroidBranchID          string
+	BranchName               string
+	ContextBranchName        string
+	BuildSelection           string
+	NoWait                   bool
 	// Location fields for initial GPS location override.
 	Latitude    float64
 	Longitude   float64
@@ -496,15 +497,16 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		return nil, err
 	}
 	req := &api.ExecuteWorkflowRequest{
-		WorkflowID:        workflowID,
-		Retries:           retries,
-		VariableOverrides: params.VariableOverrides,
-		LaunchEnvVarIds:   launchConfigurationIDs,
-		LaunchEnvVars:     params.LaunchEnvVars,
-		LaunchArguments:   params.LaunchArguments,
-		BranchName:        params.BranchName,
-		ContextBranchName: params.ContextBranchName,
-		BuildSelection:    api.BuildSelectionMode(params.BuildSelection),
+		ConcurrencyLimitOverride: params.ConcurrencyLimitOverride,
+		WorkflowID:               workflowID,
+		Retries:                  retries,
+		VariableOverrides:        params.VariableOverrides,
+		LaunchEnvVarIds:          launchConfigurationIDs,
+		LaunchEnvVars:            params.LaunchEnvVars,
+		LaunchArguments:          params.LaunchArguments,
+		BranchName:               params.BranchName,
+		ContextBranchName:        params.ContextBranchName,
+		BuildSelection:           api.BuildSelectionMode(params.BuildSelection),
 	}
 	if params.IOSAppID != "" || params.AndroidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}

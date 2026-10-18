@@ -146,6 +146,7 @@ func (e AsyncStatus) Valid() bool {
 
 // Defines values for AtlasAnnotationAgentKind.
 const (
+	AtlasAnnotationAgentKindCapy       AtlasAnnotationAgentKind = "capy"
 	AtlasAnnotationAgentKindClaudeCode AtlasAnnotationAgentKind = "claude_code"
 	AtlasAnnotationAgentKindCodex      AtlasAnnotationAgentKind = "codex"
 	AtlasAnnotationAgentKindCursor     AtlasAnnotationAgentKind = "cursor"
@@ -156,6 +157,8 @@ const (
 // Valid indicates whether the value is a known member of the AtlasAnnotationAgentKind enum.
 func (e AtlasAnnotationAgentKind) Valid() bool {
 	switch e {
+	case AtlasAnnotationAgentKindCapy:
+		return true
 	case AtlasAnnotationAgentKindClaudeCode:
 		return true
 	case AtlasAnnotationAgentKindCodex:
@@ -165,6 +168,24 @@ func (e AtlasAnnotationAgentKind) Valid() bool {
 	case AtlasAnnotationAgentKindOther:
 		return true
 	case AtlasAnnotationAgentKindRevyl:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasAnnotationAgentToolMentionMetadataAgentKind.
+const (
+	AtlasAnnotationAgentToolMentionMetadataAgentKindCapy   AtlasAnnotationAgentToolMentionMetadataAgentKind = "capy"
+	AtlasAnnotationAgentToolMentionMetadataAgentKindCursor AtlasAnnotationAgentToolMentionMetadataAgentKind = "cursor"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAnnotationAgentToolMentionMetadataAgentKind enum.
+func (e AtlasAnnotationAgentToolMentionMetadataAgentKind) Valid() bool {
+	switch e {
+	case AtlasAnnotationAgentToolMentionMetadataAgentKindCapy:
+		return true
+	case AtlasAnnotationAgentToolMentionMetadataAgentKindCursor:
 		return true
 	default:
 		return false
@@ -183,6 +204,48 @@ func (e AtlasAnnotationAgentToolMentionMetadataDispatchKind) Valid() bool {
 	case AtlasAnnotationAgentToolMentionMetadataDispatchKindCloudAgentFollowUp:
 		return true
 	case AtlasAnnotationAgentToolMentionMetadataDispatchKindCloudAgentLaunch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasAnnotationCapyCloudAgentLaunchSettingsModelId.
+const (
+	AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdAnthropicclaudeOpus55   AtlasAnnotationCapyCloudAgentLaunchSettingsModelId = "anthropic/claude-opus-5-5"
+	AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdAnthropicclaudeSonnet55 AtlasAnnotationCapyCloudAgentLaunchSettingsModelId = "anthropic/claude-sonnet-5-5"
+	AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdOpenaigpt61Sol          AtlasAnnotationCapyCloudAgentLaunchSettingsModelId = "openai/gpt-6.1-sol"
+	AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdOpenaigpt6Luna          AtlasAnnotationCapyCloudAgentLaunchSettingsModelId = "openai/gpt-6-luna"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAnnotationCapyCloudAgentLaunchSettingsModelId enum.
+func (e AtlasAnnotationCapyCloudAgentLaunchSettingsModelId) Valid() bool {
+	switch e {
+	case AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdAnthropicclaudeOpus55:
+		return true
+	case AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdAnthropicclaudeSonnet55:
+		return true
+	case AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdOpenaigpt61Sol:
+		return true
+	case AtlasAnnotationCapyCloudAgentLaunchSettingsModelIdOpenaigpt6Luna:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasAnnotationCursorCloudAgentSummaryAgentKind.
+const (
+	AtlasAnnotationCursorCloudAgentSummaryAgentKindCapy   AtlasAnnotationCursorCloudAgentSummaryAgentKind = "capy"
+	AtlasAnnotationCursorCloudAgentSummaryAgentKindCursor AtlasAnnotationCursorCloudAgentSummaryAgentKind = "cursor"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAnnotationCursorCloudAgentSummaryAgentKind enum.
+func (e AtlasAnnotationCursorCloudAgentSummaryAgentKind) Valid() bool {
+	switch e {
+	case AtlasAnnotationCursorCloudAgentSummaryAgentKindCapy:
+		return true
+	case AtlasAnnotationCursorCloudAgentSummaryAgentKindCursor:
 		return true
 	default:
 		return false
@@ -633,6 +696,24 @@ func (e CacheRetryMode) Valid() bool {
 	case CacheRetryModeFullRerun:
 		return true
 	case CacheRetryModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CapyConnectionScope.
+const (
+	CapyConnectionScopeOrganizationDefault CapyConnectionScope = "organization_default"
+	CapyConnectionScopeProject             CapyConnectionScope = "project"
+)
+
+// Valid indicates whether the value is a known member of the CapyConnectionScope enum.
+func (e CapyConnectionScope) Valid() bool {
+	switch e {
+	case CapyConnectionScopeOrganizationDefault:
+		return true
+	case CapyConnectionScopeProject:
 		return true
 	default:
 		return false
@@ -2459,7 +2540,8 @@ type ActiveDeviceSessionItem struct {
 // “concurrency_mode“ says how the org's device budget is partitioned:
 // “shared“ is one pool of “concurrency_limit“ slots across platforms;
 // “platform“ means iOS and Android each have their own lane and queue,
-// with “concurrency_limit“ equal to the lane sum.
+// with “concurrency_limit“ equal to the lane sum. Web, when enabled, has
+// its own independent lane in either mode.
 type ActiveDeviceSessionsResponse struct {
 	AndroidConcurrencyLimit *int                                         `json:"android_concurrency_limit,omitempty"`
 	ConcurrencyLimit        *int                                         `json:"concurrency_limit,omitempty"`
@@ -2468,8 +2550,9 @@ type ActiveDeviceSessionsResponse struct {
 	OrgId                   string                                       `json:"org_id"`
 
 	// ProofRunId The proof run this listing is confined to, set only when the caller is a proof agent; every listed session belongs to it
-	ProofRunId *string                   `json:"proof_run_id,omitempty"`
-	Sessions   []ActiveDeviceSessionItem `json:"sessions"`
+	ProofRunId          *string                   `json:"proof_run_id,omitempty"`
+	Sessions            []ActiveDeviceSessionItem `json:"sessions"`
+	WebConcurrencyLimit *int                      `json:"web_concurrency_limit,omitempty"`
 }
 
 // ActiveDeviceSessionsResponseConcurrencyMode defines model for ActiveDeviceSessionsResponse.ConcurrencyMode.
@@ -2574,12 +2657,15 @@ type AtlasAnnotationAgentKind string
 
 // AtlasAnnotationAgentToolMentionMetadata defines model for AtlasAnnotationAgentToolMentionMetadata.
 type AtlasAnnotationAgentToolMentionMetadata struct {
-	AgentKind    string                                              `json:"agent_kind"`
+	AgentKind    AtlasAnnotationAgentToolMentionMetadataAgentKind    `json:"agent_kind"`
 	DispatchKind AtlasAnnotationAgentToolMentionMetadataDispatchKind `json:"dispatch_kind"`
 	DisplayName  string                                              `json:"display_name"`
 	EndUtf16     int                                                 `json:"end_utf16"`
 	StartUtf16   int                                                 `json:"start_utf16"`
 }
+
+// AtlasAnnotationAgentToolMentionMetadataAgentKind defines model for AtlasAnnotationAgentToolMentionMetadata.AgentKind.
+type AtlasAnnotationAgentToolMentionMetadataAgentKind string
 
 // AtlasAnnotationAgentToolMentionMetadataDispatchKind defines model for AtlasAnnotationAgentToolMentionMetadata.DispatchKind.
 type AtlasAnnotationAgentToolMentionMetadataDispatchKind string
@@ -2639,6 +2725,103 @@ type AtlasAnnotationAuthor struct {
 	AvatarUrl   *string                   `json:"avatar_url,omitempty"`
 	DisplayName *string                   `json:"display_name,omitempty"`
 	UserId      string                    `json:"user_id"`
+}
+
+// AtlasAnnotationCapyAdjustSettingsAction defines model for AtlasAnnotationCapyAdjustSettingsAction.
+type AtlasAnnotationCapyAdjustSettingsAction struct {
+	RecoveryKind     string                                      `json:"recovery_kind"`
+	RecoveryRevision string                                      `json:"recovery_revision"`
+	Settings         AtlasAnnotationCapyCloudAgentLaunchSettings `json:"settings"`
+}
+
+// AtlasAnnotationCapyCloudAgentLaunchSettings defines model for AtlasAnnotationCapyCloudAgentLaunchSettings.
+type AtlasAnnotationCapyCloudAgentLaunchSettings struct {
+	CapyProjectId      string              `json:"capy_project_id"`
+	ConnectionId       openapi_types.UUID  `json:"connection_id"`
+	ConnectionType     CapyConnectionScope `json:"connection_type"`
+	CredentialRevision int                 `json:"credential_revision"`
+
+	// DeviceTarget A device model + runtime combination.
+	DeviceTarget    *DevicePair                                         `json:"device_target,omitempty"`
+	LaunchEnvVarIds *[]openapi_types.UUID                               `json:"launch_env_var_ids,omitempty"`
+	ModelId         *AtlasAnnotationCapyCloudAgentLaunchSettingsModelId `json:"model_id,omitempty"`
+	RepositoryUrl   string                                              `json:"repository_url"`
+}
+
+// AtlasAnnotationCapyCloudAgentLaunchSettingsModelId defines model for AtlasAnnotationCapyCloudAgentLaunchSettings.ModelId.
+type AtlasAnnotationCapyCloudAgentLaunchSettingsModelId string
+
+// AtlasAnnotationCapyConnectAction defines model for AtlasAnnotationCapyConnectAction.
+type AtlasAnnotationCapyConnectAction struct {
+	RecoveryKind string `json:"recovery_kind"`
+}
+
+// AtlasAnnotationCapyFollowupDelivery defines model for AtlasAnnotationCapyFollowupDelivery.
+type AtlasAnnotationCapyFollowupDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus  CloudAgentConversationLaunchSubmissionStatus               `json:"delivery_status"`
+	RecoveryActions []AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item defines model for AtlasAnnotationCapyFollowupDelivery.recovery_actions.Item.
+type AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationCapyFollowupMention defines model for AtlasAnnotationCapyFollowupMention.
+type AtlasAnnotationCapyFollowupMention struct {
+	AgentKind    string                              `json:"agent_kind"`
+	Delivery     AtlasAnnotationCapyFollowupDelivery `json:"delivery"`
+	DispatchKind string                              `json:"dispatch_kind"`
+	DisplayName  string                              `json:"display_name"`
+	EndUtf16     int                                 `json:"end_utf16"`
+	StartUtf16   int                                 `json:"start_utf16"`
+}
+
+// AtlasAnnotationCapyFollowupMentionInput defines model for AtlasAnnotationCapyFollowupMentionInput.
+type AtlasAnnotationCapyFollowupMentionInput struct {
+	AgentKind    string `json:"agent_kind"`
+	DispatchKind string `json:"dispatch_kind"`
+	EndUtf16     int    `json:"end_utf16"`
+	StartUtf16   int    `json:"start_utf16"`
+	UserPrompt   string `json:"user_prompt"`
+}
+
+// AtlasAnnotationCapyLaunchDelivery defines model for AtlasAnnotationCapyLaunchDelivery.
+type AtlasAnnotationCapyLaunchDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus        CloudAgentConversationLaunchSubmissionStatus             `json:"delivery_status"`
+	LaunchSettingsSummary string                                                   `json:"launch_settings_summary"`
+	RecoveryActions       []AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item defines model for AtlasAnnotationCapyLaunchDelivery.recovery_actions.Item.
+type AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationCapyLaunchMention defines model for AtlasAnnotationCapyLaunchMention.
+type AtlasAnnotationCapyLaunchMention struct {
+	AgentKind    string                            `json:"agent_kind"`
+	Delivery     AtlasAnnotationCapyLaunchDelivery `json:"delivery"`
+	DispatchKind string                            `json:"dispatch_kind"`
+	DisplayName  string                            `json:"display_name"`
+	EndUtf16     int                               `json:"end_utf16"`
+	StartUtf16   int                               `json:"start_utf16"`
+}
+
+// AtlasAnnotationCapyLaunchMentionInput defines model for AtlasAnnotationCapyLaunchMentionInput.
+type AtlasAnnotationCapyLaunchMentionInput struct {
+	AgentKind    string                                      `json:"agent_kind"`
+	DispatchKind string                                      `json:"dispatch_kind"`
+	EndUtf16     int                                         `json:"end_utf16"`
+	Settings     AtlasAnnotationCapyCloudAgentLaunchSettings `json:"settings"`
+	StartUtf16   int                                         `json:"start_utf16"`
+	UserPrompt   string                                      `json:"user_prompt"`
 }
 
 // AtlasAnnotationComment defines model for AtlasAnnotationComment.
@@ -2711,12 +2894,16 @@ type AtlasAnnotationCursorCloudAgentLaunchSettings struct {
 
 // AtlasAnnotationCursorCloudAgentSummary defines model for AtlasAnnotationCursorCloudAgentSummary.
 type AtlasAnnotationCursorCloudAgentSummary struct {
-	AgentKind *string `json:"agent_kind,omitempty"`
+	AgentKind      *AtlasAnnotationCursorCloudAgentSummaryAgentKind `json:"agent_kind,omitempty"`
+	ConversationId *openapi_types.UUID                              `json:"conversation_id,omitempty"`
 
 	// LaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
 	LaunchSubmissionStatus  CloudAgentConversationLaunchSubmissionStatus `json:"launch_submission_status"`
 	ProviderConversationUrl *string                                      `json:"provider_conversation_url,omitempty"`
 }
+
+// AtlasAnnotationCursorCloudAgentSummaryAgentKind defines model for AtlasAnnotationCursorCloudAgentSummary.AgentKind.
+type AtlasAnnotationCursorCloudAgentSummaryAgentKind string
 
 // AtlasAnnotationCursorConnectAction defines model for AtlasAnnotationCursorConnectAction.
 type AtlasAnnotationCursorConnectAction struct {
@@ -4111,6 +4298,18 @@ type CancelTestResponse struct {
 	TaskId  string  `json:"task_id"`
 }
 
+// CapyCloudAgentConversationAttributionLaunch Capy launch facts displayed with an ordinary related-resource attribution.
+type CapyCloudAgentConversationAttributionLaunch struct {
+	// ConversationOrigin Bounded origin of a cloud-agent conversation.
+	ConversationOrigin CloudAgentConversationOrigin `json:"conversation_origin"`
+
+	// LaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
+	LaunchSubmissionStatus CloudAgentConversationLaunchSubmissionStatus `json:"launch_submission_status"`
+}
+
+// CapyConnectionScope defines model for CapyConnectionScope.
+type CapyConnectionScope string
+
 // CapyProofHarness A Capy thread launched against the pull request.
 //
 // The thread runs on the project's own Capy connection, else the
@@ -4177,14 +4376,17 @@ type CleanupLevel string
 // CloudAgentConversationAttributionSummary defines model for CloudAgentConversationAttributionSummary.
 type CloudAgentConversationAttributionSummary struct {
 	// CloudAgentProviderKey Immutable provider identity for one cloud-agent conversation.
-	CloudAgentProviderKey CloudAgentProviderKey `json:"cloud_agent_provider_key"`
-	ConversationId        openapi_types.UUID    `json:"conversation_id"`
+	CloudAgentProviderKey   CloudAgentProviderKey                            `json:"cloud_agent_provider_key"`
+	ConversationId          openapi_types.UUID                               `json:"conversation_id"`
+	Launch                  *CloudAgentConversationAttributionSummary_Launch `json:"launch,omitempty"`
+	ProviderConversationId  *string                                          `json:"provider_conversation_id,omitempty"`
+	ProviderConversationUrl *string                                          `json:"provider_conversation_url,omitempty"`
+	RecordedUser            CloudAgentConversationRecordedUser               `json:"recorded_user"`
+}
 
-	// Launch Launch facts displayed with an ordinary related-resource attribution.
-	Launch                  *CursorCloudAgentConversationAttributionLaunch `json:"launch,omitempty"`
-	ProviderConversationId  *string                                        `json:"provider_conversation_id,omitempty"`
-	ProviderConversationUrl *string                                        `json:"provider_conversation_url,omitempty"`
-	RecordedUser            CloudAgentConversationRecordedUser             `json:"recorded_user"`
+// CloudAgentConversationAttributionSummary_Launch defines model for CloudAgentConversationAttributionSummary.Launch.
+type CloudAgentConversationAttributionSummary_Launch struct {
+	union json.RawMessage
 }
 
 // CloudAgentConversationLaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
@@ -5586,6 +5788,9 @@ type IosStoreKitConfigSnapshot struct {
 	ScopeType   *string             `json:"scope_type,omitempty"`
 	Source      *string             `json:"source,omitempty"`
 }
+
+// JsonValue defines model for JsonValue.
+type JsonValue = interface{}
 
 // LLMConfig Configuration for LLM models used in different stages.
 type LLMConfig struct {
@@ -7855,8 +8060,9 @@ type UpdateWorkflowNameRequest struct {
 
 // UpdateWorkflowRunConfigRequest defines model for UpdateWorkflowRunConfigRequest.
 type UpdateWorkflowRunConfigRequest struct {
-	OverrideRunConfig bool                   `json:"override_run_config"`
-	RunConfig         map[string]interface{} `json:"run_config"`
+	DefaultConcurrencyLimit *int                  `json:"default_concurrency_limit,omitempty"`
+	OverrideRunConfig       *bool                 `json:"override_run_config,omitempty"`
+	RunConfig               *map[string]JsonValue `json:"run_config,omitempty"`
 }
 
 // ValidationError defines model for ValidationError.
@@ -8086,13 +8292,16 @@ type WorkflowData struct {
 	// Attributes:
 	//     ios_app: Optional iOS app override configuration.
 	//     android_app: Optional Android app override configuration.
-	BuildConfig         *WorkflowAppConfig   `json:"build_config,omitempty"`
-	Name                string               `json:"name"`
-	OrgId               *openapi_types.UUID  `json:"org_id,omitempty"`
-	OverrideBuildConfig *bool                `json:"override_build_config,omitempty"`
-	Owner               string               `json:"owner"`
-	Schedule            *string              `json:"schedule,omitempty"`
-	Tests               []openapi_types.UUID `json:"tests"`
+	BuildConfig *WorkflowAppConfig `json:"build_config,omitempty"`
+
+	// DefaultConcurrencyLimit Maximum concurrent tests per workflow run across platforms. Null adds no cap beyond organization capacity.
+	DefaultConcurrencyLimit *int                 `json:"default_concurrency_limit,omitempty"`
+	Name                    string               `json:"name"`
+	OrgId                   *openapi_types.UUID  `json:"org_id,omitempty"`
+	OverrideBuildConfig     *bool                `json:"override_build_config,omitempty"`
+	Owner                   string               `json:"owner"`
+	Schedule                *string              `json:"schedule,omitempty"`
+	Tests                   []openapi_types.UUID `json:"tests"`
 }
 
 // WorkflowDetailInfo defines model for WorkflowDetailInfo.
@@ -8240,7 +8449,10 @@ type WorkflowWithLastStatus struct {
 	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
 	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
 	CreatedAt                       *time.Time                                      `json:"created_at,omitempty"`
-	Deleted                         bool                                            `json:"deleted"`
+
+	// DefaultConcurrencyLimit Maximum concurrent tests per workflow run across platforms. Null adds no cap beyond organization capacity.
+	DefaultConcurrencyLimit *int `json:"default_concurrency_limit,omitempty"`
+	Deleted                 bool `json:"deleted"`
 
 	// ExecutionHistory Last N execution statuses
 	ExecutionHistory *[]WorkflowExecutionHistoryStatus `json:"execution_history,omitempty"`
@@ -8286,9 +8498,12 @@ type WorkflowsBaseSchema struct {
 	// BuildConfig Workflow-level build configuration (JSONB with ios_build and android_build)
 	BuildConfig *map[string]interface{} `json:"build_config,omitempty"`
 	CreatedAt   *time.Time              `json:"created_at,omitempty"`
-	Deleted     bool                    `json:"deleted"`
-	Id          string                  `json:"id"`
-	LastRun     *time.Time              `json:"last_run,omitempty"`
+
+	// DefaultConcurrencyLimit Maximum concurrent tests per workflow run across platforms. Null adds no cap beyond organization capacity.
+	DefaultConcurrencyLimit *int       `json:"default_concurrency_limit,omitempty"`
+	Deleted                 bool       `json:"deleted"`
+	Id                      string     `json:"id"`
+	LastRun                 *time.Time `json:"last_run,omitempty"`
 
 	// LocationConfig Workflow-level location configuration (JSONB with latitude, longitude)
 	LocationConfig *map[string]interface{} `json:"location_config,omitempty"`
@@ -8349,9 +8564,12 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	// Attributes:
 	//     ios_app: Optional iOS app override configuration.
 	//     android_app: Optional Android app override configuration.
-	BuildConfig       *WorkflowAppConfig                                            `json:"build_config,omitempty"`
-	BuildSelection    *CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection `json:"build_selection,omitempty"`
-	ContextBranchName *string                                                       `json:"context_branch_name,omitempty"`
+	BuildConfig    *WorkflowAppConfig                                            `json:"build_config,omitempty"`
+	BuildSelection *CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection `json:"build_selection,omitempty"`
+
+	// ConcurrencyLimitOverride Maximum concurrent tests for this run across platforms. Omitted or null uses the saved workflow cap; 0 removes it for this run. Organization capacity still applies. Does not change saved workflow settings.
+	ConcurrencyLimitOverride *int    `json:"concurrency_limit_override,omitempty"`
+	ContextBranchName        *string `json:"context_branch_name,omitempty"`
 
 	// LaunchArguments Inline iOS app arguments in exact token order. Stored argument sets are applied first; these tokens are appended afterward.
 	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
@@ -10915,6 +11133,214 @@ func (t *ActionBlock_StepType) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsAtlasAnnotationCapyConnectAction returns the union data inside the AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationCapyConnectAction
+func (t AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationCapyConnectAction() (AtlasAnnotationCapyConnectAction, error) {
+	var body AtlasAnnotationCapyConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCapyConnectAction overwrites any union data inside the AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationCapyConnectAction
+func (t *AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationCapyConnectAction(v AtlasAnnotationCapyConnectAction) error {
+	v.RecoveryKind = "connect_capy"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyConnectAction performs a merge with any union data inside the AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCapyConnectAction
+func (t *AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationCapyConnectAction(v AtlasAnnotationCapyConnectAction) error {
+	v.RecoveryKind = "connect_capy"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "connect_capy":
+		return t.AsAtlasAnnotationCapyConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationCapyFollowupDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationCapyConnectAction returns the union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCapyConnectAction
+func (t AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCapyConnectAction() (AtlasAnnotationCapyConnectAction, error) {
+	var body AtlasAnnotationCapyConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCapyConnectAction overwrites any union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCapyConnectAction
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCapyConnectAction(v AtlasAnnotationCapyConnectAction) error {
+	v.RecoveryKind = "connect_capy"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyConnectAction performs a merge with any union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCapyConnectAction
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCapyConnectAction(v AtlasAnnotationCapyConnectAction) error {
+	v.RecoveryKind = "connect_capy"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCapyAdjustSettingsAction returns the union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCapyAdjustSettingsAction
+func (t AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCapyAdjustSettingsAction() (AtlasAnnotationCapyAdjustSettingsAction, error) {
+	var body AtlasAnnotationCapyAdjustSettingsAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCapyAdjustSettingsAction overwrites any union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCapyAdjustSettingsAction
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCapyAdjustSettingsAction(v AtlasAnnotationCapyAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyAdjustSettingsAction performs a merge with any union data inside the AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCapyAdjustSettingsAction
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCapyAdjustSettingsAction(v AtlasAnnotationCapyAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "adjust_settings":
+		return t.AsAtlasAnnotationCapyAdjustSettingsAction()
+	case "connect_capy":
+		return t.AsAtlasAnnotationCapyConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationCapyLaunchDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsAtlasAnnotationCursorLaunchMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationCursorLaunchMention
 func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCursorLaunchMention() (AtlasAnnotationCursorLaunchMention, error) {
 	var body AtlasAnnotationCursorLaunchMention
@@ -10924,7 +11350,6 @@ func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCursorLa
 
 // FromAtlasAnnotationCursorLaunchMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationCursorLaunchMention
 func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCursorLaunchMention(v AtlasAnnotationCursorLaunchMention) error {
-	v.DispatchKind = "cloud_agent_launch"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -10932,7 +11357,6 @@ func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCurso
 
 // MergeAtlasAnnotationCursorLaunchMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationCursorLaunchMention
 func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCursorLaunchMention(v AtlasAnnotationCursorLaunchMention) error {
-	v.DispatchKind = "cloud_agent_launch"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -10952,7 +11376,6 @@ func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCursorFo
 
 // FromAtlasAnnotationCursorFollowupMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationCursorFollowupMention
 func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCursorFollowupMention(v AtlasAnnotationCursorFollowupMention) error {
-	v.DispatchKind = "cloud_agent_follow_up"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -10960,7 +11383,6 @@ func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCurso
 
 // MergeAtlasAnnotationCursorFollowupMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationCursorFollowupMention
 func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCursorFollowupMention(v AtlasAnnotationCursorFollowupMention) error {
-	v.DispatchKind = "cloud_agent_follow_up"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -10971,27 +11393,56 @@ func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCurs
 	return err
 }
 
-func (t AtlasAnnotationComment_AgentToolMentions_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"dispatch_kind"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
+// AsAtlasAnnotationCapyLaunchMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationCapyLaunchMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCapyLaunchMention() (AtlasAnnotationCapyLaunchMention, error) {
+	var body AtlasAnnotationCapyLaunchMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
 }
 
-func (t AtlasAnnotationComment_AgentToolMentions_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
+// FromAtlasAnnotationCapyLaunchMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationCapyLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCapyLaunchMention(v AtlasAnnotationCapyLaunchMention) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyLaunchMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationCapyLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCapyLaunchMention(v AtlasAnnotationCapyLaunchMention) error {
+	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	switch discriminator {
-	case "cloud_agent_follow_up":
-		return t.AsAtlasAnnotationCursorFollowupMention()
-	case "cloud_agent_launch":
-		return t.AsAtlasAnnotationCursorLaunchMention()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCapyFollowupMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationCapyFollowupMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationCapyFollowupMention() (AtlasAnnotationCapyFollowupMention, error) {
+	var body AtlasAnnotationCapyFollowupMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCapyFollowupMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationCapyFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationCapyFollowupMention(v AtlasAnnotationCapyFollowupMention) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyFollowupMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationCapyFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCapyFollowupMention(v AtlasAnnotationCapyFollowupMention) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
 	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
 }
 
 func (t AtlasAnnotationComment_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
@@ -11251,7 +11702,6 @@ func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCur
 
 // FromAtlasAnnotationCursorLaunchMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationCursorLaunchMentionInput
 func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationCursorLaunchMentionInput(v AtlasAnnotationCursorLaunchMentionInput) error {
-	v.DispatchKind = "cloud_agent_launch"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -11259,7 +11709,6 @@ func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotation
 
 // MergeAtlasAnnotationCursorLaunchMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCursorLaunchMentionInput
 func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCursorLaunchMentionInput(v AtlasAnnotationCursorLaunchMentionInput) error {
-	v.DispatchKind = "cloud_agent_launch"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -11279,7 +11728,6 @@ func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCur
 
 // FromAtlasAnnotationCursorFollowupMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationCursorFollowupMentionInput
 func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationCursorFollowupMentionInput(v AtlasAnnotationCursorFollowupMentionInput) error {
-	v.DispatchKind = "cloud_agent_follow_up"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -11287,7 +11735,6 @@ func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotation
 
 // MergeAtlasAnnotationCursorFollowupMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCursorFollowupMentionInput
 func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCursorFollowupMentionInput(v AtlasAnnotationCursorFollowupMentionInput) error {
-	v.DispatchKind = "cloud_agent_follow_up"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -11298,27 +11745,56 @@ func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotatio
 	return err
 }
 
-func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"dispatch_kind"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
+// AsAtlasAnnotationCapyLaunchMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationCapyLaunchMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCapyLaunchMentionInput() (AtlasAnnotationCapyLaunchMentionInput, error) {
+	var body AtlasAnnotationCapyLaunchMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
 }
 
-func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
+// FromAtlasAnnotationCapyLaunchMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationCapyLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationCapyLaunchMentionInput(v AtlasAnnotationCapyLaunchMentionInput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyLaunchMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCapyLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCapyLaunchMentionInput(v AtlasAnnotationCapyLaunchMentionInput) error {
+	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	switch discriminator {
-	case "cloud_agent_follow_up":
-		return t.AsAtlasAnnotationCursorFollowupMentionInput()
-	case "cloud_agent_launch":
-		return t.AsAtlasAnnotationCursorLaunchMentionInput()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCapyFollowupMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationCapyFollowupMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCapyFollowupMentionInput() (AtlasAnnotationCapyFollowupMentionInput, error) {
+	var body AtlasAnnotationCapyFollowupMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCapyFollowupMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationCapyFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationCapyFollowupMentionInput(v AtlasAnnotationCapyFollowupMentionInput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCapyFollowupMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCapyFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCapyFollowupMentionInput(v AtlasAnnotationCapyFollowupMentionInput) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
 	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
 }
 
 func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
@@ -11985,6 +12461,68 @@ func (t BuildStep_Inputs) MarshalJSON() ([]byte, error) {
 }
 
 func (t *BuildStep_Inputs) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCursorCloudAgentConversationAttributionLaunch returns the union data inside the CloudAgentConversationAttributionSummary_Launch as a CursorCloudAgentConversationAttributionLaunch
+func (t CloudAgentConversationAttributionSummary_Launch) AsCursorCloudAgentConversationAttributionLaunch() (CursorCloudAgentConversationAttributionLaunch, error) {
+	var body CursorCloudAgentConversationAttributionLaunch
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCursorCloudAgentConversationAttributionLaunch overwrites any union data inside the CloudAgentConversationAttributionSummary_Launch as the provided CursorCloudAgentConversationAttributionLaunch
+func (t *CloudAgentConversationAttributionSummary_Launch) FromCursorCloudAgentConversationAttributionLaunch(v CursorCloudAgentConversationAttributionLaunch) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCursorCloudAgentConversationAttributionLaunch performs a merge with any union data inside the CloudAgentConversationAttributionSummary_Launch, using the provided CursorCloudAgentConversationAttributionLaunch
+func (t *CloudAgentConversationAttributionSummary_Launch) MergeCursorCloudAgentConversationAttributionLaunch(v CursorCloudAgentConversationAttributionLaunch) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCapyCloudAgentConversationAttributionLaunch returns the union data inside the CloudAgentConversationAttributionSummary_Launch as a CapyCloudAgentConversationAttributionLaunch
+func (t CloudAgentConversationAttributionSummary_Launch) AsCapyCloudAgentConversationAttributionLaunch() (CapyCloudAgentConversationAttributionLaunch, error) {
+	var body CapyCloudAgentConversationAttributionLaunch
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCapyCloudAgentConversationAttributionLaunch overwrites any union data inside the CloudAgentConversationAttributionSummary_Launch as the provided CapyCloudAgentConversationAttributionLaunch
+func (t *CloudAgentConversationAttributionSummary_Launch) FromCapyCloudAgentConversationAttributionLaunch(v CapyCloudAgentConversationAttributionLaunch) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCapyCloudAgentConversationAttributionLaunch performs a merge with any union data inside the CloudAgentConversationAttributionSummary_Launch, using the provided CapyCloudAgentConversationAttributionLaunch
+func (t *CloudAgentConversationAttributionSummary_Launch) MergeCapyCloudAgentConversationAttributionLaunch(v CapyCloudAgentConversationAttributionLaunch) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CloudAgentConversationAttributionSummary_Launch) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *CloudAgentConversationAttributionSummary_Launch) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

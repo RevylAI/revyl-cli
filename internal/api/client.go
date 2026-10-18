@@ -993,19 +993,20 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 // BuildConfig and OverrideBuildConfig use the generated WorkflowAppConfig and
 // PlatformApp types from generated.go.
 type ExecuteWorkflowRequest struct {
-	ContextBranchName   string             `json:"context_branch_name,omitempty"`
-	BranchName          string             `json:"branch_name,omitempty"`
-	BuildSelection      BuildSelectionMode `json:"build_selection,omitempty"`
-	WorkflowID          string             `json:"workflow_id"`
-	Retries             int                `json:"retries,omitempty"`
-	BuildConfig         *WorkflowAppConfig `json:"build_config,omitempty"`
-	OverrideBuildConfig bool               `json:"override_build_config,omitempty"`
-	LocationConfig      *CLILocation       `json:"location_config,omitempty"`
-	OverrideLocation    bool               `json:"override_location,omitempty"`
-	VariableOverrides   map[string]string  `json:"variable_overrides,omitempty"`
-	LaunchEnvVarIds     []string           `json:"launch_env_var_ids,omitempty"`
-	LaunchEnvVars       map[string]string  `json:"launch_env_vars,omitempty"`
-	LaunchArguments     []string           `json:"launch_arguments,omitempty"`
+	ConcurrencyLimitOverride *int               `json:"concurrency_limit_override,omitempty"`
+	ContextBranchName        string             `json:"context_branch_name,omitempty"`
+	BranchName               string             `json:"branch_name,omitempty"`
+	BuildSelection           BuildSelectionMode `json:"build_selection,omitempty"`
+	WorkflowID               string             `json:"workflow_id"`
+	Retries                  int                `json:"retries,omitempty"`
+	BuildConfig              *WorkflowAppConfig `json:"build_config,omitempty"`
+	OverrideBuildConfig      bool               `json:"override_build_config,omitempty"`
+	LocationConfig           *CLILocation       `json:"location_config,omitempty"`
+	OverrideLocation         bool               `json:"override_location,omitempty"`
+	VariableOverrides        map[string]string  `json:"variable_overrides,omitempty"`
+	LaunchEnvVarIds          []string           `json:"launch_env_var_ids,omitempty"`
+	LaunchEnvVars            map[string]string  `json:"launch_env_vars,omitempty"`
+	LaunchArguments          []string           `json:"launch_arguments,omitempty"`
 }
 
 // ExecuteWorkflowResponse represents a workflow execution response.
@@ -3741,14 +3742,15 @@ type CLITestStatusResponse struct {
 
 // Workflow represents a workflow definition.
 type Workflow struct {
-	ID                  string                 `json:"id"`
-	Name                string                 `json:"name"`
-	Tests               []string               `json:"tests,omitempty"`
-	Schedule            string                 `json:"schedule,omitempty"`
-	LocationConfig      map[string]interface{} `json:"location_config,omitempty"`
-	OverrideLocation    bool                   `json:"override_location,omitempty"`
-	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
-	OverrideBuildConfig bool                   `json:"override_build_config,omitempty"`
+	DefaultConcurrencyLimit *int                   `json:"default_concurrency_limit"`
+	ID                      string                 `json:"id"`
+	Name                    string                 `json:"name"`
+	Tests                   []string               `json:"tests,omitempty"`
+	Schedule                string                 `json:"schedule,omitempty"`
+	LocationConfig          map[string]interface{} `json:"location_config,omitempty"`
+	OverrideLocation        bool                   `json:"override_location,omitempty"`
+	BuildConfig             map[string]interface{} `json:"build_config,omitempty"`
+	OverrideBuildConfig     bool                   `json:"override_build_config,omitempty"`
 	// RunConfig is the stored TestRunConfig that replaces every test's own
 	// run config while OverrideRunConfig is true. It stays a raw map so a
 	// read-modify-write preserves keys this CLI does not model.
@@ -3794,12 +3796,12 @@ func (w *Workflow) SetRunConfigRetries(retries int) {
 // RunConfigUpdate returns the update_run_config body for the workflow's
 // current run config and override flag. The backend replaces both columns,
 // so the body always carries the full stored run config.
-func (w *Workflow) RunConfigUpdate() UpdateWorkflowRunConfigRequest {
+func (w *Workflow) RunConfigUpdate() WorkflowRunConfigPatch {
 	runConfig := w.RunConfig
 	if runConfig == nil {
 		runConfig = map[string]interface{}{}
 	}
-	return UpdateWorkflowRunConfigRequest{
+	return WorkflowRunConfigPatch{
 		RunConfig:         runConfig,
 		OverrideRunConfig: w.OverrideRunConfig,
 	}
@@ -5849,12 +5851,12 @@ func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID strin
 	return parseResponse(resp, nil)
 }
 
-// UpdateWorkflowRunConfig replaces a workflow's stored run_config and
-// override_run_config. Build the body with Workflow.RunConfigUpdate from a
-// freshly read workflow so unchanged keys and the override flag survive.
-func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, request UpdateWorkflowRunConfigRequest) error {
-	if request.RunConfig == nil {
-		return errors.New("update workflow run config: run_config must be an object, not null")
+// UpdateWorkflowRunConfig atomically updates supplied workflow settings.
+// Use RunConfigUpdate for test settings so unknown keys and the override survive;
+// a concurrency-only patch leaves those settings untouched.
+func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, request WorkflowRunConfigPatch) error {
+	if request.RunConfig == nil && request.DefaultConcurrencyLimit == nil {
+		return errors.New("update workflow run config: supply a run configuration or concurrency limit")
 	}
 	path := fmt.Sprintf("/api/v1/workflows/update_run_config/%s", workflowID)
 	resp, err := c.doRequestWithRetry(ctx, "PUT", path, request)

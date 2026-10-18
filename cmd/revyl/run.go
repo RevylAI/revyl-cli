@@ -817,6 +817,17 @@ func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, io
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runWorkflowExec(cmd *cobra.Command, args []string) error {
+	var concurrencyLimitOverride *int
+	if cmd.Flags().Changed("concurrency") {
+		concurrency, err := cmd.Flags().GetInt("concurrency")
+		if err != nil {
+			return err
+		}
+		if concurrency < 0 || int64(concurrency) > 2147483647 {
+			return usageErrorf("--concurrency must be between 0 and 2147483647 (0 removes the workflow cap for this run)")
+		}
+		concurrencyLimitOverride = &concurrency
+	}
 	buildSelection, err := resolveCommandAllBranchesSelection(cmd, runBuildSelection, "branch", "build", "ios-build-id", "android-build-id", "ios-build", "android-build")
 	if err != nil {
 		return err
@@ -1049,6 +1060,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	if runNoWait {
 		queuedResult, err := queueWorkflowExecution(cmd.Context(), apiKey, workflowDisplayName, execution.RunWorkflowParams{
+			ConcurrencyLimitOverride:   concurrencyLimitOverride,
 			WorkflowNameOrID:           workflowID,
 			Retries:                    runRetries,
 			DevMode:                    devMode,
@@ -1117,6 +1129,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	defer stopInterruptHandler()
 
 	result, err := runWorkflowExecution(ctx, apiKey, nil, execution.RunWorkflowParams{
+		ConcurrencyLimitOverride:   concurrencyLimitOverride,
 		WorkflowNameOrID:           workflowID,
 		Retries:                    runRetries,
 		Timeout:                    effectiveTimeout,

@@ -585,9 +585,9 @@ var workflowConfigCmd = &cobra.Command{
 The workflow run config replaces each test's own run config only while the
 workflow's run config override is enabled. Otherwise every test keeps its own.
 
-Parallelism is not a workflow setting. A workflow starts all of its tests at
-once, and your organization's concurrency limit decides how many run at the
-same time. Run 'revyl auth billing' to change your plan.
+The saved --concurrency cap applies independently of the run config override,
+across platforms within each workflow run. Organization capacity still applies.
+Use --concurrency 0 to remove the cap; changes affect future runs.
 
 COMMANDS:
   show    - Show current run config
@@ -595,7 +595,8 @@ COMMANDS:
 
 EXAMPLES:
   revyl workflow config show my-workflow
-  revyl workflow config set my-workflow --retries 2`,
+  revyl workflow config set my-workflow --retries 2
+  revyl workflow config set my-workflow --concurrency 12`,
 }
 
 var workflowConfigShowCmd = &cobra.Command{
@@ -613,10 +614,12 @@ var workflowConfigSetCmd = &cobra.Command{
 --retries sets how many attempts each test gets, including the first. Every
 other stored run config setting and the override state are kept.
 
-Parallel runs are governed by your organization's plan concurrency.
+--concurrency caps concurrent tests per workflow run across platforms. Use 0 to
+remove this cap. Organization capacity still applies. Changes affect future runs.
 
 EXAMPLES:
-  revyl workflow config set my-workflow --retries 2`,
+  revyl workflow config set my-workflow --retries 2
+  revyl workflow config set my-workflow --concurrency 12`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowConfigSet,
 }
@@ -626,20 +629,21 @@ func initWorkflowConfig() {
 	workflowConfigCmd.AddCommand(workflowConfigSetCmd)
 
 	workflowConfigSetCmd.Flags().Int("retries", 0, fmt.Sprintf("Attempts per test, including the first (%d-%d)", minRetries, maxRetries))
-	workflowConfigSetCmd.Flags().Int("parallel", 0, "")
-	_ = workflowConfigSetCmd.Flags().MarkHidden("parallel")
+	workflowConfigSetCmd.Flags().Int("concurrency", 0, "Maximum concurrent tests per workflow run (0 removes the workflow cap). Organization capacity still applies.")
 }
 
 // workflowRunConfigOutput is the stable --json contract of
 // `workflow config show` and `workflow config set`.
 type workflowRunConfigOutput struct {
-	OverrideRunConfig bool `json:"override_run_config"`
-	Retries           *int `json:"retries"`
+	DefaultConcurrencyLimit *int `json:"default_concurrency_limit"`
+	OverrideRunConfig       bool `json:"override_run_config"`
+	Retries                 *int `json:"retries"`
 }
 
 func newWorkflowRunConfigOutput(wf *api.Workflow) workflowRunConfigOutput {
 	output := workflowRunConfigOutput{
-		OverrideRunConfig: wf.OverrideRunConfig,
+		DefaultConcurrencyLimit: wf.DefaultConcurrencyLimit,
+		OverrideRunConfig:       wf.OverrideRunConfig,
 	}
 	defaultRetries := minRetries
 	output.Retries = &defaultRetries
@@ -650,6 +654,11 @@ func newWorkflowRunConfigOutput(wf *api.Workflow) workflowRunConfigOutput {
 }
 
 func printWorkflowRunConfig(wf *api.Workflow) {
+	if wf.DefaultConcurrencyLimit == nil {
+		ui.PrintInfo("  Concurrent tests: no additional cap (organization capacity applies)")
+	} else {
+		ui.PrintInfo("  Concurrent tests: %d per run (organization capacity still applies)", *wf.DefaultConcurrencyLimit)
+	}
 	if retries, ok := wf.RunConfigRetries(); ok {
 		ui.PrintInfo("  Retries:  %d", retries)
 	} else {
@@ -704,28 +713,24 @@ func runWorkflowConfigShow(cmd *cobra.Command, args []string) error {
 
 func runWorkflowConfigSet(cmd *cobra.Command, args []string) error {
 	nameOrID := args[0]
-	retriesUsage := fmt.Sprintf("Pass --retries with a value from %d to %d", minRetries, maxRetries)
-
-	if cmd.Flags().Changed("parallel") {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Parallelism is not a workflow setting; tests already run in parallel up to your organization's concurrency limit. Run 'revyl auth billing' to view your plan.")
-		recordAppliedDefault(cmd, appliedDefault{Flag: "parallel", Value: "organization concurrency", Reason: "workflow_parallelism_ignored"})
-		if !cmd.Flags().Changed("retries") {
-			if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
-				data, _ := json.MarshalIndent(withAppliedDefaults(cmd, map[string]interface{}{}), "", "  ")
-				fmt.Println(string(data))
-			}
-			return nil
-		}
-	}
-	if !cmd.Flags().Changed("retries") {
-		return usageErrorf("--retries is required. %s", retriesUsage)
+	retriesChanged := cmd.Flags().Changed("retries")
+	concurrencyChanged := cmd.Flags().Changed("concurrency")
+	if !retriesChanged && !concurrencyChanged {
+		return usageErrorf("--retries or --concurrency is required")
 	}
 	retries, err := cmd.Flags().GetInt("retries")
 	if err != nil {
 		return err
 	}
-	if retries < minRetries || retries > maxRetries {
+	if retriesChanged && (retries < minRetries || retries > maxRetries) {
 		return usageErrorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, retries)
+	}
+	concurrency, err := cmd.Flags().GetInt("concurrency")
+	if err != nil {
+		return err
+	}
+	if concurrencyChanged && (concurrency < 0 || int64(concurrency) > 2147483647) {
+		return usageErrorf("--concurrency must be between 0 and 2147483647 (0 removes the cap)")
 	}
 
 	workflowID, client, err := wfSettingsSetupClient(cmd, nameOrID)
@@ -740,15 +745,39 @@ func runWorkflowConfigSet(cmd *cobra.Command, args []string) error {
 		return workflowConfigActionError("read", err)
 	}
 
-	wf.SetRunConfigRetries(retries)
+	request := api.WorkflowRunConfigPatch{}
+	if retriesChanged {
+		wf.SetRunConfigRetries(retries)
+		request = wf.RunConfigUpdate()
+	}
+	if concurrencyChanged {
+		wf.DefaultConcurrencyLimit = nil
+		if concurrency > 0 {
+			wf.DefaultConcurrencyLimit = &concurrency
+		}
+		request.SetConcurrencyLimit(wf.DefaultConcurrencyLimit)
+	}
 	ui.StartSpinner("Updating run config...")
-	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, wf.RunConfigUpdate())
+	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, request)
 	ui.StopSpinner()
 	if err != nil {
 		return workflowConfigActionError("write", err)
 	}
 
-	if !wf.OverrideRunConfig {
+	if concurrencyChanged {
+		saved, readErr := client.GetWorkflow(cmd.Context(), workflowID)
+		if readErr != nil {
+			return fmt.Errorf("could not confirm saved workflow concurrency; run 'revyl workflow config show' before retrying: %w", readErr)
+		}
+		expected := wf.DefaultConcurrencyLimit
+		actual := saved.DefaultConcurrencyLimit
+		if (expected == nil) != (actual == nil) || (expected != nil && actual != nil && *expected != *actual) {
+			return fmt.Errorf("server did not retain the requested workflow concurrency; check that the backend supports workflow limits and run 'revyl workflow config show'")
+		}
+		wf = saved
+	}
+
+	if retriesChanged && !wf.OverrideRunConfig {
 		fmt.Fprintln(cmd.ErrOrStderr(), "Workflow override is off: the stored retries won't apply until it is enabled; each test uses its own run config meanwhile.")
 		recordAppliedDefault(cmd, appliedDefault{Flag: "override_run_config", Value: "false", Reason: "workflow_override_disabled"})
 	}
@@ -776,7 +805,7 @@ func workflowConfigActionError(action string, err error) error {
 			if len(apiErr.ValidationIssues) > 0 {
 				field = apiErr.ValidationIssues[0].Field
 			}
-			return usageErrorf("cannot %s workflow run config: invalid %s; check 'revyl workflow config show' and retry with --retries 1-5", action, field)
+			return usageErrorf("cannot %s workflow run config: invalid %s; check 'revyl workflow config show' and retry with --retries 1-5 or --concurrency 0-2147483647", action, field)
 		}
 	}
 	if action == "read" {

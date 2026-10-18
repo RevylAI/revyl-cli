@@ -43,7 +43,7 @@ func TestWorkflowRunConfigWriteRetriesAreBounded(t *testing.T) {
 			client := NewClientWithBaseURL("test-key", server.URL)
 			client.retryBaseDelay = time.Millisecond
 			client.retryMaxDelay = time.Millisecond
-			err := client.UpdateWorkflowRunConfig(context.Background(), "wf-001", UpdateWorkflowRunConfigRequest{RunConfig: map[string]interface{}{}})
+			err := client.UpdateWorkflowRunConfig(context.Background(), "wf-001", WorkflowRunConfigPatch{RunConfig: map[string]interface{}{}})
 			want := 1
 			if status == http.StatusServiceUnavailable || status == http.StatusTooManyRequests {
 				want = DefaultMaxRetries + 1
@@ -73,7 +73,7 @@ func TestWorkflowRunConfigWriteRetriesNetworkFailure(t *testing.T) {
 	defer server.Close()
 	client := NewClientWithBaseURL("test-key", server.URL)
 	client.retryBaseDelay = time.Millisecond
-	err := client.UpdateWorkflowRunConfig(context.Background(), "wf-001", UpdateWorkflowRunConfigRequest{RunConfig: map[string]interface{}{}})
+	err := client.UpdateWorkflowRunConfig(context.Background(), "wf-001", WorkflowRunConfigPatch{RunConfig: map[string]interface{}{}})
 	if err != nil || attempts != 2 {
 		t.Fatalf("err=%v attempts=%d", err, attempts)
 	}
@@ -95,7 +95,7 @@ func TestUpdateWorkflowRunConfigRejectsNullRunConfig(t *testing.T) {
 	err := NewClientWithBaseURL("test-key", server.URL).UpdateWorkflowRunConfig(
 		context.Background(),
 		"wf-uuid-001",
-		UpdateWorkflowRunConfigRequest{OverrideRunConfig: true},
+		WorkflowRunConfigPatch{OverrideRunConfig: true},
 	)
 	if err == nil {
 		t.Fatal("expected an error for a null run_config")

@@ -72,6 +72,10 @@ Uses the saved workflow and test build selections. Default branch uses each
 app's default branch. Use --branch, --build-selection, or --all-branches to
 choose for this run only.
 
+Use --concurrency to override the saved concurrent-test cap for this run only.
+Omit it to use the saved default, or use 0 for no workflow cap. Organization
+capacity still applies.
+
 Use --build to build and upload before running.
 Use --ios-app / --android-app to override the app for all tests in the
 workflow (useful for testing a specific app across platforms).
@@ -83,6 +87,7 @@ or --launch-env to apply an inline launch value to every test in this run.
 
 EXAMPLES:
   revyl workflow run smoke-tests
+  revyl workflow run smoke-tests --concurrency 4
   revyl workflow run smoke-tests --build
   revyl workflow run smoke-tests --build --platform android
   revyl workflow run smoke-tests --android-app <app-uuid>
@@ -217,6 +222,7 @@ func init() {
 	workflowListCmd.Flags().BoolVar(&workflowListJSON, "json", false, "Output results as JSON")
 
 	// workflow run flags (reuse run.go vars)
+	workflowRunCmd.Flags().Int("concurrency", 0, "Maximum concurrent tests for this run (0 removes the workflow cap; omitted uses the saved default). Organization capacity still applies.")
 	workflowRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	workflowRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after workflow starts without waiting")
 	workflowRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete (default in interactive terminals)")

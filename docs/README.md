@@ -7,6 +7,7 @@ AI-powered mobile testing from your terminal. Create, run, and manage end-to-end
 See [docs.revyl.ai](https://docs.revyl.ai) for documentation on how to use the Revyl CLI.
 
 - [Use Revyl as device infrastructure](device-infrastructure.md)
+- [Limit concurrent workflow tests](workflow-concurrency.md)
 - [Explore from the CLI](explore.md)
 - [Upload existing builds](build-uploads.md)
 - [Build Web bundles or register preview deployments](web-builds.md)

@@ -59,6 +59,24 @@ func newWorkflowConfigServer(t *testing.T, workflowJSON string) *workflowConfigS
 				t.Errorf("read update_run_config body: %v", err)
 			}
 			server.putBodies = append(server.putBodies, body)
+			var stored, patch map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(workflowJSON), &stored); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := json.Unmarshal(body, &patch); err != nil {
+				t.Error(err)
+				return
+			}
+			for key, value := range patch {
+				stored[key] = value
+			}
+			updated, err := json.Marshal(stored)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			workflowJSON = string(updated)
 			_, _ = w.Write([]byte(`{"message":"Workflow run configuration updated successfully","data":{}}`))
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -74,7 +92,7 @@ func newWorkflowConfigSetCommand(t *testing.T, flagArgs ...string) *cobra.Comman
 	t.Helper()
 	leaf := newLeafCommand("set", runWorkflowConfigSet)
 	leaf.Flags().Int("retries", 0, "")
-	leaf.Flags().Int("parallel", 0, "")
+	leaf.Flags().Int("concurrency", 0, "")
 	if err := leaf.ParseFlags(flagArgs); err != nil {
 		t.Fatalf("parse flags %v: %v", flagArgs, err)
 	}
@@ -189,30 +207,36 @@ func TestWorkflowConfigSetStopsWhenCurrentConfigCannotBeRead(t *testing.T) {
 	}
 }
 
-func TestWorkflowConfigSetParallelIsHiddenAndAccepted(t *testing.T) {
-	if flag := workflowConfigSetCmd.Flags().Lookup("parallel"); flag == nil || !flag.Hidden {
-		t.Fatal("parallel must be hidden")
+func TestWorkflowConfigSetConcurrency(t *testing.T) {
+	if flag := workflowConfigSetCmd.Flags().Lookup("concurrency"); flag == nil || flag.Hidden {
+		t.Fatal("concurrency must be visible")
 	}
-	for _, mixed := range []bool{false, true} {
-		t.Run(strconv.FormatBool(mixed), func(t *testing.T) {
+	for _, limit := range []int{0, 3} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
 			server := newWorkflowConfigServer(t, storedWorkflowRunConfigJSON)
-			flags := []string{"--parallel", "3", "--json"}
-			if mixed {
-				flags = append(flags, "--retries", "2")
-			}
-			cmd := newWorkflowConfigSetCommand(t, flags...)
-			var notices strings.Builder
-			cmd.SetErr(&notices)
+			cmd := newWorkflowConfigSetCommand(t, "--concurrency", strconv.Itoa(limit), "--json")
 			stdout := captureStdout(t, func() {
 				if err := cmd.RunE(cmd, []string{"smoke-tests"}); err != nil {
 					t.Fatal(err)
 				}
 			})
-			if !strings.Contains(notices.String(), "revyl auth billing") || !strings.Contains(stdout, "workflow_parallelism_ignored") {
-				t.Fatalf("missing notice: %s %s", notices.String(), stdout)
+			if len(server.putBodies) != 1 {
+				t.Fatalf("puts=%d", len(server.putBodies))
 			}
-			if mixed && len(server.putBodies) != 1 || !mixed && server.requestCount != 0 {
-				t.Fatalf("requests=%d puts=%d", server.requestCount, len(server.putBodies))
+			assertRequestBodyMatchesOpenAPI(t, http.MethodPut, "/api/v1/workflows/update_run_config/{workflow_id}", server.putBodies[0])
+			body := parseJSON(t, string(server.putBodies[0]))
+			output := parseJSON(t, stdout)
+			var expected interface{}
+			if limit > 0 {
+				expected = float64(limit)
+			}
+			for _, values := range []map[string]interface{}{body, output} {
+				if value, present := values["default_concurrency_limit"]; !present || value != expected {
+					t.Fatalf("concurrency=%v, want %v", values, expected)
+				}
+			}
+			if _, present := body["run_config"]; present {
+				t.Fatalf("concurrency-only update sent run_config: %s", server.putBodies[0])
 			}
 		})
 	}
@@ -224,7 +248,7 @@ func TestWorkflowConfigSetRetriesValidation(t *testing.T) {
 		flagArgs  []string
 		wantError string
 	}{
-		{name: "missing", flagArgs: []string{"--json"}, wantError: "--retries is required"},
+		{name: "missing", flagArgs: []string{"--json"}, wantError: "--retries or --concurrency is required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := newWorkflowConfigServer(t, storedWorkflowRunConfigJSON)
@@ -268,8 +292,8 @@ func TestWorkflowConfigShowJSONReportsStoredRunConfig(t *testing.T) {
 	if output["retries"] != float64(1) || output["override_run_config"] != true {
 		t.Fatalf("config show --json = %#v, want retries 1 and override_run_config true", output)
 	}
-	if len(output) != 2 {
-		t.Fatalf("config show --json = %#v, want only retries and override_run_config", output)
+	if len(output) != 3 {
+		t.Fatalf("config show --json = %#v, want retries, override_run_config, and default_concurrency_limit", output)
 	}
 }
 

@@ -98,14 +98,18 @@ func TestWorkflowLifecycle(t *testing.T) {
 		}
 	})
 
-	step(t, "config_set_parallel_compatibility", func(st *testing.T) {
-		result := runCLI(t, "workflow", "config", "set", wfID, "--parallel", "2", "--json")
+	step(t, "config_set_concurrency", func(st *testing.T) {
+		result := runCLI(t, "workflow", "config", "set", wfID, "--concurrency", "2", "--json")
 		if result.ExitCode != 0 {
-			st.Fatalf("workflow config set --parallel failed: %s", result.Stderr)
+			st.Fatalf("workflow config set --concurrency failed: %s", result.Stderr)
 		}
-		if !strings.Contains(result.Stderr, "revyl auth billing") || !strings.Contains(result.Stdout, "workflow_parallelism_ignored") {
-			st.Fatalf("workflow config set --parallel output = %s %s, want compatibility notice", result.Stdout, result.Stderr)
+		var shown struct {
+			Limit *int `json:"default_concurrency_limit"`
 		}
+		if err := json.Unmarshal([]byte(extractJSON(result.Stdout)), &shown); err != nil || shown.Limit == nil || *shown.Limit != 2 {
+			st.Fatalf("workflow config set --concurrency did not confirm 2: %s", result.Stdout)
+		}
+
 	})
 
 	step(t, "workflow_run_no_wait", func(st *testing.T) {
