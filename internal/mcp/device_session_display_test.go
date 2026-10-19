@@ -57,7 +57,7 @@ func TestListDeviceSessionsDisplayPreservesJSON(t *testing.T) {
 			t.Cleanup(backend.Close)
 			manager := NewDeviceSessionManager(api.NewClientWithBaseURL("fixture-key", backend.URL), "")
 			manager.orgID = "fixture-org"
-			manager.sessions[0] = &DeviceSession{Index: 0, SessionID: "fixture-session", Platform: platform, StartedAt: time.Now(), LastActivity: time.Now(), IdleTimeout: time.Minute}
+			manager.sessions[0] = &DeviceSession{Index: 0, SessionID: "fixture-session", Platform: platform, StartedAt: time.Now().Add(-time.Minute), LastActivity: time.Now().Add(-time.Second), IdleTimeout: time.Minute}
 			manager.activeIndex = 0
 			srv := &Server{sessionMgr: manager}
 			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "display-test", Version: "test"}, nil)
