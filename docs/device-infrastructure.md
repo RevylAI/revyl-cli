@@ -134,6 +134,10 @@ launch-variable or deep-link preparation pipeline. Use
 already exist in the preview environment, for example seeded by the preview's
 own deploy or a test-login route.
 
+A pull request comment's Open preview link signs its Web preview in with
+the project's published `sign_in`, as mobile previews apply
+`auth_bypass`; the pull request's own config cannot change it.
+
 `path` must begin with a single `/` and cannot contain a query, fragment,
 backslash, or whitespace. It is limited to 512 characters. `persona` defaults
 to `default` and must match `[a-z0-9_-]{1,32}`. Every code expires after 120
