@@ -30,11 +30,13 @@ SUPPORTED FIELDS:
   fail-fast       Halt on first failed step or validation (true|false)
   location        Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)
   orientation     Initial device orientation (portrait|landscape)
+  disable-grid    Locate step targets without the grid overlay (true|false)
 
 EXAMPLES:
   revyl test config show login-flow
   revyl test config set login-flow fail-fast true
   revyl test config set login-flow location 37.7749,-122.4194
+  revyl test config set login-flow disable-grid true
   revyl test config unset login-flow location`,
 }
 
@@ -142,7 +144,7 @@ func runTestConfigUnset(cmd *cobra.Command, args []string) error {
 }
 
 // applyConfigSet mutates rc in-place to set the named field. Knows the
-// shape of TestRunConfig — top-level fields like fail_fast vs nested ones
+// shape of TestRunConfig — top-level fields like fail_fast and disable_grid vs nested ones
 // under execution_mode (location, orientation).
 func applyConfigSet(rc map[string]interface{}, field, value string) error {
 	switch field {
@@ -152,6 +154,12 @@ func applyConfigSet(rc map[string]interface{}, field, value string) error {
 			return fmt.Errorf("fail-fast must be true or false, got %q", value)
 		}
 		rc["fail_fast"] = b
+	case "disable-grid", "disable_grid":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("disable-grid must be true or false, got %q", value)
+		}
+		rc["disable_grid"] = b
 	case "location":
 		lat, lng, err := parseLocation(value)
 		if err != nil {
@@ -181,6 +189,8 @@ func applyConfigUnset(rc map[string]interface{}, field string) error {
 	switch field {
 	case "fail-fast", "fail_fast":
 		delete(rc, "fail_fast")
+	case "disable-grid", "disable_grid":
+		delete(rc, "disable_grid")
 	case "location":
 		if em, ok := rc["execution_mode"].(map[string]interface{}); ok {
 			delete(em, "initial_location")
@@ -207,5 +217,5 @@ func nestedExecutionMode(rc map[string]interface{}) map[string]interface{} {
 }
 
 func unknownFieldError(field string) error {
-	return fmt.Errorf("unknown field %q (supported: fail-fast, location, orientation)", field)
+	return fmt.Errorf("unknown field %q (supported: fail-fast, location, orientation, disable-grid)", field)
 }

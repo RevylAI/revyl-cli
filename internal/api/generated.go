@@ -7847,7 +7847,7 @@ type TestRunConfig struct {
 	// - FULL_RERUN: If cached run fails, rerun entire test without cache
 	CacheRetryMode *CacheRetryMode `json:"cache_retry_mode,omitempty"`
 
-	// DisableGrid Admin-only: Disable grid preprocessing for grounding
+	// DisableGrid Locate step targets on the full screenshot without the grid overlay
 	DisableGrid *bool `json:"disable_grid,omitempty"`
 
 	// DisableVideoValidation When true, skip the background video validation check on VALIDATION steps; the screenshot verdict alone decides validation outcomes.
