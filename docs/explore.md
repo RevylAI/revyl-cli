@@ -59,7 +59,7 @@ revyl explore run --platform web --idle-timeout 30m
 
 Web exploration uses the Web app's selected build and automatically applies the
 app project's `session.auth_bypass.sign_in` configuration: its sign-in path,
-stored secret name, and optional persona. The CLI does not send sign-in details.
+and stored secret name. The CLI does not send sign-in details.
 Without that configuration, exploration starts signed out. `--auth-instructions`
 provides guidance, not a replacement for configured sign-in; never put
 credentials in instructions.

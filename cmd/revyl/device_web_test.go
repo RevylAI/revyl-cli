@@ -69,7 +69,7 @@ func TestWebStartCLISendsProjectSignInWithoutSecretValue(t *testing.T) {
 	const config = "project:\n  id: 33333333-3333-4333-8333-333333333333\nsession:\n  idle_timeout_seconds: 900\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n"
 	_, startBody := runWebStartFixture(t, config)
 	web, _ := startBody["web"].(map[string]any)
-	want := map[string]any{"path": "/__e2e__/login", "persona": "default", "secret_name": "REVYL_SIGN_IN_SECRET"}
+	want := map[string]any{"path": "/__e2e__/login", "secret_name": "REVYL_SIGN_IN_SECRET"}
 	if web == nil || !reflect.DeepEqual(web["sign_in"], want) {
 		t.Fatalf("web.sign_in = %#v, want %#v", web, want)
 	}

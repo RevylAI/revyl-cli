@@ -64,7 +64,7 @@ func validateSignInNode(signIn *yaml.Node) error {
 	if err := validateMappingNode(signIn, path, true); err != nil {
 		return err
 	}
-	if err := validateAllowedKeys(signIn, path, "path", "secret", "persona"); err != nil {
+	if err := validateAllowedKeys(signIn, path, "path", "secret"); err != nil {
 		return err
 	}
 	fields := []struct {
@@ -74,7 +74,6 @@ func validateSignInNode(signIn *yaml.Node) error {
 	}{
 		{"path", true, ValidateSignInAppPath},
 		{"secret", true, ValidateLaunchVariableName},
-		{"persona", false, ValidateSignInPersona},
 	}
 	for _, field := range fields {
 		fieldPath := append(append([]string{}, path...), field.name)
@@ -97,13 +96,6 @@ func validateSignInNode(signIn *yaml.Node) error {
 
 func normalizeSession(session AuthoredSession, repositoryRelativeProjectRoot string) (AuthoredSession, error) {
 	session = cloneAuthoredSession(session)
-	if session.AuthBypass != nil && session.AuthBypass.SignIn != nil {
-		signIn := session.AuthBypass.SignIn
-		if signIn.Persona == nil {
-			persona := DefaultSignInPersona
-			signIn.Persona = &persona
-		}
-	}
 	if session.BeforeScript == nil || session.BeforeScript.ScriptPath == nil {
 		return session, nil
 	}

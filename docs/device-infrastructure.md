@@ -121,7 +121,6 @@ session:
     sign_in:
       path: /__e2e__/login
       secret: REVYL_SIGN_IN_SECRET
-      persona: default
 ```
 
 `secret` names a secret key-value launch variable in the session's organization;
@@ -139,14 +138,13 @@ the project's published `sign_in`, as mobile previews apply
 `auth_bypass`; the pull request's own config cannot change it.
 
 `path` must begin with a single `/` and cannot contain a query, fragment,
-backslash, or whitespace. It is limited to 512 characters. `persona` defaults
-to `default` and must match `[a-z0-9_-]{1,32}`. Every code expires after 120
-seconds. The app's sign-in handler chooses the destination after exchanging
+backslash, or whitespace. It is limited to 512 characters. Every code expires
+after 120 seconds. The app's sign-in handler chooses the destination after exchanging
 the code; Revyl does not send a redirect parameter.
 
 The code is an HS256 compact JWS, signed with the UTF-8 secret. Its header is
 `{"alg":"HS256","typ":"JWT"}` and its claims are `iss: "revyl"`, `aud: <build
-origin>` (lowercase, without a default port), `sub: <persona>`, integer `iat`
+origin>` (lowercase, without a default port), `sub: "default"`, integer `iat`
 and `exp: iat + 120`, and `jti` containing 16 random bytes encoded as
 unpadded base64url. The app must verify the signature, issuer, audience, and
 expiry, consume each `jti` only once, and exchange the code for its own session.

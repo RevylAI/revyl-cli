@@ -3588,9 +3588,8 @@ type AuthoredSession struct {
 // “secret“ names an org secret launch variable whose value signs the code;
 // the value itself never appears in configuration. Only Web sessions act on it.
 type AuthoredSignIn struct {
-	Path    string  `json:"path"`
-	Persona *string `json:"persona,omitempty"`
-	Secret  string  `json:"secret"`
+	Path   string `json:"path"`
+	Secret string `json:"secret"`
 }
 
 // AuthoredStrictCICheck Authored strict build-check behavior.
@@ -8193,9 +8192,8 @@ type WebSessionOptions struct {
 
 // WebSignInRequest A caller's sign-in link naming, never carrying, its org secret.
 type WebSignInRequest struct {
-	Path       string  `json:"path"`
-	Persona    *string `json:"persona,omitempty"`
-	SecretName string  `json:"secret_name"`
+	Path       string `json:"path"`
+	SecretName string `json:"secret_name"`
 }
 
 // WebViewport Portrait widths up to 600 CSS pixels use mobile layout and touch input.

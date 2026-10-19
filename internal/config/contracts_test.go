@@ -375,7 +375,7 @@ func TestCachePathsSupportHomeDirectories(t *testing.T) {
 
 func TestAuthoredContractValidatesSignInStruct(t *testing.T) {
 	path, secret := "/__e2e__/login", "REVYL_SIGN_IN_SECRET"
-	badPath, badPersona := "https://evil.test/", "Admin"
+	badPath := "https://evil.test/"
 	for _, test := range []struct {
 		name   string
 		signIn AuthoredSignIn
@@ -384,7 +384,6 @@ func TestAuthoredContractValidatesSignInStruct(t *testing.T) {
 		{"missing path", AuthoredSignIn{Secret: &secret}, "path"},
 		{"missing secret", AuthoredSignIn{Path: &path}, "secret"},
 		{"absolute path", AuthoredSignIn{Path: &badPath, Secret: &secret}, "path"},
-		{"invalid persona", AuthoredSignIn{Path: &path, Secret: &secret, Persona: &badPersona}, "persona"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			signIn := test.signIn

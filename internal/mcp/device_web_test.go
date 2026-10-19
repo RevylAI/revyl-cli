@@ -122,7 +122,7 @@ func TestWebStartResolvesOnlyURLBuildsAndSendsCanonicalRequest(t *testing.T) {
 					}
 					web, ok := body["web"].(map[string]any)
 					if mode == "sign-in" {
-						want := map[string]any{"path": "/__e2e__/login", "persona": "default", "secret_name": "REVYL_SIGN_IN_SECRET"}
+						want := map[string]any{"path": "/__e2e__/login", "secret_name": "REVYL_SIGN_IN_SECRET"}
 						if !ok || len(web) != 2 || !reflect.DeepEqual(web["sign_in"], want) {
 							t.Errorf("web options missing project sign-in: %#v", web)
 						}
@@ -206,7 +206,7 @@ func TestWebSignInFromSessionAppliesDefaultsAndCarriesOnlyTheSecretName(t *testi
 	}
 	path, secret := "/__e2e__/login", "REVYL_SIGN_IN_SECRET"
 	got := WebSignInFromSession(&config.AuthoredSession{AuthBypass: &config.AuthoredAuthBypass{SignIn: &config.AuthoredSignIn{Path: &path, Secret: &secret}}})
-	want := &api.DeviceWebSignIn{Path: path, Persona: "default", SecretName: secret}
+	want := &api.DeviceWebSignIn{Path: path, SecretName: secret}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("WebSignInFromSession() = %#v, want %#v", got, want)
 	}

@@ -61,22 +61,16 @@ type AuthoredAuthBypass struct {
 // is handed over. Secret names an org secret launch variable; its value never
 // appears in configuration. Web sessions act on it.
 type AuthoredSignIn struct {
-	Path    *string `json:"path,omitempty" yaml:"path,omitempty"`
-	Secret  *string `json:"secret,omitempty" yaml:"secret,omitempty"`
-	Persona *string `json:"persona,omitempty" yaml:"persona,omitempty"`
+	Path   *string `json:"path,omitempty" yaml:"path,omitempty"`
+	Secret *string `json:"secret,omitempty" yaml:"secret,omitempty"`
 }
 
 const (
 	maxSignInPathRunes       = 512
-	DefaultSignInPersona     = "default"
-	signInPersonaPattern     = `^[a-z0-9_-]{1,32}$`
 	launchVariableNameSyntax = `^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`
 )
 
-var (
-	signInPersonaRegexp      = regexp.MustCompile(signInPersonaPattern)
-	launchVariableNameRegexp = regexp.MustCompile(launchVariableNameSyntax)
-)
+var launchVariableNameRegexp = regexp.MustCompile(launchVariableNameSyntax)
 
 // ValidateSignInAppPath checks a relative app path on the build URL's origin.
 func ValidateSignInAppPath(value string) bool {
@@ -85,11 +79,6 @@ func ValidateSignInAppPath(value string) bool {
 		utf8.RuneCountInString(value) <= maxSignInPathRunes &&
 		!strings.ContainsAny(value, "\\#?") &&
 		strings.IndexFunc(value, func(r rune) bool { return r <= 32 || r == 127 }) < 0
-}
-
-// ValidateSignInPersona checks the opaque persona claim.
-func ValidateSignInPersona(value string) bool {
-	return signInPersonaRegexp.MatchString(value)
 }
 
 // ValidateLaunchVariableName checks an org launch-variable key reference.
@@ -114,9 +103,6 @@ func validateAuthoredSignIn(signIn *AuthoredSignIn) error {
 	}
 	if !ValidateLaunchVariableName(*signIn.Secret) {
 		return authoredContractError(field("secret"), "session.auth_bypass.sign_in.secret must name an org launch variable")
-	}
-	if signIn.Persona != nil && !ValidateSignInPersona(*signIn.Persona) {
-		return authoredContractError(field("persona"), "session.auth_bypass.sign_in.persona must match "+signInPersonaPattern)
 	}
 	return nil
 }

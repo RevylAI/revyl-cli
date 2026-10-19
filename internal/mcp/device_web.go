@@ -108,18 +108,13 @@ func ValidateWebSessionStartOptions(opts StartSessionOptions) error {
 }
 
 // WebSignInFromSession maps project session.auth_bypass.sign_in onto the web
-// start request, applying the contract defaults. Only the secret's name leaves
-// the project config.
+// start request. Only the secret's name leaves the project config.
 func WebSignInFromSession(session *config.AuthoredSession) *api.DeviceWebSignIn {
 	if session == nil || session.AuthBypass == nil || session.AuthBypass.SignIn == nil {
 		return nil
 	}
 	signIn := session.AuthBypass.SignIn
-	result := &api.DeviceWebSignIn{Path: stringValue(signIn.Path), Persona: config.DefaultSignInPersona, SecretName: stringValue(signIn.Secret)}
-	if signIn.Persona != nil {
-		result.Persona = *signIn.Persona
-	}
-	return result
+	return &api.DeviceWebSignIn{Path: stringValue(signIn.Path), SecretName: stringValue(signIn.Secret)}
 }
 
 func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts StartSessionOptions) (startdevice.ResolvedStartArtifact, error) {

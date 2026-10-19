@@ -230,8 +230,8 @@ func TestDeviceConfigContextReadsSignInWithDefaults(t *testing.T) {
 		t.Fatalf("auth_bypass = %+v, want sign_in", session.AuthBypass)
 	}
 	signIn := session.AuthBypass.SignIn
-	got := []any{*signIn.Path, *signIn.Secret, *signIn.Persona}
-	want := []any{"/__e2e__/login", "REVYL_SIGN_IN_SECRET", "default"}
+	got := []any{*signIn.Path, *signIn.Secret}
+	want := []any{"/__e2e__/login", "REVYL_SIGN_IN_SECRET"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sign_in = %v, want %v", got, want)
 	}

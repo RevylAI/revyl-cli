@@ -667,16 +667,22 @@ func normalizeSessionProjection(session AuthoredSession) map[string]any {
 			auth["deep_link"] = *session.AuthBypass.DeepLink
 		}
 		if session.AuthBypass.SignIn != nil {
-			auth["sign_in"] = signInProjection(*session.AuthBypass.SignIn)
+			signIn := signInProjection(*session.AuthBypass.SignIn)
+			signIn["persona"] = storedSignInPersona
+			auth["sign_in"] = signIn
 		}
 		result["auth_bypass"] = auth
 	}
 	return result
 }
 
+// storedSignInPersona keeps the retired persona field in the hashed sign-in
+// projection so existing project hashes match the backend's stored form.
+const storedSignInPersona = "default"
+
 func signInProjection(signIn AuthoredSignIn) map[string]any {
 	result := map[string]any{}
-	for key, value := range map[string]*string{"path": signIn.Path, "secret": signIn.Secret, "persona": signIn.Persona} {
+	for key, value := range map[string]*string{"path": signIn.Path, "secret": signIn.Secret} {
 		if value != nil {
 			result[key] = *value
 		}
@@ -692,7 +698,7 @@ func cloneAuthoredSession(session AuthoredSession) AuthoredSession {
 	if session.AuthBypass != nil {
 		result.AuthBypass = &AuthoredAuthBypass{LaunchVars: orderedUniqueStrings(session.AuthBypass.LaunchVars), DeepLink: cloneStringPointer(session.AuthBypass.DeepLink)}
 		if signIn := session.AuthBypass.SignIn; signIn != nil {
-			result.AuthBypass.SignIn = &AuthoredSignIn{Path: cloneStringPointer(signIn.Path), Secret: cloneStringPointer(signIn.Secret), Persona: cloneStringPointer(signIn.Persona)}
+			result.AuthBypass.SignIn = &AuthoredSignIn{Path: cloneStringPointer(signIn.Path), Secret: cloneStringPointer(signIn.Secret)}
 		}
 	}
 	return result

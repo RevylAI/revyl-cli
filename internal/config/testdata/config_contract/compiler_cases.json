@@ -701,7 +701,7 @@
         "repository_relative_project_root": ".",
         "execution_directory": "."
       },
-      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  idle_timeout_seconds: 900\n  auth_bypass:\n    launch_vars: [AUTH_MODE]\n    deep_link: myapp://revyl-auth?token=${AUTH_TOKEN}\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      persona: viewer\n",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  idle_timeout_seconds: 900\n  auth_bypass:\n    launch_vars: [AUTH_MODE]\n    deep_link: myapp://revyl-auth?token=${AUTH_TOKEN}\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n",
       "expected_projection": {
         "session": {
           "idle_timeout_seconds": 900,
@@ -713,7 +713,7 @@
             "sign_in": {
               "path": "/__e2e__/login",
               "secret": "REVYL_SIGN_IN_SECRET",
-              "persona": "viewer"
+              "persona": "default"
             }
           }
         },
@@ -722,7 +722,7 @@
         "review_policy": null
       },
       "expected_hashes": {
-        "project_configuration_hash": "24d0e9ffcbb255de78373e7fcb9d948269ddce31612040d64735a4d9e42fd9a2",
+        "project_configuration_hash": "5682a29c3f2ae080b26f924698f10941374775a720d89426d686552f67a34a63",
         "build_profile_hashes": {},
         "build_definition_hashes": {},
         "review_policy_hash": null
@@ -2613,11 +2613,11 @@
       }
     },
     {
-      "name": "sign_in_persona_invalid",
-      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      persona: Admin\n",
+      "name": "sign_in_persona_rejected",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  auth_bypass:\n    sign_in:\n      path: /__e2e__/login\n      secret: REVYL_SIGN_IN_SECRET\n      persona: default\n",
       "expected_error": {
         "stage": "contract",
-        "code": "invalid_contract",
+        "code": "unknown_field",
         "path": [
           "session",
           "auth_bypass",

@@ -16,7 +16,6 @@ type DeviceWebViewport struct {
 // session's sign-in code. It never carries the secret value.
 type DeviceWebSignIn struct {
 	Path       string `json:"path"`
-	Persona    string `json:"persona"`
 	SecretName string `json:"secret_name"`
 }
 
