@@ -22,4 +22,5 @@ Use this skill when execution should happen through Revyl MCP tools.
 3. Prefer one action per loop iteration unless the sequence is trivial and deterministic.
 4. If the user asks for shell-command guidance, switch to the `revyl-cli` skill family.
 5. When more than one device session may be live, including parallel agents sharing one MCP server, pass the `session_id` returned by `start_device_session` to every device tool. It never falls back to the active session.
+6. Set `REVYL_PROJECT_DIR` in the MCP server's environment, or pass `project_dir` (the customer app's directory), so runs, sessions, and uploads follow the project's Git branch. Without either, they use the app's default branch. Report `branch_name`, `build_id`, and `branch_source` from results; when `branch_source` is `default_branch` and `git_branch_name` is present, say that Git branch had no usable build and the app's default branch ran.
 

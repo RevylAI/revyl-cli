@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.176-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.177-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -129,7 +129,7 @@ it; use `-y` to stop after local config creation. Authenticated interactive setu
 can continue into `revyl github setup` after the project config has been written.
 GitLab automation is configured separately with `revyl gitlab setup`.
 When the connected provider
-can access the repository, committing that valid config to the default branch
+can access the repository, committing that valid config to the repository's default branch
 reconciles a matching server project or creates a new Git-managed project when
 its `project.id`, project root, and config path are unclaimed and its references
 are valid. Pull requests validate new configs as unpublished bootstrap candidates;
@@ -183,7 +183,7 @@ performs the same backup and replacement without trusting the stale ID.
 Project roots are immutable. Correct a mistaken root by deleting the manual project
 in the web app, creating its replacement at the intended root, then running
 `revyl -C <replacement-root> config pull`. A Git-managed project must first return to manual
-authority by removing its designated config file from the default branch; that file
+authority by removing its designated config file from the repository's default branch; that file
 removal alone preserves the project and its automation. Project deletion remains a
 web operation—there is no CLI project-delete command—and preserves the repository
 connection, GitHub installation, report destination, historical results, and work
@@ -203,7 +203,9 @@ Otherwise it prompts interactively or fails non-interactively with the valid
 choices. No profile is stored as active or default.
 
 See [Build with Revyl](docs/builds.md) for prerequisites, source uploads,
-billing, and migration guidance for existing scripts.
+billing, and migration guidance for existing scripts. Builds land on the Revyl
+branch named after your Git branch, or the app's default branch when there is
+none; see [Build branches from the CLI](docs/build-branches.md).
 
 When you're ready to run outside the dev loop:
 

@@ -198,10 +198,11 @@ type FilterAppsMsg struct {
 
 // ExecutionStartedMsg signals that a test execution has been created.
 type ExecutionStartedMsg struct {
-	TaskID   string
-	TestID   string
-	TestName string
-	Err      error
+	BranchFallbackNotice string
+	TaskID               string
+	TestID               string
+	TestName             string
+	Err                  error
 }
 
 // ExecutionProgressMsg carries an SSE progress update.
@@ -747,10 +748,11 @@ type DeviceSessionListMsg struct {
 
 // DeviceStartedMsg signals that a device session was started (workflow run created).
 type DeviceStartedMsg struct {
-	WorkflowRunID string
-	Platform      string
-	ViewerURL     string
-	Err           error
+	BranchFallbackNotice string
+	WorkflowRunID        string
+	Platform             string
+	ViewerURL            string
+	Err                  error
 }
 
 // DeviceStartAppListMsg carries the fetched app list for the device-start overlay.

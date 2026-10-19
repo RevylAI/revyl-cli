@@ -11,10 +11,14 @@ stages:
   - test
   - status
 
+# GitLab checks out a commit, not a branch, so tests saved on Default branch run
+# on the app's default branch. To test a merge request's build, upload it with
+# --branch "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" and run the returned build ID.
+
 variables:
   REVYL_INSTALL_DIR: /usr/local/bin
   # Pin to a specific release tag — update both version and checksum together.
-  REVYL_CLI_VERSION: "v0.12.0"
+  REVYL_CLI_VERSION: "v0.1.174"
   REVYL_CLI_CHECKSUM: ""  # Set to the sha256 from the checksums.txt for your platform
 
 .install-revyl: &install-revyl

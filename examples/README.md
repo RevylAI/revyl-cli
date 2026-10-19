@@ -1,8 +1,8 @@
 # Examples
 
-- **[branch-maintenance/](branch-maintenance/)** — Keep `main` or `staging` current with an exact build-to-Explore handoff from CI or Cursor automation
+- **[branch-maintenance/](branch-maintenance/)** — Keep `main` or `staging` current: upload each build, explore it and optionally test it, from CI or a cloud AI agent automation
 - **[yaml-tests/](yaml-tests/)** — YAML test format, variables, control flow, syncing
 - **[pr-review/](pr-review/)** — Ad-hoc PR testing (agent-driven and CLI-driven)
 - **[ci-github-actions/](ci-github-actions/)** — GitHub Actions workflows using `RevylAI/revyl-gh-action`
-- **[ci-generic/](ci-generic/)** — Any CI system: Screwdriver, GitLab, Jenkins, CircleCI
+- **[ci-generic/](ci-generic/)** — Any CI system: Screwdriver, GitLab, Jenkins, CircleCI, Buildkite
 - **[cursor-automation/prove-mobile-pr/](cursor-automation/prove-mobile-pr/)** — Cursor Automation prompt for BYO-CI device proof (no Revyl GitHub App)

@@ -37,8 +37,9 @@ Start with:
 
 Reads include all branches by default. Use --branch or --branch-id to narrow
 the scope, or --build to select one build. --build latest selects the newest
-usable build on the selected branch, or the app's default branch when no branch
-is given, even when the branch is pinned.`,
+usable build on the selected branch, even when the branch is pinned. With no
+branch, it uses the detected Git branch, or the app's default branch when Git
+names no branch with a usable build.`,
 	Args: cobra.NoArgs,
 	RunE: runAtlasGuide,
 }
@@ -365,12 +366,24 @@ func resolveAtlasScope(cmd *cobra.Command, client *api.Client, app *api.App) (st
 		}
 	}
 	if name != "" || (!explicitBranch && explicitBuild && (atlasBuild == "latest" || atlasBuild == "")) {
+		gitBranchName := ""
 		if !explicitBranch {
-			id = app.DefaultBranchID
+			var err error
+			gitBranchName, err = commandWorkingGitBranch(cmd)
+			if err != nil {
+				return "", "", err
+			}
 		}
-		branch, err := client.ResolveBranch(cmd.Context(), app.ID, id, name)
+		mode := api.BuildSelectionModeInherit
+		if explicitBuild && (atlasBuild == "latest" || atlasBuild == "") {
+			mode = api.BuildSelectionModeLatest
+		}
+		branch, err := client.ResolveBranchWithGitBranch(cmd.Context(), app.ID, id, name, gitBranchName, mode)
 		if err != nil {
 			return "", "", err
+		}
+		if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
+			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branch.Name))
 		}
 		id = branch.ID
 	}

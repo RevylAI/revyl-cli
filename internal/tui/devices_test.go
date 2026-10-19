@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/ui"
 )
 
 func strPtr(v string) *string {
@@ -331,7 +332,7 @@ func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
 }
 
 func TestStartDeviceSessionCmd_ResolvesBranchPolicyAndPreservesExactBuild(t *testing.T) {
-	selectBranchContextWorktree(t, "Feature/Customer")
+	selectGitBranchWorktree(t, "Feature/Customer")
 	const (
 		appID       = "app-1"
 		buildID     = "build-1"
@@ -355,10 +356,10 @@ func TestStartDeviceSessionCmd_ResolvesBranchPolicyAndPreservesExactBuild(t *tes
 			if err := json.NewDecoder(r.Body).Decode(&selection); err != nil {
 				t.Fatal(err)
 			}
-			if selection["context_branch_name"] != nil || selection["branch_name"] != nil {
+			if selection["git_branch_name"] != "Feature/Customer" || selection["branch_name"] != nil {
 				t.Errorf("device resolution lost separate context: %#v", selection)
 			}
-			_, _ = w.Write([]byte(`{"build_var_id":"` + appID + `","version_id":"` + buildID + `","download_url":"` + downloadURL + `"}`))
+			_, _ = w.Write([]byte(`{"build_var_id":"` + appID + `","version_id":"` + buildID + `","download_url":"` + downloadURL + `","branch_name":"base","branch_source":"default_branch"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/builds/"+buildID:
 			if got := r.URL.Query().Get("include_download_url"); got != "false" {
 				t.Fatalf("expected include_download_url=false, got %q", got)
@@ -386,6 +387,17 @@ func TestStartDeviceSessionCmd_ResolvesBranchPolicyAndPreservesExactBuild(t *tes
 	}
 	if capturedReq.AppID != appID || capturedReq.BuildID != buildID {
 		t.Fatalf("lost exact attribution: %#v", capturedReq)
+	}
+	if msg.BranchFallbackNotice != ui.BranchFallbackNotice("Feature/Customer", "base") {
+		t.Fatalf("missing fallback notice: %+v", msg)
+	}
+	model, _ := (hubModel{}).Update(msg)
+	updated := model.(hubModel)
+	if !strings.Contains(strings.Join(strings.Fields(updated.renderDeviceList()), " "), ui.BranchFallbackNotice("Feature/Customer", "base")) {
+		t.Fatalf("fallback not visible in device list: %s", updated.renderDeviceList())
+	}
+	if updated.resetDeviceStartOverlay().deviceStartNotice != "" {
+		t.Fatal("new start retained the previous fallback notice")
 	}
 	if capturedReq.AppURL != downloadURL {
 		t.Fatalf("app_url = %q, want %q", capturedReq.AppURL, downloadURL)

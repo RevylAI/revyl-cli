@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/sse"
 )
 
@@ -547,5 +549,102 @@ func TestRunTestKeepsItsResultWhenTheReportIsUnavailable(t *testing.T) {
 	}
 	if result.BranchName != "" || result.BuildVersion != "" || result.BuildID != "" {
 		t.Fatalf("build fields invented without a report: %+v", result)
+	}
+}
+
+func TestRunWorkflowFallbackProvenance(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                  string
+		fallback, reportFallback, reportError, noWait, cancel bool
+	}{
+		{name: "resolved status and final report", fallback: true, reportFallback: true},
+		{name: "known fallback survives older report", fallback: true},
+		{name: "known fallback survives report failure", fallback: true, reportError: true},
+		{name: "fallback first appears in final report", reportFallback: true},
+		{name: "cancelled progress retains fallback", fallback: true, reportError: true, cancel: true},
+		{name: "strict selection does not claim fallback"},
+		{name: "queued does not claim fallback", noWait: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			statusCalls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/workflow-executions":
+					_, _ = w.Write([]byte(`{"task_id":"workflow-task"}`))
+				case "/api/v1/workflows/status/workflow-task":
+					statusCalls++
+					state := "completed"
+					if tc.cancel {
+						state = "running"
+					}
+					statusChild := map[string]any{
+						"id": "child", "test_id": "test", "app_id": "app", "app_name": "Example", "build_id": "build", "branch_id": "branch", "branch_name": "base",
+					}
+					if tc.fallback {
+						statusChild["branch_source"], statusChild["git_branch_name"] = "default_branch", "feature-login"
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"status": state, "child_tasks": []any{statusChild}})
+				case "/api/v1/workflows/share/unified-report":
+					if tc.reportError {
+						http.Error(w, "unavailable", http.StatusServiceUnavailable)
+						return
+					}
+					child := map[string]any{"task_id": "child", "test_name": "Login", "status": "completed"}
+					if tc.reportFallback {
+						child["branch_source"], child["git_branch_name"] = "default_branch", "feature-login"
+						child["app_id"] = "app"
+						child["app_name"] = "Example"
+						child["branch_id"] = "branch"
+						child["branch_name"] = "base"
+						child["build_id"] = "build"
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"child_tasks": []any{child}})
+				default:
+					t.Errorf("unexpected path: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			progress := 0
+			got, err := RunWorkflow(ctx, "key", nil, RunWorkflowParams{
+				WorkflowNameOrID: "workflow", Timeout: 5, NoWait: tc.noWait, MonitoringMode: sse.MonitoringModePolling,
+				OnProgress: func(status *sse.WorkflowStatus) {
+					progress++
+					if len(status.ChildTasks) != 1 || (status.ChildTasks[0].BranchSource == api.BranchSourceDefaultBranch) != tc.fallback {
+						t.Errorf("progress=%+v", status)
+					}
+					if tc.cancel {
+						cancel()
+					}
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.noWait {
+				if len(got.Tests) != 0 || statusCalls != 0 || progress != 0 || got.Status != "queued" {
+					t.Fatalf("queued=%+v polls=%d", got, statusCalls)
+				}
+				return
+			}
+			if progress != 1 || len(got.Tests) != 1 {
+				t.Fatalf("result=%+v progress=%d", got, progress)
+			}
+			child := got.Tests[0]
+			want := tc.fallback || tc.reportFallback
+			if (child.BranchSource == api.BranchSourceDefaultBranch) != want || child.BranchSource.FellBackFromGitBranch(child.GitBranchName) != want {
+				t.Fatalf("child=%+v", child)
+			}
+			if want && (child.AppID != "app" || child.AppName != "Example" || child.BranchID != "branch" || child.BranchName != "base" || child.BuildID != "build") {
+				t.Fatalf("identity lost: %+v", child)
+			}
+			encoded, _ := json.Marshal(child)
+			if !want && strings.Contains(string(encoded), "branch_source") {
+				t.Fatalf("absent branch source serialized: %s", encoded)
+			}
+		})
 	}
 }

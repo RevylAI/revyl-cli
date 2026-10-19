@@ -142,6 +142,22 @@ func (s *Server) handleStartDevLoopCommand(
 			Error:       err.Error(),
 		}, nil
 	}
+	gitBranchName := ""
+	if input.BranchName == "" && input.BuildVersionID == "" {
+		boundProjectDir := ""
+		if input.ProjectDir != "" || s.explicitProjectDir != "" {
+			boundProjectDir = workDir
+		}
+		gitBranchName, err = s.detectGitBranch(ctx, boundProjectDir)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{
+				Success: false,
+				Outcome: outcome.Failed("dev_loop_git_branch_failed", err.Error(), false),
+				Error:   err.Error(),
+			}, nil
+		}
+	}
+	startRequest.GitBranchName = &gitBranchName
 	result, err := s.devLoopRunner.Start(ctx, workDir, startRequest)
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{

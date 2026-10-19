@@ -27,24 +27,26 @@ type LaunchVarResolver interface {
 
 // StartArtifactOptions contains optional app-selection inputs for device start.
 type StartArtifactOptions struct {
-	AppID             string
-	BranchID          string
-	BranchName        string
-	ContextBranchName string
-	BuildSelection    string
-	BuildVersionID    string
-	AppURL            string
-	AppPackage        string
+	AppID          string
+	BranchID       string
+	BranchName     string
+	GitBranchName  string
+	BuildSelection string
+	BuildVersionID string
+	AppURL         string
+	AppPackage     string
 }
 
 // ResolvedStartArtifact is the concrete app artifact payload sent to start_device.
 type ResolvedStartArtifact struct {
-	AppID      string
-	BuildID    string
-	BranchID   string
-	BranchName string
-	AppURL     string
-	AppPackage string
+	BranchSource  api.BranchSource
+	GitBranchName string
+	AppID         string
+	BuildID       string
+	BranchID      string
+	BranchName    string
+	AppURL        string
+	AppPackage    string
 }
 
 // ResolveStartArtifact resolves app-selection inputs into a concrete artifact URL.
@@ -65,7 +67,7 @@ func ResolveStartArtifact(
 		Mode: api.BuildSelectionMode(opts.BuildSelection), BuildID: artifact.BuildID,
 	}
 	if artifact.BuildID == "" && selection.BranchID == "" && selection.BranchName == "" && selection.Mode != api.BuildSelectionModeLatestAllBranches {
-		selection.ContextBranchName = opts.ContextBranchName
+		selection.GitBranchName = opts.GitBranchName
 	}
 	if selection.BranchID != "" || selection.BranchName != "" || selection.Mode != "" {
 		if err := selection.Validate(); err != nil {
@@ -118,6 +120,7 @@ func ResolveStartArtifact(
 	artifact.AppID = detail.AppID
 	artifact.BranchID = detail.BranchID
 	artifact.BranchName = detail.BranchName
+	artifact.BranchSource, artifact.GitBranchName = detail.BranchSource, detail.GitBranchName
 	artifact.AppURL = strings.TrimSpace(detail.DownloadURL)
 	if artifact.AppPackage == "" {
 		artifact.AppPackage = strings.TrimSpace(detail.PackageName)

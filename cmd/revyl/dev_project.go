@@ -13,6 +13,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -28,10 +29,13 @@ type projectDevInvocation struct {
 	AppID               string
 	BranchID            string
 	BranchName          string
+	GitBranchName       string
 	Recipe              config.EffectiveBuildRecipe
 	BuildDefinitionHash string
 	SelectionSource     string
 	Session             config.AuthoredSession
+
+	DetachedAppDefaultSelection bool
 }
 
 func projectBuildInvocationFromDev(invocation projectDevInvocation) projectBuildInvocation {
@@ -281,46 +285,60 @@ func resolveDevDestination(ctx context.Context, client *api.Client, invocation p
 	}
 	var branch *api.BuildBranch
 	var err error
+	gitBranchName := ""
+	if branchID == "" && branchName == "" {
+		if inherited, provided := os.LookupEnv(devloop.GitBranchEnvironment); provided {
+			gitBranchName = inherited
+		} else {
+			gitBranch, detectErr := buildselection.DetectGitBranch(ctx, buildselection.GitBranchOptions{WorkDir: invocation.ProjectRoot})
+			if detectErr != nil {
+				return invocation, detectErr
+			}
+			gitBranchName = gitBranch.Name
+		}
+		invocation.GitBranchName = gitBranchName
+	}
 	if allowCreate {
-		branch, err = client.ResolveUploadBranch(ctx, invocation.AppID, branchID, branchName)
+		branch, err = client.ResolveUploadBranchWithGitBranch(ctx, invocation.AppID, branchID, branchName, gitBranchName)
 	} else {
-		branch, err = client.ResolveBranch(ctx, invocation.AppID, branchID, branchName)
+		branch, err = client.ResolveBranchWithGitBranch(ctx, invocation.AppID, branchID, branchName, gitBranchName, api.BuildSelectionMode(mode))
 	}
 	if err != nil {
 		return invocation, fmt.Errorf("resolve development branch: %w", err)
 	}
+	if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
+		ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branch.Name))
+	}
 	invocation.BranchID, invocation.BranchName = branch.ID, branch.Name
+	// Capture the handoff before the detach parent exits after session readiness.
+	invocation.DetachedAppDefaultSelection = isDetachedDevAppDefault(branchID, branchName, buildID, mode)
 	return invocation, nil
 }
 
-func devSelectionIsAppDefault() bool {
-	return devStartBranch == "" && devStartBranchID == "" && devStartBuildSelection == "" && !devStartSeedLatest && strings.TrimSpace(devStartBuildVerID) == ""
+func devSelectionIsAppDefault(invocation projectDevInvocation) bool {
+	if invocation.GitBranchName != "" || devStartBranch != "" || devStartSeedLatest || strings.TrimSpace(devStartBuildVerID) != "" {
+		return false
+	}
+	return (devStartBranchID == "" && devStartBuildSelection == "") ||
+		(invocation.DetachedAppDefaultSelection && devStartBranchID == invocation.BranchID && devStartBuildSelection == string(api.BuildSelectionModeLatest))
 }
 
 func devBuildSelection(invocation projectDevInvocation) api.BuildSelection {
 	mode := api.BuildSelectionMode(devStartBuildSelection)
-	if devStartSeedLatest || devSelectionIsAppDefault() {
+	if devStartSeedLatest || devSelectionIsAppDefault(invocation) {
 		mode = api.BuildSelectionModeLatest
 	}
 	return api.BuildSelection{BranchID: invocation.BranchID, Mode: mode, BuildID: strings.TrimSpace(devStartBuildVerID)}
 }
 
-func devResolveErrorNeedsBuild(err error) bool {
+func devResolveErrorNeedsBuild(invocation projectDevInvocation, err error) bool {
 	return errors.Is(err, api.ErrBranchHasNoBuilds) ||
-		(devSelectionIsAppDefault() && errors.Is(err, api.ErrBranchHasNoCompatibleBuild))
+		(devSelectionIsAppDefault(invocation) && errors.Is(err, api.ErrBranchHasNoCompatibleBuild))
 }
 
-func selectDevStartBuild(ctx context.Context, client buildselection.BranchBuildsClient, appID string, invocation projectDevInvocation) (*api.BuildVersion, string, []string, error) {
-	var selected *api.BuildVersion
-	var source string
-	var warnings []string
-	var err error
-	if devSelectionIsAppDefault() {
-		selected, source, warnings, err = buildselection.SelectLatestBuildVersionPreferringGitBranch(ctx, client, appID, invocation.BranchID, buildselection.CurrentBranch(invocation.ProjectRoot))
-	} else {
-		selected, source, warnings, err = buildselection.SelectBuildVersion(ctx, client, appID, devBuildSelection(invocation))
-	}
-	if devResolveErrorNeedsBuild(err) {
+func selectDevStartBuild(ctx context.Context, client buildselection.ResolverClient, appID string, invocation projectDevInvocation) (*api.BuildVersion, string, []string, error) {
+	selected, source, warnings, err := buildselection.SelectBuildVersion(ctx, client, appID, devBuildSelection(invocation))
+	if devResolveErrorNeedsBuild(invocation, err) {
 		return nil, "", nil, nil
 	}
 	return selected, source, warnings, err

@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -120,6 +121,7 @@ func fetchDeviceStartAppsCmd(client *api.Client, platform string) tea.Cmd {
 //   - tea.Cmd: async command that sends DeviceStartedMsg on completion
 func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osVersion string, launchVarIDs []string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
+		branchFallbackNotice := ""
 		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 		defer cancel()
 
@@ -135,13 +137,17 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 			if len(selections) > 0 {
 				selection = selections[0]
 			}
+			selection, err := withRuntimeGitBranch(ctx, selection)
+			if err != nil {
+				return DeviceStartedMsg{Err: err}
+			}
 			resolved, err := startdevice.ResolveStartArtifact(ctx, client, startdevice.StartArtifactOptions{
-				AppID:             appID,
-				BranchID:          selection.BranchID,
-				BranchName:        selection.BranchName,
-				BuildSelection:    string(selection.Mode),
-				BuildVersionID:    selection.BuildID,
-				ContextBranchName: selection.ContextBranchName,
+				AppID:          appID,
+				BranchID:       selection.BranchID,
+				BranchName:     selection.BranchName,
+				BuildSelection: string(selection.Mode),
+				BuildVersionID: selection.BuildID,
+				GitBranchName:  selection.GitBranchName,
 			})
 			if err != nil {
 				return DeviceStartedMsg{Err: fmt.Errorf("failed to start device: %w", err)}
@@ -150,6 +156,9 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 			req.AppPackage = resolved.AppPackage
 			req.AppID = resolved.AppID
 			req.BuildID = resolved.BuildID
+			if resolved.BranchSource.FellBackFromGitBranch(selection.GitBranchName) {
+				branchFallbackNotice = ui.BranchFallbackNotice(selection.GitBranchName, resolved.BranchName)
+			}
 		}
 
 		resp, err := client.StartDevice(ctx, req)
@@ -171,9 +180,10 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 		}
 
 		return DeviceStartedMsg{
-			WorkflowRunID: resp.WorkflowRunId.String(),
-			Platform:      platform,
-			ViewerURL:     viewerURL,
+			BranchFallbackNotice: branchFallbackNotice,
+			WorkflowRunID:        resp.WorkflowRunId.String(),
+			Platform:             platform,
+			ViewerURL:            viewerURL,
 		}
 	}
 }
@@ -605,6 +615,7 @@ func (m hubModel) beginDeviceStartAppSelection() (tea.Model, tea.Cmd) {
 }
 
 func (m hubModel) resetDeviceStartOverlay() hubModel {
+	m.deviceStartNotice = ""
 	m.deviceStartPicking = false
 	m.deviceStartStep = int(deviceStartStepPlatform)
 	m.devicePlatformCursor = 0
@@ -737,6 +748,12 @@ func (m hubModel) renderDeviceList() string {
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Device sessions")
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
+	noticeHeight := 0
+	if m.deviceStartNotice != "" {
+		notice := warningStyle.Width(max(1, w-4)).MarginLeft(2).Render(m.deviceStartNotice)
+		noticeHeight = lipgloss.Height(notice)
+		b.WriteString(notice + "\n")
+	}
 
 	sessions := m.deviceSessions
 	b.WriteString(sectionStyle.Render("  Sessions") + " " + dimStyle.Render(fmt.Sprintf("%d", len(sessions))) + "\n")
@@ -756,10 +773,7 @@ func (m hubModel) renderDeviceList() string {
 		b.WriteString("  " + dimStyle.Render("No active device sessions") + "\n")
 		b.WriteString("  " + dimStyle.Render("Press 'n' to start a new device") + "\n")
 	} else {
-		maxVisible := m.height - 12
-		if maxVisible < 5 {
-			maxVisible = 5
-		}
+		maxVisible := max(1, max(5, m.height-12)-noticeHeight)
 		start, end := scrollWindow(m.deviceCursor, len(sessions), maxVisible)
 		if start > 0 {
 			b.WriteString(dimStyle.Render("  ↑ more") + "\n")

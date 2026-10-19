@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run Regression Suite
-        uses: RevylAI/revyl-gh-action/run-workflow@v2.0.5
+        uses: RevylAI/revyl-gh-action/run-workflow@main
         with:
           workflow-id: "your-regression-workflow-id" # <-- replace
           retries: 3

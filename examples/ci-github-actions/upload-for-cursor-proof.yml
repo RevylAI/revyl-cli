@@ -13,8 +13,8 @@
 # Vars:    REVYL_ANDROID_APP_ID (or REVYL_IOS_APP_ID for iOS)
 #
 # GitHub Actions GITHUB_* / event metadata is stamped automatically by
-# `revyl build upload` (see revyl-cli/internal/build/metadata.go) so Automations
-# and a `ci_upload_to_revyl` review policy can match the build to this commit / PR.
+# `revyl build upload` so Automations and a `ci_upload_to_revyl` review policy
+# can match the build to this commit / PR.
 
 name: Upload for Cursor proof
 
@@ -38,6 +38,7 @@ jobs:
           curl -fsSL https://revyl.com/install.sh | sh
           echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
+      # Lands on the PR's source branch; add --branch <name> to choose another.
       - name: Upload build to Revyl
         run: |
           revyl build upload \

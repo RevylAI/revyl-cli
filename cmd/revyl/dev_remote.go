@@ -90,7 +90,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	if err != nil {
 		return err
 	}
-	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation.BranchID); err != nil {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation); err != nil {
 		return err
 	} else if running {
 		return nil

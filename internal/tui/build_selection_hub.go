@@ -21,6 +21,7 @@ func (m hubModel) beginBuildPicker(appID, title, target, currentBranchID string)
 		return m, nil
 	}
 	picker := newBuildPicker(m.client, appID, title)
+	picker.runtime = target == "device" || target == "test-run"
 	picker.currentBranchID = currentBranchID
 	m.err = nil
 	if target == "app-filter" {

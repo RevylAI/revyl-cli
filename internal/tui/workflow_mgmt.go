@@ -162,11 +162,15 @@ func executeWorkflowCmd(client *api.Client, workflowID string, selections ...api
 		if len(selections) > 0 {
 			selection = selections[0]
 		}
+		selection, err := withRuntimeGitBranch(ctx, selection)
+		if err != nil {
+			return WorkflowExecStartedMsg{Err: err}
+		}
 		resp, err := client.ExecuteWorkflow(ctx, &api.ExecuteWorkflowRequest{
-			WorkflowID:        workflowID,
-			BranchName:        selection.BranchName,
-			BuildSelection:    selection.Mode,
-			ContextBranchName: selection.ContextBranchName,
+			WorkflowID:     workflowID,
+			BranchName:     selection.BranchName,
+			BuildSelection: selection.Mode,
+			GitBranchName:  selection.GitBranchName,
 		})
 		if err != nil {
 			return WorkflowExecStartedMsg{Err: err}
@@ -1274,6 +1278,12 @@ func renderWorkflowExecution(m hubModel) string {
 		b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render(fmt.Sprintf("Elapsed: %s", elapsed))))
 	}
 
+	notices := &ui.BranchFallbackNotices{}
+	for _, child := range status.ChildTasks {
+		if notice := notices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+			b.WriteString("\n" + lipgloss.NewStyle().Width(innerW).MarginLeft(2).Render(warningStyle.Render(notice)) + "\n")
+		}
+	}
 	// Footer
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	if m.wfExecDone {

@@ -300,7 +300,7 @@ build:
 	if captured.BuildVersionID != "uploaded-build-id" {
 		t.Fatalf("BuildVersionID = %q, want uploaded-build-id", captured.BuildVersionID)
 	}
-	if captured.ContextBranchName != "" {
+	if captured.GitBranchName != "" {
 		t.Fatalf("exact build continuation inferred again: %+v", captured)
 	}
 	for _, field := range []string{"pin", "set_as_current"} {
@@ -646,7 +646,7 @@ build:
 	}
 
 	if noWait {
-		if queuedRequest.ContextBranchName != "" {
+		if queuedRequest.GitBranchName != "" {
 			t.Fatalf("queued exact build continuation inferred again: %+v", queuedRequest)
 		}
 		if queuedRequest.BuildConfig == nil || queuedRequest.BuildConfig.AndroidBuild == nil || queuedRequest.BuildConfig.IosBuild == nil {
@@ -670,7 +670,7 @@ build:
 	if waitedParams.AndroidAppID != builtAppID || waitedParams.AndroidBuildID != uploadedBuildID {
 		t.Fatalf("waited Android override = %q/%q", waitedParams.AndroidAppID, waitedParams.AndroidBuildID)
 	}
-	if waitedParams.ContextBranchName != "" {
+	if waitedParams.GitBranchName != "" {
 		t.Fatalf("waiting exact build continuation inferred again: %+v", waitedParams)
 	}
 	if waitedParams.IOSAppID != oppositeAppID || waitedParams.IOSBuild != oppositeVersion {

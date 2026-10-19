@@ -31,5 +31,5 @@ business behavior.
 
 This script is not an Appium or Maestro adapter. The separate
 Appium subset and Maestro connection requirements are documented in the
-[Appium guide](https://docs.revyl.ai/infrastructure/appium) and
-[Maestro guide](https://docs.revyl.ai/infrastructure/maestro).
+[Appium guide](https://docs.revyl.com/infrastructure/appium) and
+[Maestro guide](https://docs.revyl.com/infrastructure/maestro).

@@ -7,15 +7,15 @@ revyl build upload --file ./Clip.app.zip --platform ios --app <app-id>
 revyl build upload --url "https://example.com/build.gz" --platform ios --app <app-id>
 ```
 
-Add `--branch staging` to select a Revyl destination branch; otherwise the upload
-uses the app default. A named destination can create the branch. Version
-labels do not select the destination.
-The destination stays fixed
-through upload finalization. Without `--pin`, an upload doesn't pin its branch:
-a branch on **Latest build** runs the new build because it is the newest, and a
-pinned branch keeps its pin. Add `--pin` to pin the branch to the new build.
-Results include `branch_id`, `branch_name`, and the exact uploaded build ID.
-See [Build branches](build-branches.md) for selection and listing commands.
+Add `--branch <name>` to choose the Revyl branch; otherwise the upload goes to
+[your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection),
+or the app's default branch when none is detected, and a missing branch is
+created. `--repo` and `--commit` that name another repository or commit stop the
+checkout from choosing the branch; pass `--branch` when the artifact wasn't
+built from this checkout. Uploads never pin; add `--pin` to make the new build
+the branch's default build. Results include `branch_id`, `branch_name`, and the
+build ID. See [Build branches from the CLI](build-branches.md).
+
 After a successful command exit, read the JSON for the upload mode:
 
 - `build upload --file ... --json`: require `.success == true` and `.count == 1`,

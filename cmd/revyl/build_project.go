@@ -25,6 +25,8 @@ import (
 type projectBuildInvocation struct {
 	BranchID            string
 	BranchName          string
+	GitBranchName       string
+	GitBranchResolved   bool
 	ProjectRoot         string
 	WorktreeRoot        string
 	ConfigPath          string
@@ -411,6 +413,10 @@ func performLocalBuild(
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
+	invocation, err = resolveLocalGitBranch(cmd, invocation)
+	if err != nil {
+		return localBuildResult{}, err
+	}
 
 	startedAt := time.Now()
 	if err := executeLocalRecipe(cmd.Context(), invocation, quiet, progress); err != nil {
@@ -596,6 +602,10 @@ func performLocalArtifactUpload(
 	if invocation.BranchID == "" && invocation.BranchName == "" {
 		invocation.BranchName, _ = cmd.Flags().GetString("branch")
 	}
+	invocation, err := resolveLocalGitBranch(cmd, invocation)
+	if err != nil {
+		return nil, err
+	}
 	if invocation.Platform == "web" {
 		return uploadLocalWebBuild(cmd, invocation, artifactPath, duration, client, pin)
 	}
@@ -616,7 +626,8 @@ func performLocalArtifactUpload(
 	}
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
 		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
-		AppID: invocation.AppID, Version: versionString, FilePath: preparedArtifact,
+		GitBranchName: invocation.GitBranchName,
+		AppID:         invocation.AppID, Version: versionString, FilePath: preparedArtifact,
 		Metadata: metadata,
 		Pin:      pin,
 	})
@@ -779,7 +790,8 @@ func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation
 	resolved := remoteBuildPlatformConfigForWorktree(invocation)
 	err = runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
 		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
-		Profile: invocation.Profile, ProjectRoot: invocation.ProjectRoot, WorktreeRoot: invocation.WorktreeRoot, Resolved: &resolved,
+		GitBranchName: invocation.GitBranchName,
+		Profile:       invocation.Profile, ProjectRoot: invocation.ProjectRoot, WorktreeRoot: invocation.WorktreeRoot, Resolved: &resolved,
 		Platform: invocation.Platform, Version: buildVersion,
 		Pin: pin, Clean: buildNoCacheFlag, JSON: jsonOutput,
 		Wait: !buildDetachFlag, IncludeDirty: true, TimeoutSeconds: effectiveRecipe.TimeoutSeconds,

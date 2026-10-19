@@ -11,7 +11,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 115
+    timeout-minutes: 150
     env:
       REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
       REVYL_APP_ID: ${{ vars.REVYL_APP_ID }}
@@ -32,6 +32,16 @@ jobs:
         run: |
           export SOURCE_SHA="$(git rev-parse HEAD)"
           python3 scripts/maintain-atlas.py
+      - name: Run tests on the same build
+        if: vars.REVYL_WORKFLOW_ID != ''
+        timeout-minutes: 35
+        env:
+          REVYL_WORKFLOW_ID: ${{ vars.REVYL_WORKFLOW_ID }}
+        run: |
+          BUILD_ID="$(jq -er '.build_id' revyl-maintenance-result.json)"
+          revyl workflow run "$REVYL_WORKFLOW_ID" --timeout 1800 \
+            "--$REVYL_PLATFORM-app" "$REVYL_APP_ID" \
+            "--$REVYL_PLATFORM-build-id" "$BUILD_ID"
       - name: Summarize
         if: always()
         run: |

@@ -41,8 +41,9 @@ test:
 
 ## Build Selection
 
-New tests use Default branch when no selector is supplied. A saved branch uses its stable
-ID, so renaming the branch does not break the test. ` + "`inherit`" + ` (Automatic) uses the
+New tests use Default branch when no selector is supplied: CLI runs use the detected Git
+branch, otherwise the app's default branch. A saved branch uses its stable ID, so renaming
+the branch does not break the test. ` + "`inherit`" + ` (Automatic) uses the
 branch's default build; ` + "`latest`" + ` uses the branch's newest build, even when the branch
 is pinned; ` + "`latest_all_branches`" + ` uses the newest build across all of the app's branches
 and takes no branch_id; ` + "`pinned`" + ` fixes the exact build ID. On updates, omitting all
@@ -369,8 +370,8 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 		"buildSelection": map[string]interface{}{
 			"fields":         []string{"branch_id", "build_selection", "pinned_build_id"},
 			"modes":          []string{"inherit", "latest", "latest_all_branches", "pinned"},
-			"allBranches":    "latest_all_branches takes no branch_id or pinned_build_id",
-			"automatic":      "No branch ID: Default branch, which follows the app default branch",
+			"allBranches":    "latest_all_branches takes no branch_id or pinned_build_id and ignores the detected Git branch",
+			"automatic":      "No branch ID: Default branch, which follows the app default branch; CLI runs try their Git branch first",
 			"updateOmission": "Omitted selector keys preserve saved settings; explicit inherit with no IDs resets to Default branch",
 			"pinned":         "Requires an exact pinned_build_id and its branch_id",
 			"legacy":         "pinned_version remains accepted alone; the server verifies older selections that pair it with an exact build against their app, branch and version",

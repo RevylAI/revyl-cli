@@ -164,7 +164,7 @@ pass `--remote`; test/workflow `--build` continuations remain local, and
 
 Use `revyl build upload` to upload an artifact produced by your own pipeline.
 To associate it with a GitHub PR, see
-[Use your own CI](https://docs.revyl.ai/integrations/github#use-your-own-ci).
+[Use your own CI](https://docs.revyl.com/integrations/github#use-your-own-ci).
 
 ## Web builds
 
@@ -176,29 +176,13 @@ See [Web builds](web-builds.md) for recipes and runtime variable names.
 
 ## Build branches and defaults
 
-Builds upload to the app's default branch unless you pass `--branch <name>`.
-Pass it in automation that must keep uploading to one branch, such as
-`--branch base`, even if the default changes. Generated version labels don't
-choose the branch.
-Each branch either follows **Latest build**, so runs use its newest build, or is
-pinned to one build. Without `--pin`, an upload doesn't pin its branch: a branch
-on Latest build runs the new build because it is the newest, and a pinned
-branch keeps its pin. Pin with `revyl app branch pin` or upload with `--pin`.
-For a reproducible run, pass the returned build ID.
-
-Apps created before branches started with `base` pinned to the build they ran.
-When uploads stopped pinning, every branch pinned to its newest usable build
-moved to **Latest build**, so those branches now run each new upload. Pin a
-branch again to keep it on one build.
-
-Run `revyl build which --app "My App"` to inspect app-level branch and build
-selection before a run. See [Inspect the selected build](build-branches.md#inspect-the-selected-build)
-for `--branch`, `--json`, and how this differs from saved test/workflow choices.
-
-See [Build branches](build-branches.md) for branch management, saved test and
-workflow selections, and Atlas scope.
-To keep `main` or `staging` mapped after merges or on a schedule, use the
-[build-and-explore recipes](explore.md#keep-main-or-staging-current).
+`revyl build` uploads to `--branch`, otherwise your Git branch (created if
+needed), otherwise the app's default branch. Uploads never pin; pass `--pin` to
+make the new build the branch's default build. In automation that must keep
+uploading to the app's default branch, pass `--branch` with its name. See
+[Build branches from the CLI](build-branches.md), and use the
+[build-and-explore recipes](explore.md#keep-main-or-staging-current) to keep
+`main` or `staging` mapped.
 
 ## Migrating existing local builds
 

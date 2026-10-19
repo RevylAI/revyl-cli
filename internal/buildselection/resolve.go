@@ -58,7 +58,11 @@ func findGitBranchBuild(ctx context.Context, client BranchBuildsClient, appID, b
 }
 
 func SelectPreferredBuildVersion(ctx context.Context, client ResolverClient, appID, workDir string) (*api.BuildVersion, string, []string, error) {
-	return SelectBuildVersion(ctx, client, appID, api.BuildSelection{})
+	gitBranch, err := DetectGitBranch(ctx, GitBranchOptions{WorkDir: workDir})
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return SelectBuildVersion(ctx, client, appID, api.BuildSelection{GitBranchName: gitBranch.Name})
 }
 
 func SelectPreferredBuildVersionForBranch(ctx context.Context, client ResolverClient, appID, branchName string) (*api.BuildVersion, string, []string, error) {
@@ -75,8 +79,8 @@ func SelectBuildVersion(ctx context.Context, client ResolverClient, appID string
 		source = "exact_build"
 	} else if selection.BranchID != "" || selection.BranchName != "" {
 		source = "explicit_branch"
-	} else if selection.ContextBranchName != "" {
-		source = "context_branch"
+	} else if selection.GitBranchName != "" {
+		source = "git_branch"
 	}
 	return detail.BuildVersion(), source, nil, nil
 }
@@ -90,7 +94,7 @@ func CurrentBranch(workDir string) string {
 
 	ctx, cancel := context.WithTimeout(context.Background(), branchDetectionTimeout)
 	defer cancel()
-	branch, ok, _ := runContextGit(ctx, workDir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	branch, ok, _ := runDetectionGit(ctx, workDir, "symbolic-ref", "--quiet", "--short", "HEAD")
 	if !ok {
 		return ""
 	}

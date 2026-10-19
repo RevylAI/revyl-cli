@@ -136,6 +136,46 @@ func TestResolveBuildSelectionNamesTheBranchAndAppWithoutBuilds(t *testing.T) {
 	}
 }
 
+func TestResolveBuildSelectionErrorPreservesGitFallbackGitBranch(t *testing.T) {
+	for _, test := range []struct {
+		status, suffix string
+		sentinel       error
+	}{
+		{"branch_has_no_builds", "has no builds; upload a build to it first", ErrBranchHasNoBuilds},
+		{"no_compatible_build", "has no usable build; upload one to it or choose another branch", ErrBranchHasNoCompatibleBuild},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"build_var_id": "app", "app_name": "My App", "branch_id": branchTestID,
+					"branch_name": "base", "resolution_status": test.status,
+					"branch_source": "default_branch", "git_branch_name": "feature/login",
+				})
+			}))
+			defer server.Close()
+
+			_, err := NewClientWithBaseURL("test", server.URL).ResolveBuildSelection(
+				context.Background(), "app", BuildSelection{GitBranchName: "feature/login"},
+			)
+			if err == nil {
+				t.Fatal("expected resolution error")
+			}
+			var branchErr *BranchError
+			if !errors.As(err, &branchErr) {
+				t.Fatalf("error = %v, want BranchError", err)
+			}
+			if branchErr.GitBranchName != "feature/login" || !errors.Is(err, test.sentinel) {
+				t.Fatalf("fallback context = %+v, want the detected Git branch and %v", branchErr, test.sentinel)
+			}
+			want := `Git branch "feature/login" was unavailable; app default branch "base" on "My App" ` + test.suffix
+			if got := err.Error(); got != want {
+				t.Fatalf("error = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestBranchErrorNamesWhatTheCallerKnows(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -345,5 +385,23 @@ func TestBranchListKeepsDefaultMarkerOnlyWhereTheAPIReturnsIt(t *testing.T) {
 	}
 	if !bytes.Contains(listed, []byte(`"is_default":false`)) || bytes.Contains(single, []byte("is_default")) {
 		t.Fatalf("listed=%s single=%s", listed, single)
+	}
+}
+
+func TestBranchSourceFellBackFromGitBranch(t *testing.T) {
+	for _, test := range []struct {
+		source        BranchSource
+		gitBranchName string
+		want          bool
+	}{
+		{BranchSourceDefaultBranch, "feature/login", true},
+		{BranchSourceDefaultBranch, "", false},
+		{BranchSourceGitBranch, "feature/login", false},
+		{BranchSourceExplicitBranch, "feature/login", false},
+		{"", "feature/login", false},
+	} {
+		if got := test.source.FellBackFromGitBranch(test.gitBranchName); got != test.want {
+			t.Errorf("%q.FellBackFromGitBranch(%q) = %t, want %t", test.source, test.gitBranchName, got, test.want)
+		}
 	}
 }

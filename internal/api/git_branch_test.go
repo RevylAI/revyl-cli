@@ -11,23 +11,39 @@ import (
 	"testing"
 )
 
-func TestContextBranchLookupPrecedence(t *testing.T) {
+func TestGitBranchLookupPrecedence(t *testing.T) {
 	for _, tc := range []struct {
 		name, id, branch, hint, expected string
-		missing, upload, fail            bool
+		missing, upload, fail, fallback  bool
 	}{
 		{name: "context", hint: "Feature/日本語", expected: "Feature/日本語"},
 		{name: "explicit name", branch: "main", hint: " invalid ", expected: "main"},
 		{name: "explicit ID", id: branchTestID, hint: " invalid "},
-		{name: "missing read", hint: "feature", expected: "feature", missing: true, fail: true},
+		{name: "missing read", hint: "feature", expected: "base", fallback: true},
+		{name: "empty read", hint: "empty", expected: "base", fallback: true},
+		{name: "invalid read", hint: " invalid ", expected: "base", fallback: true},
+		{name: "missing explicit", branch: "feature", expected: "feature", missing: true, fail: true},
 		{name: "missing upload", hint: "feature", expected: "feature", missing: true, upload: true},
-		{name: "unsupported", hint: " invalid ", fail: true},
+		{name: "invalid upload", hint: " invalid ", upload: true, fail: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls, creates := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/api/v1/apps/resolve" {
+					var body buildResolutionRequest
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if tc.upload || tc.id != "" || tc.branch != "" || body.GitBranchName != tc.hint || body.BranchName != "" {
+						t.Errorf("wrong inferred resolution: %+v", body)
+					}
+					source := BranchSourceGitBranch
+					if tc.fallback {
+						source = BranchSourceDefaultBranch
+					}
+					_ = json.NewEncoder(w).Encode(buildResolutionResult{BranchID: branchTestID, BranchName: tc.expected, BranchSource: source, GitBranchName: tc.hint})
+					return
+				}
 				if r.Method == http.MethodPost {
 					creates++
 					var body map[string]string
@@ -38,11 +54,8 @@ func TestContextBranchLookupPrecedence(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(BuildBranch{ID: branchTestID, Name: tc.expected})
 					return
 				}
-				if tc.id != "" {
-					if r.URL.Path != "/api/v1/apps/app/branches/"+tc.id {
-						t.Errorf("wrong ID lookup %s", r.URL.Path)
-					}
-					_ = json.NewEncoder(w).Encode(BuildBranch{ID: tc.id})
+				if r.URL.Path == "/api/v1/apps/app/branches/"+branchTestID {
+					_ = json.NewEncoder(w).Encode(BuildBranch{ID: branchTestID, Name: tc.expected})
 					return
 				}
 				if r.URL.Query().Get("name") != tc.expected {
@@ -56,23 +69,24 @@ func TestContextBranchLookupPrecedence(t *testing.T) {
 			}))
 			defer server.Close()
 			client := NewClientWithBaseURL("test", server.URL)
+			var branch *BuildBranch
 			var err error
 			if tc.upload {
-				_, err = client.ResolveUploadBranchWithContext(context.Background(), "app", tc.id, tc.branch, tc.hint)
+				branch, err = client.ResolveUploadBranchWithGitBranch(context.Background(), "app", tc.id, tc.branch, tc.hint)
 			} else {
-				_, err = client.ResolveBranchWithContext(context.Background(), "app", tc.id, tc.branch, tc.hint)
+				branch, err = client.ResolveBranchWithGitBranch(context.Background(), "app", tc.id, tc.branch, tc.hint)
 			}
 			if (err != nil) != tc.fail {
 				t.Fatalf("error=%v", err)
 			}
-			if tc.fail && !strings.Contains(err.Error(), "--branch") {
-				t.Errorf("missing remedy %v", err)
-			}
-			if tc.missing && !tc.upload && (!errors.Is(err, ErrBranchNotFound) || err.Error() != `branch "feature" from Git doesn't exist; upload a build or select another branch with --branch`) {
+			if tc.name == "missing explicit" && (!errors.Is(err, ErrBranchNotFound) || err.Error() != `branch "feature" doesn't exist`) {
 				t.Errorf("wrong missing error %v", err)
 			}
-			if tc.name == "unsupported" && calls != 0 {
-				t.Error("unsupported context reached API")
+			if tc.name == "invalid upload" && (calls != 0 || !strings.Contains(err.Error(), "--branch")) {
+				t.Errorf("invalid upload reached API: calls=%d, err=%v", calls, err)
+			}
+			if branch != nil && (branch.Name != tc.expected || branch.BranchSource.FellBackFromGitBranch(branch.GitBranchName) != tc.fallback) {
+				t.Errorf("wrong resolved branch: %+v", branch)
 			}
 			if (creates > 0) != (tc.missing && tc.upload) {
 				t.Errorf("unexpected creates %d", creates)
@@ -81,7 +95,7 @@ func TestContextBranchLookupPrecedence(t *testing.T) {
 	}
 }
 
-func TestBuildResolutionPreservesRawContextAndExactIntent(t *testing.T) {
+func TestBuildResolutionPreservesRawGitBranchAndExactIntent(t *testing.T) {
 	for _, exact := range []bool{false, true} {
 		t.Run(map[bool]string{false: "automatic latest", true: "exact"}[exact], func(t *testing.T) {
 			hint := strings.Repeat("界", 300)
@@ -90,7 +104,7 @@ func TestBuildResolutionPreservesRawContextAndExactIntent(t *testing.T) {
 				if r.URL.Path == "/api/v1/apps/resolve" {
 					var body map[string]interface{}
 					_ = json.NewDecoder(r.Body).Decode(&body)
-					if body["context_branch_name"] != hint {
+					if body["git_branch_name"] != hint {
 						t.Error("raw context changed")
 					}
 					if _, ok := body["branch_name"]; ok {
@@ -103,25 +117,29 @@ func TestBuildResolutionPreservesRawContextAndExactIntent(t *testing.T) {
 					} else if body["build_selection"] != "latest" {
 						t.Error("latest lost")
 					}
-					_ = json.NewEncoder(w).Encode(map[string]interface{}{"version_id": buildTestID, "branch_id": branchTestID, "download_url": "https://example.com/artifact"})
+					resolution := map[string]interface{}{"version_id": buildTestID, "branch_id": branchTestID, "download_url": "https://example.com/artifact"}
+					if !exact {
+						resolution["branch_source"], resolution["git_branch_name"] = "default_branch", hint
+					}
+					_ = json.NewEncoder(w).Encode(resolution)
 					return
 				}
 				_ = json.NewEncoder(w).Encode(BuildVersionDetail{ID: buildTestID})
 			}))
 			defer server.Close()
-			selection := BuildSelection{ContextBranchName: hint, Mode: BuildSelectionModeLatest}
+			selection := BuildSelection{GitBranchName: hint, Mode: BuildSelectionModeLatest}
 			if exact {
 				selection.Mode = BuildSelectionModePinned
 				selection.BuildID = buildTestID
 			}
-			if _, err := NewClientWithBaseURL("test", server.URL).ResolveBuildSelection(context.Background(), "app", selection); err != nil {
-				t.Fatal(err)
+			if result, err := NewClientWithBaseURL("test", server.URL).ResolveBuildSelection(context.Background(), "app", selection); err != nil || result.BranchSource.FellBackFromGitBranch(result.GitBranchName) != !exact {
+				t.Fatalf("resolution marker lost: %+v, %v", result, err)
 			}
 		})
 	}
 }
 
-func TestRuntimeContextTransportRemainsSeparateAndOptional(t *testing.T) {
+func TestRuntimeGitBranchTransportRemainsSeparateAndOptional(t *testing.T) {
 	for _, hint := range []string{"", "feature/日本語", " invalid "} {
 		for _, endpoint := range []string{"test", "workflow", "device", "url-upload"} {
 			t.Run(endpoint+"/"+hint, func(t *testing.T) {
@@ -130,7 +148,7 @@ func TestRuntimeContextTransportRemainsSeparateAndOptional(t *testing.T) {
 					calls++
 					var body map[string]interface{}
 					_ = json.NewDecoder(r.Body).Decode(&body)
-					if value, present := body["context_branch_name"]; present != (hint != "") || present && value != hint {
+					if value, present := body["git_branch_name"]; present != (hint != "") || present && value != hint {
 						t.Errorf("wrong hint %#v", body)
 					}
 					for _, key := range []string{"branch_id", "branch_name", "build_selection", "pinned_build_id"} {
@@ -147,13 +165,13 @@ func TestRuntimeContextTransportRemainsSeparateAndOptional(t *testing.T) {
 				var err error
 				switch endpoint {
 				case "test":
-					_, err = client.ExecuteTest(ctx, &ExecuteTestRequest{TestID: "test", ContextBranchName: hint})
+					_, err = client.ExecuteTest(ctx, &ExecuteTestRequest{TestID: "test", GitBranchName: hint})
 				case "workflow":
-					_, err = client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{WorkflowID: "workflow", ContextBranchName: hint})
+					_, err = client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{WorkflowID: "workflow", GitBranchName: hint})
 				case "device":
-					_, err = client.StartDevice(ctx, &StartDeviceRequest{AppID: "app", ContextBranchName: hint})
+					_, err = client.StartDevice(ctx, &StartDeviceRequest{AppID: "app", GitBranchName: hint})
 				case "url-upload":
-					_, err = client.CreateBuildFromURL(ctx, &CreateBuildFromURLRequest{AppID: "app", ContextBranchName: hint})
+					_, err = client.CreateBuildFromURL(ctx, &CreateBuildFromURLRequest{AppID: "app", GitBranchName: hint})
 				}
 				if err != nil || calls != 1 {
 					t.Fatalf("calls=%d error=%v", calls, err)
@@ -163,11 +181,11 @@ func TestRuntimeContextTransportRemainsSeparateAndOptional(t *testing.T) {
 	}
 }
 
-func TestContextBoundsAndResumeIdentity(t *testing.T) {
-	if err := (BuildSelection{ContextBranchName: strings.Repeat("界", MaxContextBranchNameLength)}).Validate(); err != nil {
+func TestGitBranchBoundsAndResumeIdentity(t *testing.T) {
+	if err := (BuildSelection{GitBranchName: strings.Repeat("界", MaxGitBranchNameLength)}).Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := (BuildSelection{ContextBranchName: strings.Repeat("界", MaxContextBranchNameLength+1)}).Validate(); err == nil {
+	if err := (BuildSelection{GitBranchName: strings.Repeat("界", MaxGitBranchNameLength+1)}).Validate(); err == nil {
 		t.Fatal("oversize accepted")
 	}
 	key := func(id, name, hint string) string {
@@ -185,7 +203,7 @@ func TestContextBoundsAndResumeIdentity(t *testing.T) {
 	}
 }
 
-func TestContextUploadFinalizationUsesOnlyFrozenUpload(t *testing.T) {
+func TestGitBranchUploadFinalizationUsesOnlyFrozenUpload(t *testing.T) {
 	artifact := writeTestArtifact(t)
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +212,7 @@ func TestContextUploadFinalizationUsesOnlyFrozenUpload(t *testing.T) {
 		case "/api/v1/apps/app/builds/upload-session":
 			var body map[string]interface{}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["context_branch_name"] != "feature" {
+			if body["git_branch_name"] != "feature" {
 				t.Error("missing upload context")
 			}
 			if _, ok := body["branch_name"]; ok {
@@ -206,7 +224,7 @@ func TestContextUploadFinalizationUsesOnlyFrozenUpload(t *testing.T) {
 		case "/api/v1/apps/app/builds":
 			var body map[string]interface{}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			for _, key := range []string{"context_branch_name", "branch_name", "branch_id"} {
+			for _, key := range []string{"git_branch_name", "branch_name", "branch_id"} {
 				if _, ok := body[key]; ok {
 					t.Errorf("finalization reselects: %s", key)
 				}
@@ -220,7 +238,7 @@ func TestContextUploadFinalizationUsesOnlyFrozenUpload(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	result, err := NewClientWithBaseURL("test", server.URL).UploadBuild(context.Background(), &UploadBuildRequest{AppID: "app", Version: "v1", FilePath: artifact, ContextBranchName: "feature"})
+	result, err := NewClientWithBaseURL("test", server.URL).UploadBuild(context.Background(), &UploadBuildRequest{AppID: "app", Version: "v1", FilePath: artifact, GitBranchName: "feature"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +247,7 @@ func TestContextUploadFinalizationUsesOnlyFrozenUpload(t *testing.T) {
 	}
 }
 
-func TestContextUploadDoesNotFallBackToLegacyBackend(t *testing.T) {
+func TestGitBranchUploadDoesNotFallBackToLegacyBackend(t *testing.T) {
 	for _, multipart := range []bool{false, true} {
 		t.Run(map[bool]string{false: "single", true: "multipart"}[multipart], func(t *testing.T) {
 			if multipart {
@@ -247,13 +265,13 @@ func TestContextUploadDoesNotFallBackToLegacyBackend(t *testing.T) {
 				}
 				var body map[string]interface{}
 				_ = json.NewDecoder(r.Body).Decode(&body)
-				if body["context_branch_name"] != "feature" {
+				if body["git_branch_name"] != "feature" {
 					t.Error("context omitted from start")
 				}
 				http.Error(w, "not supported", http.StatusMethodNotAllowed)
 			}))
 			defer server.Close()
-			_, err := NewClientWithBaseURL("test", server.URL).UploadBuild(context.Background(), &UploadBuildRequest{AppID: "app", Version: "v1", FilePath: writeTestArtifact(t), ContextBranchName: "feature"})
+			_, err := NewClientWithBaseURL("test", server.URL).UploadBuild(context.Background(), &UploadBuildRequest{AppID: "app", Version: "v1", FilePath: writeTestArtifact(t), GitBranchName: "feature"})
 			if err == nil || !strings.Contains(err.Error(), "does not support branch upload destinations") || calls != 1 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
@@ -261,7 +279,7 @@ func TestContextUploadDoesNotFallBackToLegacyBackend(t *testing.T) {
 	}
 }
 
-func TestContextMultipartResumeRetainsFrozenDestination(t *testing.T) {
+func TestGitBranchMultipartResumeRetainsFrozenDestination(t *testing.T) {
 	withMultipartThreshold(t, 1)
 	artifact := writeTestArtifact(t)
 	info, err := os.Stat(artifact)
@@ -280,7 +298,7 @@ func TestContextMultipartResumeRetainsFrozenDestination(t *testing.T) {
 		}
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		for _, key := range []string{"branch_id", "branch_name", "context_branch_name"} {
+		for _, key := range []string{"branch_id", "branch_name", "git_branch_name"} {
 			if _, ok := body[key]; ok {
 				t.Errorf("resume must use upload identity: %s", key)
 			}
@@ -298,7 +316,7 @@ func TestContextMultipartResumeRetainsFrozenDestination(t *testing.T) {
 	if err := client.writeResumableUploadState(key, &resumableUploadState{UploadID: "frozen-upload", S3UploadID: "s3", FileSize: info.Size(), FileHash: hash, Assembled: true}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.UploadBuild(context.Background(), &UploadBuildRequest{AppID: "app", Version: "v1", FilePath: artifact, BranchID: branchTestID, ContextBranchName: "changed-git-branch"})
+	result, err := client.UploadBuild(context.Background(), &UploadBuildRequest{AppID: "app", Version: "v1", FilePath: artifact, BranchID: branchTestID, GitBranchName: "changed-git-branch"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,8 +328,8 @@ func TestContextMultipartResumeRetainsFrozenDestination(t *testing.T) {
 	}
 }
 
-func TestOversizeContextFailsBeforeAnyRuntimeOrUploadRequest(t *testing.T) {
-	hint := strings.Repeat("x", MaxContextBranchNameLength+1)
+func TestOversizeGitBranchFailsBeforeAnyRuntimeOrUploadRequest(t *testing.T) {
+	hint := strings.Repeat("x", MaxGitBranchNameLength+1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("oversize context reached backend: %s", r.URL.Path)
 		w.WriteHeader(http.StatusBadRequest)
@@ -321,23 +339,23 @@ func TestOversizeContextFailsBeforeAnyRuntimeOrUploadRequest(t *testing.T) {
 	ctx := context.Background()
 	for name, call := range map[string]func() error{
 		"test": func() error {
-			_, err := client.ExecuteTest(ctx, &ExecuteTestRequest{ContextBranchName: hint})
+			_, err := client.ExecuteTest(ctx, &ExecuteTestRequest{GitBranchName: hint})
 			return err
 		},
 		"workflow": func() error {
-			_, err := client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{ContextBranchName: hint})
+			_, err := client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{GitBranchName: hint})
 			return err
 		},
 		"device": func() error {
-			_, err := client.StartDevice(ctx, &StartDeviceRequest{ContextBranchName: hint})
+			_, err := client.StartDevice(ctx, &StartDeviceRequest{GitBranchName: hint})
 			return err
 		},
 		"upload": func() error {
-			_, err := client.UploadBuild(ctx, &UploadBuildRequest{ContextBranchName: hint})
+			_, err := client.UploadBuild(ctx, &UploadBuildRequest{GitBranchName: hint})
 			return err
 		},
 		"url upload": func() error {
-			_, err := client.CreateBuildFromURL(ctx, &CreateBuildFromURLRequest{ContextBranchName: hint})
+			_, err := client.CreateBuildFromURL(ctx, &CreateBuildFromURLRequest{GitBranchName: hint})
 			return err
 		},
 	} {
@@ -352,5 +370,31 @@ func TestOversizeContextFailsBeforeAnyRuntimeOrUploadRequest(t *testing.T) {
 	}
 	if _, err := client.ExecuteWorkflow(ctx, nil); err == nil {
 		t.Error("nil workflow request accepted")
+	}
+}
+
+func TestGitBranchResolutionKeepsLatestPinBypass(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/apps/resolve" {
+			var request buildResolutionRequest
+			_ = json.NewDecoder(r.Body).Decode(&request)
+			if request.BuildSelection != BuildSelectionModeLatest {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"detail":"Branch pinned build is unavailable"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(buildResolutionResult{BranchID: branchTestID})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(BuildBranch{ID: branchTestID, Name: "feature"})
+	}))
+	defer server.Close()
+	client := NewClientWithBaseURL("test", server.URL)
+	if _, err := client.ResolveBranchWithGitBranch(context.Background(), "app", "", "", "feature"); err == nil {
+		t.Fatal("inherit ignored an unavailable pin")
+	}
+	if branch, err := client.ResolveBranchWithGitBranch(context.Background(), "app", "", "", "feature", BuildSelectionModeLatest); err != nil || branch.ID != branchTestID {
+		t.Fatalf("latest did not bypass pin: %+v, %v", branch, err)
 	}
 }

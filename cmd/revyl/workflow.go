@@ -67,35 +67,18 @@ var workflowRunCmd = &cobra.Command{
 	Use:   "run <name|id>",
 	Short: "Run a workflow by name or ID",
 	Long: `Run a workflow by its exact organization name or UUID.
-
-Uses the saved workflow and test build selections. Default branch uses each
-app's default branch. Use --branch, --build-selection, or --all-branches to
-choose for this run only.
-
-Use --concurrency to override the saved concurrent-test cap for this run only.
-Omit it to use the saved default, or use 0 for no workflow cap. Organization
+Selection flags override saved workflow/test choices for this run only.
+Build selection and Git fallback are resolved separately for each app.
+Use --concurrency to override the saved concurrent-test cap for this run only;
+omit it to use the saved default, or use 0 for no workflow cap. Organization
 capacity still applies.
-
 Use --build to build and upload before running.
-Use --ios-app / --android-app to override the app for all tests in the
-workflow (useful for testing a specific app across platforms).
-Use --ios-build / --android-build to run one exact build version of that app
-instead of the selected branch's default build; each needs the matching app
-override.
-Use --launch-var to apply a stored organization launch variable to every test,
-or --launch-env to apply an inline launch value to every test in this run.
 
-EXAMPLES:
-  revyl workflow run smoke-tests
-  revyl workflow run smoke-tests --concurrency 4
-  revyl workflow run smoke-tests --build
-  revyl workflow run smoke-tests --build --platform android
-  revyl workflow run smoke-tests --android-app <app-uuid>
-  revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>
-  revyl workflow run smoke-tests --ios-app <app-uuid> --ios-build 1.4.2
-  revyl workflow run smoke-tests --launch-var API_URL --launch-env DEBUG=true
-  revyl workflow run smoke-tests --var pr-preview-link=<deep-link>`,
+` + runtimeBuildSelectionHelp,
 	Example: `  revyl workflow run smoke-tests
+  revyl workflow run smoke-tests --concurrency 4
+  revyl workflow run smoke-tests --branch staging
+  revyl workflow run smoke-tests --all-branches
   revyl workflow run smoke-tests --build
   revyl workflow run smoke-tests --json --no-wait`,
 	Args: cobra.ExactArgs(1),
@@ -260,8 +243,8 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "no-inherited-launch-vars")
 	analytics.MarkFlagValue(workflowRunCmd, "var")
 
-	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for each effective app in this run")
-	workflowRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "Build choice for this run: inherit (Automatic: the branch's default build) or latest")
+	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for each app (overrides saved selection; default: Git, then app default)")
+	workflowRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin)")
 	workflowRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	analytics.MarkFlagValue(workflowRunCmd, allBranchesFlagName)
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSBuildID, "ios-build-id", "", "Exact iOS build ID (requires --ios-app)")

@@ -24,11 +24,12 @@ Copy-paste workflows for running Revyl tests in GitHub Actions using [RevylAI/re
 For the Cursor Automation that proves the uploaded build, see
 [`../cursor-automation/prove-mobile-pr/`](../cursor-automation/prove-mobile-pr/).
 
-Build-to-test examples pass the returned exact build ID, so branch pins or other
-uploads cannot change the artifact under test. Use `--branch <name>` to select
-the upload destination explicitly; see [build branches](../../docs/build-branches.md)
-for Default branch selection rules. To refresh a shared `main` or `staging` Atlas
-after merges or weekly, use [branch maintenance](../branch-maintenance/).
+Uploads without `--branch` go to the pull request's source branch, created if
+needed. Build-to-test examples pass the returned build ID, so the run tests that
+exact build wherever it landed. See
+[Choose where CI uploads go](https://docs.revyl.com/builds/ci-builds#choose-where-ci-uploads-go).
+To refresh a shared `main` or `staging` Atlas after merges or weekly, use
+[branch maintenance](../branch-maintenance/).
 
 ## Finding your IDs
 

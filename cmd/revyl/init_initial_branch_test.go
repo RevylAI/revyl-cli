@@ -209,7 +209,7 @@ func TestInitFirstBuildRoutesPreserveInitialBranchWithoutPinning(t *testing.T) {
 					}
 					for range wantUploads {
 						request := <-requests
-						if request.ContextBranchName != nil || stringValue(request.BranchName) != explicit {
+						if request.GitBranchName != nil || stringValue(request.BranchName) != explicit {
 							t.Fatalf("unexpected branch name or context: %+v", request)
 						}
 						if !linked && explicit == "" {
@@ -224,7 +224,7 @@ func TestInitFirstBuildRoutesPreserveInitialBranchWithoutPinning(t *testing.T) {
 					if finalization["upload_id"] != uploadID {
 						t.Fatalf("init lost frozen upload provenance: %+v", finalization)
 					}
-					for _, field := range []string{"pin", "set_as_current", "branch_id", "branch_name", "context_branch_name"} {
+					for _, field := range []string{"pin", "set_as_current", "branch_id", "branch_name", "git_branch_name"} {
 						if _, sent := finalization[field]; sent {
 							t.Fatalf("init finalization sent %s; it must neither pin nor reselect its branch: %+v", field, finalization)
 						}

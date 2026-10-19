@@ -27,11 +27,19 @@ type BranchError struct {
 	AppName string
 	// FromGit marks a branch named after the checked-out Git branch.
 	FromGit bool
+	// GitBranchName is the detected Git branch that was tried before the
+	// app's default branch. It is set only when the server reports that the
+	// app's default branch replaced it, including when that branch also fails.
+	GitBranchName string
 }
 
 func (e *BranchError) Unwrap() error { return e.Err }
 
 func (e *BranchError) Error() string {
+	if e.GitBranchName != "" && e.BranchName != "" && e.GitBranchName != e.BranchName {
+		fallback := (&BranchError{Err: e.Err, BranchName: e.BranchName, AppName: e.AppName}).Error()
+		return fmt.Sprintf("Git branch %q was unavailable; app default %s", e.GitBranchName, fallback)
+	}
 	if e.BranchName == "" {
 		if e.AppName != "" && errors.Is(e.Err, ErrBranchHasNoCompatibleBuild) {
 			return fmt.Sprintf("no branch on %q has a usable build; upload one first", e.AppName)
@@ -58,7 +66,7 @@ func (e *BranchError) Error() string {
 	}
 }
 
-const MaxContextBranchNameLength = 4096
+const MaxGitBranchNameLength = 4096
 
 const maxBranchNameLength = 255
 
@@ -79,11 +87,11 @@ func ValidateBranchName(name string) error {
 }
 
 type BuildSelection struct {
-	ContextBranchName string
-	BranchID          string
-	BranchName        string
-	Mode              BuildSelectionMode
-	BuildID           string
+	GitBranchName string
+	BranchID      string
+	BranchName    string
+	Mode          BuildSelectionMode
+	BuildID       string
 }
 
 func validateBranchSelector(branchID, branchName string) error {
@@ -101,24 +109,24 @@ func validateBranchSelector(branchID, branchName string) error {
 	return nil
 }
 
-// contextBranchNameFor returns the detected Git branch a request may carry.
+// gitBranchNameFor returns the detected Git branch a request may carry.
 // Latest across all branches ignores it, so such a request never sends one.
-func contextBranchNameFor(mode BuildSelectionMode, contextBranchName string) string {
+func gitBranchNameFor(mode BuildSelectionMode, gitBranchName string) string {
 	if mode == BuildSelectionModeLatestAllBranches {
 		return ""
 	}
-	return contextBranchName
+	return gitBranchName
 }
 
-func validateContextBranchName(name string) error {
-	if utf8.RuneCountInString(name) > MaxContextBranchNameLength {
-		return errors.New("Git branch context exceeds 4096 characters; select a Revyl branch with --branch")
+func validateGitBranchName(name string) error {
+	if utf8.RuneCountInString(name) > MaxGitBranchNameLength {
+		return errors.New("Git branch name exceeds 4096 characters; select a Revyl branch with --branch")
 	}
 	return nil
 }
 
 func (s BuildSelection) Validate() error {
-	if err := validateContextBranchName(s.ContextBranchName); err != nil {
+	if err := validateGitBranchName(s.GitBranchName); err != nil {
 		return err
 	}
 	if err := validateBranchSelector(s.BranchID, s.BranchName); err != nil {
@@ -204,6 +212,10 @@ type BuildBranch struct {
 	PinnedBuildAvailable *bool   `json:"pinned_build_available"`
 	IsDefault            *bool   `json:"is_default,omitempty"`
 	CreatedAt            string  `json:"created_at,omitempty"`
+	// BranchSource and GitBranchName are set when a Git branch resolution
+	// chose this branch.
+	BranchSource  BranchSource `json:"branch_source,omitempty"`
+	GitBranchName string       `json:"git_branch_name,omitempty"`
 	// LatestBuild is set by branch lists; nil there means the branch has no builds.
 	LatestBuild *BuildBranchLatestBuild `json:"latest_build,omitempty"`
 }
@@ -260,19 +272,38 @@ func (c *Client) ResolveBuildBranch(ctx context.Context, appID, branchName strin
 }
 
 func (c *Client) ResolveBranch(ctx context.Context, appID, branchID, branchName string) (*BuildBranch, error) {
-	return c.ResolveBranchWithContext(ctx, appID, branchID, branchName, "")
+	return c.ResolveBranchWithGitBranch(ctx, appID, branchID, branchName, "")
 }
 
-func (c *Client) ResolveBranchWithContext(ctx context.Context, appID, branchID, branchName, contextBranchName string) (*BuildBranch, error) {
-	usesContext := branchID == "" && branchName == "" && contextBranchName != ""
-	if usesContext {
-		if err := validateContextBranchName(contextBranchName); err != nil {
+func (c *Client) ResolveBranchWithGitBranch(ctx context.Context, appID, branchID, branchName, gitBranchName string, modes ...BuildSelectionMode) (*BuildBranch, error) {
+	mode := BuildSelectionModeInherit
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
+	gitBranchName = gitBranchNameFor(mode, gitBranchName)
+	if branchID == "" && branchName == "" && gitBranchName != "" {
+		if err := validateGitBranchName(gitBranchName); err != nil {
 			return nil, err
 		}
-		if err := validateBranchSelector("", contextBranchName); err != nil {
-			return nil, fmt.Errorf("detected Git branch cannot be used as a Revyl branch; select one with --branch: %w", err)
+		resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/resolve", buildResolutionRequest{
+			AppID: appID, GitBranchName: gitBranchName, BuildSelection: mode,
+		})
+		if err != nil {
+			return nil, err
 		}
-		branchName = contextBranchName
+		var result buildResolutionResult
+		if err := parseResponse(resp, &result); err != nil {
+			return nil, err
+		}
+		if result.BranchID == "" {
+			return nil, errors.New("app has no default branch; update the app branch settings")
+		}
+		branch, err := c.ResolveBranch(ctx, appID, result.BranchID, "")
+		if err != nil {
+			return nil, err
+		}
+		branch.BranchSource, branch.GitBranchName = result.BranchSource, result.GitBranchName
+		return branch, nil
 	}
 	if err := validateBranchSelector(branchID, branchName); err != nil {
 		return nil, err
@@ -283,9 +314,6 @@ func (c *Client) ResolveBranchWithContext(ctx context.Context, appID, branchID, 
 			return nil, err
 		}
 		if len(branches.Branches) == 0 {
-			if usesContext {
-				return nil, fmt.Errorf("%w; upload a build or select another branch with --branch", &BranchError{Err: ErrBranchNotFound, BranchName: branchName, FromGit: true})
-			}
 			return nil, &BranchError{Err: ErrBranchNotFound, BranchName: branchName}
 		}
 		return &branches.Branches[0], nil
@@ -327,14 +355,20 @@ func (c *Client) CreateBuildBranch(ctx context.Context, appID, name string) (*Bu
 }
 
 func (c *Client) ResolveUploadBranch(ctx context.Context, appID, branchID, branchName string) (*BuildBranch, error) {
-	return c.ResolveUploadBranchWithContext(ctx, appID, branchID, branchName, "")
+	return c.ResolveUploadBranchWithGitBranch(ctx, appID, branchID, branchName, "")
 }
 
-func (c *Client) ResolveUploadBranchWithContext(ctx context.Context, appID, branchID, branchName, contextBranchName string) (*BuildBranch, error) {
-	branch, err := c.ResolveBranchWithContext(ctx, appID, branchID, branchName, contextBranchName)
-	if branchID == "" && branchName == "" {
-		branchName = contextBranchName
+func (c *Client) ResolveUploadBranchWithGitBranch(ctx context.Context, appID, branchID, branchName, gitBranchName string) (*BuildBranch, error) {
+	if branchID == "" && branchName == "" && gitBranchName != "" {
+		if err := validateGitBranchName(gitBranchName); err != nil {
+			return nil, err
+		}
+		if err := validateBranchSelector("", gitBranchName); err != nil {
+			return nil, fmt.Errorf("detected Git branch cannot be used as a Revyl branch; select one with --branch: %w", err)
+		}
+		branchName = gitBranchName
 	}
+	branch, err := c.ResolveBranch(ctx, appID, branchID, branchName)
 	if errors.Is(err, ErrBranchNotFound) && branchName != "" {
 		return c.CreateBuildBranch(ctx, appID, branchName)
 	}
@@ -367,21 +401,29 @@ func (c *Client) SetDefaultBuildBranch(ctx context.Context, appID, branchID stri
 }
 
 type buildResolutionRequest struct {
-	ContextBranchName string             `json:"context_branch_name,omitempty"`
-	AppID             string             `json:"build_var_id"`
-	BranchID          string             `json:"branch_id,omitempty"`
-	BranchName        string             `json:"branch_name,omitempty"`
-	BuildSelection    BuildSelectionMode `json:"build_selection,omitempty"`
-	PinnedBuildID     string             `json:"pinned_build_id,omitempty"`
+	GitBranchName  string             `json:"git_branch_name,omitempty"`
+	AppID          string             `json:"build_var_id"`
+	BranchID       string             `json:"branch_id,omitempty"`
+	BranchName     string             `json:"branch_name,omitempty"`
+	BuildSelection BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildID  string             `json:"pinned_build_id,omitempty"`
 }
 type buildResolutionResult struct {
-	AppID            string `json:"build_var_id"`
-	AppName          string `json:"app_name"`
-	BuildID          string `json:"version_id"`
-	BranchID         string `json:"branch_id"`
-	BranchName       string `json:"branch_name"`
-	ResolutionStatus string `json:"resolution_status"`
-	DownloadURL      string `json:"download_url"`
+	BranchSource     BranchSource `json:"branch_source"`
+	GitBranchName    string       `json:"git_branch_name"`
+	AppID            string       `json:"build_var_id"`
+	AppName          string       `json:"app_name"`
+	BuildID          string       `json:"version_id"`
+	BranchID         string       `json:"branch_id"`
+	BranchName       string       `json:"branch_name"`
+	ResolutionStatus string       `json:"resolution_status"`
+	DownloadURL      string       `json:"download_url"`
+}
+
+// FellBackFromGitBranch reports whether the app's default branch replaced
+// gitBranchName, the Git branch a request sent or a result reports.
+func (s BranchSource) FellBackFromGitBranch(gitBranchName string) bool {
+	return s == BranchSourceDefaultBranch && gitBranchName != ""
 }
 
 func (c *Client) ResolveBuildSelection(ctx context.Context, appID string, selection BuildSelection) (*BuildVersionDetail, error) {
@@ -402,12 +444,12 @@ func (c *Client) resolveBuildSelection(ctx context.Context, appID string, select
 		mode = BuildSelectionModePinned
 	}
 	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/apps/resolve?include_download_url=%t", includeDownloadURL), buildResolutionRequest{
-		ContextBranchName: contextBranchNameFor(mode, selection.ContextBranchName),
-		AppID:             appID,
-		BranchID:          selection.BranchID,
-		BranchName:        selection.BranchName,
-		BuildSelection:    mode,
-		PinnedBuildID:     selection.BuildID,
+		GitBranchName:  gitBranchNameFor(mode, selection.GitBranchName),
+		AppID:          appID,
+		BranchID:       selection.BranchID,
+		BranchName:     selection.BranchName,
+		BuildSelection: mode,
+		PinnedBuildID:  selection.BuildID,
 	})
 	if err != nil {
 		return nil, err
@@ -417,10 +459,10 @@ func (c *Client) resolveBuildSelection(ctx context.Context, appID string, select
 		return nil, err
 	}
 	if result.ResolutionStatus == "branch_has_no_builds" {
-		return nil, &BranchError{Err: ErrBranchHasNoBuilds, BranchName: result.BranchName, AppName: result.AppName}
+		return nil, buildResolutionBranchError(selection, result, ErrBranchHasNoBuilds)
 	}
 	if result.BuildID == "" {
-		return nil, &BranchError{Err: ErrBranchHasNoCompatibleBuild, BranchName: result.BranchName, AppName: result.AppName}
+		return nil, buildResolutionBranchError(selection, result, ErrBranchHasNoCompatibleBuild)
 	}
 	detail, err := c.GetBuildVersionDetail(ctx, result.BuildID, false)
 	if err != nil {
@@ -432,7 +474,16 @@ func (c *Client) resolveBuildSelection(ctx context.Context, appID string, select
 	}
 	detail.BranchID = result.BranchID
 	detail.BranchName = result.BranchName
+	detail.BranchSource, detail.GitBranchName = result.BranchSource, result.GitBranchName
 	return detail, nil
+}
+
+func buildResolutionBranchError(selection BuildSelection, result buildResolutionResult, err error) *BranchError {
+	branchError := &BranchError{Err: err, BranchName: result.BranchName, AppName: result.AppName}
+	if result.BranchSource.FellBackFromGitBranch(result.GitBranchName) {
+		branchError.GitBranchName = result.GitBranchName
+	}
+	return branchError
 }
 
 func (d *BuildVersionDetail) BuildVersion() *BuildVersion {
@@ -480,8 +531,8 @@ func (c *Client) ListBuildVersionsWithOptions(ctx context.Context, appID string,
 }
 
 func uploadDestinationPayload(req *UploadBuildRequest, payload map[string]interface{}) map[string]interface{} {
-	if req.ContextBranchName != "" {
-		payload["context_branch_name"] = req.ContextBranchName
+	if req.GitBranchName != "" {
+		payload["git_branch_name"] = req.GitBranchName
 	}
 	if req.BranchID != "" {
 		payload["branch_id"] = req.BranchID

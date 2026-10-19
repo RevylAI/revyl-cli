@@ -104,6 +104,28 @@ esac
 	}
 }
 
+func TestCommandRunnerPreservesResolvedGitBranchIncludingAbsence(t *testing.T) {
+	for _, gitBranchName := range []string{"", "feature/customer"} {
+		t.Run(gitBranchName, func(t *testing.T) {
+			t.Setenv("REVYL_BINARY", "")
+			t.Setenv(GitBranchEnvironment, "stale/ambient")
+			t.Setenv("EXPECTED_GIT_BRANCH", gitBranchName)
+			binary := writeFakeRevyl(t, `#!/bin/sh
+if [ "${REVYL_INTERNAL_GIT_BRANCH+x}" != x ] || [ "$REVYL_INTERNAL_GIT_BRANCH" != "$EXPECTED_GIT_BRANCH" ]; then
+  printf '%s\n' 'Git branch missing or changed' >&2
+  exit 2
+fi
+case "$*" in *"--branch"*) exit 3;; esac
+printf '%s\n' '{"context":"default","state":"preparing","pid":42,"platform":"android"}'
+`)
+			runner := &CommandRunner{BinaryPath: binary}
+			if _, err := runner.Start(context.Background(), t.TempDir(), StartRequest{GitBranchName: &gitBranchName}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestCommandRunnerRejectsDeprecatedPlatformKeyBeforeStartingChild(t *testing.T) {
 	runner := &CommandRunner{BinaryPath: filepath.Join(t.TempDir(), "missing-revyl")}
 

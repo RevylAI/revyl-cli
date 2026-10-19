@@ -110,11 +110,11 @@ Linux CLI CI include those Node bridge tests.
 
 The core/full profiles accept object-valued `params` for their composite tools.
 For exact-build device and test workflows, `manage_builds(action="list",
-params={app_id, platform, limit})` returns that app's version IDs, upload times,
-and current-version markers, with `has_more` identifying a truncated first page.
-Omitting `app_id` preserves the app catalog listing. Pin the selected version
-ID before starting work; do not substitute a different build or infer complete
-history from a truncated result.
+params={app_id, platform, limit})` returns that app's build IDs, upload times,
+and branches, with `has_more` identifying a truncated first page. Omitting
+`app_id` preserves the app catalog listing. Keep the selected build ID and pass
+it to both the session and the test; do not substitute a different build or
+infer complete history from a truncated result.
 
 The pilot outcome is a usable Atlas or device view without leaving the host,
 reducing external-browser handoffs. Verify the rendered graph and advancing

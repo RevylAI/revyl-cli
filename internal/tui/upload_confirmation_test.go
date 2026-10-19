@@ -16,13 +16,14 @@ import (
 )
 
 type uploadConfirmationFixture struct {
-	client           *api.Client
-	defaultBranchID  string
-	branchNames      []string
-	sessions         []api.BuildUploadSessionRequest
-	completions      []api.BuildCreateFromUploadRequest
-	completionFields []map[string]interface{}
-	artifactBodies   []string
+	client            *api.Client
+	defaultBranchID   string
+	gitBranchFellBack bool
+	branchNames       []string
+	sessions          []api.BuildUploadSessionRequest
+	completions       []api.BuildCreateFromUploadRequest
+	completionFields  []map[string]interface{}
+	artifactBodies    []string
 }
 
 func newUploadConfirmationFixture(t *testing.T) *uploadConfirmationFixture {
@@ -35,6 +36,26 @@ func newUploadConfirmationFixture(t *testing.T) *uploadConfirmationFixture {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/api/v1/apps/resolve":
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if payload["branch_id"] != "" {
+				fmt.Fprintf(w, `{"version_id":%q,"branch_id":%q,"branch_name":"resolved","resolution_status":"resolved"}`, pickerBuildID, payload["branch_id"])
+				return
+			}
+			name := payload["git_branch_name"]
+			fixture.branchNames = append(fixture.branchNames, name)
+			branchID := pickerBranchID
+			if name == "feature/two" {
+				branchID = pickerOtherBranchID
+			}
+			branchSource := api.BranchSourceGitBranch
+			if fixture.gitBranchFellBack {
+				branchID, branchSource = fixture.defaultBranchID, api.BranchSourceDefaultBranch
+			}
+			fmt.Fprintf(w, `{"branch_id":%q,"branch_source":%q}`, branchID, branchSource)
 		case "/api/v1/apps/" + pickerAppID:
 			fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, pickerAppID, fixture.defaultBranchID)
 		case "/api/v1/apps/" + pickerAppID + "/branches/" + pickerBranchID:
@@ -89,12 +110,6 @@ func newUploadConfirmationFixture(t *testing.T) *uploadConfirmationFixture {
 			}
 			fixture.completions = append(fixture.completions, request)
 			fmt.Fprintf(w, `{"id":%q,"version":%q}`, pickerBuildID, request.Version)
-		case "/api/v1/apps/resolve":
-			var request map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				t.Error(err)
-			}
-			fmt.Fprintf(w, `{"version_id":%q,"branch_id":%q,"branch_name":"resolved","resolution_status":"resolved"}`, pickerBuildID, request["branch_id"])
 		case "/api/v1/apps/builds/" + pickerBuildID:
 			fmt.Fprintf(w, `{"id":%q,"app_id":%q,"version":"reviewed_version"}`, pickerBuildID, pickerAppID)
 		default:
@@ -165,7 +180,7 @@ func confirmUploadDestination(t *testing.T, upload uploadBuildModel, fixture *up
 		t.Fatalf("unexpected upload requests: sessions=%d, completions=%d, transfers=%d", len(fixture.sessions), len(fixture.completions), len(fixture.artifactBodies))
 	}
 	session, completion := fixture.sessions[0], fixture.completions[0]
-	if session.BranchId == nil || session.BranchId.String() != branchID || session.BranchName != nil || session.ContextBranchName != nil {
+	if session.BranchId == nil || session.BranchId.String() != branchID || session.BranchName != nil || session.GitBranchName != nil {
 		t.Errorf("upload request changed confirmed branch: %#v", session)
 	}
 	if session.Version != "reviewed_version" || completion.Version != session.Version || session.FileName != "app.apk" || fixture.artifactBodies[0] != "artifact" || completion.UploadId.String() != pickerBuildID {

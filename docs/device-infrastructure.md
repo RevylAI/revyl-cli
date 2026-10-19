@@ -3,14 +3,14 @@
 Build your app in the cloud, start an iOS simulator or Android emulator, and
 control it from your own tools. No Revyl test or AI agent is required.
 
-Before you start, install the [Revyl CLI](https://docs.revyl.ai/cli) and authenticate with
+Before you start, install the [Revyl CLI](https://docs.revyl.com/cli) and authenticate with
 `revyl auth login`. Sessions and remote builds use your organization's cloud
 resources. Use test data and keep API keys and screenshots private.
 
 ## 1. Build remotely
 
 From your app's project directory, run `revyl init` once. Review the detected
-recipe and its Revyl app ID using the [remote build setup](https://docs.revyl.ai/remote-builds/quickstart),
+recipe and its Revyl app ID using the [remote build setup](https://docs.revyl.com/remote-builds/quickstart),
 then run the command for your platform:
 
 ```bash iOS
@@ -21,16 +21,16 @@ revyl build --remote --platform ios
 revyl build --remote --platform android
 ```
 
-The build runs on Revyl's cloud infrastructure and uploads the artifact.
-See [build branches](build-branches.md) for
-how uploads affect default selection. No local Xcode or Android SDK is needed.
+The build runs on Revyl's cloud infrastructure and uploads the artifact to the
+Revyl branch named after your Git branch, which the upload creates if needed
+([Build branches](https://docs.revyl.com/builds/branches)). No local Xcode or Android SDK is needed.
 If more than one build profile matches, select one when prompted;
-for unattended CI, follow the [remote build configuration guide](https://docs.revyl.ai/remote-builds/configuration).
+for unattended CI, follow the [remote build configuration guide](https://docs.revyl.com/remote-builds/configuration).
 
 Already uploaded a build? Skip this step. iOS needs a simulator `.app` or zipped
 `.app`; Android needs a compatible `.apk`. For project setup, dependencies, and
-framework recipes, see [Remote Builds](https://docs.revyl.ai/remote-builds/quickstart) and
-[Framework Guides](https://docs.revyl.ai/builds/frameworks).
+framework recipes, see [Remote Builds](https://docs.revyl.com/remote-builds/quickstart) and
+[Framework Guides](https://docs.revyl.com/builds/frameworks).
 
 ## 2. Start a device with your app
 
@@ -45,14 +45,13 @@ revyl device start --platform ios --app-id YOUR_IOS_APP_ID
 revyl device start --platform android --app-id YOUR_ANDROID_APP_ID
 ```
 
-Revyl selects a default device and uses the app default branch, following that
-branch's default build. Add
-`--branch staging` to choose another branch, `--build-selection latest` for its
-newest build even when the branch is pinned, `--all-branches` for the newest
-build across all of the app's branches,
-or `--build-version-id` for an exact build. The command
-prints the session ID and a live viewer link. Keep the session ID for the next
-steps; use the viewer to watch the device.
+Revyl selects a default device and installs the default build of
+[your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection) when it has a usable build,
+otherwise of the app's default branch. If your build is on another branch, add
+`--branch <name>`. For the other build choices, see
+[Build branches from the CLI](build-branches.md#run-options). The command prints the session ID and a
+live viewer link. Keep the session ID for the next steps; use the viewer to
+watch the device.
 
 The start waits until the device is ready, which takes longer when devices are
 queued. As soon as Revyl accepts it, the command names the session on stderr,
@@ -60,10 +59,10 @@ and `revyl device list` shows that session as `queued` or `starting`, with no
 local index, until its device is ready; target it by session ID in the
 meantime.
 
-For a repeatable CI run, select a specific uploaded version with
-`--build-version-id` instead of `--app-id`. A build version ID is different from
-a remote build job ID. If you pass both, the build version must belong to that
-app; otherwise `device start` names the app it belongs to and stops.
+For a repeatable CI run, select one exact build with `--build-version-id`
+instead of `--app-id`. A build ID is different from a remote build job ID. If you
+pass both, the build must belong to that app; otherwise `device start` names the
+app it belongs to and stops.
 
 Device commands do not require a local config or a Git checkout. With no
 `.revyl/config.yaml`, `device start` uses its command defaults and explicit
@@ -270,7 +269,7 @@ revyl device screenshot --session-id "$SESSION_ID" --out home.png
 
 Inspect the screenshots to confirm the app opened and the home command changed
 the screen. Your harness owns the assertions; a saved screenshot alone does
-not prove a test passed. See the [device command reference](https://docs.revyl.ai/cli/command-reference)
+not prove a test passed. See the [device command reference](https://docs.revyl.com/cli/command-reference)
 for taps, typing, app lifecycle, and other actions.
 
 ## 4. Stop the device
@@ -286,14 +285,14 @@ not stop every session in a shared organization.
 
 This quickstart uses Revyl's native device commands. Connecting an unchanged
 Appium or Maestro suite still needs a framework connection layer; a viewer URL
-is not an automation endpoint. The [Appium driver](https://docs.revyl.ai/infrastructure/appium)
-and [Maestro runner](https://docs.revyl.ai/infrastructure/maestro)
+is not an automation endpoint. The [Appium driver](https://docs.revyl.com/infrastructure/appium)
+and [Maestro runner](https://docs.revyl.com/infrastructure/maestro)
 implement attach-only native subsets over existing APIs and are available as
 private source repositories. Synthetic-app checks verified native lookup and
 gestures for Appium, and native actions, focused deletion, appearance, and deep
 links for Maestro on staging Android emulators and iOS simulators. Maestro's
 input/paste uses the existing viewer control channel, with the
-[input limitations](https://docs.revyl.ai/infrastructure/maestro#text-input-through-the-viewer-channel)
+[input limitations](https://docs.revyl.com/infrastructure/maestro#text-input-through-the-viewer-channel)
 documented separately; that integration has loopback coverage, not live-device
 verification. Duration-preserving swipe/scroll still requires undeployed worker
 capabilities and fails closed on current staging. Broader compatibility is not
@@ -303,7 +302,7 @@ Get the [Appium driver](https://github.com/RevylAI/appium-revyl-driver) or
 runnable samples; repository access is required. The Maestro runner embeds
 the genuine Maestro runtime; it is not a plugin for stock `maestro test`.
 Neither integration enables standard UiAutomator2/XCUITest or full Maestro
-compatibility. See [the remaining requirements](https://docs.revyl.ai/infrastructure#what-needs-to-be-added-for-appium-and-maestro).
+compatibility. See [the remaining requirements](https://docs.revyl.com/infrastructure#what-needs-to-be-added-for-appium-and-maestro).
 
 ## Optional: a complete script for CI
 
@@ -376,7 +375,7 @@ printf 'Device commands completed. Inspect screenshots in %s\n' "$artifact_dir"
 </details>
 
 Save the script as `smoke.sh`, then run `bash smoke.sh ios` or
-`bash smoke.sh android`. Add a platform-matching build version ID as the second
+`bash smoke.sh android`. Add a platform-matching build ID as the second
 argument to open your own app instead of Settings.
 
 The script sets a 600-second idle timeout as a fallback; an abrupt runner

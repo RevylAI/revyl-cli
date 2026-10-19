@@ -1,4 +1,10 @@
 # Run a Revyl workflow on every pull request.
+#
+# Tests saved on Default branch run on the PR's source branch when it has a
+# usable build, otherwise on the app's default branch. Tests and workflow app
+# overrides created in the dashboard start on All branches · Latest build, so
+# this job can run another PR's upload; save them on Default branch. See
+# https://docs.revyl.com/builds/branches#new-saved-choices
 
 name: Revyl PR Tests
 
@@ -11,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run Revyl Workflow
-        uses: RevylAI/revyl-gh-action/run-workflow@v2.0.5
+        uses: RevylAI/revyl-gh-action/run-workflow@main
         with:
           workflow-id: "your-workflow-id" # <-- replace
         env:

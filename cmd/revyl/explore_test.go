@@ -349,6 +349,36 @@ func TestBuildExploreLaunchRequestInfersConfiguredWebApp(t *testing.T) {
 	}
 }
 
+func TestExploreAutomaticUsesSourceGitBranchWithoutPersistingBranch(t *testing.T) {
+	for _, scenario := range []struct{ name, branch, mode, build, wantGitBranch string }{
+		{"automatic", "", "", "", "Feature/git-branch"},
+		{"latest", "", "latest", "", "Feature/git-branch"},
+		{"explicit branch", "main", "", "", ""},
+		{"exact build", "", "", "22222222-2222-4222-8222-222222222222", ""},
+		{"all branches", "", "latest_all_branches", "", ""},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			resetExploreFlagsForTest(t)
+			withWorkingDir(t, executionSourceCheckout(t))
+			client := &fakeExploreAPI{searchResults: []api.App{{ID: uuid.NewString(), Name: "App", Platform: "ios"}}}
+			cmd := &cobra.Command{}
+			configureExploreRunFlags(cmd)
+			exploreBranchName, exploreBuildSelection, exploreBuildID = scenario.branch, scenario.mode, scenario.build
+			request, _, err := buildExploreLaunchRequest(cmd, client, []string{"App"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario.wantGitBranch == "" {
+				if request.GitBranchName != nil {
+					t.Fatalf("explicit selection inferred context: %+v", request)
+				}
+			} else if request.GitBranchName == nil || *request.GitBranchName != scenario.wantGitBranch || request.BranchName != nil {
+				t.Fatalf("context became explicit or was omitted: %+v", request)
+			}
+		})
+	}
+}
+
 func TestResolveExploreAppUsesConfiguredPlatformMapping(t *testing.T) {
 	resetExploreFlagsForTest(t)
 	appID := uuid.NewString()
@@ -756,5 +786,24 @@ func TestExploreRejectsExactBuildAndLatestBeforeResolvingApp(t *testing.T) {
 	exploreBuildID, exploreBuildSelection = uuid.NewString(), "latest"
 	if _, _, err := buildExploreLaunchRequest(&cobra.Command{}, &fakeExploreAPI{}, []string{"App"}); err == nil || !strings.Contains(err.Error(), "exact build") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestExploreOutputReportsRecordedBranchProvenance(t *testing.T) {
+	for _, test := range []struct {
+		config                    map[string]interface{}
+		wantSource, wantGitBranch string
+	}{
+		{config: map[string]interface{}{"branch_source": "default_branch", "git_branch_name": "feature-login"}, wantSource: "default_branch", wantGitBranch: "feature-login"},
+		{config: map[string]interface{}{"branch_source": "explicit_branch"}, wantSource: "explicit_branch"},
+		{config: map[string]interface{}{"branch_source": "not_a_source"}},
+		{config: map[string]interface{}{}},
+	} {
+		run := exploreRun("running", "processing", "processing", nil)
+		run.Config = &test.config
+		output := exploreOutputFromRun(run, nil, "https://app.example/report", 1)
+		if string(output.BranchSource) != test.wantSource || output.GitBranchName != test.wantGitBranch {
+			t.Errorf("config %v: branch_source=%q git_branch_name=%q", test.config, output.BranchSource, output.GitBranchName)
+		}
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
@@ -787,9 +788,17 @@ Examples:
 var deviceStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start a device session",
+	Long: `Start a device session. Select an app with --app-id or an exact build
+with --build-version-id; otherwise use the project's configured app.
+
+` + runtimeBuildSelectionHelp + `
+
+Web sessions (--platform web) without --build-version-id or --url open the
+newest Web build on --branch, or on the app's default branch. They don't read
+your Git branch or a branch's pin.`,
 	Example: `  revyl device start --platform ios
-  revyl device start --platform android --timeout 600
-  revyl device start --platform ios --launch-var API_URL --launch-var DEBUG
+  revyl device start --platform android --branch staging
+  revyl device start --platform ios --all-branches
   revyl device start --platform ios --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
@@ -992,11 +1001,20 @@ var deviceStartCmd = &cobra.Command{
 			}
 		}()
 
+		gitBranchName := ""
+		if appID != "" && buildVersionID == "" && appURL == "" && branchName == "" && api.BuildSelectionMode(buildSelection) != api.BuildSelectionModeLatestAllBranches {
+			gitBranch, detectErr := buildselection.DetectGitBranch(ctx, buildselection.GitBranchOptions{WorkDir: mgr.WorkDir()})
+			if detectErr != nil {
+				return detectErr
+			}
+			gitBranchName = gitBranch.Name
+		}
 		startOpts, prepErr := prepareSessionStartOptions(ctx, mcppkg.StartSessionOptions{
 			Platform:       platform,
 			AppID:          appID,
 			BuildVersionID: buildVersionID,
 			BranchName:     branchName, BuildSelection: buildSelection,
+			GitBranchName:              gitBranchName,
 			AppURL:                     appURL,
 			LaunchVars:                 launchVars,
 			LaunchArgSets:              launchArgSets,
@@ -1040,6 +1058,9 @@ var deviceStartCmd = &cobra.Command{
 			return err
 		}
 		rememberBeforeSessionBootValues(mgr.WorkDir(), session.SessionID)
+		if session.BranchSource.FellBackFromGitBranch(gitBranchName) {
+			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, session.BranchName))
+		}
 
 		var postLaunchErr error
 		if appLink != "" {
@@ -1886,6 +1907,10 @@ var deviceShakeCmd = &cobra.Command{
 var deviceInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install an app from a URL, build version ID, or app ID",
+	Long: `Install an app in an existing session using --app-id, --build-version-id,
+or --app-url.
+
+` + runtimeBuildSelectionHelp,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		appID, _ := cmd.Flags().GetString("app-id")
 		appURL, _ := cmd.Flags().GetString("app-url")
@@ -1913,16 +1938,28 @@ var deviceInstallCmd = &cobra.Command{
 			return err
 		}
 
+		gitBranchName := ""
+		if appID != "" && buildVersionID == "" && appURL == "" && branchName == "" && api.BuildSelectionMode(buildSelection) != api.BuildSelectionModeLatestAllBranches {
+			gitBranch, detectErr := buildselection.DetectGitBranch(cmd.Context(), buildselection.GitBranchOptions{WorkDir: mgr.WorkDir()})
+			if detectErr != nil {
+				return detectErr
+			}
+			gitBranchName = gitBranch.Name
+		}
 		resolved, err := startdevice.ResolveStartArtifact(cmd.Context(), mgr.APIClient(), startdevice.StartArtifactOptions{
 			AppID:          appID,
 			BuildVersionID: buildVersionID,
 			BranchName:     branchName, BuildSelection: buildSelection,
-			AppURL: appURL,
+			GitBranchName: gitBranchName,
+			AppURL:        appURL,
 		})
 		if err != nil {
 			return err
 		}
 		appURL = resolved.AppURL
+		if resolved.BranchSource.FellBackFromGitBranch(gitBranchName) {
+			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, resolved.BranchName))
+		}
 		if bundleID == "" && resolved.AppPackage != "" {
 			bundleID = resolved.AppPackage
 		}
@@ -1946,7 +1983,13 @@ var deviceInstallCmd = &cobra.Command{
 			return err
 		}
 
-		payload := map[string]string{"app_url": appURL, "status": "installed", "build_id": resolved.BuildID, "branch_id": resolved.BranchID, "branch_name": resolved.BranchName}
+		payload := map[string]interface{}{"app_url": appURL, "status": "installed", "build_id": resolved.BuildID, "branch_id": resolved.BranchID, "branch_name": resolved.BranchName}
+		if resolved.BranchSource != "" {
+			payload["branch_source"] = resolved.BranchSource
+		}
+		if resolved.GitBranchName != "" {
+			payload["git_branch_name"] = resolved.GitBranchName
+		}
 		message := fmt.Sprintf("Installed from %s", appURL)
 		if detectedBundleID := extractInstallBundleID(respBody); detectedBundleID != "" {
 			payload["bundle_id"] = detectedBundleID
@@ -3588,8 +3631,8 @@ func init() {
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
-	deviceStartCmd.Flags().String("branch", "", "Select a Revyl branch (otherwise use the app default)")
-	deviceStartCmd.Flags().String("build-selection", "", "Build choice: inherit (Automatic: the branch's default build), latest, or pinned with --build-version-id")
+	deviceStartCmd.Flags().String("branch", "", "Revyl branch (default: Git branch, then app default)")
+	deviceStartCmd.Flags().String("build-selection", "", "inherit (Automatic), latest (ignore the branch pin), or pinned with --build-version-id")
 	deviceStartCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
@@ -3707,8 +3750,8 @@ func init() {
 
 	// Install
 	deviceInstallCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
-	deviceInstallCmd.Flags().String("branch", "", "Select a Revyl branch (otherwise use the app default)")
-	deviceInstallCmd.Flags().String("build-selection", "", "Build choice: inherit (Automatic: the branch's default build), latest, or pinned with --build-version-id")
+	deviceInstallCmd.Flags().String("branch", "", "Revyl branch (default: Git branch, then app default)")
+	deviceInstallCmd.Flags().String("build-selection", "", "inherit (Automatic), latest (ignore the branch pin), or pinned with --build-version-id")
 	deviceInstallCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceInstallCmd.Flags().String("build-version-id", "", "Build version ID from a previous upload; download URL is resolved automatically")
 	deviceInstallCmd.Flags().String("app-url", "", "URL to download app from (.apk or .ipa)")

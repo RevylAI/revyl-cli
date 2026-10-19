@@ -1,0 +1,25 @@
+# Buildkite -- Revyl test pipeline
+#
+# Add REVYL_API_KEY as a Buildkite secret or agent environment variable.
+#
+# Tests saved on Default branch run on the pull request's source branch, or the
+# pipeline's branch, when it has a usable build.
+
+env:
+  REVYL_INSTALL_DIR: /usr/local/bin
+
+steps:
+  # Blocking: waits for tests to complete
+  - label: "Revyl tests"
+    command: |
+      curl -fsSL https://revyl.com/install.sh | sh
+      revyl workflow run smoke-tests
+
+  # Fire-and-forget alternative: queue tests and exit immediately
+  # - label: "Queue Revyl tests"
+  #   command: |
+  #     curl -fsSL https://revyl.com/install.sh | sh
+  #     revyl workflow run smoke-tests --no-wait
+
+  # To test a fresh artifact, use the exact-ID Build-to-test sequence in README.md,
+  # writing its variables as $$VAR so they expand at run time.

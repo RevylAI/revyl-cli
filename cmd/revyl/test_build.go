@@ -15,7 +15,7 @@ import (
 var testBuildCmd = &cobra.Command{Use: "build", Short: "Manage a test's saved branch and build choice"}
 var testBuildShowCmd = &cobra.Command{Use: "show <test-name|id>", Args: cobra.ExactArgs(1), Short: "Show a test's saved branch and build", RunE: runTestBuildShow}
 var testBuildSetCmd = &cobra.Command{Use: "set <test-name|id>", Args: cobra.ExactArgs(1), Short: "Save a branch and build choice: Automatic, Latest build, Exact build, or All branches · Latest build", RunE: runTestBuildSet}
-var testBuildClearCmd = &cobra.Command{Use: "clear <test-name|id>", Args: cobra.ExactArgs(1), Short: "Restore Default branch: the app's default branch and its default build", RunE: runTestBuildClear}
+var testBuildClearCmd = &cobra.Command{Use: "clear <test-name|id>", Args: cobra.ExactArgs(1), Short: "Restore All branches · Latest build", RunE: runTestBuildClear}
 
 func init() {
 	testCmd.AddCommand(testBuildCmd)
@@ -92,7 +92,7 @@ func runTestBuildSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if branchName == "" && mode == "" && buildID == "" {
-		return fmt.Errorf("provide --branch, --build-selection, --build-id or --all-branches; use clear to restore Default branch")
+		return fmt.Errorf("provide --branch, --build-selection, --build-id or --all-branches; use clear to restore All branches · Latest build")
 	}
 	testID, client, err := resolveTestClient(cmd, args[0])
 	if err != nil {
@@ -125,7 +125,7 @@ func runTestBuildClear(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	selection, err := api.NewSavedBuildSelection("", "inherit", "")
+	selection, err := api.NewSavedBuildSelection("", string(api.BuildSelectionModeLatestAllBranches), "")
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func runTestBuildClear(cmd *cobra.Command, args []string) error {
 	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
 		return writeSavedTestBuildSelection(cmd, testID, selection, "")
 	}
-	ui.PrintSuccess("Test %s now uses Default branch", testID)
+	ui.PrintSuccess("Test %s now uses All branches · Latest build", testID)
 	return nil
 }
 

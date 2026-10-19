@@ -649,13 +649,13 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 	const appID = "00000000-0000-4000-8000-000000000001"
 	prHeadSHA := strings.Repeat("a", 40)
 	for _, test := range []struct {
-		name        string
-		source      config.BuildSource
-		wantContext string
+		name          string
+		source        config.BuildSource
+		wantGitBranch string
 	}{
-		{name: "working tree archive"},
+		{name: "working tree archive", wantGitBranch: "local-source"},
 		{name: "git commit", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: prHeadSHA}},
-		{name: "git branch", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: "refs/heads/main"}},
+		{name: "git branch", source: config.BuildSource{Type: "git", RepoURL: "https://github.com/acme/mobile", Ref: "refs/heads/main"}, wantGitBranch: "main"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repoRoot := t.TempDir()
@@ -723,8 +723,8 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 			if submitted == nil {
 				t.Fatal("remote build was not submitted")
 			}
-			if stringValue(submitted.ContextBranchName) != test.wantContext || submitted.BranchName != nil {
-				t.Fatalf("remote source context = %q, want %q", stringValue(submitted.ContextBranchName), test.wantContext)
+			if stringValue(submitted.GitBranchName) != test.wantGitBranch || submitted.BranchName != nil {
+				t.Fatalf("remote source context = %q, want %q", stringValue(submitted.GitBranchName), test.wantGitBranch)
 			}
 			if test.source.Type == "git" {
 				source, err := submitted.Source.AsRemoteBuildGitSource()

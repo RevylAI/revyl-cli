@@ -28,16 +28,18 @@ func createTestContext(t *testing.T, root string, ctx *DevContext) {
 	}
 }
 
-func TestRunningDevContextBranchCompatibility(t *testing.T) {
+func TestRunningDevGitBranchCompatibility(t *testing.T) {
 	for _, test := range []struct {
-		name, recordedBranch string
-		choose               func()
-		wantRunning          bool
-		wantWarning          bool
+		name, recordedBranch, gitBranch string
+		choose                          func()
+		wantRunning                     bool
+		wantWarning                     bool
 	}{
 		{name: "recorded matching branch", recordedBranch: "branch-id", wantRunning: true},
 		{name: "recorded different branch", recordedBranch: "other-branch"},
 		{name: "legacy without selection", wantRunning: true, wantWarning: true},
+		{name: "legacy with inferred branch", gitBranch: "feature/login"},
+		{name: "recorded matching inferred branch", recordedBranch: "branch-id", gitBranch: "feature/login", wantRunning: true},
 		{name: "legacy with explicit branch", choose: func() { devStartBranch = "staging" }},
 		{name: "legacy with explicit branch id", choose: func() { devStartBranchID = "branch-id" }},
 		{name: "legacy with explicit build", choose: func() { devStartBuildVerID = "build-id" }},
@@ -70,7 +72,7 @@ func TestRunningDevContextBranchCompatibility(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, stderr := captureStdoutAndStderrSeparate(t, func() {
-				running, err := printIfDevStartContextAlreadyRunning(root, ctx.Name, "branch-id")
+				running, err := printIfDevStartContextAlreadyRunning(root, ctx.Name, projectDevInvocation{BranchID: "branch-id", GitBranchName: test.gitBranch})
 				if running != test.wantRunning || (err == nil) != test.wantRunning {
 					t.Fatalf("running = %t, error = %v", running, err)
 				}

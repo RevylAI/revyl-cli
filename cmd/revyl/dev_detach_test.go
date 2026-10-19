@@ -206,10 +206,37 @@ func TestProjectDetachArgsFreezesBranchIdentity(t *testing.T) {
 	}
 }
 
-func TestProjectDetachArgsLetsChildResolveUnnamedBranch(t *testing.T) {
+func TestProjectDetachArgsFreezesUnnamedBranchAndPreservesLatest(t *testing.T) {
 	got := projectDetachArgs([]string{"dev", "--detach"}, projectDevInvocation{Profile: "development", Platform: "ios", BranchID: "default-id", BranchName: "base"})
-	want := []string{"dev", "--profile", "development", "--platform", "ios"}
+	want := []string{"dev", "--branch-id", "default-id", "--build-selection", "latest", "--profile", "development", "--platform", "ios"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("child selectors = %v, want %v", got, want)
+	}
+}
+
+func TestProjectDetachArgsKeepsInferredBranchDefaultAndExplicitSelections(t *testing.T) {
+	for _, test := range []struct {
+		name, gitBranch  string
+		flags, preserved []string
+	}{
+		{name: "inferred branch default", gitBranch: "feature/login"},
+		{name: "inferred read fallback", gitBranch: "feature/missing", flags: []string{"--no-build"}, preserved: []string{"--no-build"}},
+		{name: "inferred seed latest", gitBranch: "feature/login", flags: []string{"--seed-latest"}, preserved: []string{"--seed-latest"}},
+		{name: "explicit inherit without context", flags: []string{"--build-selection=inherit"}, preserved: []string{"--build-selection=inherit"}},
+		{name: "exact build without context", flags: []string{"--build-version-id", "build-id"}, preserved: []string{"--build-version-id", "build-id"}},
+		{name: "false seed flag retains legacy latest", flags: []string{"--seed-latest=false"}, preserved: []string{"--seed-latest=false", "--branch-id", "frozen-id", "--build-selection", "latest"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"dev", "--detach"}, test.flags...)
+			got := projectDetachArgs(args, projectDevInvocation{Profile: "development", Platform: "ios", BranchID: "frozen-id", GitBranchName: test.gitBranch})
+			want := append([]string{"dev"}, test.preserved...)
+			if test.name != "false seed flag retains legacy latest" {
+				want = append(want, "--branch-id", "frozen-id")
+			}
+			want = append(want, "--profile", "development", "--platform", "ios")
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("child selectors = %v, want %v", got, want)
+			}
+		})
 	}
 }

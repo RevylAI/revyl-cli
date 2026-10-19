@@ -58,6 +58,9 @@ func TestSavedTestBuildWritesJSONAfterSuccessfulMutation(t *testing.T) {
 			if err := json.Unmarshal(output.Bytes(), &body); err != nil {
 				t.Fatalf("invalid JSON result %q: %v", output.String(), err)
 			}
+			if clear {
+				mode = "latest_all_branches"
+			}
 			if body["test_id"] != "test" || body["build_selection"] != mode || body["branch_id"] != nil || body["pinned_build_id"] != nil {
 				t.Fatalf("result=%v", body)
 			}

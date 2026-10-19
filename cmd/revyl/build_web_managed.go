@@ -79,7 +79,8 @@ func uploadLocalWebBuild(cmd *cobra.Command, invocation projectBuildInvocation, 
 	}
 	result, err := client.UploadManagedWebBuild(cmd.Context(), &api.UploadBuildRequest{
 		BranchID: invocation.BranchID, BranchName: invocation.BranchName,
-		AppID: invocation.AppID, Version: version, FilePath: archive, Metadata: metadata, Pin: pin,
+		GitBranchName: invocation.GitBranchName,
+		AppID:         invocation.AppID, Version: version, FilePath: archive, Metadata: metadata, Pin: pin,
 	}, web)
 	if err != nil {
 		return nil, fmt.Errorf("upload Web bundle: %w", err)

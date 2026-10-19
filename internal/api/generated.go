@@ -525,6 +525,27 @@ func (e BillingPlanTermsPlan) Valid() bool {
 	}
 }
 
+// Defines values for BranchSource.
+const (
+	BranchSourceDefaultBranch  BranchSource = "default_branch"
+	BranchSourceExplicitBranch BranchSource = "explicit_branch"
+	BranchSourceGitBranch      BranchSource = "git_branch"
+)
+
+// Valid indicates whether the value is a known member of the BranchSource enum.
+func (e BranchSource) Valid() bool {
+	switch e {
+	case BranchSourceDefaultBranch:
+		return true
+	case BranchSourceExplicitBranch:
+		return true
+	case BranchSourceGitBranch:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildConfigPlatform.
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
@@ -3712,6 +3733,12 @@ type BlocksCreationRequest_Blocks_Item struct {
 	union json.RawMessage
 }
 
+// BranchSource Where the branch a run, session, or resolution used came from.
+//
+// Results leave it absent or null when an exact build or All branches ·
+// Latest build chose the build, because then no branch was chosen.
+type BranchSource string
+
 // BuildArtifact Artifact produced by a sandbox build.
 type BuildArtifact struct {
 	Name string `json:"name"`
@@ -3904,10 +3931,10 @@ type BuildConfigPlatform string
 
 // BuildCreateFromUploadRequest Request to create a build from a completed staging upload.
 type BuildCreateFromUploadRequest struct {
-	BranchId          *openapi_types.UUID     `json:"branch_id,omitempty"`
-	BranchName        *string                 `json:"branch_name,omitempty"`
-	ContextBranchName *string                 `json:"context_branch_name,omitempty"`
-	Metadata          *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId      *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName    *string                 `json:"branch_name,omitempty"`
+	GitBranchName *string                 `json:"git_branch_name,omitempty"`
+	Metadata      *map[string]interface{} `json:"metadata,omitempty"`
 
 	// Pin True pins the destination branch to this build. False, the default, never changes a pin: a branch following Latest uses this build because it is the newest, and a pinned branch keeps its pin
 	Pin *bool `json:"pin,omitempty"`
@@ -3931,15 +3958,15 @@ type BuildCreateResponse struct {
 
 // BuildFromUrlRequest Request to create a build by ingesting an artifact from a URL (e.g., Expo EAS).
 type BuildFromUrlRequest struct {
-	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName        *string             `json:"branch_name,omitempty"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
 
 	// FingerprintHash Native dependency fingerprint for compatible artifact reuse
 	FingerprintHash *string `json:"fingerprint_hash,omitempty"`
 
 	// FromUrl Source URL of the artifact to ingest
-	FromUrl string `json:"from_url"`
+	FromUrl       string  `json:"from_url"`
+	GitBranchName *string `json:"git_branch_name,omitempty"`
 
 	// Headers Optional HTTP headers to include when fetching the URL
 	Headers  *map[string]string      `json:"headers,omitempty"`
@@ -4024,15 +4051,15 @@ type BuildMultipartUploadResumeResponse struct {
 
 // BuildMultipartUploadStartRequest Request to start an S3 multipart upload for a large build artifact.
 type BuildMultipartUploadStartRequest struct {
-	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName        *string             `json:"branch_name,omitempty"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
 
 	// FileName Name of the file to upload
 	FileName string `json:"file_name"`
 
 	// FileSize Total artifact size in bytes; the server rejects sizes above its maximum supported artifact size
-	FileSize int `json:"file_size"`
+	FileSize      int     `json:"file_size"`
+	GitBranchName *string `json:"git_branch_name,omitempty"`
 
 	// Version Version string (must be unique)
 	Version string `json:"version"`
@@ -4096,14 +4123,14 @@ type BuildRecipePlatform string
 
 // BuildResolutionRequest Request to resolve a build for a test.
 type BuildResolutionRequest struct {
-	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName        *string             `json:"branch_name,omitempty"`
-	BuildSelection    *BuildSelectionMode `json:"build_selection,omitempty"`
-	BuildVarId        openapi_types.UUID  `json:"build_var_id"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	BranchId       *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName     *string             `json:"branch_name,omitempty"`
+	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
+	BuildVarId     openapi_types.UUID  `json:"build_var_id"`
 
 	// Filters Optional resolution filters matched against build metadata (e.g., pr_number, commit_sha)
-	Filters *map[string]interface{} `json:"filters,omitempty"`
+	Filters       *map[string]interface{} `json:"filters,omitempty"`
+	GitBranchName *string                 `json:"git_branch_name,omitempty"`
 
 	// OrgId Organization context for service-auth resolution requests
 	OrgId         *openapi_types.UUID `json:"org_id,omitempty"`
@@ -4114,14 +4141,23 @@ type BuildResolutionRequest struct {
 // BuildResolutionResponse Response with resolved build information.
 type BuildResolutionResponse struct {
 	// AppName The app's name, for messages that name it
-	AppName          *string                                  `json:"app_name,omitempty"`
-	ArtifactKind     *string                                  `json:"artifact_kind,omitempty"`
-	ArtifactUrl      *string                                  `json:"artifact_url,omitempty"`
-	BranchId         *openapi_types.UUID                      `json:"branch_id,omitempty"`
-	BranchName       *string                                  `json:"branch_name,omitempty"`
-	BuildVarId       openapi_types.UUID                       `json:"build_var_id"`
-	DeployUrl        *string                                  `json:"deploy_url,omitempty"`
-	DownloadUrl      *string                                  `json:"download_url,omitempty"`
+	AppName      *string             `json:"app_name,omitempty"`
+	ArtifactKind *string             `json:"artifact_kind,omitempty"`
+	ArtifactUrl  *string             `json:"artifact_url,omitempty"`
+	BranchId     *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName   *string             `json:"branch_name,omitempty"`
+
+	// BranchSource Where the branch a run, session, or resolution used came from.
+	//
+	// Results leave it absent or null when an exact build or All branches ·
+	// Latest build chose the build, because then no branch was chosen.
+	BranchSource *BranchSource      `json:"branch_source,omitempty"`
+	BuildVarId   openapi_types.UUID `json:"build_var_id"`
+	DeployUrl    *string            `json:"deploy_url,omitempty"`
+	DownloadUrl  *string            `json:"download_url,omitempty"`
+
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	GitBranchName    *string                                  `json:"git_branch_name,omitempty"`
 	Platform         string                                   `json:"platform"`
 	ResolutionStatus *BuildResolutionResponseResolutionStatus `json:"resolution_status,omitempty"`
 	StaticUrl        *string                                  `json:"static_url,omitempty"`
@@ -4209,10 +4245,10 @@ type BuildStepType string
 
 // BuildUploadCompleteRequest Request to mark upload as complete.
 type BuildUploadCompleteRequest struct {
-	BranchId          *openapi_types.UUID     `json:"branch_id,omitempty"`
-	BranchName        *string                 `json:"branch_name,omitempty"`
-	ContextBranchName *string                 `json:"context_branch_name,omitempty"`
-	Metadata          *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId      *openapi_types.UUID     `json:"branch_id,omitempty"`
+	BranchName    *string                 `json:"branch_name,omitempty"`
+	GitBranchName *string                 `json:"git_branch_name,omitempty"`
+	Metadata      *map[string]interface{} `json:"metadata,omitempty"`
 
 	// PackageName Package name
 	PackageName *string `json:"package_name,omitempty"`
@@ -4232,12 +4268,12 @@ type BuildUploadCompleteResponse struct {
 
 // BuildUploadSessionRequest Request to open a staging upload session for a new build artifact.
 type BuildUploadSessionRequest struct {
-	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName        *string             `json:"branch_name,omitempty"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
 
 	// FileName Name of the file to upload
-	FileName string `json:"file_name"`
+	FileName      string  `json:"file_name"`
+	GitBranchName *string `json:"git_branch_name,omitempty"`
 
 	// Version Version string (must be unique)
 	Version string `json:"version"`
@@ -4345,28 +4381,38 @@ type CheckVariableExistsResponse struct {
 
 // ChildTaskReportInfo defines model for ChildTaskReportInfo.
 type ChildTaskReportInfo struct {
-	AppId                *string  `json:"app_id,omitempty"`
-	BranchId             *string  `json:"branch_id,omitempty"`
-	BranchName           *string  `json:"branch_name,omitempty"`
-	BuildId              *string  `json:"build_id,omitempty"`
-	BuildVersion         *string  `json:"build_version,omitempty"`
-	CompletedAt          *string  `json:"completed_at,omitempty"`
-	CurrentStep          *string  `json:"current_step,omitempty"`
-	Duration             *float32 `json:"duration,omitempty"`
-	ErrorMessage         *string  `json:"error_message,omitempty"`
-	ExecutionTimeSeconds *float32 `json:"execution_time_seconds,omitempty"`
-	IsShared             *bool    `json:"is_shared,omitempty"`
-	Platform             *string  `json:"platform,omitempty"`
-	Progress             *float32 `json:"progress,omitempty"`
-	ShareToken           *string  `json:"share_token,omitempty"`
-	StartedAt            *string  `json:"started_at,omitempty"`
-	Status               *string  `json:"status,omitempty"`
-	StepsCompleted       *int     `json:"steps_completed,omitempty"`
-	Success              *bool    `json:"success,omitempty"`
-	TaskId               string   `json:"task_id"`
-	TestId               *string  `json:"test_id,omitempty"`
-	TestName             *string  `json:"test_name,omitempty"`
-	TotalSteps           *int     `json:"total_steps,omitempty"`
+	AppId      *string `json:"app_id,omitempty"`
+	AppName    *string `json:"app_name,omitempty"`
+	BranchId   *string `json:"branch_id,omitempty"`
+	BranchName *string `json:"branch_name,omitempty"`
+
+	// BranchSource Where the branch a run, session, or resolution used came from.
+	//
+	// Results leave it absent or null when an exact build or All branches ·
+	// Latest build chose the build, because then no branch was chosen.
+	BranchSource         *BranchSource `json:"branch_source,omitempty"`
+	BuildId              *string       `json:"build_id,omitempty"`
+	BuildVersion         *string       `json:"build_version,omitempty"`
+	CompletedAt          *string       `json:"completed_at,omitempty"`
+	CurrentStep          *string       `json:"current_step,omitempty"`
+	Duration             *float32      `json:"duration,omitempty"`
+	ErrorMessage         *string       `json:"error_message,omitempty"`
+	ExecutionTimeSeconds *float32      `json:"execution_time_seconds,omitempty"`
+
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	GitBranchName  *string  `json:"git_branch_name,omitempty"`
+	IsShared       *bool    `json:"is_shared,omitempty"`
+	Platform       *string  `json:"platform,omitempty"`
+	Progress       *float32 `json:"progress,omitempty"`
+	ShareToken     *string  `json:"share_token,omitempty"`
+	StartedAt      *string  `json:"started_at,omitempty"`
+	Status         *string  `json:"status,omitempty"`
+	StepsCompleted *int     `json:"steps_completed,omitempty"`
+	Success        *bool    `json:"success,omitempty"`
+	TaskId         string   `json:"task_id"`
+	TestId         *string  `json:"test_id,omitempty"`
+	TestName       *string  `json:"test_name,omitempty"`
+	TotalSteps     *int     `json:"total_steps,omitempty"`
 }
 
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
@@ -5104,6 +5150,18 @@ type EntitlementItem struct {
 
 // ExecuteTestAsyncAPIResponse Response for async test execution start.
 type ExecuteTestAsyncAPIResponse struct {
+	// BranchName Branch of the build the run uses
+	BranchName *string `json:"branch_name,omitempty"`
+
+	// BranchSource Where the branch a run, session, or resolution used came from.
+	//
+	// Results leave it absent or null when an exact build or All branches ·
+	// Latest build chose the build, because then no branch was chosen.
+	BranchSource *BranchSource `json:"branch_source,omitempty"`
+
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	GitBranchName *string `json:"git_branch_name,omitempty"`
+
 	// Id Execution ID
 	Id      openapi_types.UUID `json:"id"`
 	Message string             `json:"message"`
@@ -5192,9 +5250,9 @@ type ExplorationLaunchRequest struct {
 	BranchName         *string                  `json:"branch_name,omitempty"`
 	BuildId            *openapi_types.UUID      `json:"build_id,omitempty"`
 	BuildSelection     *BuildSelectionMode      `json:"build_selection,omitempty"`
-	ContextBranchName  *string                  `json:"context_branch_name,omitempty"`
 	DeviceModel        *string                  `json:"device_model,omitempty"`
 	EnvVars            *map[string]string       `json:"env_vars,omitempty"`
+	GitBranchName      *string                  `json:"git_branch_name,omitempty"`
 	IdleTimeoutSeconds *int                     `json:"idle_timeout_seconds,omitempty"`
 	LaneCount          *int                     `json:"lane_count,omitempty"`
 	Lanes              *[]ExplorationLaneConfig `json:"lanes,omitempty"`
@@ -6709,8 +6767,8 @@ type RemoteBuildRequest struct {
 	CleanBuild          *bool   `json:"clean_build,omitempty"`
 
 	// Config Sandbox build configuration stored by the API and used by build jobs.
-	Config            *BuildConfig `json:"config,omitempty"`
-	ContextBranchName *string      `json:"context_branch_name,omitempty"`
+	Config        *BuildConfig `json:"config,omitempty"`
+	GitBranchName *string      `json:"git_branch_name,omitempty"`
 
 	// Image Optional sandbox build image key. Defaults to latest.
 	Image *string `json:"image,omitempty"`
@@ -7080,23 +7138,32 @@ type RepositoryProjectCatalogResponse struct {
 
 // ResolvedBuild Normalized representation of a resolved build artifact.
 type ResolvedBuild struct {
-	ArtifactKind *string                 `json:"artifact_kind,omitempty"`
-	ArtifactUrl  *string                 `json:"artifact_url,omitempty"`
-	BranchId     *openapi_types.UUID     `json:"branch_id,omitempty"`
-	BranchName   *string                 `json:"branch_name,omitempty"`
-	BuildName    *string                 `json:"build_name,omitempty"`
-	BuildVarId   openapi_types.UUID      `json:"build_var_id"`
-	DeployUrl    *string                 `json:"deploy_url,omitempty"`
-	Description  *string                 `json:"description,omitempty"`
-	DownloadUrl  *string                 `json:"download_url,omitempty"`
-	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
-	PackageName  *string                 `json:"package_name,omitempty"`
-	Platform     *string                 `json:"platform,omitempty"`
-	StaticUrl    *string                 `json:"static_url,omitempty"`
-	SystemPrompt *string                 `json:"system_prompt,omitempty"`
-	UploadedAt   *time.Time              `json:"uploaded_at,omitempty"`
-	Version      *string                 `json:"version,omitempty"`
-	VersionId    *openapi_types.UUID     `json:"version_id,omitempty"`
+	ArtifactKind *string             `json:"artifact_kind,omitempty"`
+	ArtifactUrl  *string             `json:"artifact_url,omitempty"`
+	BranchId     *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName   *string             `json:"branch_name,omitempty"`
+
+	// BranchSource Where the branch a run, session, or resolution used came from.
+	//
+	// Results leave it absent or null when an exact build or All branches ·
+	// Latest build chose the build, because then no branch was chosen.
+	BranchSource *BranchSource      `json:"branch_source,omitempty"`
+	BuildName    *string            `json:"build_name,omitempty"`
+	BuildVarId   openapi_types.UUID `json:"build_var_id"`
+	DeployUrl    *string            `json:"deploy_url,omitempty"`
+	Description  *string            `json:"description,omitempty"`
+	DownloadUrl  *string            `json:"download_url,omitempty"`
+
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	GitBranchName *string                 `json:"git_branch_name,omitempty"`
+	Metadata      *map[string]interface{} `json:"metadata,omitempty"`
+	PackageName   *string                 `json:"package_name,omitempty"`
+	Platform      *string                 `json:"platform,omitempty"`
+	StaticUrl     *string                 `json:"static_url,omitempty"`
+	SystemPrompt  *string                 `json:"system_prompt,omitempty"`
+	UploadedAt    *time.Time              `json:"uploaded_at,omitempty"`
+	Version       *string                 `json:"version,omitempty"`
+	VersionId     *openapi_types.UUID     `json:"version_id,omitempty"`
 }
 
 // RevokeCLIApiKeyRequest Request to revoke a browser-issued CLI API key.
@@ -7250,11 +7317,10 @@ type StartDeviceInfo struct {
 	BranchName *string             `json:"branch_name,omitempty"`
 
 	// BuildId Specific `builds` table row UUID. When provided, the backend uses this exact build instead of resolving the latest build for the given `app_id`.
-	BuildId           *openapi_types.UUID `json:"build_id,omitempty"`
-	BuildSelection    *BuildSelectionMode `json:"build_selection,omitempty"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
-	DeviceLocal       *bool               `json:"device_local,omitempty"`
-	DeviceModel       *string             `json:"device_model,omitempty"`
+	BuildId        *openapi_types.UUID `json:"build_id,omitempty"`
+	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
+	DeviceLocal    *bool               `json:"device_local,omitempty"`
+	DeviceModel    *string             `json:"device_model,omitempty"`
 
 	// DeviceRunnerId Optional worker DEVICE_ID label to require for direct device sessions.
 	DeviceRunnerId *string            `json:"device_runner_id,omitempty"`
@@ -7262,6 +7328,7 @@ type StartDeviceInfo struct {
 
 	// ExplorationConfig Per-device-session exploration contract passed from API to worker.
 	ExplorationConfig  *ExplorationSessionConfig `json:"exploration_config,omitempty"`
+	GitBranchName      *string                   `json:"git_branch_name,omitempty"`
 	IdleTimeoutSeconds *int                      `json:"idle_timeout_seconds,omitempty"`
 	IsSimulation       *bool                     `json:"is_simulation,omitempty"`
 
@@ -7298,16 +7365,24 @@ type StartDeviceInfo struct {
 
 // StartDeviceResponse Structured response for the `start_device` endpoint.
 type StartDeviceResponse struct {
-	Error *string `json:"error,omitempty"`
+	// BranchSource Where the branch a run, session, or resolution used came from.
+	//
+	// Results leave it absent or null when an exact build or All branches ·
+	// Latest build chose the build, because then no branch was chosen.
+	BranchSource *BranchSource `json:"branch_source,omitempty"`
+	Error        *string       `json:"error,omitempty"`
 
 	// ErrorDetail Safe, actionable context for a launch-variable resolution failure.
-	ErrorDetail  *LaunchEnvVarErrorDetail `json:"error_detail,omitempty"`
-	IframeUrl    *string                  `json:"iframe_url,omitempty"`
-	Message      *string                  `json:"message,omitempty"`
-	Platform     string                   `json:"platform"`
-	RetryAllowed *bool                    `json:"retry_allowed,omitempty"`
-	SessionId    *openapi_types.UUID      `json:"session_id,omitempty"`
-	Status       AsyncStatus              `json:"status"`
+	ErrorDetail *LaunchEnvVarErrorDetail `json:"error_detail,omitempty"`
+
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	GitBranchName *string             `json:"git_branch_name,omitempty"`
+	IframeUrl     *string             `json:"iframe_url,omitempty"`
+	Message       *string             `json:"message,omitempty"`
+	Platform      string              `json:"platform"`
+	RetryAllowed  *bool               `json:"retry_allowed,omitempty"`
+	SessionId     *openapi_types.UUID `json:"session_id,omitempty"`
+	Status        AsyncStatus         `json:"status"`
 
 	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
 	TraceId       *string             `json:"trace_id,omitempty"`
@@ -7439,13 +7514,13 @@ type TaskID struct {
 	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
 
 	// BuildVersionId Override the build to use for this test execution. If provided, this will override the build attached to the test.
-	BuildVersionId    *openapi_types.UUID `json:"build_version_id,omitempty"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
-	DeviceLocal       *bool               `json:"device_local,omitempty"`
+	BuildVersionId *openapi_types.UUID `json:"build_version_id,omitempty"`
+	DeviceLocal    *bool               `json:"device_local,omitempty"`
 
 	// DeviceModel Override the target device model for this execution
-	DeviceModel  *string `json:"device_model,omitempty"`
-	GetDownloads *bool   `json:"get_downloads,omitempty"`
+	DeviceModel   *string `json:"device_model,omitempty"`
+	GetDownloads  *bool   `json:"get_downloads,omitempty"`
+	GitBranchName *string `json:"git_branch_name,omitempty"`
 
 	// LaunchArguments Inline iOS app arguments in exact token order
 	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
@@ -8169,10 +8244,10 @@ type WebBuildRun struct {
 
 // WebExternalBuildRequest defines model for WebExternalBuildRequest.
 type WebExternalBuildRequest struct {
-	BranchId          *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName        *string             `json:"branch_name,omitempty"`
-	CommitSha         *string             `json:"commit_sha,omitempty"`
-	ContextBranchName *string             `json:"context_branch_name,omitempty"`
+	BranchId      *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName    *string             `json:"branch_name,omitempty"`
+	CommitSha     *string             `json:"commit_sha,omitempty"`
+	GitBranchName *string             `json:"git_branch_name,omitempty"`
 
 	// Metadata Free-form build annotations, including CI metadata, as for artifact uploads
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
@@ -8282,6 +8357,33 @@ type WorkflowCancelResponse struct {
 	Message string `json:"message"`
 	Success bool   `json:"success"`
 	TaskId  string `json:"task_id"`
+}
+
+// WorkflowChildExecutionResponse defines model for WorkflowChildExecutionResponse.
+type WorkflowChildExecutionResponse struct {
+	AppId      *openapi_types.UUID `json:"app_id,omitempty"`
+	AppName    *string             `json:"app_name,omitempty"`
+	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName *string             `json:"branch_name,omitempty"`
+
+	// BranchSource Where the branch a run, session, or resolution used came from.
+	//
+	// Results leave it absent or null when an exact build or All branches ·
+	// Latest build chose the build, because then no branch was chosen.
+	BranchSource         *BranchSource       `json:"branch_source,omitempty"`
+	BuildId              *openapi_types.UUID `json:"build_id,omitempty"`
+	BuildVersion         *string             `json:"build_version,omitempty"`
+	ErrorMessage         *string             `json:"error_message,omitempty"`
+	ExecutionTimeSeconds *float32            `json:"execution_time_seconds,omitempty"`
+
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	GitBranchName *string             `json:"git_branch_name,omitempty"`
+	Id            openapi_types.UUID  `json:"id"`
+	SessionId     *openapi_types.UUID `json:"session_id,omitempty"`
+	Status        *string             `json:"status,omitempty"`
+	Success       *bool               `json:"success,omitempty"`
+	TestId        openapi_types.UUID  `json:"test_id"`
+	WorkflowRunId *string             `json:"workflow_run_id,omitempty"`
 }
 
 // WorkflowData defines model for WorkflowData.
@@ -8402,16 +8504,17 @@ type WorkflowStatusCounts struct {
 
 // WorkflowStatusResponse Response model for workflow status polling that matches frontend expectations.
 type WorkflowStatusResponse struct {
-	CompletedTests      int                     `json:"completed_tests"`
-	Duration            *string                 `json:"duration,omitempty"`
-	ErrorMessage        *string                 `json:"error_message,omitempty"`
-	EstimatedCompletion *string                 `json:"estimated_completion,omitempty"`
-	ExecutionId         *openapi_types.UUID     `json:"execution_id,omitempty"`
-	FailedTests         *int                    `json:"failed_tests,omitempty"`
-	Metadata            *map[string]interface{} `json:"metadata,omitempty"`
-	PassedTests         *int                    `json:"passed_tests,omitempty"`
-	Progress            float32                 `json:"progress"`
-	StartedAt           *string                 `json:"started_at,omitempty"`
+	ChildTasks          *[]WorkflowChildExecutionResponse `json:"child_tasks,omitempty"`
+	CompletedTests      int                               `json:"completed_tests"`
+	Duration            *string                           `json:"duration,omitempty"`
+	ErrorMessage        *string                           `json:"error_message,omitempty"`
+	EstimatedCompletion *string                           `json:"estimated_completion,omitempty"`
+	ExecutionId         *openapi_types.UUID               `json:"execution_id,omitempty"`
+	FailedTests         *int                              `json:"failed_tests,omitempty"`
+	Metadata            *map[string]interface{}           `json:"metadata,omitempty"`
+	PassedTests         *int                              `json:"passed_tests,omitempty"`
+	Progress            float32                           `json:"progress"`
+	StartedAt           *string                           `json:"started_at,omitempty"`
 
 	// Status Workflow execution status.
 	Status     WorkflowStatus     `json:"status"`
@@ -8571,7 +8674,7 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 
 	// ConcurrencyLimitOverride Maximum concurrent tests for this run across platforms. Omitted or null uses the saved workflow cap; 0 removes it for this run. Organization capacity still applies. Does not change saved workflow settings.
 	ConcurrencyLimitOverride *int    `json:"concurrency_limit_override,omitempty"`
-	ContextBranchName        *string `json:"context_branch_name,omitempty"`
+	GitBranchName            *string `json:"git_branch_name,omitempty"`
 
 	// LaunchArguments Inline iOS app arguments in exact token order. Stored argument sets are applied first; these tokens are appended afterward.
 	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
@@ -8756,13 +8859,13 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	Version string `form:"version" json:"version"`
 
 	// FileName Name of the file to upload
-	FileName          string              `form:"file_name" json:"file_name"`
-	BranchId          *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
-	BranchName        *string             `form:"branch_name,omitempty" json:"branch_name,omitempty"`
-	ContextBranchName *string             `form:"context_branch_name,omitempty" json:"context_branch_name,omitempty"`
+	FileName   string              `form:"file_name" json:"file_name"`
+	BranchId   *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	BranchName *string             `form:"branch_name,omitempty" json:"branch_name,omitempty"`
 
 	// Source Build upload source for backend-owned lifecycle analytics
 	Source                                 *string `form:"source,omitempty" json:"source,omitempty"`
+	GitBranchName                          *string `form:"git_branch_name,omitempty" json:"git_branch_name,omitempty"`
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }

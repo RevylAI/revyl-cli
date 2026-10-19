@@ -27,9 +27,9 @@ func TestExplicitUploadDestinationPreservesSourceGitAndCIProvenance(t *testing.T
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GITHUB_EVENT_PATH", "")
 	t.Setenv("GITHUB_REPOSITORY", "example/mobile")
-	t.Setenv("GITHUB_HEAD_REF", "Feature/branch-context")
+	t.Setenv("GITHUB_HEAD_REF", "Feature/git-branch")
 	t.Setenv("GITHUB_SHA", head)
-	t.Setenv("REVYL_INTERNAL_BRANCH_CONTEXT", "unrelated/ambient")
+	t.Setenv("REVYL_INTERNAL_GIT_BRANCH", "unrelated/ambient")
 	artifact := filepath.Join(project, "app.apk")
 	if err := os.WriteFile(artifact, []byte("fixture-apk"), 0600); err != nil {
 		t.Fatal(err)
@@ -78,10 +78,10 @@ func TestExplicitUploadDestinationPreservesSourceGitAndCIProvenance(t *testing.T
 			}
 			branchID, _ := destination["branch_id"].(string)
 			branchName, _ := destination["branch_name"].(string)
-			if branchID != selection.branchID || branchName != selection.branchName || destination["context_branch_name"] != nil {
+			if branchID != selection.branchID || branchName != selection.branchName || destination["git_branch_name"] != nil {
 				t.Fatalf("explicit destination changed: %#v", destination)
 			}
-			if body["upload_id"] != "frozen-upload" || body["branch_id"] != nil || body["branch_name"] != nil || body["context_branch_name"] != nil {
+			if body["upload_id"] != "frozen-upload" || body["branch_id"] != nil || body["branch_name"] != nil || body["git_branch_name"] != nil {
 				t.Fatalf("finalization replaced frozen upload destination: %#v", body)
 			}
 			metadata, ok := body["metadata"].(map[string]any)
@@ -89,7 +89,7 @@ func TestExplicitUploadDestinationPreservesSourceGitAndCIProvenance(t *testing.T
 				t.Fatal("source metadata missing")
 			}
 			gitMetadata, ok := metadata["git"].(map[string]any)
-			if !ok || gitMetadata["branch"] != "Feature/branch-context" || gitMetadata["commit"] != head || metadata["scm_branch"] != "Feature/branch-context" || metadata["scm_head_sha"] != head {
+			if !ok || gitMetadata["branch"] != "Feature/git-branch" || gitMetadata["commit"] != head || metadata["scm_branch"] != "Feature/git-branch" || metadata["scm_head_sha"] != head {
 				t.Fatalf("destination replaced source provenance: %#v", metadata)
 			}
 		})

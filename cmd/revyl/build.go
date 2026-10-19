@@ -36,9 +36,10 @@ Use --local to run the same recipe on this machine and upload the generated arti
 Local execution requires the recipe's toolchain and is not supported on Windows.
 --remote remains supported; --remote=false also selects local execution.
 
-The build lands on its branch (--branch, or the app's default branch). A branch
-that follows Latest build runs it because it is the newest; a pinned branch keeps
-its pin. Pass --pin to pin the branch to the new build.
+The build lands on --branch, otherwise the detected Git branch (created if
+needed), otherwise the app's default branch. A branch that follows Latest build
+runs it because it is the newest; a pinned branch keeps its pin. Pass --pin to
+pin the branch to the new build.
 
 Use --profile and --platform to resolve ambiguous choices in CI or --json mode.
 Cloud failures are reported without falling back to local execution.`,
@@ -55,9 +56,10 @@ var buildUploadCmd = &cobra.Command{
 
 This command does not run a build. Use ` + "`revyl build`" + ` to build from source.
 
-The upload lands on its branch (--branch, or the app's default branch). A branch
-that follows Latest build runs it because it is the newest; a pinned branch keeps
-its pin. Pass --pin to pin the branch to the new build.
+The upload lands on --branch, otherwise the detected Git branch (created if
+needed), otherwise the app's default branch. A branch that follows Latest build
+runs it because it is the newest; a pinned branch keeps its pin. Pass --pin to
+pin the branch to the new build.
 
 To match a GitHub PR or GitLab MR from any CI runner, pass --repo namespace/name
 and --commit with the full built commit SHA. Add --pr to select a review explicitly.
@@ -66,8 +68,9 @@ Buildkite are detected automatically.
 
 With --platform web, --url is a deployment URL (for example a preview deploy)
 that Revyl registers as a build of the Web app named by --app or by
-build.profiles.<name>.web.app_id. Re-registering the same URL and commit makes
-that build the app's latest.`,
+build.profiles.<name>.web.app_id. It lands on --branch, otherwise the app's
+default branch: URL registration doesn't read your Git branch. Re-registering
+the same URL and commit makes that build the app's latest.`,
 	Example: `  revyl build upload --file ./app.apk --app <id>
   revyl build upload --file ./build/App.app.zip --platform ios --yes
   revyl build upload --url https://artifacts.example.com/app.apk --app <id>
@@ -195,8 +198,8 @@ var (
 var buildHostGOOS = runtime.GOOS
 
 func init() {
-	buildCmd.Flags().String("branch", "", "Revyl destination branch (defaults to the app default)")
-	buildUploadCmd.Flags().String("branch", "", "Revyl destination branch (defaults to the app default)")
+	buildCmd.Flags().String("branch", "", "Revyl destination branch (default: your Git branch, else the app's default branch)")
+	buildUploadCmd.Flags().String("branch", "", "Revyl destination branch (default: your Git branch, else the app's default branch; Web URLs: the app's default branch)")
 	buildListCmd.Flags().Bool("all-branches", false, "List builds across all branches (the default)")
 	buildListCmd.Flags().IntVar(&buildListPage, "page", 1, "Build version page (requires --app)")
 	buildListCmd.Flags().Int("page-size", 20, "Builds per page (maximum 100)")
@@ -428,6 +431,10 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
+	gitBranchName, err := commandGitBranch(cmd, cwd)
+	if err != nil {
+		return err
+	}
 
 	// Resolve and validate the artifact path.
 	artifactPath, err := build.ResolveArtifactPath(cwd, uploadFileFlag)
@@ -541,12 +548,13 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	ui.StartSpinner("Uploading artifact...")
 
 	result, uploadErr := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BranchName: commandBuildBranch(cmd),
-		AppID:      appID,
-		Version:    versionStr,
-		FilePath:   artifactPath,
-		Metadata:   metadata,
-		Pin:        pin,
+		BranchName:    commandBuildBranch(cmd),
+		GitBranchName: gitBranchName,
+		AppID:         appID,
+		Version:       versionStr,
+		FilePath:      artifactPath,
+		Metadata:      metadata,
+		Pin:           pin,
 	})
 
 	ui.StopSpinner()
@@ -657,6 +665,10 @@ func runURLUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
+	gitBranchName, err := commandGitBranch(cmd, cwd)
+	if err != nil {
+		return err
+	}
 
 	// Parse --header flags.
 	headers, err := parseHeaderFlags(uploadHeaderFlags)
@@ -734,13 +746,14 @@ func runURLUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	ui.StartSpinner("Ingesting artifact from URL...")
 
 	result, uploadErr := client.CreateBuildFromURL(cmd.Context(), &api.CreateBuildFromURLRequest{
-		BranchName: commandBuildBranch(cmd),
-		AppID:      appID,
-		FromURL:    uploadURLFlag,
-		Headers:    headers,
-		Version:    versionStr,
-		Metadata:   metadata,
-		Pin:        pin,
+		BranchName:    commandBuildBranch(cmd),
+		GitBranchName: gitBranchName,
+		AppID:         appID,
+		FromURL:       uploadURLFlag,
+		Headers:       headers,
+		Version:       versionStr,
+		Metadata:      metadata,
+		Pin:           pin,
 	})
 
 	ui.StopSpinner()
@@ -1258,6 +1271,10 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
+	gitBranchName, err := commandGitBranch(cmd, cwd)
+	if err != nil {
+		return err
+	}
 	if err := checkLocalBuildSupported(); err != nil {
 		return err
 	}
@@ -1546,11 +1563,12 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.StartSpinner("Uploading artifact...")
 
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BranchName: commandBuildBranch(cmd),
-		AppID:      appID,
-		Version:    versionStr,
-		FilePath:   artifactPath,
-		Metadata:   metadata,
+		BranchName:    commandBuildBranch(cmd),
+		GitBranchName: gitBranchName,
+		AppID:         appID,
+		Version:       versionStr,
+		FilePath:      artifactPath,
+		Metadata:      metadata,
 	})
 
 	ui.StopSpinner()
@@ -1702,7 +1720,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 		branch, err := client.ResolveBranch(cmd.Context(), appID, "", branchFilter)
 		switch {
 		case err == nil:
-			if branchFilter != "" && (branch.IsDefault == nil || !*branch.IsDefault) {
+			if branch.IsDefault == nil || !*branch.IsDefault {
 				buildBranchArgument = " --branch " + quoteCLIRecoveryArgument(branch.Name)
 			}
 			branchID, branchFilter = branch.ID, branch.Name

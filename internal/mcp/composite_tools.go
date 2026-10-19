@@ -130,7 +130,7 @@ func (s *Server) registerManageTestsTool() {
 		Description: `Manage Revyl tests. Use the "action" param to select an operation.
 
 Actions:
-  run          - Run a test by name or ID. Default branch uses the app's default branch; saved concrete selections remain unchanged. Params: test_name (required), project_dir, retries, build_version_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches for the newest build across all branches, or pinned), location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
+  run          - Run a test by name or ID. With no branch chosen, uses the Git branch of project_dir or REVYL_PROJECT_DIR when it has a usable build, otherwise the app's default branch; latest_all_branches ignores Git; saved concrete selections remain unchanged. Params: test_name (required), project_dir, retries, build_version_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches for the newest build across all branches, or pinned), location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   list         - List tests from .revyl/config.yaml. No params required.
   list_remote  - List all tests in the organization. No params required.
   create       - Create a test from YAML. Params: name (required), platform (required), yaml_content, app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches, or pinned), pinned_build_id, module_names_or_ids
@@ -180,7 +180,7 @@ func (s *Server) registerManageBuildsTool() {
 
 Actions:
   list       - List build versions for app_id, or app summaries when omitted. Params: app_id, project_dir, platform, branch_id, branch_name, page, limit (1-100). Branch filters require app_id; omitting both branch selectors includes all branches. Version results include id, uploaded_at, is_current, branch_id, branch_name and has_more; retain the selected version ID when pinning a session or test.
-  upload     - Upload a build file. Params: file_path (required), app_id (required), version, project_dir, branch_id, branch_name. An explicit missing branch is created. Omission uses the app default.
+  upload     - Upload a build file. Params: file_path (required), app_id (required), version, project_dir, branch_id, branch_name. Missing explicit or detected branches are created. Omission uses Git branch from project_dir or REVYL_PROJECT_DIR, then app default.
   create_app - Create a new app. Params: name (required), platform (required)
   delete_app - Delete an app. Params: app_id (required)`,
 		Annotations: &mcp.ToolAnnotations{
@@ -219,7 +219,7 @@ Actions:
   list          - List all workflows. No params required.
   create        - Create a workflow. Params: name (required)
   delete        - Delete a workflow. Params: workflow_name (required)
-  run           - Run a workflow. Default branch targets use the app's default branch; saved concrete selections remain unchanged. Params: workflow_name (required), project_dir, retries, branch_name, build_selection (inherit for Automatic, latest, or latest_all_branches for the newest build across all branches), ios_app_id, android_app_id, ios_build_id, android_build_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
+  run           - Run a workflow. With no branch chosen, each app uses the Git branch of project_dir or REVYL_PROJECT_DIR when it has a usable build, otherwise its default branch; latest_all_branches ignores Git; saved concrete selections remain unchanged. Returns per-child tests with resolved app/branch identity and branch_source (git_branch, default_branch, or explicit_branch) with git_branch_name when the Git branch was consulted; default_branch with a git_branch_name means that Git branch had no usable build. Params: workflow_name (required), project_dir, retries, branch_name, build_selection (inherit for Automatic, latest, or latest_all_branches for the newest build across all branches), ios_app_id, android_app_id, ios_build_id, android_build_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   cancel        - Cancel a running workflow. Params: task_id (required)
   add_tests     - Add tests to a workflow. Params: workflow_name (required), test_names (required)
   remove_tests  - Remove tests from a workflow. Params: workflow_name (required), test_names (required)

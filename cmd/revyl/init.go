@@ -24,6 +24,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
@@ -84,7 +85,7 @@ func hasLocalRevylCredentials() bool {
 var initBuildBranch string
 
 func init() {
-	initCmd.Flags().StringVar(&initBuildBranch, "branch", "", "Revyl destination branch for initial builds (new apps use their initial branch; linked apps use their default)")
+	initCmd.Flags().StringVar(&initBuildBranch, "branch", "", "Revyl destination branch for initial builds (default: base for a new app; your Git branch, else the app's default branch, for a linked app)")
 	initCmd.Flags().StringVar(&initProjectID, "project", "", "Link to existing Revyl project ID")
 	initCmd.Flags().BoolVar(&initDetect, "detect", false, "Re-run build system detection")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing configuration")
@@ -127,8 +128,9 @@ type initConfigDraft struct {
 }
 
 type initUploadBranchSelection struct {
-	id   string
-	name string
+	id          string
+	name        string
+	contextName string
 }
 
 func (cfg *initConfigDraft) uploadBranchForApp(appID string) initUploadBranchSelection {
@@ -146,6 +148,17 @@ func (cfg *initConfigDraft) rememberCreatedApp(result *createOrLinkAppResult) {
 		cfg.initialBranchIDs = make(map[string]string)
 	}
 	cfg.initialBranchIDs[result.ID] = result.DefaultBranchID
+}
+
+func detectInitUploadBranch(ctx context.Context, cwd, explicitBranch string) (initUploadBranchSelection, error) {
+	if explicitBranch != "" {
+		return initUploadBranchSelection{name: explicitBranch}, nil
+	}
+	gitBranch, err := buildselection.DetectGitBranch(ctx, buildselection.GitBranchOptions{WorkDir: cwd})
+	if err != nil {
+		return initUploadBranchSelection{}, err
+	}
+	return initUploadBranchSelection{contextName: gitBranch.Name}, nil
 }
 
 type initProjectDraft struct {
@@ -572,7 +585,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// ── First Build ──────────────────────────────────────────────────────
 	ui.PrintSectionHeader("First Build")
-	cfg.uploadBranch = initUploadBranchSelection{name: initBuildBranch}
+	cfg.uploadBranch, err = detectInitUploadBranch(ctx, cwd, initBuildBranch)
+	if err != nil {
+		return fmt.Errorf("resolve initial build branch: %w", err)
+	}
 	buildOutcome := &firstBuildOutcome{}
 	wizardFirstBuild(ctx, client, cfg, configPath, buildOutcome)
 	if err := currentInitConfigWriteError(); err != nil {
@@ -1751,6 +1767,9 @@ func createAppInteractive(ctx context.Context, client *api.Client, cfg *initConf
 
 	cfg.rememberCreatedApp(result)
 	ui.PrintSuccess("Created app %s (id: %s)", result.Name, result.ID)
+	if result.DefaultBranchName != "" {
+		ui.PrintInfo("Created initial branch %q", result.DefaultBranchName)
+	}
 	return result.ID
 }
 
@@ -2061,10 +2080,11 @@ func canonicalAppName(name string) string {
 }
 
 type createOrLinkAppResult struct {
-	DefaultBranchID string
-	ID              string
-	Name            string
-	LinkedExisting  bool
+	DefaultBranchID   string
+	DefaultBranchName string
+	ID                string
+	Name              string
+	LinkedExisting    bool
 }
 
 func isAppAlreadyExistsError(err error) bool {
@@ -2098,10 +2118,11 @@ func createOrLinkAppByName(ctx context.Context, client *api.Client, name, platfo
 	})
 	if err == nil {
 		return &createOrLinkAppResult{
-			ID:              resp.ID,
-			Name:            strings.TrimSpace(resp.Name),
-			LinkedExisting:  false,
-			DefaultBranchID: resp.DefaultBranchID,
+			ID:                resp.ID,
+			Name:              strings.TrimSpace(resp.Name),
+			LinkedExisting:    false,
+			DefaultBranchID:   resp.DefaultBranchID,
+			DefaultBranchName: resp.DefaultBranchName,
 		}, nil
 	}
 
@@ -2139,6 +2160,9 @@ func ensureNamedApp(ctx context.Context, client *api.Client, cfg *initConfigDraf
 		return "", err
 	}
 	cfg.rememberCreatedApp(result)
+	if !result.LinkedExisting && result.DefaultBranchName != "" {
+		ui.PrintInfo("Created initial branch %q", result.DefaultBranchName)
+	}
 	return result.ID, nil
 }
 
@@ -3182,12 +3206,13 @@ func wizardFirstBuildReactNative(
 			uploadBranch := cfg.uploadBranchForApp(platformCfg.AppID)
 			ui.StartSpinner("Uploading artifact...")
 			result, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
-				BranchID:   uploadBranch.id,
-				BranchName: uploadBranch.name,
-				AppID:      platformCfg.AppID,
-				Version:    versionStr,
-				FilePath:   artifactPath,
-				Metadata:   metadata,
+				BranchID:      uploadBranch.id,
+				BranchName:    uploadBranch.name,
+				GitBranchName: uploadBranch.contextName,
+				AppID:         platformCfg.AppID,
+				Version:       versionStr,
+				FilePath:      artifactPath,
+				Metadata:      metadata,
 			})
 			ui.StopSpinner()
 
@@ -3411,12 +3436,13 @@ func sequentialBuildAndUpload(
 		uploadBranch := cfg.uploadBranchForApp(platformCfg.AppID)
 		ui.StartSpinner("Uploading artifact...")
 		result, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
-			BranchID:   uploadBranch.id,
-			BranchName: uploadBranch.name,
-			AppID:      platformCfg.AppID,
-			Version:    versionStr,
-			FilePath:   artifactPath,
-			Metadata:   metadata,
+			BranchID:      uploadBranch.id,
+			BranchName:    uploadBranch.name,
+			GitBranchName: uploadBranch.contextName,
+			AppID:         platformCfg.AppID,
+			Version:       versionStr,
+			FilePath:      artifactPath,
+			Metadata:      metadata,
 		})
 		ui.StopSpinner()
 
@@ -3661,12 +3687,13 @@ func runWizardBuildForPlatform(
 	outputMu.Unlock()
 
 	uploadResult, err := client.UploadBuild(ctx, &api.UploadBuildRequest{
-		BranchID:   branchSelection.id,
-		BranchName: branchSelection.name,
-		AppID:      result.AppID,
-		Version:    versionStr,
-		FilePath:   artifactPath,
-		Metadata:   metadata,
+		BranchID:      branchSelection.id,
+		BranchName:    branchSelection.name,
+		GitBranchName: branchSelection.contextName,
+		AppID:         result.AppID,
+		Version:       versionStr,
+		FilePath:      artifactPath,
+		Metadata:      metadata,
 	})
 	if err != nil {
 		result.Err = fmt.Errorf("upload failed: %w", err)

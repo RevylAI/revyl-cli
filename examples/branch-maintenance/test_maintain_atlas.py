@@ -49,6 +49,58 @@ class RecipeTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn("exact-build-proof", summary_path.read_text())
 
+    def test_workflow_tests_run_on_the_explored_build(self) -> None:
+        for workflow_path in Path(__file__).parent.glob("refresh-*.yml"):
+            with self.subTest(workflow=workflow_path.name):
+                workflow = workflow_path.read_text()
+                test_step = "      - name: Run tests on the same build\n"
+                step = workflow.split(test_step, 1)[1]
+                step = step.split("      - name: Summarize\n", 1)[0]
+                self.assertIn("if: vars.REVYL_WORKFLOW_ID != ''", step)
+                script = step.split("        run: |\n", 1)[1]
+                script = "\n".join(
+                    line.removeprefix("          ") for line in script.splitlines()
+                )
+                with tempfile.TemporaryDirectory() as directory:
+                    checkpoint_path = Path(directory) / recipe.CHECKPOINT.name
+                    checkpoint_path.write_text('{"build_id":"exact-build-proof"}\n')
+                    fake_revyl = Path(directory) / "revyl"
+                    fake_revyl.write_text(
+                        '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > revyl-arguments.txt\n'
+                    )
+                    fake_revyl.chmod(0o755)
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", script],
+                        cwd=directory,
+                        env={
+                            **os.environ,
+                            "PATH": directory + os.pathsep + os.environ["PATH"],
+                            "REVYL_WORKFLOW_ID": "smoke",
+                            "REVYL_APP_ID": "app",
+                            "REVYL_PLATFORM": "android",
+                        },
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    arguments = (Path(directory) / "revyl-arguments.txt").read_text()
+                    self.assertEqual(
+                        arguments.splitlines(),
+                        [
+                            "workflow",
+                            "run",
+                            "smoke",
+                            "--timeout",
+                            "1800",
+                            "--android-app",
+                            "app",
+                            "--android-build-id",
+                            "exact-build-proof",
+                        ],
+                    )
+
     def run_recipe(
         self,
         *,

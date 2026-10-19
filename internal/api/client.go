@@ -890,15 +890,15 @@ type CLILocation struct {
 // ExecuteTestRequest represents a test execution request.
 // Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
 type ExecuteTestRequest struct {
-	ContextBranchName string             `json:"context_branch_name,omitempty"`
-	BranchID          string             `json:"branch_id,omitempty"`
-	BranchName        string             `json:"branch_name,omitempty"`
-	BuildSelection    BuildSelectionMode `json:"build_selection,omitempty"`
-	PinnedBuildID     string             `json:"pinned_build_id,omitempty"`
-	TestID            string             `json:"test_id"`
-	Retries           int                `json:"retries,omitempty"`
-	BuildVersionID    string             `json:"build_version_id,omitempty"`
-	RunConfig         *CLIRunConfig      `json:"run_config,omitempty"`
+	GitBranchName  string             `json:"git_branch_name,omitempty"`
+	BranchID       string             `json:"branch_id,omitempty"`
+	BranchName     string             `json:"branch_name,omitempty"`
+	BuildSelection BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildID  string             `json:"pinned_build_id,omitempty"`
+	TestID         string             `json:"test_id"`
+	Retries        int                `json:"retries,omitempty"`
+	BuildVersionID string             `json:"build_version_id,omitempty"`
+	RunConfig      *CLIRunConfig      `json:"run_config,omitempty"`
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string `json:"launch_url,omitempty"`
@@ -919,10 +919,13 @@ type ExecuteTestRequest struct {
 
 // ExecuteTestResponse represents a test execution response.
 type ExecuteTestResponse struct {
-	ID      string `json:"id"`
-	TaskID  string `json:"task_id"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	BranchSource  BranchSource `json:"branch_source,omitempty"`
+	GitBranchName string       `json:"git_branch_name,omitempty"`
+	BranchName    string       `json:"branch_name,omitempty"`
+	ID            string       `json:"id"`
+	TaskID        string       `json:"task_id"`
+	Status        string       `json:"status"`
+	Message       string       `json:"message"`
 }
 
 // ExecuteTest starts a test execution.
@@ -961,13 +964,13 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 	if req == nil {
 		return nil, fmt.Errorf("test execution request is nil")
 	}
-	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
-	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
-		withoutContext := *req
-		withoutContext.ContextBranchName = ""
-		req = &withoutContext
+	if gitBranchNameFor(req.BuildSelection, req.GitBranchName) != req.GitBranchName {
+		withoutGitBranch := *req
+		withoutGitBranch.GitBranchName = ""
+		req = &withoutGitBranch
 	}
 	// Dispatch has no idempotency key; retrying an uncertain response can launch twice.
 	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/execution/api/execute_test_id_async", req)
@@ -994,7 +997,7 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 // PlatformApp types from generated.go.
 type ExecuteWorkflowRequest struct {
 	ConcurrencyLimitOverride *int               `json:"concurrency_limit_override,omitempty"`
-	ContextBranchName        string             `json:"context_branch_name,omitempty"`
+	GitBranchName            string             `json:"git_branch_name,omitempty"`
 	BranchName               string             `json:"branch_name,omitempty"`
 	BuildSelection           BuildSelectionMode `json:"build_selection,omitempty"`
 	WorkflowID               string             `json:"workflow_id"`
@@ -1029,13 +1032,13 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 	if req == nil {
 		return nil, fmt.Errorf("workflow execution request is nil")
 	}
-	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
-	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
-		withoutContext := *req
-		withoutContext.ContextBranchName = ""
-		req = &withoutContext
+	if gitBranchNameFor(req.BuildSelection, req.GitBranchName) != req.GitBranchName {
+		withoutGitBranch := *req
+		withoutGitBranch.GitBranchName = ""
+		req = &withoutGitBranch
 	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/workflow-executions", req)
 	if err != nil {
@@ -1052,13 +1055,13 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 
 // UploadBuildRequest represents a build upload request.
 type UploadBuildRequest struct {
-	ContextBranchName string                 `json:"context_branch_name,omitempty"`
-	BranchID          string                 `json:"branch_id,omitempty"`
-	BranchName        string                 `json:"branch_name,omitempty"`
-	AppID             string                 `json:"build_var_id"`
-	Version           string                 `json:"version"`
-	FilePath          string                 `json:"-"`
-	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+	GitBranchName string                 `json:"git_branch_name,omitempty"`
+	BranchID      string                 `json:"branch_id,omitempty"`
+	BranchName    string                 `json:"branch_name,omitempty"`
+	AppID         string                 `json:"build_var_id"`
+	Version       string                 `json:"version"`
+	FilePath      string                 `json:"-"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 	// Pin pins the destination branch to the new build; without it the
 	// branch's pin is unchanged.
 	Pin bool `json:"pin,omitempty"`
@@ -1116,7 +1119,7 @@ type extractBuildPackageIDResponse struct {
 //   - *UploadBuildResponse: The upload response
 //   - error: Any error that occurred
 func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*UploadBuildResponse, error) {
-	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
 	if err := validateBranchSelector(req.BranchID, req.BranchName); err != nil {
@@ -1154,7 +1157,7 @@ func (c *Client) uploadBuildViaSession(ctx context.Context, req *UploadBuildRequ
 	var session uploadSessionResponse
 	if err := parseResponse(sessionResp, &session); err != nil {
 		if isUploadSessionUnsupported(err) {
-			if req.BranchID != "" || req.BranchName != "" || req.ContextBranchName != "" {
+			if req.BranchID != "" || req.BranchName != "" || req.GitBranchName != "" {
 				return nil, fmt.Errorf("this backend does not support branch upload destinations: %w", err)
 			}
 			return c.uploadBuildLegacyPresigned(ctx, req, fileName)
@@ -1479,7 +1482,7 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
-	stateKey := uploadDestinationStateKeyWithContext(req.AppID, req.Version, req.FilePath, fileSize, req.BranchID, req.BranchName, req.ContextBranchName)
+	stateKey := uploadDestinationStateKeyWithContext(req.AppID, req.Version, req.FilePath, fileSize, req.BranchID, req.BranchName, req.GitBranchName)
 
 	if st := c.loadResumableUploadState(stateKey); st != nil {
 		if !st.matches(fileSize, fileHash) {
@@ -1527,7 +1530,7 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 	var start multipartUploadStartResponse
 	if err := parseResponse(startResp, &start); err != nil {
 		if isUploadSessionUnsupported(err) {
-			if req.BranchID != "" || req.BranchName != "" || req.ContextBranchName != "" {
+			if req.BranchID != "" || req.BranchName != "" || req.GitBranchName != "" {
 				return nil, fmt.Errorf("this backend does not support branch upload destinations: %w", err)
 			}
 			// Older backends without multipart support: the single PUT still
@@ -2258,9 +2261,9 @@ func resolveUploadPlatform(metadata map[string]interface{}) string {
 // The backend downloads the artifact directly from the provided URL, so the CLI
 // never needs the binary on disk.
 type CreateBuildFromURLRequest struct {
-	ContextBranchName string `json:"context_branch_name,omitempty"`
-	BranchID          string `json:"branch_id,omitempty"`
-	BranchName        string `json:"branch_name,omitempty"`
+	GitBranchName string `json:"git_branch_name,omitempty"`
+	BranchID      string `json:"branch_id,omitempty"`
+	BranchName    string `json:"branch_name,omitempty"`
 	// AppID is the target Revyl app to store the build under.
 	AppID string `json:"-"`
 
@@ -2316,7 +2319,7 @@ type CreateBuildFromURLResponse struct {
 //   - *CreateBuildFromURLResponse: The created build version info
 //   - error: Any error (502 if the backend cannot fetch the URL, 409 if version exists and is not idempotent)
 func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
-	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
 	if err := validateBranchSelector(req.BranchID, req.BranchName); err != nil {
@@ -3572,7 +3575,8 @@ type CreateAppRequest struct {
 
 // CreateAppResponse represents the response from creating an app.
 type CreateAppResponse struct {
-	DefaultBranchID string `json:"default_branch_id,omitempty"`
+	DefaultBranchID   string `json:"default_branch_id,omitempty"`
+	DefaultBranchName string `json:"default_branch_name,omitempty"`
 	// ID is the unique identifier for the created app.
 	ID string `json:"id"`
 
@@ -4247,14 +4251,16 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 // BuildVersionDetail represents a build version with an optional download URL.
 // Returned by GetBuildVersionDownloadURL.
 type BuildVersionDetail struct {
-	BranchID    string                 `json:"branch_id,omitempty"`
-	BranchName  string                 `json:"branch_name,omitempty"`
-	ID          string                 `json:"id"`
-	AppID       string                 `json:"app_id,omitempty"`
-	Version     string                 `json:"version"`
-	DownloadURL string                 `json:"download_url,omitempty"`
-	PackageName string                 `json:"package_name,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	BranchSource  BranchSource           `json:"branch_source,omitempty"`
+	GitBranchName string                 `json:"git_branch_name,omitempty"`
+	BranchID      string                 `json:"branch_id,omitempty"`
+	BranchName    string                 `json:"branch_name,omitempty"`
+	ID            string                 `json:"id"`
+	AppID         string                 `json:"app_id,omitempty"`
+	Version       string                 `json:"version"`
+	DownloadURL   string                 `json:"download_url,omitempty"`
+	PackageName   string                 `json:"package_name,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // GetBuildVersionDownloadURL retrieves a build version with a presigned download URL.
@@ -4288,11 +4294,11 @@ func (c *Client) GetBuildVersionDetail(ctx context.Context, versionID string, in
 // StartDeviceRequest represents a request to start a device session.
 // Used for interactive test creation mode.
 type StartDeviceRequest struct {
-	ContextBranchName string             `json:"context_branch_name,omitempty"`
-	BranchID          string             `json:"branch_id,omitempty"`
-	BranchName        string             `json:"branch_name,omitempty"`
-	BuildSelection    BuildSelectionMode `json:"build_selection,omitempty"`
-	PinnedBuildID     string             `json:"pinned_build_id,omitempty"`
+	GitBranchName  string             `json:"git_branch_name,omitempty"`
+	BranchID       string             `json:"branch_id,omitempty"`
+	BranchName     string             `json:"branch_name,omitempty"`
+	BuildSelection BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildID  string             `json:"pinned_build_id,omitempty"`
 	// Platform is the target platform (ios, android, or web).
 	Platform string            `json:"platform"`
 	Web      *DeviceWebOptions `json:"web,omitempty"`
@@ -4390,7 +4396,7 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	if req == nil {
 		return nil, fmt.Errorf("start device request is nil")
 	}
-	if err := validateContextBranchName(req.ContextBranchName); err != nil {
+	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
 	if strings.EqualFold(req.Platform, "web") {
@@ -4398,10 +4404,10 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 		canonicalRequest.Platform = "web"
 		req = &canonicalRequest
 	}
-	if contextBranchNameFor(req.BuildSelection, req.ContextBranchName) != req.ContextBranchName {
-		withoutContext := *req
-		withoutContext.ContextBranchName = ""
-		req = &withoutContext
+	if gitBranchNameFor(req.BuildSelection, req.GitBranchName) != req.GitBranchName {
+		withoutGitBranch := *req
+		withoutGitBranch.GitBranchName = ""
+		req = &withoutGitBranch
 	}
 	requestID := newTraceRequestID()
 	headers := map[string]string{traceRequestIDHeader: requestID}
@@ -5602,20 +5608,40 @@ func (c *Client) GenerateWorkflowShareableLink(ctx context.Context, workflowTask
 
 // --- Workflow Status/History/Report API types ---
 
+// CLIWorkflowChildExecution is a resolved child from workflow status and monitor events.
+type CLIWorkflowChildExecution struct {
+	ID                   string       `json:"id"`
+	TestID               string       `json:"test_id"`
+	SessionID            string       `json:"session_id,omitempty"`
+	Status               string       `json:"status,omitempty"`
+	Success              *bool        `json:"success,omitempty"`
+	ErrorMessage         string       `json:"error_message,omitempty"`
+	ExecutionTimeSeconds *float64     `json:"execution_time_seconds,omitempty"`
+	AppID                string       `json:"app_id,omitempty"`
+	AppName              string       `json:"app_name,omitempty"`
+	BuildID              string       `json:"build_id,omitempty"`
+	BuildVersion         string       `json:"build_version,omitempty"`
+	BranchID             string       `json:"branch_id,omitempty"`
+	BranchName           string       `json:"branch_name,omitempty"`
+	BranchSource         BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string       `json:"git_branch_name,omitempty"`
+}
+
 // CLIWorkflowStatusResponse represents a workflow execution status.
 type CLIWorkflowStatusResponse struct {
-	ExecutionID         string  `json:"execution_id,omitempty"`
-	WorkflowID          string  `json:"workflow_id"`
-	Status              string  `json:"status"`
-	Progress            float64 `json:"progress"`
-	CompletedTests      int     `json:"completed_tests"`
-	TotalTests          int     `json:"total_tests"`
-	PassedTests         int     `json:"passed_tests"`
-	FailedTests         int     `json:"failed_tests"`
-	StartedAt           string  `json:"started_at,omitempty"`
-	EstimatedCompletion string  `json:"estimated_completion,omitempty"`
-	Duration            string  `json:"duration,omitempty"`
-	ErrorMessage        string  `json:"error_message,omitempty"`
+	ChildTasks          []CLIWorkflowChildExecution `json:"child_tasks,omitempty"`
+	ExecutionID         string                      `json:"execution_id,omitempty"`
+	WorkflowID          string                      `json:"workflow_id"`
+	Status              string                      `json:"status"`
+	Progress            float64                     `json:"progress"`
+	CompletedTests      int                         `json:"completed_tests"`
+	TotalTests          int                         `json:"total_tests"`
+	PassedTests         int                         `json:"passed_tests"`
+	FailedTests         int                         `json:"failed_tests"`
+	StartedAt           string                      `json:"started_at,omitempty"`
+	EstimatedCompletion string                      `json:"estimated_completion,omitempty"`
+	Duration            string                      `json:"duration,omitempty"`
+	ErrorMessage        string                      `json:"error_message,omitempty"`
 }
 
 // CLIWorkflowHistoryResponse represents workflow execution history.
@@ -5660,24 +5686,28 @@ type CLIWorkflowTestInfo struct {
 
 // CLIChildTaskReportInfo contains individual test execution data within a workflow.
 type CLIChildTaskReportInfo struct {
-	BuildID              string   `json:"build_id,omitempty"`
-	BuildVersion         string   `json:"build_version,omitempty"`
-	BranchID             string   `json:"branch_id,omitempty"`
-	BranchName           string   `json:"branch_name,omitempty"`
-	TaskID               string   `json:"task_id"`
-	TestID               string   `json:"test_id,omitempty"`
-	TestName             string   `json:"test_name,omitempty"`
-	Platform             string   `json:"platform,omitempty"`
-	Status               string   `json:"status,omitempty"`
-	Success              *bool    `json:"success,omitempty"`
-	StartedAt            string   `json:"started_at,omitempty"`
-	CompletedAt          string   `json:"completed_at,omitempty"`
-	Duration             *float64 `json:"duration,omitempty"`
-	ExecutionTimeSeconds *float64 `json:"execution_time_seconds,omitempty"`
-	StepsCompleted       *int     `json:"steps_completed,omitempty"`
-	TotalSteps           *int     `json:"total_steps,omitempty"`
-	Progress             *float64 `json:"progress,omitempty"`
-	ErrorMessage         string   `json:"error_message,omitempty"`
+	AppID                string       `json:"app_id,omitempty"`
+	AppName              string       `json:"app_name,omitempty"`
+	BranchSource         BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string       `json:"git_branch_name,omitempty"`
+	BuildID              string       `json:"build_id,omitempty"`
+	BuildVersion         string       `json:"build_version,omitempty"`
+	BranchID             string       `json:"branch_id,omitempty"`
+	BranchName           string       `json:"branch_name,omitempty"`
+	TaskID               string       `json:"task_id"`
+	TestID               string       `json:"test_id,omitempty"`
+	TestName             string       `json:"test_name,omitempty"`
+	Platform             string       `json:"platform,omitempty"`
+	Status               string       `json:"status,omitempty"`
+	Success              *bool        `json:"success,omitempty"`
+	StartedAt            string       `json:"started_at,omitempty"`
+	CompletedAt          string       `json:"completed_at,omitempty"`
+	Duration             *float64     `json:"duration,omitempty"`
+	ExecutionTimeSeconds *float64     `json:"execution_time_seconds,omitempty"`
+	StepsCompleted       *int         `json:"steps_completed,omitempty"`
+	TotalSteps           *int         `json:"total_steps,omitempty"`
+	Progress             *float64     `json:"progress,omitempty"`
+	ErrorMessage         string       `json:"error_message,omitempty"`
 }
 
 // CLIUnifiedWorkflowReportResponse represents a comprehensive workflow report.

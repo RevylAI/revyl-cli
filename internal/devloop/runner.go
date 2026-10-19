@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	// GitBranchEnvironment carries a resolved MCP hint, including deliberate absence.
+	GitBranchEnvironment = "REVYL_INTERNAL_GIT_BRANCH"
 	// RebuildProgressEnvironment enables the private CLI-to-MCP progress protocol.
 	RebuildProgressEnvironment = "REVYL_INTERNAL_REBUILD_PROGRESS"
 	// RebuildProgressJSONLMode selects version one of the JSON Lines protocol.
@@ -62,6 +64,7 @@ type StartRequest struct {
 	PlatformKey                string
 	AppID                      string
 	BranchName                 string
+	GitBranchName              *string
 	BuildSelection             string
 	BuildVersionID             string
 	LaunchVars                 []string
@@ -328,7 +331,11 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 	if request.SeedLatest {
 		args = append(args, "--seed-latest")
 	}
-	return runJSON[StartResult](ctx, r, workDir, args)
+	var environment []commandEnvironmentValue
+	if request.GitBranchName != nil {
+		environment = []commandEnvironmentValue{{Key: GitBranchEnvironment, Value: *request.GitBranchName}}
+	}
+	return runJSONWithEnvironment[StartResult](ctx, r, workDir, args, environment)
 }
 
 // ValidateStartProfileSelection rejects the removed flat build-platform selector.

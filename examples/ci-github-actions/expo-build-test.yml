@@ -36,6 +36,7 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
+      # Lands on the PR's source branch; add --branch <name> to choose another.
       - name: Upload to Revyl
         id: upload
         run: |

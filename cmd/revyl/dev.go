@@ -182,10 +182,10 @@ func init() {
 }
 
 func registerDevStartFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&devStartBranch, "branch", "", "Revyl branch for the initial build and every rebuild")
+	cmd.Flags().StringVar(&devStartBranch, "branch", "", "Revyl branch for initial build/rebuilds (default: Git branch, then app default)")
 	cmd.Flags().StringVar(&devStartBranchID, "branch-id", "", "Stable Revyl branch ID for continuation")
 	_ = cmd.Flags().MarkHidden("branch-id")
-	cmd.Flags().StringVar(&devStartBuildSelection, "build-selection", "", "Initial build: inherit (Automatic: the branch's default build), latest, or pinned with --build-version-id")
+	cmd.Flags().StringVar(&devStartBuildSelection, "build-selection", "", "Initial build: inherit (Automatic), latest, or pinned with --build-version-id")
 	cmd.Flags().StringVar(&devStartProfile, "profile", "", "Named build profile to use")
 	cmd.Flags().StringVar(&devStartPlatform, "platform", "", "Device platform to start (ios or android)")
 	cmd.Flags().StringVar(&devStartAppID, "app-id", "", "App ID to resolve the initial build from")
@@ -525,7 +525,11 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			return err
 		}
 	}
-	invocation, err = resolveDevDestination(cmd.Context(), selectionClient, invocation, devStartBranchID, devStartBranch, strings.TrimSpace(devStartBuildVerID), devStartBuildSelection, !devStartNoBuild)
+	branchMode := devStartBuildSelection
+	if devStartSeedLatest {
+		branchMode = string(api.BuildSelectionModeLatest)
+	}
+	invocation, err = resolveDevDestination(cmd.Context(), selectionClient, invocation, devStartBranchID, devStartBranch, strings.TrimSpace(devStartBuildVerID), branchMode, !devStartNoBuild)
 	if err != nil {
 		return err
 	}
@@ -608,7 +612,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation.BranchID); err != nil {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation); err != nil {
 		return err
 	} else if running {
 		return nil
@@ -2169,6 +2173,7 @@ func resolveDevRebuildInitialBuild(
 // [r] to rebuild+reinstall or [q]/Ctrl+C to quit.
 func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiKey, ctxName string) error {
 	cwd := invocation.ProjectRoot
+	noBuild := devStartNoBuild
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
@@ -2179,7 +2184,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	if err != nil {
 		return err
 	}
-	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation.BranchID); err != nil {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation); err != nil {
 		return err
 	} else if running {
 		return nil
@@ -2199,7 +2204,9 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	ui.PrintBanner(version)
 	ui.Println()
 	ui.PrintInfo("Dev loop (%s / %s/%s)", invocation.Recipe.Framework, invocation.Profile, invocation.Platform)
-	ui.PrintDim("Press [r] to rebuild + reinstall once the device is ready")
+	if !noBuild {
+		ui.PrintDim("Press [r] to rebuild + reinstall once the device is ready")
+	}
 	ui.Println()
 
 	// Ensure the platform has an app linked.
@@ -2215,7 +2222,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	needsBuild := devStartBuild
 	if !needsBuild {
 		existing, resolveErr := client.ResolveBuildSelection(cmd.Context(), appID, devBuildSelection(invocation))
-		if resolveErr != nil && !devResolveErrorNeedsBuild(resolveErr) {
+		if resolveErr != nil && !devResolveErrorNeedsBuild(invocation, resolveErr) {
 			return resolveErr
 		}
 		if resolveErr == nil {
@@ -2225,8 +2232,11 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		}
 	}
 
-	if devStartNoBuild {
+	if noBuild {
 		needsBuild = false
+		if uploadedVersionID == "" {
+			return fmt.Errorf("no existing build found and --no-build is active; build and upload first (revyl build) or pass --build-version-id")
+		}
 	}
 
 	// When a build is needed but --build was NOT explicitly requested, try to
@@ -2457,7 +2467,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	setDevStatusSelection(statusPath, invocation)
 
 	cockpitRebuilds := make(chan struct{}, 1)
-	cockpit, cockpitErr := startDevCockpitForContext(context.Background(), cwd, ctxName, viewerURL, strings.TrimSpace(platformKey) != "", cockpitRebuilds, stopper.RequestStop)
+	cockpit, cockpitErr := startDevCockpitForContext(context.Background(), cwd, ctxName, viewerURL, !noBuild && strings.TrimSpace(platformKey) != "", cockpitRebuilds, stopper.RequestStop)
 	cockpitURL := ""
 	if cockpitErr != nil {
 		ui.PrintWarning("Local cockpit unavailable: %v", cockpitErr)
@@ -2535,7 +2545,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	// Start file watcher for Flutter projects so Dart file saves auto-trigger rebuilds.
 	isFlutter := invocation.Recipe.Framework == "flutter"
 	var fileWatchCh <-chan hotreload.FileChangeEvent
-	if isFlutter {
+	if isFlutter && !noBuild {
 		fw, fwErr := hotreload.NewFileWatcher(cwd, hotreload.FlutterWatchConfig())
 		if fwErr == nil {
 			if startErr := fw.Start(ctx); startErr == nil {
@@ -2550,7 +2560,11 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		}
 	}
 
-	printRebuildLoopControls(keybindsEnabled, false)
+	if noBuild {
+		ui.PrintDim("Rebuild disabled (--no-build). Press [q] or Ctrl+C to quit.")
+	} else {
+		printRebuildLoopControls(keybindsEnabled, false)
+	}
 	ui.Println()
 
 	rebuildCount := 0
@@ -2588,6 +2602,10 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		}
 
 		if !doRebuild {
+			continue
+		}
+		if noBuild {
+			ui.PrintWarning("Rebuild disabled (--no-build).")
 			continue
 		}
 

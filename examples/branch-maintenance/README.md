@@ -1,16 +1,17 @@
-# Keep a shared Atlas branch current
+# Keep a shared branch current
 
-Build the intended source, upload to an explicit Revyl branch, then explore the
-exact returned build. Merging a PR does not move its existing Atlas evidence;
-uploading alone does not populate Atlas.
+Build the intended source, upload to an explicit Revyl branch, explore the exact
+returned build, and optionally run your tests on it. Merging a PR does not move
+its existing Atlas evidence; uploading alone does not populate Atlas.
 
 ## Set up once
 
 1. Copy `maintain-atlas.py` into your repository's `scripts/` directory. Commit it
    on the source branch you will build, including `staging` for the weekly example.
 2. Choose a workflow below and copy it into `.github/workflows/`. Set the repository
-   variable `REVYL_APP_ID` and secret `REVYL_API_KEY`. Use a CLI release with branch
-   support. Configure your build recipe and build secrets separately.
+   variable `REVYL_APP_ID` and secret `REVYL_API_KEY`. To also run tests on each
+   build, set the variable `REVYL_WORKFLOW_ID`. The workflows install the latest
+   CLI. Configure your build recipe and build secrets separately.
 3. For remote builds, change `REVYL_PROFILE` and `REVYL_PLATFORM` to your configured
    recipe. It must target `REVYL_APP_ID` and build the **current checkout**. If you
    use the existing-artifact option, build that artifact from the selected
@@ -33,31 +34,27 @@ IDs in `revyl-maintenance-result.json`, waits for Atlas processing, and confirms
 that Explore used the uploaded build. A partial usable map can succeed; inspect
 its report before treating the setup as complete.
 
-`--branch main` or `--branch staging` keeps the destination explicit and stable
-even if the app default changes. The upload doesn't pin the branch. When the
-branch follows Latest build, runs on it that don't choose a build use the
-uploaded build, because it is the newest; a pinned branch keeps its pin until
-you pin another build with `revyl app branch pin`. Making that branch the app's
-default branch is optional.
+`REVYL_DESTINATION` keeps the destination fixed whatever the checkout. Uploads
+don't pin the branch; see
+[Build branches](https://docs.revyl.com/builds/branches). Make it the app's
+default branch (`revyl app branch default main --app <app>`) if runs of tests
+saved on Default branch, embeds and the app's preview link should use these
+builds.
 
-## Optional test of the same build
+## Run tests on the same build
 
-After the helper succeeds, while the workflow still holds its concurrency slot:
+When the repository variable `REVYL_WORKFLOW_ID` is set, both workflows run that
+Revyl workflow on the uploaded build after Explore succeeds, while they still
+hold the concurrency slot. A failing test fails the job. Use a workflow with
+tests for the app's platform; its tests on other platforms keep their saved
+builds. Leave the variable unset to skip tests. The test step's timeout stops
+waiting but does not cancel remote work.
 
-```bash
-BUILD_ID=$(jq -er '.build_id' revyl-maintenance-result.json)
-revyl test run "$REVYL_TEST_ID" --build-id "$BUILD_ID" --timeout 1800 --json
-```
+## Let a cloud AI agent help
 
-Use an existing test for that app/platform, check the exit code, and increase the
-job timeout to cover the extra test. A monitoring timeout does not cancel remote
-work. `test status` selects a test's latest execution, so do not use it to monitor
-an exact task from this recipe.
-
-## Let Cursor help
-
-Use a scheduled Cursor automation to dispatch the same CI workflow, or ask it to
-set up and verify the workflow once:
+Use a scheduled cloud AI agent automation, such as a Cursor automation, to
+dispatch the same CI workflow, or ask the agent to set up and verify the
+workflow once:
 
 > For repository ORG/REPO, source branch main, Revyl app APP_ID and destination
 > main, install or invoke our shared-branch Atlas maintenance recipe. Use the
@@ -69,7 +66,7 @@ set up and verify the workflow once:
 > not open PRs or send messages. If the automation cannot guarantee a single
 > writer, dispatch the serialized CI workflow instead of uploading independently.
 
-Cursor's repository/branch selection and schedule provide context, not a
+An agent host's repository/branch selection and schedule provide context, not a
 single-writer guarantee. No Revyl GitHub App permission to write CI is required.
 
 ## Ordering and recovery

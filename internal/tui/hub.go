@@ -202,6 +202,7 @@ type hubModel struct {
 	deviceStartFilterMode        bool
 	deviceStartFilterInput       textinput.Model
 	deviceStartErr               string
+	deviceStartNotice            string
 	deviceStartDeviceCursor      int             // cursor for device model picker (0 = auto)
 	deviceStartDeviceModel       string          // selected device model (empty = auto)
 	deviceStartOsVersion         string          // selected OS version (empty = auto)
@@ -1788,6 +1789,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m = m.resetDeviceStartOverlay()
+		m.deviceStartNotice = msg.BranchFallbackNotice
 		// Refresh the session list
 		m.devicesLoading = true
 		if m.client != nil {
@@ -2434,7 +2436,7 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 			m.err = err
 			return m, nil
 		}
-		picker := newBuildPicker(m.client, "", "Dev loop branch (blank uses app default)")
+		picker := newBuildPicker(m.client, "", "Dev loop branch (blank uses your Git branch, else the app's default branch)")
 		picker.workflow, picker.branchOnly, picker.loading, picker.step = true, true, false, buildPickerName
 		picker.nameInput.Focus()
 		m.buildPicker, m.buildPickerTarget = &picker, "dev-loop"

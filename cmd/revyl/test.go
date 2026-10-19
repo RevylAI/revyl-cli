@@ -56,26 +56,16 @@ EXAMPLES:
 var testRunCmd = &cobra.Command{
 	Use:   "run <name|id>",
 	Short: "Run a test by name or ID",
-	Long: `Run a test by its local YAML name from the selected .revyl/tests directory or UUID.
+	Long: `Run a test by local YAML name or UUID, not a file path.
+Selection flags override saved choices for this run only. Use --build to
+build, upload, and run the resulting artifact.
 
-Runs the build that the test's saved selection picks. Default branch uses the
-app's default branch and that branch's default build. Use --branch,
---build-selection, --all-branches, or --build-id to choose for this run only, or
---build to build, upload, and run that artifact.
-
-Use the test NAME or UUID, not a file path.
-  CORRECT: revyl test run login-flow
-  WRONG:   revyl test run login-flow.yaml
-
-EXAMPLES:
-  revyl test run login-flow          # Run (no build)
-  revyl test run login-flow --build  # Build then run
-  revyl test run login-flow --var pr-preview-link=<deep-link>`,
+` + runtimeBuildSelectionHelp,
 	Example: `  revyl test run login-flow
+  revyl test run login-flow --branch staging
+  revyl test run login-flow --all-branches
   revyl test run login-flow --build
-  revyl test run login-flow --json --no-wait
-  revyl test run login-flow --device-model "iPhone 16" --os-version "iOS 18.5"
-  revyl test run login-flow --var pr-preview-link=<deep-link>`,
+  revyl test run login-flow --json --no-wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
 }
@@ -205,11 +195,11 @@ func init() {
 	testCmd.AddCommand(testVersionsCmd)
 	testCmd.AddCommand(testRestoreCmd)
 
-	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides the saved selector)")
-	testRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "Build choice for this run: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
+	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides saved selection; default: Git, then app default)")
+	testRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin); exact build: --build-id")
 	testRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	testCreateCmd.Flags().StringVar(&createTestBranch, "branch", "", "Save this Revyl branch for future runs")
-	testCreateCmd.Flags().StringVar(&createTestBuildSelection, "build-selection", "", "Save build choice: inherit (Automatic: the branch's default build), latest or pinned")
+	testCreateCmd.Flags().StringVar(&createTestBuildSelection, "build-selection", "", "Save: inherit (Automatic), latest, or pinned")
 	testCreateCmd.Flags().StringVar(&createTestBuildID, "build-id", "", "Save an exact build")
 	testCreateCmd.Flags().BoolVar(&createTestAllBranches, allBranchesFlagName, false, "Save All branches · Latest build: each run uses the newest build across all of the app's branches")
 	// test run flags

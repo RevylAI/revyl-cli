@@ -52,8 +52,12 @@ type uploadBuildModel struct {
 	buildPicker     *buildPickerModel
 	branchSelection api.BuildSelection
 	branchLabel     string
-	pendingBranch   *api.BuildBranch
-	pendingVersion  string
+	// gitBranch is the Git branch detected when the dialog opened, shown as
+	// the destination when no branch is chosen. Confirmation freezes this
+	// context so the submitted destination matches what the user reviewed.
+	gitBranch      string
+	pendingBranch  *api.BuildBranch
+	pendingVersion string
 
 	// Context: which app we're uploading to
 	appID   string
@@ -140,7 +144,11 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 		if len(selections) > 0 {
 			selection = selections[0]
 		}
-		branch, err := client.ResolveUploadBranchWithContext(ctx, appID, selection.BranchID, selection.BranchName, selection.ContextBranchName)
+		selection, err := withRuntimeGitBranch(ctx, selection)
+		if err != nil {
+			return BuildUploadedMsg{Err: err}
+		}
+		branch, err := client.ResolveUploadBranchWithGitBranch(ctx, appID, selection.BranchID, selection.BranchName, selection.GitBranchName)
 		if err != nil {
 			return BuildUploadedMsg{Err: fmt.Errorf("resolve upload branch: %w", err)}
 		}
@@ -175,7 +183,16 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 
 // Init starts the text input blink cursor.
 func (m uploadBuildModel) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, detectUploadGitBranchCmd)
+}
+
+type uploadGitBranchMsg struct{ name string }
+
+func detectUploadGitBranchCmd() tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	name, _ := detectRuntimeGitBranch(ctx)
+	return uploadGitBranchMsg{name: name}
 }
 
 // Update handles messages for the upload-build flow.
@@ -196,6 +213,10 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case uploadGitBranchMsg:
+		m.gitBranch = msg.name
 		return m, nil
 
 	case tea.KeyMsg:
@@ -352,7 +373,7 @@ func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		picker := newBuildPicker(m.client, m.appID, "Upload destination")
-		picker.branchOnly, picker.allowCreate, picker.currentBranchID = true, true, m.branchSelection.BranchID
+		picker.branchOnly, picker.allowCreate, picker.runtime, picker.currentBranchID = true, true, true, m.branchSelection.BranchID
 		m.buildPicker = &picker
 		return m, picker.Init()
 	case "enter", "y":
@@ -374,7 +395,9 @@ func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 		m.pendingVersion = version
 		selection := m.branchSelection
 		if m.pendingBranch != nil {
-			selection.BranchID, selection.BranchName, selection.ContextBranchName = m.pendingBranch.ID, "", ""
+			selection.BranchID, selection.BranchName, selection.GitBranchName = m.pendingBranch.ID, "", ""
+		} else if selection.BranchID == "" && selection.BranchName == "" && selection.BuildID == "" && selection.GitBranchName == "" && selection.Mode != api.BuildSelectionModeLatestAllBranches {
+			selection.GitBranchName = m.gitBranch
 		}
 
 		return m, tea.Batch(m.spinner.Tick, uploadBuildCmd(m.client, m.appID, m.resolvedPath, version, selection))
@@ -468,6 +491,9 @@ func (m uploadBuildModel) View() string {
 		branchLabel := m.branchLabel
 		if branchLabel == "" {
 			branchLabel = defaultBranchLabel
+			if m.gitBranch != "" {
+				branchLabel = gitBranchLabel(m.gitBranch)
+			}
 		}
 		if m.pendingBranch != nil {
 			branchLabel = m.pendingBranch.Name + " (retry destination)"

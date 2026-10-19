@@ -155,6 +155,31 @@ func workflowReportURL(devMode bool, executionID string) string {
 	return fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), executionID)
 }
 
+func printWorkflowBranchFallbacks(notices *ui.BranchFallbackNotices, children []api.CLIWorkflowChildExecution) {
+	for _, child := range children {
+		if notice := notices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+			// The in-place progress line has no newline yet; the next progress update redraws it.
+			ui.ClearLine()
+			ui.PrintWarning("%s", notice)
+		}
+	}
+}
+
+func addWorkflowAppIdentity(output map[string]interface{}, appID, appName string, branchSource api.BranchSource, gitBranchName string) {
+	if appID != "" {
+		output["app_id"] = appID
+	}
+	if appName != "" {
+		output["app_name"] = appName
+	}
+	if branchSource != "" {
+		output["branch_source"] = branchSource
+	}
+	if gitBranchName != "" {
+		output["git_branch_name"] = gitBranchName
+	}
+}
+
 func outputWorkflowStatusJSON(
 	status *api.CLIWorkflowStatusResponse,
 	workflowName string,
@@ -168,6 +193,9 @@ func outputWorkflowStatusJSON(
 		"total_tests":     status.TotalTests,
 		"passed_tests":    status.PassedTests,
 		"failed_tests":    status.FailedTests,
+	}
+	if len(status.ChildTasks) > 0 {
+		output["tests"] = status.ChildTasks
 	}
 	if workflowName != "" {
 		output["workflow_name"] = workflowName
@@ -197,6 +225,7 @@ func printWorkflowStatusSummary(
 	historyTarget string,
 	devMode bool,
 ) {
+	printWorkflowBranchFallbacks(&ui.BranchFallbackNotices{}, status.ChildTasks)
 	if displayName == "" {
 		switch {
 		case status.WorkflowID != "":
@@ -359,6 +388,13 @@ func runWorkflowStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	latest := history.Executions[0]
+	if latest.ExecutionID != "" {
+		current, err := client.GetWorkflowStatus(cmd.Context(), latest.ExecutionID)
+		if err != nil {
+			return fmt.Errorf("failed to get workflow status: %w", err)
+		}
+		latest = *current
+	}
 	if jsonOutput {
 		outputWorkflowStatusJSON(&latest, displayName, devMode)
 		return nil
@@ -608,6 +644,7 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 					"status":  ct.Status,
 				}
 				addBuildIdentity(test, ct.BuildID, ct.BuildVersion, ct.BranchID, ct.BranchName)
+				addWorkflowAppIdentity(test, ct.AppID, ct.AppName, ct.BranchSource, ct.GitBranchName)
 				if ct.TestName != "" {
 					test["test_name"] = ct.TestName
 				}
@@ -647,6 +684,12 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	notices := &ui.BranchFallbackNotices{}
+	for _, child := range report.ChildTasks {
+		if notice := notices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+			ui.PrintWarning("%s", notice)
+		}
+	}
 	// Display formatted report
 	ui.Println()
 

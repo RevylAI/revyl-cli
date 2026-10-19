@@ -20,13 +20,13 @@ func executionSourceCheckout(t *testing.T) string {
 	t.Helper()
 	directory := t.TempDir()
 	gitInitBuildRepository(t, directory)
-	if output, err := exec.Command("git", "-C", directory, "symbolic-ref", "HEAD", "refs/heads/Feature/branch-context").CombinedOutput(); err != nil {
+	if output, err := exec.Command("git", "-C", directory, "symbolic-ref", "HEAD", "refs/heads/Feature/git-branch").CombinedOutput(); err != nil {
 		t.Fatalf("set source branch: %v: %s", err, output)
 	}
 	return directory
 }
 
-func configureBranchContextRunFlags(t *testing.T) {
+func configureGitBranchRunFlags(t *testing.T) {
 	t.Helper()
 	previousRetries, previousNoWait, previousOpen := runRetries, runNoWait, runOpen
 	previousBranch, previousMode, previousBuild := runBranchName, runBuildSelection, runBuildID
@@ -41,17 +41,18 @@ func configureBranchContextRunFlags(t *testing.T) {
 	runTestBuild, runWorkflowBuild, runOutputJSON = false, false, false
 }
 
-func TestRunConfiglessTestCarriesContextSeparatelyFromSelectors(t *testing.T) {
-	for _, scenario := range []struct{ name, branch, mode, build, wantContext string }{
-		{"automatic", "", "", "", ""},
-		{"latest", "", "latest", "", ""},
+func TestRunConfiglessTestCarriesGitBranchSeparatelyFromSelectors(t *testing.T) {
+	for _, scenario := range []struct{ name, branch, mode, build, wantGitBranch string }{
+		{"automatic", "", "", "", "Feature/git-branch"},
+		{"latest", "", "latest", "", "Feature/git-branch"},
 		{"explicit branch", "main", "", "", ""},
 		{"exact build", "", "", "22222222-2222-4222-8222-222222222222", ""},
+		{"all branches", "", "latest_all_branches", "", ""},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			testutil.SetHomeDir(t, t.TempDir())
 			withWorkingDir(t, executionSourceCheckout(t))
-			configureBranchContextRunFlags(t)
+			configureGitBranchRunFlags(t)
 			runBranchName, runBuildSelection, runBuildID = scenario.branch, scenario.mode, scenario.build
 			const testID = "11111111-1111-4111-8111-111111111111"
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,31 +76,36 @@ func TestRunConfiglessTestCarriesContextSeparatelyFromSelectors(t *testing.T) {
 			if err := runTestExec(newWorkflowRunTestCommand(), []string{testID}); err != nil {
 				t.Fatal(err)
 			}
-			if requested.ContextBranchName != scenario.wantContext || requested.BranchName != scenario.branch || requested.BuildSelection != scenario.mode || requested.BuildVersionID != scenario.build || requested.TestsDir != "" {
+			if requested.GitBranchName != scenario.wantGitBranch || requested.BranchName != scenario.branch || requested.BuildSelection != scenario.mode || requested.BuildVersionID != scenario.build || requested.TestsDir != "" {
 				t.Fatalf("context changed selector or required config: %+v", requested)
 			}
 		})
 	}
 }
 
-func TestWorkflowRunContextMatchesWaitingAndQueuedInvocations(t *testing.T) {
+func TestWorkflowRunGitBranchMatchesWaitingAndQueuedInvocations(t *testing.T) {
 	for _, scenario := range []struct {
-		name                               string
-		noWait, explicitBranch, mixedExact bool
+		name                                            string
+		noWait, explicitBranch, mixedExact, allBranches bool
 	}{
 		{name: "queued", noWait: true},
 		{name: "waiting"},
 		{name: "explicit branch", noWait: true, explicitBranch: true},
 		{name: "mixed exact and automatic", mixedExact: true},
+		{name: "all branches", noWait: true, allBranches: true},
+		{name: "waiting all branches", allBranches: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			testutil.SetHomeDir(t, t.TempDir())
 			withWorkingDir(t, executionSourceCheckout(t))
-			configureBranchContextRunFlags(t)
+			configureGitBranchRunFlags(t)
 			runNoWait, runBuildSelection = scenario.noWait, "latest"
-			wantContext := ""
+			wantGitBranch := "Feature/git-branch"
 			if scenario.explicitBranch {
-				runBranchName, wantContext = "main", ""
+				runBranchName, wantGitBranch = "main", ""
+			}
+			if scenario.allBranches {
+				runBuildSelection, wantGitBranch = "latest_all_branches", ""
 			}
 			previousIOSApp, previousIOSBuild := runWorkflowIOSAppID, runWorkflowIOSBuildID
 			t.Cleanup(func() { runWorkflowIOSAppID, runWorkflowIOSBuildID = previousIOSApp, previousIOSBuild })
@@ -140,17 +146,23 @@ func TestWorkflowRunContextMatchesWaitingAndQueuedInvocations(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario.noWait {
-				if body["build_selection"] != "latest" {
+				if body["build_selection"] != runBuildSelection {
 					t.Fatalf("queued request=%v", body)
 				}
-				if scenario.explicitBranch {
-					if _, present := body["context_branch_name"]; present || body["branch_name"] != "main" {
+				_, hasGitBranch := body["git_branch_name"]
+				switch {
+				case scenario.explicitBranch:
+					if hasGitBranch || body["branch_name"] != "main" {
 						t.Fatalf("explicit branch detected context: %v", body)
 					}
-				} else if body["context_branch_name"] != nil || body["branch_name"] != nil {
+				case scenario.allBranches:
+					if hasGitBranch || body["branch_name"] != nil {
+						t.Fatalf("All branches detected context: %v", body)
+					}
+				case body["git_branch_name"] != wantGitBranch || body["branch_name"] != nil:
 					t.Fatalf("context became explicit or was omitted: %v", body)
 				}
-			} else if requested.ContextBranchName != wantContext || requested.BranchName != "" || requested.BuildSelection != runBuildSelection || requested.IOSBuildID != runWorkflowIOSBuildID {
+			} else if requested.GitBranchName != wantGitBranch || requested.BranchName != "" || requested.BuildSelection != runBuildSelection || requested.IOSBuildID != runWorkflowIOSBuildID {
 				t.Fatalf("waiting request=%+v", requested)
 			}
 		})
@@ -235,7 +247,7 @@ func TestRunTestRefusedBeforeStartReportsTheServerReason(t *testing.T) {
 		t.Run(map[bool]string{false: "human", true: "json"}[jsonOutput], func(t *testing.T) {
 			testutil.SetHomeDir(t, t.TempDir())
 			withWorkingDir(t, t.TempDir())
-			configureBranchContextRunFlags(t)
+			configureGitBranchRunFlags(t)
 			runNoWait, runBranchName, runOutputJSON = false, "typo", jsonOutput
 			server, starts := missingBranchServer(t, "/api/v1/execution/api/execute_test_id_async")
 			t.Setenv("REVYL_API_KEY", "key")
@@ -262,7 +274,7 @@ func TestWorkflowRunRefusedBeforeStartReportsTheServerReason(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			testutil.SetHomeDir(t, t.TempDir())
 			withWorkingDir(t, t.TempDir())
-			configureBranchContextRunFlags(t)
+			configureGitBranchRunFlags(t)
 			runNoWait, runBranchName, runOutputJSON = scenario.noWait, "typo", scenario.jsonOutput
 			server, starts := missingBranchServer(t, "/api/v1/workflow-executions")
 			t.Setenv("REVYL_API_KEY", "key")

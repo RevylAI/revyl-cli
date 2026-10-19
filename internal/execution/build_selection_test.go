@@ -55,10 +55,10 @@ func TestRunTestBuildSelectorWire(t *testing.T) {
 	}
 }
 
-func TestExecutionContextRemainsAnUnvalidatedEphemeralHint(t *testing.T) {
+func TestExecutionGitBranchRemainsAnUnvalidatedEphemeralHint(t *testing.T) {
 	for _, workflow := range []bool{false, true} {
 		t.Run(map[bool]string{false: "test", true: "workflow"}[workflow], func(t *testing.T) {
-			contextName := strings.Repeat("x", 256)
+			gitBranchName := strings.Repeat("x", 256)
 			var body map[string]interface{}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/api/v1/workflow-executions" && r.URL.Path != "/api/v1/execution/api/execute_test_id_async" {
@@ -75,11 +75,11 @@ func TestExecutionContextRemainsAnUnvalidatedEphemeralHint(t *testing.T) {
 			t.Setenv("REVYL_BACKEND_URL", server.URL)
 			var err error
 			if workflow {
-				_, err = RunWorkflow(context.Background(), "key", nil, RunWorkflowParams{WorkflowNameOrID: "workflow", NoWait: true, ContextBranchName: contextName})
+				_, err = RunWorkflow(context.Background(), "key", nil, RunWorkflowParams{WorkflowNameOrID: "workflow", NoWait: true, GitBranchName: gitBranchName})
 			} else {
-				_, err = RunTest(context.Background(), "key", nil, RunTestParams{TestNameOrID: "test", NoWait: true, ContextBranchName: contextName})
+				_, err = RunTest(context.Background(), "key", nil, RunTestParams{TestNameOrID: "test", NoWait: true, GitBranchName: gitBranchName})
 			}
-			if err != nil || body["context_branch_name"] != contextName {
+			if err != nil || body["git_branch_name"] != gitBranchName {
 				t.Fatalf("server-owned saved selector cannot ignore unsupported context: request=%v err=%v", body, err)
 			}
 			for _, field := range []string{"branch_name", "branch_id", "build_selection", "build_config", "pinned_build_id"} {
@@ -304,5 +304,21 @@ func TestCreateTestMixedYAMLDelegatesPinConsistencyToServer(t *testing.T) {
 				t.Fatalf("matching mixed pin rejected: result=%+v err=%v", result, err)
 			}
 		})
+	}
+}
+
+func TestRunTestReportsDefaultBranchFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/api/execute_test_id_async" {
+			t.Errorf("unexpected request: %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`{"task_id":"task","branch_source":"default_branch","git_branch_name":"missing","branch_name":"base"}`))
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	noticed := ""
+	result, err := RunTest(context.Background(), "key", nil, RunTestParams{TestNameOrID: "test", NoWait: true, GitBranchName: "missing", OnDefaultBranchFallback: func(branchName string) { noticed = branchName }})
+	if err != nil || result.BranchSource != api.BranchSourceDefaultBranch || result.GitBranchName != "missing" || result.BranchName != "base" || noticed != "base" {
+		t.Fatalf("fallback notice lost: %+v, notice=%q, err=%v", result, noticed, err)
 	}
 }

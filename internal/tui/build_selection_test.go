@@ -226,7 +226,7 @@ func TestBuildPickerRetryResetsCursorForShorterExactChoices(t *testing.T) {
 }
 
 func TestSavedTestAutomaticClearsCanonicalPinWithNulls(t *testing.T) {
-	selectBranchContextWorktree(t, "Feature/Customer")
+	selectGitBranchWorktree(t, "Feature/Customer")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if handleTestCLITraceFallback(w, r) {
 			return
@@ -244,7 +244,7 @@ func TestSavedTestAutomaticClearsCanonicalPinWithNulls(t *testing.T) {
 		if payload["build_selection"] != "inherit" || payload["expected_version"] != float64(7) {
 			t.Errorf("wrong update: %#v", payload)
 		}
-		if _, found := payload["context_branch_name"]; found {
+		if _, found := payload["git_branch_name"]; found {
 			t.Error("saving Automatic persisted detected context")
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -276,7 +276,7 @@ func TestWorkflowBuildSettingsPreservePinWhileDisablingAndReselectingApp(t *test
 }
 
 func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
-	selectBranchContextWorktree(t, "main")
+	selectGitBranchWorktree(t, "main")
 	file := filepath.Join(t.TempDir(), "app.apk")
 	if err := os.WriteFile(file, []byte("artifact"), 0600); err != nil {
 		t.Fatal(err)
@@ -288,10 +288,6 @@ func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/api/v1/apps/" + pickerAppID:
-			fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, pickerAppID, pickerBranchID)
-		case "/api/v1/apps/" + pickerAppID + "/branches/" + pickerBranchID:
-			fmt.Fprintf(w, `{"id":%q,"name":"main"}`, pickerBranchID)
 		case "/api/v1/apps/" + pickerAppID + "/branches":
 			if r.URL.Query().Get("name") != "main" {
 				t.Errorf("destination name lost: %s", r.URL)
@@ -310,6 +306,8 @@ func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
 			fmt.Fprintf(w, `{"id":%q,"version":"v1","branch_id":%q,"branch_name":"renamed"}`, pickerBuildID, pickerBranchID)
 		case "/api/v1/apps/resolve":
 			fmt.Fprintf(w, `{"version_id":"older-build","branch_id":%q,"branch_name":"renamed","resolution_status":"resolved"}`, pickerBranchID)
+		case "/api/v1/apps/" + pickerAppID + "/branches/" + pickerBranchID:
+			fmt.Fprintf(w, `{"id":%q,"name":"renamed"}`, pickerBranchID)
 		case "/api/v1/apps/builds/older-build":
 			fmt.Fprintf(w, `{"id":"older-build","app_id":%q,"version":"v0"}`, pickerAppID)
 		default:
@@ -371,7 +369,7 @@ func TestExplicitAutomaticRunOverridesSavedBranch(t *testing.T) {
 }
 
 func TestWorkflowRuntimeOverrideKeepsSavedSelectionWhenOmitted(t *testing.T) {
-	selectBranchContextWorktree(t, "Feature/Customer")
+	selectGitBranchWorktree(t, "Feature/Customer")
 	for _, selection := range []api.BuildSelection{{}, {BranchName: "main", Mode: api.BuildSelectionModeLatest}} {
 		t.Run(string(selection.Mode), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -381,8 +379,8 @@ func TestWorkflowRuntimeOverrideKeepsSavedSelectionWhenOmitted(t *testing.T) {
 				var payload map[string]interface{}
 				_ = json.NewDecoder(r.Body).Decode(&payload)
 				if selection.BranchName == "" {
-					if payload["context_branch_name"] != nil {
-						t.Error("ordinary run unexpectedly supplied Git context")
+					if payload["git_branch_name"] != "Feature/Customer" {
+						t.Error("ordinary run lost separate Git branch")
 					}
 					if _, found := payload["branch_name"]; found {
 						t.Error("ordinary run overrode saved branch")
@@ -392,7 +390,7 @@ func TestWorkflowRuntimeOverrideKeepsSavedSelectionWhenOmitted(t *testing.T) {
 					}
 				} else if payload["branch_name"] != "main" || payload["build_selection"] != "latest" {
 					t.Errorf("override lost: %#v", payload)
-				} else if _, found := payload["context_branch_name"]; found {
+				} else if _, found := payload["git_branch_name"]; found {
 					t.Error("explicit branch was inferred again")
 				}
 				w.Header().Set("Content-Type", "application/json")

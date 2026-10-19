@@ -24,6 +24,7 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -35,7 +36,7 @@ const sourceArchiveGitTimeout = 15 * time.Minute
 type remoteBuildOptions struct {
 	BranchID            string
 	BranchName          string
-	ContextBranchName   string
+	GitBranchName       string
 	Profile             string
 	ProjectRoot         string
 	WorktreeRoot        string
@@ -138,6 +139,18 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 	if opts.Clean {
 		resolved.Caches = nil
+	}
+	if opts.BranchID == "" && opts.BranchName == "" && opts.GitBranchName == "" {
+		contextOptions := buildselection.GitBranchOptions{WorkDir: projectRoot}
+		if remoteBuildUsesGitSource(resolved.Source) {
+			source := normalizeRemoteGitSource(resolved.Source)
+			contextOptions.SourceGit = &buildselection.GitSourceContext{RepositoryURL: source.RepoURL, Ref: source.Ref}
+		}
+		gitBranch, err := buildselection.DetectGitBranch(ctx, contextOptions)
+		if err != nil {
+			return err
+		}
+		opts.GitBranchName = gitBranch.Name
 	}
 	appID, err := uuid.Parse(strings.TrimSpace(resolved.AppID))
 	if err != nil {
@@ -410,7 +423,7 @@ func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uu
 	if err != nil {
 		return nil, err
 	}
-	if err := (api.BuildSelection{BranchID: opts.BranchID, BranchName: opts.BranchName, ContextBranchName: opts.ContextBranchName}).Validate(); err != nil {
+	if err := (api.BuildSelection{BranchID: opts.BranchID, BranchName: opts.BranchName, GitBranchName: opts.GitBranchName}).Validate(); err != nil {
 		return nil, err
 	}
 	var branchID *uuid.UUID
@@ -421,13 +434,13 @@ func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uu
 		}
 		branchID = &parsed
 	}
-	var contextBranchName *string
-	if opts.ContextBranchName != "" {
-		contextBranchName = &opts.ContextBranchName
+	var gitBranchName *string
+	if opts.GitBranchName != "" {
+		gitBranchName = &opts.GitBranchName
 	}
 	return &api.RemoteBuildRequest{
 		BranchId: branchID, BranchName: stringPtrOrNil(opts.BranchName),
-		ContextBranchName:   contextBranchName,
+		GitBranchName:       gitBranchName,
 		BuildDefinitionHash: stringPtrOrNil(opts.BuildDefinitionHash),
 		Source:              source,
 		Recipe:              &recipe,

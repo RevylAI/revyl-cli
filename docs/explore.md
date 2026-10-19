@@ -12,12 +12,10 @@ revyl explore cancel <run-id>
 ```
 
 If you omit the app, Revyl uses the mapping in `.revyl/config.yaml`. Choose a
-platform when the project maps more than one app. Without a branch, it uses the
-app default branch and its default build. Use `--branch staging` to select
-a branch, `--build-selection latest` for its newest build even when the branch
-is pinned, `--all-branches` for the newest build across all of the app's
-branches, or `--build-id` for an exact build. See
-[Build branches](build-branches.md).
+platform when the project maps more than one app. Without a branch, it uses your
+Git branch if it has a usable build, else the app's default branch. Use
+`--branch`, `--build-selection latest`, `--all-branches` or `--build-id` to
+choose another build. See [Build branches](https://docs.revyl.com/builds/branches).
 
 ## Shape the run
 
@@ -89,16 +87,16 @@ cannot override this guard.
 
 ## Keep main or staging current
 
-Feature-branch and PR builds don't contain the merged code, and merging a PR
-doesn't move their builds or evidence. Build the intended source, upload it to
-an explicit Revyl branch, then explore the exact returned build. Uploading alone
-doesn't populate Atlas.
+Merging a PR doesn't move its builds or Atlas evidence to `main`, and
+feature-branch builds don't contain the merged code. Build the intended source,
+upload it with `--branch` so the destination doesn't depend on the CI checkout,
+then explore the exact returned build. Uploading alone doesn't populate Atlas.
 
 | Approach | Setup |
 | --- | --- |
 | **After merges, recommended** | Extend your successful app-build CI job, or use the [main workflow](https://github.com/RevylAI/revyl-cli/blob/main/examples/branch-maintenance/refresh-main.yml). Trigger on pushes to `main`, build that source, upload with `--branch main`, and explore the returned build ID. |
 | **Daily or weekly** | Use the same sequence on a schedule. The [weekly staging workflow](https://github.com/RevylAI/revyl-cli/blob/main/examples/branch-maintenance/refresh-staging-weekly.yml) explicitly checks out `staging`; useful when content or backends change without a new app commit. |
-| **Cursor automation** | Ask Cursor to configure or dispatch the same serialized CI workflow using the prompt below. Keep CI as the single writer for that app and destination. |
+| **Cloud AI agent automation** | Ask a cloud AI agent, such as a Cursor automation, to configure or dispatch the same serialized CI workflow using the prompt below. Keep CI as the single writer for that app and destination. |
 
 ### Prove one run first
 
@@ -106,9 +104,9 @@ doesn't populate Atlas.
    `staging`). Start with one platform. Use `revyl app list --json` to find the app
    and build a [compatible artifact](https://docs.revyl.com/builds/artifact-requirements)
    from a clean checkout of that source.
-2. Install a CLI release with branch support and `jq`. Store `REVYL_API_KEY` in your CI
-   secret store; configure build secrets and app login separately. Set the
-   variables below to your artifact, app and destination.
+2. Install the CLI and `jq`. Store `REVYL_API_KEY` in your CI secret store;
+   configure build secrets and app login separately. Set the variables below to
+   your artifact, app and destination.
 3. Upload and explore exactly that build. Add your stored login references to
    the Explore command if needed:
 
@@ -135,10 +133,9 @@ jq -e --arg build_id "$BUILD_ID" \
 
 4. Open `.report_url` from `explore.json` and select the destination in Atlas.
    Confirm the build ID, login and useful mapped screens. Keep the source SHA,
-   build ID and report URL with the run. When the branch follows Latest build,
-   runs that use it now use this build, because it is the newest; a pinned
-   branch keeps its pin unless you upload with `--pin`. Making that branch the
-   app's default branch is optional.
+   build ID and report URL with the run. Uploads don't pin the branch; see
+   [Build branches](https://docs.revyl.com/builds/branches#default-branch-and-default-build).
+   Making that branch the app's default branch is optional.
 
 Optionally run an existing test for the same app/platform against that build:
 
@@ -150,9 +147,10 @@ jq -e '.success == true' test.json
 ### Turn it into CI
 
 Copy the [maintenance helper and workflow](https://github.com/RevylAI/revyl-cli/tree/main/examples/branch-maintenance)
-into your repository. Its README lists the variables, login setup, and artifact
-or remote-build choices. Run it with `workflow_dispatch` and inspect one complete
-result before enabling the push or schedule trigger.
+into your repository. Its README lists the variables, login setup, artifact or
+remote-build choices, and how to also run your tests on each build. Run it with
+`workflow_dispatch` and inspect one complete result before enabling the push or
+schedule trigger.
 
 Build from the selected checkout, whether the helper builds remotely or uploads
 an existing artifact.
@@ -176,14 +174,15 @@ If the runner is lost or a launch/cancellation result is unknown, stop other
 writers and reconcile the recorded operation before restarting. A CI lock or
 shell cleanup handler cannot guarantee remote cleanup after runner loss.
 
-### Ask Cursor to set it up
+### Ask a cloud AI agent to set it up
 
 Use this prompt after filling in the placeholders:
 
 > In repository `<owner/repo>`, configure the Revyl branch-maintenance example
 > for source branch `<main-or-staging>`, app `<app-id>`, and Revyl destination
 > `<main-or-staging>`. Use `<existing CI artifact or current-checkout build profile>`
-> and stored login reference `<key-or-id>`. Store API/build credentials as CI
+> and stored login reference `<key-or-id>`. To also run tests on each build, set
+> `REVYL_WORKFLOW_ID` to `<workflow-id>`. Store API/build credentials as CI
 > secrets. Keep one shared concurrency group for this app/destination and build
 > the current source head after acquiring it. Run the workflow manually once;
 > upload explicitly to the destination and explore only the returned build ID.
@@ -191,10 +190,12 @@ Use this prompt after filling in the placeholders:
 > URL. Set up `<push-after-merge or weekly>` execution after the manual result is
 > verified. Do not use an incidental feature checkout as the source.
 
-[Cursor automations](https://cursor.com/docs/cloud-agent/automations) can schedule
-an agent with a chosen repository and branch. Use the agent to dispatch the same
-CI workflow for recurring refreshes unless its host provides verified single-writer
-execution. A prompt saying “do not overlap” does not provide that guarantee.
+Cloud AI agent automations, such as
+[Cursor automations](https://cursor.com/docs/cloud-agent/automations), can
+schedule an agent with a chosen repository and branch. Use the agent to dispatch
+the same CI workflow for recurring refreshes unless its host provides verified
+single-writer execution. A prompt saying “do not overlap” does not provide that
+guarantee.
 
 ## JSON handoffs
 

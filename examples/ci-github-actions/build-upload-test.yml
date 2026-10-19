@@ -21,6 +21,7 @@ jobs:
           curl -fsSL https://revyl.com/install.sh | sh
           echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
+      # Lands on the PR's source branch; add --branch <name> to choose another.
       - name: Upload Build to Revyl
         id: upload
         run: |

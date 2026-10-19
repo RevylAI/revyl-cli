@@ -131,3 +131,34 @@ func TestWorkflowProgressKeepsStdoutForJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestBranchFallbackNoticeWithoutBranchIdentity(t *testing.T) {
+	got := BranchFallbackNotice("", "")
+	want := "Your Git branch has no usable build; using the app's default branch."
+	if got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+}
+
+func TestBranchFallbackNoticeNamesGitAndDefaultBranches(t *testing.T) {
+	got := BranchFallbackNotice("feature-login", "main")
+	want := `Git branch "feature-login" has no usable build; using the app's default branch "main".`
+	if got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+}
+
+func TestBranchFallbackNoticeNamesAppAndBranch(t *testing.T) {
+	notices := &BranchFallbackNotices{}
+	got := notices.Notice("app-id", "My App", "branch-id", "base", "feature-login", true)
+	want := `Git branch "feature-login" has no usable build on "My App"; using the app's default branch "base".`
+	if got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+	if again := notices.Notice("app-id", "My App", "branch-id", "base", "feature-login", true); again != "" {
+		t.Fatalf("repeated notice = %q", again)
+	}
+	if got := notices.Notice("other-app", "Other App", "branch-id", "base", "feature-login", false); got != "" {
+		t.Fatalf("notice without a fallback = %q", got)
+	}
+}

@@ -974,3 +974,52 @@ func (t *Table) Render() {
 		fmt.Fprintln(stderrW, strings.Join(cells, colGap))
 	}
 }
+
+// BranchFallbackNotice says a run uses the app's default branch because the
+// detected Git branch has no usable build. Either name may be empty when the
+// caller doesn't know it.
+func BranchFallbackNotice(gitBranchName, defaultBranchName string) string {
+	return AppBranchFallbackNotice("", gitBranchName, defaultBranchName)
+}
+
+// AppBranchFallbackNotice is BranchFallbackNotice for one app of several.
+func AppBranchFallbackNotice(appName, gitBranchName, defaultBranchName string) string {
+	gitBranch := "Your Git branch"
+	if gitBranchName != "" {
+		gitBranch = fmt.Sprintf("Git branch %q", gitBranchName)
+	}
+	onApp := ""
+	if appName != "" {
+		onApp = fmt.Sprintf(" on %q", appName)
+	}
+	defaultBranch := "the app's default branch"
+	if defaultBranchName != "" {
+		defaultBranch += fmt.Sprintf(" %q", defaultBranchName)
+	}
+	return fmt.Sprintf("%s has no usable build%s; using %s.", gitBranch, onApp, defaultBranch)
+}
+
+// BranchFallbackNotices suppresses repeated notices for the same resolved app and branch.
+type BranchFallbackNotices struct {
+	seen map[[2]string]struct{}
+}
+
+// Notice says once per app and branch that the app's default branch replaced
+// gitBranchName. fellBack is true when it did.
+func (notices *BranchFallbackNotices) Notice(appID, appName, branchID, branchName, gitBranchName string, fellBack bool) string {
+	if !fellBack {
+		return ""
+	}
+	key := [2]string{appID, branchID}
+	if _, exists := notices.seen[key]; exists {
+		return ""
+	}
+	if notices.seen == nil {
+		notices.seen = make(map[[2]string]struct{})
+	}
+	notices.seen[key] = struct{}{}
+	if appName == "" {
+		appName = appID
+	}
+	return AppBranchFallbackNotice(appName, gitBranchName, branchName)
+}

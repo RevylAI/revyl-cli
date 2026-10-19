@@ -51,7 +51,7 @@ func (c *Client) UploadManagedWebBuild(ctx context.Context, request *UploadBuild
 	if fileInfo.Size() != web.SizeBytes {
 		return nil, fmt.Errorf("web bundle changed before upload")
 	}
-	if err := validateContextBranchName(request.ContextBranchName); err != nil {
+	if err := validateGitBranchName(request.GitBranchName); err != nil {
 		return nil, err
 	}
 	if err := validateBranchSelector(request.BranchID, request.BranchName); err != nil {
@@ -64,8 +64,8 @@ func (c *Client) UploadManagedWebBuild(ctx context.Context, request *UploadBuild
 	if request.BranchName != "" {
 		query.Set("branch_name", request.BranchName)
 	}
-	if request.ContextBranchName != "" {
-		query.Set("context_branch_name", request.ContextBranchName)
+	if request.GitBranchName != "" {
+		query.Set("git_branch_name", request.GitBranchName)
 	}
 	path := fmt.Sprintf("/api/v1/apps/%s/builds/upload-url?%s", url.PathEscape(request.AppID), query.Encode())
 	response, err := c.doRequestOnce(ctx, "POST", path, nil)

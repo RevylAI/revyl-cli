@@ -37,7 +37,7 @@ brief; do not make them read the skill files or run commands themselves.
    checkout, local dev server, Revyl MCP, or new device run is needed.
 4. Resolve the intended organization, app/platforms, and builds using supplied
    context and available metadata; ask only when ambiguous. Use
-   `revyl build list --app <app-id> --json` to help select builds rather than
+   `revyl build list --app <app-id> --all-branches --json` to help select builds rather than
    asking a beginner to find IDs. Check actual captures for the selected build:
    an app's `atlas_ready` flag or latest upload alone does not prove usable
    evidence exists. If empty, explain the scope limitation and help select

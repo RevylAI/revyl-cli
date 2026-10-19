@@ -177,11 +177,11 @@ func uploadDestinationStateKey(appID, version, filePath string, fileSize int64, 
 	return hex.EncodeToString(sum[:])
 }
 
-func uploadDestinationStateKeyWithContext(appID, version, filePath string, fileSize int64, branchID, branchName, contextBranchName string) string {
+func uploadDestinationStateKeyWithContext(appID, version, filePath string, fileSize int64, branchID, branchName, gitBranchName string) string {
 	base := uploadDestinationStateKey(appID, version, filePath, fileSize, branchID, branchName)
-	if branchID != "" || branchName != "" || contextBranchName == "" {
+	if branchID != "" || branchName != "" || gitBranchName == "" {
 		return base
 	}
-	sum := sha256.Sum256([]byte(base + "\x00context\x00" + contextBranchName))
+	sum := sha256.Sum256([]byte(base + "\x00context\x00" + gitBranchName))
 	return hex.EncodeToString(sum[:])
 }

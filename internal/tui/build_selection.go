@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/buildselection"
+	"github.com/revyl/cli/internal/ui"
 )
 
 type buildPickerStep int
@@ -29,33 +30,39 @@ const (
 )
 
 type buildPickerModel struct {
-	id, appID, title string
-	client           *api.Client
-	step             buildPickerStep
-	branches         []api.BuildBranch
-	builds           []api.BuildVersion
+	// gitBranchFellBack is true when the app's default branch replaced gitBranch.
+	gitBranchFellBack bool
+	id, appID, title  string
+	client            *api.Client
+	step              buildPickerStep
+	branches          []api.BuildBranch
+	builds            []api.BuildVersion
 	// defaultBranch is the app's default branch read by ID, which carries no
 	// latest_build; its listed copy in branches does.
 	defaultBranch *api.BuildBranch
 	// currentBranchID is the branch the selection being replaced names. Its
 	// row stays listed even when it is the default branch.
-	currentBranchID                   string
-	selection                         api.BuildSelection
-	label                             string
-	cursor                            int
-	loading, done, cancelled          bool
-	branchOnly, allowAll, allowCreate bool
-	workflow, offerAllBranches        bool
-	err                               error
-	nameInput                         textinput.Model
-	searchInput                       textinput.Model
-	searching                         bool
-	branchSearch, buildSearch         string
-	branchPage, buildPage             int
-	moreBranches, moreBuilds          bool
+	currentBranchID                     string
+	selection                           api.BuildSelection
+	label                               string
+	cursor                              int
+	loading, done, cancelled            bool
+	branchOnly, allowAll, allowCreate   bool
+	workflow, offerAllBranches, runtime bool
+	// gitBranch is the detected Git branch a run or upload picker's first
+	// choice uses.
+	gitBranch                 string
+	err                       error
+	nameInput                 textinput.Model
+	searchInput               textinput.Model
+	searching                 bool
+	branchSearch, buildSearch string
+	branchPage, buildPage     int
+	moreBranches, moreBuilds  bool
 }
 
 type buildPickerDataMsg struct {
+	gitBranchFellBack    bool
 	id                   string
 	page                 int
 	hasNext, reloaded    bool
@@ -63,6 +70,7 @@ type buildPickerDataMsg struct {
 	builds               []api.BuildVersion
 	defaultBranch        *api.BuildBranch
 	branchID, branchName string
+	gitBranch            string
 	err                  error
 }
 
@@ -95,7 +103,7 @@ func (m buildPickerModel) reloadBranches(through int) tea.Cmd {
 				return data
 			}
 			if page == 1 {
-				reload.defaultBranch = data.defaultBranch
+				reload.defaultBranch, reload.gitBranch = data.defaultBranch, data.gitBranch
 			}
 			reload.branches = append(reload.branches, data.branches...)
 			reload.page, reload.hasNext = page, data.hasNext
@@ -118,6 +126,14 @@ func (m buildPickerModel) readBranchPage(page int) buildPickerDataMsg {
 		}
 		msg.defaultBranch = branch
 	}
+	if page == 1 && m.runtime {
+		gitBranch, err := detectRuntimeGitBranch(ctx)
+		if err != nil {
+			msg.err = err
+			return msg
+		}
+		msg.gitBranch = gitBranch
+	}
 	result, err := m.client.ListBuildBranches(ctx, m.appID, api.BranchListOptions{Page: page, PageSize: 100, Search: m.branchSearch})
 	if err != nil {
 		msg.err = err
@@ -138,12 +154,21 @@ func (m buildPickerModel) fetchBuildPage(page int) tea.Cmd {
 		msg := buildPickerDataMsg{id: m.id, page: page, branchID: m.selection.BranchID}
 		if page == 1 {
 			selection := m.selection
-			branch, err := m.client.ResolveBranchWithContext(ctx, m.appID, selection.BranchID, selection.BranchName, selection.ContextBranchName)
+			if m.runtime {
+				var err error
+				selection, err = withRuntimeGitBranch(ctx, selection)
+				if err != nil {
+					msg.err = err
+					return msg
+				}
+			}
+			branch, err := m.client.ResolveBranchWithGitBranch(ctx, m.appID, selection.BranchID, selection.BranchName, selection.GitBranchName, api.BuildSelectionModeLatest)
 			if err != nil {
 				msg.err = err
 				return msg
 			}
 			msg.branchID, msg.branchName = branch.ID, branch.Name
+			msg.gitBranchFellBack = branch.BranchSource.FellBackFromGitBranch(selection.GitBranchName)
 		}
 		result, err := m.client.ListBuildVersionsWithOptions(ctx, m.appID, api.BuildListOptions{BranchID: msg.branchID, Page: page, PageSize: 100, Search: m.buildSearch})
 		if err != nil {
@@ -175,6 +200,8 @@ func (m buildPickerModel) options() []string {
 		options := []string{m.defaultBranchOption()}
 		if m.allowAll {
 			options[0] = "All branches"
+		} else if m.showsGitBranch() {
+			options[0] = m.gitBranchOption()
 		}
 		if m.offerAllBranches {
 			options = append(options, allBranchesLatestLabel)
@@ -239,11 +266,34 @@ func (m buildPickerModel) defaultBranchOption() string {
 	return defaultBranchLabel
 }
 
-// branchRows are the branches listed after the first choice. The default
-// branch already is that choice outside the browse filter, so its own row
-// appears only while the current selection names it.
+// showsGitBranch reports whether a run or upload picker's first choice is the
+// detected Git branch rather than the app's default branch. The choice reads
+// Git again when it is used, so it is named for Git even when the branch is
+// the app's default.
+func (m buildPickerModel) showsGitBranch() bool {
+	return m.runtime && m.gitBranch != ""
+}
+
+// gitBranchOption names the detected Git branch. A run uses the app's default
+// branch when the Git branch has no usable build; an upload creates it.
+func (m buildPickerModel) gitBranchOption() string {
+	label := gitBranchLabel(m.gitBranch)
+	if !m.allowCreate && m.defaultBranch != nil && m.defaultBranch.Name != m.gitBranch {
+		label += " · falls back to " + m.defaultBranch.Name
+	}
+	return label
+}
+
+func gitBranchLabel(name string) string {
+	return "Git branch (" + name + ")"
+}
+
+// branchRows are the branches listed after the first choice. When that choice
+// is the app's default branch, its own row appears only while the current
+// selection names it. The browse filter, and a picker whose first choice is
+// the detected Git branch, list it in place.
 func (m buildPickerModel) branchRows() []api.BuildBranch {
-	if m.allowAll {
+	if m.allowAll || m.showsGitBranch() {
 		return m.branches
 	}
 	rows := make([]api.BuildBranch, 0, len(m.branches))
@@ -283,6 +333,7 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		}
 		if m.step == buildPickerExact {
 			if data.page <= 1 {
+				m.gitBranchFellBack = data.gitBranchFellBack
 				m.builds, m.cursor = nil, 0
 			}
 			m.builds = append(m.builds, data.builds...)
@@ -306,6 +357,9 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		}
 		previous := m
 		m.branches, m.defaultBranch = merged, data.defaultBranch
+		if data.page <= 1 || data.reloaded {
+			m.gitBranch = data.gitBranch
+		}
 		m.branchPage, m.moreBranches = max(1, data.page), data.hasNext
 		if data.reloaded {
 			if branchID := previous.cursorBranchID(); branchID != "" {
@@ -450,6 +504,9 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 			m.selection = api.BuildSelection{}
 			m.builds, m.buildPage, m.moreBuilds, m.buildSearch = nil, 0, false, ""
 			m.label = defaultBranchLabel
+			if m.showsGitBranch() {
+				m.label = gitBranchLabel(m.gitBranch)
+			}
 			if m.allowAll && m.cursor == 0 {
 				m.done, m.label = true, "All branches"
 				return m, nil
@@ -505,6 +562,9 @@ func (m buildPickerModel) View() string {
 		b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n\n")
 	}
 	query := m.branchSearch
+	if m.step == buildPickerExact && m.gitBranchFellBack {
+		b.WriteString("  " + warningStyle.Render(ui.BranchFallbackNotice(m.gitBranch, m.label)) + "\n\n")
+	}
 	if m.step == buildPickerExact {
 		query = m.buildSearch
 	}

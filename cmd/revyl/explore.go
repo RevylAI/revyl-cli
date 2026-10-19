@@ -16,10 +16,12 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/launchvars"
+	"github.com/revyl/cli/internal/ui"
 )
 
 const (
@@ -57,8 +59,15 @@ var exploreCmd = &cobra.Command{
 var exploreRunCmd = &cobra.Command{
 	Use:   "run [app-name|app-id]",
 	Short: "Start an app exploration",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runExploreRun,
+	Long: `Start an app exploration. Omit the app to use the project's configured app.
+Use --platform when the project maps more than one app.
+
+` + runtimeBuildSelectionHelp,
+	Example: `  revyl explore run "My App"
+  revyl explore run "My App" --all-branches
+  revyl explore run "My App" --branch staging`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runExploreRun,
 }
 
 var exploreStatusCmd = &cobra.Command{
@@ -113,8 +122,8 @@ func init() {
 
 func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&exploreBuildID, "build-id", "", "Explore an exact build ID (otherwise follows the selected branch's default build)")
-	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: app default)")
-	cmd.Flags().StringVar(&exploreBuildSelection, "build-selection", "", "Build choice: inherit (Automatic: the branch's default build) or latest; --build-id selects an exact build")
+	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: Git branch, then app default)")
+	cmd.Flags().StringVar(&exploreBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin); exact build: --build-id")
 	cmd.Flags().BoolVar(&exploreAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios, android, or web")
 	cmd.Flags().IntVar(&exploreExplorerCount, "explorers", 3, "Number of parallel explorers")
@@ -134,22 +143,24 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 }
 
 type exploreOutput struct {
-	RunID              string `json:"run_id"`
-	AppID              string `json:"app_id"`
-	BuildID            string `json:"build_id"`
-	BranchID           string `json:"branch_id,omitempty"`
-	BranchName         string `json:"branch_name,omitempty"`
-	ExecutionStatus    string `json:"execution_status"`
-	AtlasStatus        string `json:"atlas_status"`
-	CustomerStatus     string `json:"customer_status"`
-	Outcome            string `json:"outcome"`
-	ReportURL          string `json:"report_url"`
-	ExplorersRequested int    `json:"explorers_requested"`
-	ExplorersLaunched  int    `json:"explorers_launched"`
-	CompletedExplorers int    `json:"completed_explorers"`
-	TotalExplorers     int    `json:"total_explorers"`
-	FindingsCount      int    `json:"findings_count"`
-	Success            bool   `json:"success"`
+	BranchSource       api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName      string           `json:"git_branch_name,omitempty"`
+	RunID              string           `json:"run_id"`
+	AppID              string           `json:"app_id"`
+	BuildID            string           `json:"build_id"`
+	BranchID           string           `json:"branch_id,omitempty"`
+	BranchName         string           `json:"branch_name,omitempty"`
+	ExecutionStatus    string           `json:"execution_status"`
+	AtlasStatus        string           `json:"atlas_status"`
+	CustomerStatus     string           `json:"customer_status"`
+	Outcome            string           `json:"outcome"`
+	ReportURL          string           `json:"report_url"`
+	ExplorersRequested int              `json:"explorers_requested"`
+	ExplorersLaunched  int              `json:"explorers_launched"`
+	CompletedExplorers int              `json:"completed_explorers"`
+	TotalExplorers     int              `json:"total_explorers"`
+	FindingsCount      int              `json:"findings_count"`
+	Success            bool             `json:"success"`
 }
 
 type exploreProgress struct {
@@ -188,6 +199,13 @@ func runExploreRun(cmd *cobra.Command, args []string) error {
 		launch.ReportUrl,
 		exploreExplorerCount,
 	)
+	gitBranchName := ""
+	if request.GitBranchName != nil {
+		gitBranchName = *request.GitBranchName
+	}
+	if output.BranchSource.FellBackFromGitBranch(gitBranchName) && !quiet {
+		fmt.Fprintln(cmd.ErrOrStderr(), ui.BranchFallbackNotice(gitBranchName, output.BranchName))
+	}
 	if !quiet && exploreConcurrencyWasTrimmed(output) {
 		fmt.Fprintf(
 			cmd.ErrOrStderr(),
@@ -309,6 +327,9 @@ func buildExploreLaunchRequest(
 	args []string,
 ) (*api.ExplorationLaunchRequest, *api.App, error) {
 	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	buildSelection, err := resolveAllBranchesSelection(allBranchesFlagName, exploreAllBranches, "build-selection", exploreBuildSelection,
 		allBranchesConflict{flag: "--branch", set: exploreBranchName != ""},
 		allBranchesConflict{flag: "--build-id", set: strings.TrimSpace(exploreBuildID) != ""},
@@ -437,6 +458,20 @@ func buildExploreLaunchRequest(
 	if len(inlineEnv) > 0 {
 		request.EnvVars = &inlineEnv
 	}
+	if exploreBranchName == "" && exploreBuildID == "" && api.BuildSelectionMode(buildSelection) != api.BuildSelectionModeLatestAllBranches {
+		workDir, err := os.Getwd()
+		if err != nil {
+			return nil, nil, fmt.Errorf("get exploration source directory: %w", err)
+		}
+		gitBranch, err := buildselection.DetectGitBranch(ctx, buildselection.GitBranchOptions{WorkDir: workDir})
+		if err != nil {
+			return nil, nil, fmt.Errorf("detect Git branch for exploration: %w", err)
+		}
+		if gitBranch.Name != "" {
+			request.GitBranchName = &gitBranch.Name
+		}
+	}
+
 	return request, app, nil
 }
 
@@ -667,8 +702,18 @@ func exploreOutputFromRun(
 	if run.Findings != nil {
 		findingsCount = len(*run.Findings)
 	}
+	var branchSource api.BranchSource
+	gitBranchName := ""
+	if run.Config != nil {
+		if value, ok := (*run.Config)["branch_source"].(string); ok && api.BranchSource(value).Valid() {
+			branchSource = api.BranchSource(value)
+		}
+		gitBranchName, _ = (*run.Config)["git_branch_name"].(string)
+	}
 	outcome, success := exploreOutcome(run)
 	return exploreOutput{
+		BranchSource:       branchSource,
+		GitBranchName:      gitBranchName,
 		RunID:              run.Id,
 		AppID:              run.AppId,
 		BuildID:            buildID,

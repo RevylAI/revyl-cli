@@ -8,11 +8,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -20,6 +22,8 @@ import (
 // behaves like a normal foreground loop except it never opens a browser and
 // its stdin is not a TTY (so keybinds are disabled automatically).
 const devDetachedEnv = "REVYL_DEV_DETACHED"
+
+const devDetachedAppDefaultEnv = "REVYL_INTERNAL_DEV_APP_DEFAULT"
 
 const (
 	devDetachContextFile   = "detach.log"
@@ -32,6 +36,26 @@ var openDetachedDevBrowser = ui.OpenBrowser
 
 func isDetachedDevChild() bool {
 	return os.Getenv(devDetachedEnv) == "1"
+}
+
+func devDetachEnvironment(invocation projectDevInvocation) []string {
+	environment := make([]string, 0, len(os.Environ())+2)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, devDetachedEnv+"=") && !strings.HasPrefix(entry, devDetachedAppDefaultEnv+"=") {
+			environment = append(environment, entry)
+		}
+	}
+	appDefault := ""
+	if invocation.BranchID != "" && devSelectionIsAppDefault(invocation) {
+		appDefault = fmt.Sprintf("%d:%s", os.Getpid(), invocation.BranchID)
+	}
+	return append(environment, devDetachedEnv+"=1", devDetachedAppDefaultEnv+"="+appDefault)
+}
+
+func isDetachedDevAppDefault(branchID, branchName, buildID, mode string) bool {
+	return isDetachedDevChild() && branchID != "" && branchName == "" && buildID == "" &&
+		mode == string(api.BuildSelectionModeLatest) && !devStartSeedLatest &&
+		os.Getenv(devDetachedAppDefaultEnv) == fmt.Sprintf("%d:%s", os.Getppid(), branchID)
 }
 
 // devDetachHandshake is the JSON printed by `revyl dev --detach --json` once
@@ -110,7 +134,7 @@ func filterDetachArgs(args []string) []string {
 func projectDetachArgs(args []string, invocation projectDevInvocation) []string {
 	filtered := filterDetachArgs(args)
 	result := make([]string, 0, len(filtered)+4)
-	namedBranch := false
+	namedBranch, explicitBuildSelection := false, false
 	for index := 0; index < len(filtered); index++ {
 		arg := filtered[index]
 		switch {
@@ -128,10 +152,21 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 			strings.HasPrefix(arg, "--profile=") || strings.HasPrefix(arg, "--platform="):
 			continue
 		}
+		if arg == "--build-selection" || arg == "--build-version-id" || arg == "--seed-latest" ||
+			strings.HasPrefix(arg, "--build-selection=") || strings.HasPrefix(arg, "--build-version-id=") {
+			explicitBuildSelection = true
+		}
+		if value, ok := strings.CutPrefix(arg, "--seed-latest="); ok {
+			seedLatest, _ := strconv.ParseBool(value)
+			explicitBuildSelection = explicitBuildSelection || seedLatest
+		}
 		result = append(result, arg)
 	}
-	if namedBranch && invocation.BranchID != "" {
+	if invocation.BranchID != "" {
 		result = append(result, "--branch-id", invocation.BranchID)
+		if !namedBranch && !explicitBuildSelection && invocation.GitBranchName == "" {
+			result = append(result, "--build-selection", "latest")
+		}
 	}
 	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)
 }
@@ -145,14 +180,14 @@ func devDetachLogPath(cwd string) privateRuntimePath {
 // machine-readable handshake. Returns once the session is ready (build may
 // still be running in the background).
 func spawnDetachedDevLoop(cmd *cobra.Command, cwd string) error {
-	return spawnDetachedDevLoopWithArgs(cmd, cwd, filterDetachArgs(os.Args[1:]))
+	return spawnDetachedDevLoopWithArgs(cmd, cwd, filterDetachArgs(os.Args[1:]), devDetachEnvironment(projectDevInvocation{}))
 }
 
 func spawnDetachedProjectDevLoop(cmd *cobra.Command, invocation projectDevInvocation) error {
-	return spawnDetachedDevLoopWithArgs(cmd, invocation.ProjectRoot, projectDetachArgs(os.Args[1:], invocation))
+	return spawnDetachedDevLoopWithArgs(cmd, invocation.ProjectRoot, projectDetachArgs(os.Args[1:], invocation), devDetachEnvironment(invocation))
 }
 
-func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs []string) error {
+func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs, childEnvironment []string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to resolve executable for --detach: %w", err)
@@ -178,7 +213,7 @@ func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs []st
 	args := append(childArgs, "--no-open")
 	child := exec.Command(exe, args...) // #nosec G204 -- exe is the current Revyl binary
 	child.Dir = cwd
-	child.Env = append(os.Environ(), devDetachedEnv+"=1")
+	child.Env = childEnvironment
 	child.Stdout = logFile
 	child.Stderr = logFile
 	configureDetachedDevCommand(child)

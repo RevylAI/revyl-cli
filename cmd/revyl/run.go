@@ -21,6 +21,7 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
@@ -308,8 +309,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		runOutputJSON = true
 	}
 	testNameOrID := args[0]
+	detectGitBranch := runBranchName == "" && runBuildID == "" && !runTestBuild && api.BuildSelectionMode(buildSelection) != api.BuildSelectionModeLatestAllBranches
 	cwd := ""
-	if !looksLikeUUID(testNameOrID) || runTestBuild {
+	if !looksLikeUUID(testNameOrID) || runTestBuild || detectGitBranch {
 		var err error
 		cwd, err = os.Getwd()
 		if err != nil {
@@ -436,6 +438,18 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		effectiveBuildVersionID = strings.TrimSpace(buildResult.Upload.VersionID)
 		effectiveBranchID, effectiveBranchName = buildResult.Upload.BranchID, ""
 	}
+	gitBranchName := ""
+	if detectGitBranch {
+		workDir := cwd
+		if project != nil {
+			workDir = project.EffectiveDirectory
+		}
+		gitBranch, err := buildselection.DetectGitBranch(cmd.Context(), buildselection.GitBranchOptions{WorkDir: workDir})
+		if err != nil {
+			return fmt.Errorf("detect Git branch for test: %w", err)
+		}
+		gitBranchName = gitBranch.Name
+	}
 
 	// Use shared execution logic with CLI-specific progress callback
 	ui.StartSpinner("Starting test execution...")
@@ -480,6 +494,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		Retries:                    runRetries,
 		BuildVersionID:             effectiveBuildVersionID,
 		BranchName:                 effectiveBranchName,
+		GitBranchName:              gitBranchName,
 		BranchID:                   effectiveBranchID,
 		BuildSelection:             buildSelection,
 		Timeout:                    effectiveTimeout,
@@ -499,6 +514,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		LaunchArgSets:              append([]string(nil), runLaunchArgSets...),
 		LaunchArguments:            append([]string(nil), runLaunchArguments...),
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
+		OnDefaultBranchFallback: func(branchName string) {
+			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branchName))
+		},
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
@@ -676,6 +694,12 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 	output["branch_name"] = result.BranchName
 	output["build_version"] = result.BuildVersion
 	output["build_id"] = result.BuildID
+	if result.BranchSource != "" {
+		output["branch_source"] = result.BranchSource
+	}
+	if result.GitBranchName != "" {
+		output["git_branch_name"] = result.GitBranchName
+	}
 
 	var payload interface{} = output
 	if commandSucceeded {
@@ -883,7 +907,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 
 	cwd := ""
-	if runWorkflowBuild {
+	detectGitBranch := runBranchName == "" && !runWorkflowBuild && api.BuildSelectionMode(buildSelection) != api.BuildSelectionModeLatestAllBranches
+	if runWorkflowBuild || detectGitBranch {
 		cwd, err = os.Getwd()
 		if err != nil {
 			return fmt.Errorf("get current directory: %w", err)
@@ -1058,6 +1083,15 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	gitBranchName := ""
+	if detectGitBranch {
+		gitBranch, err := buildselection.DetectGitBranch(cmd.Context(), buildselection.GitBranchOptions{WorkDir: cwd})
+		if err != nil {
+			return fmt.Errorf("detect Git branch for workflow: %w", err)
+		}
+		gitBranchName = gitBranch.Name
+	}
+
 	if runNoWait {
 		queuedResult, err := queueWorkflowExecution(cmd.Context(), apiKey, workflowDisplayName, execution.RunWorkflowParams{
 			ConcurrencyLimitOverride:   concurrencyLimitOverride,
@@ -1073,6 +1107,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			AndroidBranchID:            effectiveAndroidBranchID,
 			AndroidBuildID:             effectiveAndroidBuildID,
 			BranchName:                 effectiveWorkflowBranchName,
+			GitBranchName:              gitBranchName,
 			BuildSelection:             buildSelection,
 			HasLocation:                wfHasLocation,
 			Latitude:                   wfLat,
@@ -1107,6 +1142,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	// Track if we've shown the report link yet
 	reportLinkShown := false
+	fallbackNotices := &ui.BranchFallbackNotices{}
 
 	// Set up signal handling for graceful cancellation
 	ctx, cancel := context.WithCancel(cmd.Context())
@@ -1144,6 +1180,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		AndroidBranchID:            effectiveAndroidBranchID,
 		AndroidBuildID:             effectiveAndroidBuildID,
 		BranchName:                 effectiveWorkflowBranchName,
+		GitBranchName:              gitBranchName,
 		BuildSelection:             buildSelection,
 		Latitude:                   wfLat,
 		Longitude:                  wfLng,
@@ -1158,6 +1195,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			interruptState.SetTaskID(id)
 		},
 		OnProgress: func(status *sse.WorkflowStatus) {
+			printWorkflowBranchFallbacks(fallbackNotices, status.ChildTasks)
 			ui.StopSpinner() // Stop spinner on first progress update
 
 			// Show report link on first progress update (when we have the task ID)
@@ -1199,6 +1237,11 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		ui.PrintError("Workflow execution failed: %v", err)
 		return err
+	}
+	for _, child := range result.Tests {
+		if notice := fallbackNotices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+			ui.PrintWarning("%s", notice)
+		}
 	}
 	if result != nil && result.WorkflowName == "" {
 		result.WorkflowName = workflowDisplayName
@@ -1301,6 +1344,13 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 			"branch_name":   t.BranchName,
 			"build_version": t.BuildVersion,
 			"build_id":      t.BuildID,
+		}
+		if t.BranchID != "" {
+			entry["branch_id"] = t.BranchID
+		}
+		addWorkflowAppIdentity(entry, t.AppID, t.AppName, t.BranchSource, t.GitBranchName)
+		if t.TaskID != "" {
+			entry["task_id"] = t.TaskID
 		}
 		tests = append(tests, entry)
 	}

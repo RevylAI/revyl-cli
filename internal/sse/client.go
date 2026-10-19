@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/config"
 	statusutil "github.com/revyl/cli/internal/status"
@@ -142,6 +143,8 @@ type ChildTestProgress struct {
 
 // WorkflowStatus represents the status of a workflow execution.
 type WorkflowStatus struct {
+	ChildTasks []api.CLIWorkflowChildExecution
+
 	// TaskID is the execution task ID.
 	TaskID string
 
@@ -195,9 +198,10 @@ type OrgTestMonitorItem struct {
 // OrgWorkflowMonitorItem matches the backend OrgWorkflowMonitorItem model for SSE events.
 // This struct is used to parse workflow events from the unified SSE stream.
 type OrgWorkflowMonitorItem struct {
-	Task         WorkflowTask `json:"task"`
-	WorkflowName string       `json:"workflow_name"`
-	Progress     float64      `json:"progress"`
+	ChildTasks   []api.CLIWorkflowChildExecution `json:"child_tasks"`
+	Task         WorkflowTask                    `json:"task"`
+	WorkflowName string                          `json:"workflow_name"`
+	Progress     float64                         `json:"progress"`
 }
 
 // WorkflowTask represents the task data within a workflow monitor item.
@@ -751,6 +755,9 @@ func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID str
 
 			status := m.handleWorkflowEvent(event, taskID)
 			if status != nil {
+				if status.ChildTasks == nil && lastStatus != nil {
+					status.ChildTasks = lastStatus.ChildTasks
+				}
 				lastStatus = status
 
 				if onProgress != nil {
@@ -807,10 +814,11 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 		// Handle completion events — supports both nested (workflow wrapper)
 		// and flat (id/task_id at top level) shapes.
 		var data struct {
-			Workflow OrgWorkflowMonitorItem `json:"workflow"`
-			ID       string                 `json:"id"`
-			TaskID   string                 `json:"task_id"`
-			Status   string                 `json:"status"`
+			Workflow   OrgWorkflowMonitorItem          `json:"workflow"`
+			ID         string                          `json:"id"`
+			TaskID     string                          `json:"task_id"`
+			Status     string                          `json:"status"`
+			ChildTasks []api.CLIWorkflowChildExecution `json:"child_tasks"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
 			log.Debug("Failed to parse workflow completion event", "event", event.Event, "error", err)
@@ -829,8 +837,9 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 				status = workflowMonitorItemToStatus(&data.Workflow)
 			} else {
 				status = &WorkflowStatus{
-					TaskID: matchID,
-					Status: data.Status,
+					TaskID:     matchID,
+					Status:     data.Status,
+					ChildTasks: data.ChildTasks,
 				}
 			}
 			if event.Event == "workflow_completed" {
@@ -860,6 +869,7 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 func workflowMonitorItemToStatus(item *OrgWorkflowMonitorItem) *WorkflowStatus {
 	return &WorkflowStatus{
 		TaskID:         item.Task.ID,
+		ChildTasks:     item.ChildTasks,
 		Status:         item.Task.Status,
 		WorkflowName:   item.WorkflowName,
 		TotalTests:     item.Task.TotalTests,
@@ -931,15 +941,7 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 			continue
 		}
 
-		var statusResp struct {
-			Status         string `json:"status"`
-			TotalTests     int    `json:"total_tests"`
-			CompletedTests int    `json:"completed_tests"`
-			PassedTests    int    `json:"passed_tests"`
-			FailedTests    int    `json:"failed_tests"`
-			Duration       string `json:"duration"`
-			ErrorMessage   string `json:"error_message"`
-		}
+		var statusResp api.CLIWorkflowStatusResponse
 
 		if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 			resp.Body.Close()
@@ -971,6 +973,7 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 			Duration:       statusResp.Duration,
 			ErrorMessage:   statusResp.ErrorMessage,
 			ChildTests:     lastChildTests,
+			ChildTasks:     statusResp.ChildTasks,
 		}
 
 		lastStatus = status

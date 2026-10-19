@@ -90,12 +90,14 @@ func resolveIdleTimeout(d time.Duration) time.Duration {
 }
 
 type DeviceSession struct {
-	AppName      string `json:"-"`
-	BuildID      string `json:"build_id,omitempty"`
-	BuildVersion string `json:"build_version,omitempty"`
-	CommitSHA    string `json:"commit_sha,omitempty"`
-	BranchID     string `json:"branch_id,omitempty"`
-	BranchName   string `json:"branch_name,omitempty"`
+	AppName       string           `json:"-"`
+	BranchSource  api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName string           `json:"git_branch_name,omitempty"`
+	BuildID       string           `json:"build_id,omitempty"`
+	BuildVersion  string           `json:"build_version,omitempty"`
+	CommitSHA     string           `json:"commit_sha,omitempty"`
+	BranchID      string           `json:"branch_id,omitempty"`
+	BranchName    string           `json:"branch_name,omitempty"`
 	// Index is the local session index (tmux-style numbering, 0-based).
 	Index int `json:"index"`
 
@@ -366,13 +368,13 @@ type StartSessionOptions struct {
 	//   1. AppURL
 	//   2. BuildVersionID (resolved to download URL)
 	//   3. AppID (selected branch policy resolved to download URL)
-	AppID             string
-	BranchID          string
-	BranchName        string
-	ContextBranchName string
-	BuildSelection    string
-	BuildVersionID    string
-	AppURL            string
+	AppID          string
+	BranchID       string
+	BranchName     string
+	GitBranchName  string
+	BuildSelection string
+	BuildVersionID string
+	AppURL         string
 
 	// Optional app launch link and package hints.
 	AppLink       string
@@ -478,11 +480,11 @@ func (m *DeviceSessionManager) StartSession(
 		artifactOptions := startdevice.StartArtifactOptions{
 			AppID: opts.AppID, BuildVersionID: opts.BuildVersionID, AppURL: opts.AppURL, AppPackage: opts.AppPackage,
 			BranchID: opts.BranchID, BranchName: opts.BranchName, BuildSelection: opts.BuildSelection,
-			ContextBranchName: opts.ContextBranchName,
+			GitBranchName: opts.GitBranchName,
 		}
 		if testSelectsBuild {
 			artifactOptions.BranchID, artifactOptions.BranchName, artifactOptions.BuildSelection = "", "", ""
-			artifactOptions.ContextBranchName = ""
+			artifactOptions.GitBranchName = ""
 		}
 		resolvedArtifact, err = startdevice.ResolveStartArtifact(ctx, m.apiClient, artifactOptions)
 		if err != nil {
@@ -527,7 +529,7 @@ func (m *DeviceSessionManager) StartSession(
 	if testSelectsBuild {
 		req.BranchID, req.BranchName = opts.BranchID, opts.BranchName
 		req.BuildSelection = api.BuildSelectionMode(opts.BuildSelection)
-		req.ContextBranchName = opts.ContextBranchName
+		req.GitBranchName = opts.GitBranchName
 	}
 	if resolvedArtifact.AppURL != "" {
 		req.AppURL = resolvedArtifact.AppURL
@@ -662,8 +664,16 @@ func (m *DeviceSessionManager) StartSession(
 		viewerURL = fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
 	}
 
+	branchSource, gitBranchName := resolvedArtifact.BranchSource, resolvedArtifact.GitBranchName
+	if branchSource == "" && resp.BranchSource != nil {
+		branchSource, gitBranchName = *resp.BranchSource, ""
+		if resp.GitBranchName != nil {
+			gitBranchName = *resp.GitBranchName
+		}
+	}
 	now := time.Now()
 	session := &DeviceSession{
+		BranchSource: branchSource, GitBranchName: gitBranchName,
 		BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName,
 		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,

@@ -119,6 +119,7 @@ func TestAtlasExactVersionDerivesItsBranch(t *testing.T) {
 }
 
 func TestAtlasExplicitLatestKeepsOneBranchAndBuild(t *testing.T) {
+	withWorkingDir(t, executionSourceCheckout(t))
 	const branchID = "22222222-2222-4222-8222-222222222222"
 	const buildID = "33333333-3333-4333-8333-333333333333"
 	for _, branchName := range []string{"", "release"} {
@@ -143,7 +144,7 @@ func TestAtlasExplicitLatestKeepsOneBranchAndBuild(t *testing.T) {
 					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 						t.Fatal(err)
 					}
-					if body["branch_id"] != branchID || body["build_selection"] != "latest" {
+					if body["build_selection"] != "latest" || (body["branch_id"] != branchID && (branchName != "" || body["git_branch_name"] != "Feature/git-branch")) {
 						t.Errorf("latest selection changed: %v", body)
 					}
 					_ = json.NewEncoder(w).Encode(map[string]interface{}{"version_id": buildID, "branch_id": branchID, "resolution_status": "resolved", "download_url": "https://example.com/app.apk"})
@@ -164,9 +165,30 @@ func TestAtlasExplicitLatestKeepsOneBranchAndBuild(t *testing.T) {
 			_ = cmd.Flags().Set("build", "latest")
 			_ = cmd.Flags().Set("branch", branchName)
 			branch, build, err := resolveAtlasScope(cmd, api.NewClientWithBaseURL("test", server.URL), &api.App{ID: "app", DefaultBranchID: branchID})
-			if err != nil || branch != branchID || build != buildID || requests != 3 {
+			wantRequests := 3
+			if branchName == "" {
+				wantRequests = 4
+			}
+			if err != nil || branch != branchID || build != buildID || requests != wantRequests {
 				t.Fatalf("latest scope = %q/%q, requests=%d, err=%v", branch, build, requests, err)
 			}
 		})
+	}
+}
+
+func TestAtlasFlaglessReadsIgnoreGitContext(t *testing.T) {
+	withWorkingDir(t, executionSourceCheckout(t))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("flagless browsing resolved a branch: %s", r.URL)
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	cmd := &cobra.Command{Use: "scope"}
+	cmd.SetContext(context.Background())
+	addAtlasBranchFlags(cmd)
+	cmd.Flags().String("build", "", "")
+	branch, build, err := resolveAtlasScope(cmd, api.NewClientWithBaseURL("test", server.URL), &api.App{ID: "app"})
+	if err != nil || branch != "" || build != "" {
+		t.Fatalf("scope=%q/%q, %v", branch, build, err)
 	}
 }

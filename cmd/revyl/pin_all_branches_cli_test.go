@@ -24,6 +24,7 @@ import (
 // and runs, and answers the reads an upload summary makes.
 type pinAllBranchesBackend struct {
 	mu            sync.Mutex
+	sessionBodies []map[string]any
 	uploadBodies  []map[string]any
 	fromURLBodies []map[string]any
 	runBodies     []map[string]any
@@ -41,7 +42,7 @@ func (b *pinAllBranchesBackend) record(target *[]map[string]any, r *http.Request
 func (b *pinAllBranchesBackend) reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.uploadBodies, b.fromURLBodies, b.runBodies, b.paths = nil, nil, nil, nil
+	b.sessionBodies, b.uploadBodies, b.fromURLBodies, b.runBodies, b.paths = nil, nil, nil, nil, nil
 }
 
 func TestPinAndAllBranchesCLI(t *testing.T) {
@@ -70,6 +71,7 @@ func TestPinAndAllBranchesCLI(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/apps/" + appID + "/builds/upload-session":
+			backend.record(&backend.sessionBodies, r)
 			fmt.Fprintf(w, `{"upload_id":"upload-1","upload_url":%q,"content_type":"application/octet-stream","branch_id":%q,"branch_name":"staging"}`, server.URL+"/artifact", branchID)
 		case "/artifact":
 			_, _ = io.Copy(io.Discard, r.Body)
@@ -103,7 +105,14 @@ func TestPinAndAllBranchesCLI(t *testing.T) {
 	defer server.Close()
 
 	testutil.SetHomeDir(t, t.TempDir())
+	// A checkout on a feature branch: uploads go to it without pinning it, and
+	// All branches runs ignore it.
+	const gitBranch = "feature/pin-check"
 	workDir := t.TempDir()
+	gitInitBuildRepository(t, workDir)
+	if output, err := exec.Command("git", "-C", workDir, "symbolic-ref", "HEAD", "refs/heads/"+gitBranch).CombinedOutput(); err != nil {
+		t.Fatalf("set Git branch: %v: %s", err, output)
+	}
 	artifact := filepath.Join(workDir, "app.apk")
 	if err := os.WriteFile(artifact, []byte("fixture-apk"), 0o600); err != nil {
 		t.Fatal(err)
@@ -175,12 +184,15 @@ func TestPinAndAllBranchesCLI(t *testing.T) {
 					if scenario.warning == "" && strings.Contains(stderr, "deprecated") {
 						t.Fatalf("unexpected deprecation warning:\n%s", stderr)
 					}
-					bodies := backend.uploadBodies
+					bodies, destinations := backend.uploadBodies, backend.sessionBodies
 					if source == "url" {
-						bodies = backend.fromURLBodies
+						bodies, destinations = backend.fromURLBodies, backend.fromURLBodies
 					}
-					if len(bodies) != 1 {
-						t.Fatalf("%s upload requests = %d, want 1", source, len(bodies))
+					if len(bodies) != 1 || len(destinations) != 1 {
+						t.Fatalf("%s upload requests = %d, destinations = %d, want 1", source, len(bodies), len(destinations))
+					}
+					if _, named := destinations[0]["branch_name"]; named || destinations[0]["git_branch_name"] != gitBranch {
+						t.Fatalf("%s upload destination = %v, want the detected Git branch as context", source, destinations[0])
 					}
 					if _, sent := bodies[0]["set_as_current"]; sent {
 						t.Fatalf("%s upload sent set_as_current: %v", source, bodies[0])
@@ -243,7 +255,7 @@ func TestPinAndAllBranchesCLI(t *testing.T) {
 				if body["build_selection"] != "latest_all_branches" {
 					t.Fatalf("build_selection = %v, want latest_all_branches", body["build_selection"])
 				}
-				for _, field := range []string{"branch_name", "branch_id", "context_branch_name", "build_version_id", "pinned_build_id"} {
+				for _, field := range []string{"branch_name", "branch_id", "git_branch_name", "build_version_id", "pinned_build_id"} {
 					if _, sent := body[field]; sent {
 						t.Fatalf("all-branches run sent %s: %v", field, body)
 					}

@@ -18,7 +18,7 @@ func TestLatestAllBranchesSelectionValidation(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "alone", selection: BuildSelection{Mode: BuildSelectionModeLatestAllBranches}},
-		{name: "with ignored Git context", selection: BuildSelection{Mode: BuildSelectionModeLatestAllBranches, ContextBranchName: "feature/login"}},
+		{name: "with ignored Git branch", selection: BuildSelection{Mode: BuildSelectionModeLatestAllBranches, GitBranchName: "feature/login"}},
 		{name: "branch name", selection: BuildSelection{Mode: BuildSelectionModeLatestAllBranches, BranchName: "main"}, wantErr: "All branches · Latest build can't be combined with a branch"},
 		{name: "branch ID", selection: BuildSelection{Mode: BuildSelectionModeLatestAllBranches, BranchID: branchTestID}, wantErr: "All branches · Latest build can't be combined with a branch"},
 		{name: "exact build", selection: BuildSelection{Mode: BuildSelectionModeLatestAllBranches, BuildID: buildID}, wantErr: "an exact build can't be combined"},
@@ -40,7 +40,7 @@ func TestLatestAllBranchesSelectionValidation(t *testing.T) {
 	}
 }
 
-func TestLatestAllBranchesRequestsNeverSendGitContext(t *testing.T) {
+func TestLatestAllBranchesRequestsNeverSendGitBranch(t *testing.T) {
 	const appID = "11111111-1111-4111-8111-111111111111"
 	const buildID = "33333333-3333-4333-8333-333333333333"
 	bodies := map[string]map[string]any{}
@@ -72,21 +72,21 @@ func TestLatestAllBranchesRequestsNeverSendGitContext(t *testing.T) {
 	client := NewClientWithBaseURL("test", server.URL)
 	ctx := context.Background()
 	const gitBranch = "feature/login"
-	resolved, err := client.ResolveBuildSelectionMetadata(ctx, appID, BuildSelection{Mode: BuildSelectionModeLatestAllBranches, ContextBranchName: gitBranch})
+	resolved, err := client.ResolveBuildSelectionMetadata(ctx, appID, BuildSelection{Mode: BuildSelectionModeLatestAllBranches, GitBranchName: gitBranch})
 	if err != nil || resolved.BranchName != "feature" {
 		t.Fatalf("resolve = %+v, %v", resolved, err)
 	}
-	testRequest := &ExecuteTestRequest{TestID: "test", BuildSelection: BuildSelectionModeLatestAllBranches, ContextBranchName: gitBranch}
+	testRequest := &ExecuteTestRequest{TestID: "test", BuildSelection: BuildSelectionModeLatestAllBranches, GitBranchName: gitBranch}
 	if _, err := client.ExecuteTest(ctx, testRequest); err != nil {
 		t.Fatal(err)
 	}
-	if testRequest.ContextBranchName != gitBranch {
+	if testRequest.GitBranchName != gitBranch {
 		t.Fatal("ExecuteTest changed the caller's request")
 	}
-	if _, err := client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{WorkflowID: "workflow", BuildSelection: BuildSelectionModeLatestAllBranches, ContextBranchName: gitBranch}); err != nil {
+	if _, err := client.ExecuteWorkflow(ctx, &ExecuteWorkflowRequest{WorkflowID: "workflow", BuildSelection: BuildSelectionModeLatestAllBranches, GitBranchName: gitBranch}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.StartDevice(ctx, &StartDeviceRequest{Platform: "ios", TestID: "test", BuildSelection: BuildSelectionModeLatestAllBranches, ContextBranchName: gitBranch}); err != nil {
+	if _, err := client.StartDevice(ctx, &StartDeviceRequest{Platform: "ios", TestID: "test", BuildSelection: BuildSelectionModeLatestAllBranches, GitBranchName: gitBranch}); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/api/v1/apps/resolve", "/api/v1/execution/api/execute_test_id_async", "/api/v1/workflow-executions", "/api/v1/execution/start_device"} {
@@ -97,16 +97,16 @@ func TestLatestAllBranchesRequestsNeverSendGitContext(t *testing.T) {
 		if body["build_selection"] != string(BuildSelectionModeLatestAllBranches) {
 			t.Errorf("%s build_selection = %v", path, body["build_selection"])
 		}
-		for _, field := range []string{"context_branch_name", "branch_id", "branch_name"} {
+		for _, field := range []string{"git_branch_name", "branch_id", "branch_name"} {
 			if _, sent := body[field]; sent {
 				t.Errorf("%s sent %s with latest across all branches: %v", path, field, body)
 			}
 		}
 	}
-	if _, err := client.ExecuteTest(ctx, &ExecuteTestRequest{TestID: "test", BuildSelection: BuildSelectionModeLatest, ContextBranchName: gitBranch}); err != nil {
+	if _, err := client.ExecuteTest(ctx, &ExecuteTestRequest{TestID: "test", BuildSelection: BuildSelectionModeLatest, GitBranchName: gitBranch}); err != nil {
 		t.Fatal(err)
 	}
-	if bodies["/api/v1/execution/api/execute_test_id_async"]["context_branch_name"] != gitBranch {
-		t.Fatal("a branch-scoped run lost its Git context")
+	if bodies["/api/v1/execution/api/execute_test_id_async"]["git_branch_name"] != gitBranch {
+		t.Fatal("a branch-scoped run lost its Git branch")
 	}
 }

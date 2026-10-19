@@ -50,7 +50,7 @@ func (s *Server) registerDevLoopTools() {
 
 // StartDevLoopInput contains the focused canonical dev-loop inputs.
 type StartDevLoopInput struct {
-	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
+	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
 	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`
 	Context                    string   `json:"context,omitempty" jsonschema:"Optional named dev context."`
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Optional project or monorepo root. Nested Revyl projects are detected automatically."`

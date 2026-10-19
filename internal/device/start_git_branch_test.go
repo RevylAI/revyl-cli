@@ -21,7 +21,7 @@ func (r *contextArtifactResolver) GetBuildVersionDownloadURL(context.Context, st
 	return &r.detail, nil
 }
 
-func TestStartArtifactContextIsOnlyAnAutomaticHint(t *testing.T) {
+func TestStartArtifactGitBranchIsOnlyAnAutomaticHint(t *testing.T) {
 	const buildID = "00000000-0000-4000-8000-000000000002"
 	for _, tc := range []struct {
 		name        string
@@ -38,16 +38,31 @@ func TestStartArtifactContextIsOnlyAnAutomaticHint(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resolver := &contextArtifactResolver{detail: api.BuildVersionDetail{ID: buildID, AppID: "app", DownloadURL: "https://artifact.example/app.apk"}}
-			tc.opts.ContextBranchName = "feature/source"
+			tc.opts.GitBranchName = "feature/source"
 			if _, err := ResolveStartArtifact(context.Background(), resolver, tc.opts); err != nil {
 				t.Fatal(err)
 			}
 			if (resolver.selection != nil) != tc.wantResolve {
 				t.Fatalf("selection = %+v, want resolve %t", resolver.selection, tc.wantResolve)
 			}
-			if resolver.selection != nil && resolver.selection.ContextBranchName != tc.wantContext {
-				t.Fatalf("context = %q, want %q", resolver.selection.ContextBranchName, tc.wantContext)
+			if resolver.selection != nil && resolver.selection.GitBranchName != tc.wantContext {
+				t.Fatalf("context = %q, want %q", resolver.selection.GitBranchName, tc.wantContext)
 			}
 		})
+	}
+}
+
+func TestStartArtifactPreservesBranchSource(t *testing.T) {
+	for _, source := range []api.BranchSource{"", api.BranchSourceGitBranch, api.BranchSourceDefaultBranch} {
+		resolver := &contextArtifactResolver{detail: api.BuildVersionDetail{
+			ID: "build", AppID: "app", BranchID: "branch", BranchName: "base",
+			DownloadURL: "https://artifact.example/app.apk", BranchSource: source,
+		}}
+		artifact, err := ResolveStartArtifact(context.Background(), resolver, StartArtifactOptions{
+			AppID: "app", GitBranchName: "feature/source",
+		})
+		if err != nil || artifact.BranchSource != source || artifact.BuildID != "build" || artifact.BranchName != "base" {
+			t.Fatalf("artifact=%+v err=%v", artifact, err)
+		}
 	}
 }

@@ -7,8 +7,17 @@ import (
 )
 
 const (
-	allBranchesFlagName  = "all-branches"
-	allBranchesFlagUsage = "Use the newest build across all of the app's branches"
+	allBranchesFlagName       = "all-branches"
+	allBranchesFlagUsage      = "Use the newest build across all of the app's branches"
+	runtimeBuildSelectionHelp = `Build selection:
+  Automatic (inherit): the selected branch's Latest build or pin.
+  --build-selection latest: newest on that branch; ignore its pin.
+  --all-branches: newest across the app; ignore Git and pins.
+
+Branch: explicit/saved choice first, otherwise Git, then the app default.
+Invalid, missing, or empty Git branches fall back with a notice. Unavailable
+explicit/saved choices or pins fail. GitHub Actions and Buildkite pull requests
+use the source branch (owner:branch for forks).`
 )
 
 // allBranchesConflict is a flag that can't be combined with --all-branches

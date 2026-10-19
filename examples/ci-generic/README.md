@@ -12,9 +12,10 @@ revyl workflow run <workflow-name>
 
 Exit code `0` = pass, `1` = fail. That's all your CI system needs.
 
-Saved branches and exact builds stay fixed, and Default branch uses the app's default branch.
-Pass `--branch <name>`, such as `--branch base`, to keep a job on one branch even
-if the default changes. See [build branches](../../docs/build-branches.md).
+A test saved on Default branch runs on the job's Git branch when it has a usable
+build. GitLab CI and Jenkins check out a commit, so there runs and uploads use
+the app's default branch unless you pass `--branch`. See
+[Git branch detection](https://docs.revyl.com/builds/branches#git-branch-detection).
 
 Set `REVYL_INSTALL_DIR=/usr/local/bin` to place the binary on PATH without shell profile sourcing (recommended for CI).
 
@@ -52,7 +53,7 @@ revyl workflow run smoke-tests --android-app "$APP_ID" --android-build-id "$BUIL
 
 Install `jq` for JSON extraction. The workflow uses the exact uploaded Android
 build. A runtime app override replaces the workflow’s saved app configuration;
-unspecified platforms use each test’s saved selection. To refresh shared Atlas
+unspecified platforms use each test’s saved choice. To refresh shared Atlas
 branches, use [branch maintenance](../branch-maintenance/).
 
 ## JSON output
@@ -66,11 +67,7 @@ echo "$result" | jq '.report_link'
 
 ## CI-friendly flags
 
-| Flag | Effect |
-|------|--------|
-| `--json` | Machine-readable JSON output |
-| `--no-wait` | Queue the run and exit without waiting for results |
-| `--retries N` | Retry failed tests (1-5 attempts) |
+See [CI-friendly flags](https://docs.revyl.com/builds/ci-builds#ci-friendly-flags).
 
 ## Environment variables
 
@@ -109,5 +106,6 @@ revyl workflow run smoke-tests --ios-app "$APP_ID" --ios-build-id "$BUILD_ID"
 | [`gitlab-ci.yml`](gitlab-ci.yml) | GitLab CI/CD |
 | [`Jenkinsfile`](Jenkinsfile) | Jenkins |
 | [`circleci.yml`](circleci.yml) | CircleCI |
+| [`buildkite-pipeline.yml`](buildkite-pipeline.yml) | Buildkite |
 
 Each follows the same flow: install CLI, (optionally) upload build, run tests. All examples include both blocking and fire-and-forget patterns.

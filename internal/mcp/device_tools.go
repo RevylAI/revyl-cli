@@ -607,9 +607,9 @@ func (s *Server) registerDeviceTools() {
 
 // StartDeviceSessionInput defines input for start_device_session.
 type StartDeviceSessionInput struct {
-	ProjectDir                 string                 `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
-	BranchName                 string                 `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
-	BuildSelection             string                 `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
+	ProjectDir                 string                 `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
+	BranchName                 string                 `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
+	BuildSelection             string                 `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name; ignores the project's Git branch), or pinned with build_version_id."`
 	Platform                   string                 `json:"platform" jsonschema:"Target platform: ios, android, or web (REQUIRED)"`
 	URL                        string                 `json:"url,omitempty" jsonschema:"HTTPS URL build to create or reuse on app_id before starting Web; mutually exclusive with build_version_id."`
 	Commit                     string                 `json:"commit,omitempty" jsonschema:"Optional commit SHA identifying the URL build."`
@@ -630,18 +630,20 @@ type StartDeviceSessionInput struct {
 
 // StartDeviceSessionOutput defines output for start_device_session.
 type StartDeviceSessionOutput struct {
-	BuildID            string     `json:"build_id,omitempty"`
-	BranchID           string     `json:"branch_id,omitempty"`
-	BranchName         string     `json:"branch_name,omitempty"`
-	Success            bool       `json:"success"`
-	SessionID          string     `json:"session_id,omitempty"`
-	SessionIndex       int        `json:"session_index"`
-	Platform           string     `json:"platform,omitempty"`
-	ViewerURL          string     `json:"viewer_url,omitempty"`
-	WhepURL            string     `json:"whep_url,omitempty"`
-	IdleTimeoutSeconds float64    `json:"idle_timeout_seconds,omitempty"`
-	Error              string     `json:"error,omitempty"`
-	NextSteps          []NextStep `json:"next_steps,omitempty"`
+	GitBranchName      string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
+	BranchSource       api.BranchSource `json:"branch_source,omitempty" jsonschema:"Where the branch came from: git_branch (the project's Git branch), default_branch (the app's default branch, also when the Git branch had no usable build), or explicit_branch (a branch named by this request or saved on the test). Omitted when an exact build or latest_all_branches chose the build"`
+	BuildID            string           `json:"build_id,omitempty"`
+	BranchID           string           `json:"branch_id,omitempty"`
+	BranchName         string           `json:"branch_name,omitempty"`
+	Success            bool             `json:"success"`
+	SessionID          string           `json:"session_id,omitempty"`
+	SessionIndex       int              `json:"session_index"`
+	Platform           string           `json:"platform,omitempty"`
+	ViewerURL          string           `json:"viewer_url,omitempty"`
+	WhepURL            string           `json:"whep_url,omitempty"`
+	IdleTimeoutSeconds float64          `json:"idle_timeout_seconds,omitempty"`
+	Error              string           `json:"error,omitempty"`
+	NextSteps          []NextStep       `json:"next_steps,omitempty"`
 }
 
 var openDeviceSessionBrowser = ui.OpenBrowser
@@ -663,6 +665,14 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 
+	gitBranchName := ""
+	if (appID != "" || input.TestID != "") && buildVersionID == "" && appURL == "" && input.BranchName == "" &&
+		api.BuildSelectionMode(input.BuildSelection) != api.BuildSelectionModeLatestAllBranches {
+		gitBranchName, err = s.detectGitBranch(ctx, input.ProjectDir)
+		if err != nil {
+			return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+		}
+	}
 	timeoutSecs := input.IdleTimeout
 	if platform == "web" && timeoutSecs < 0 {
 		return nil, StartDeviceSessionOutput{Success: false, Error: "idle_timeout must be positive on platform web"}, nil
@@ -685,6 +695,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		BuildVersionID:             buildVersionID,
 		BranchName:                 input.BranchName,
 		BuildSelection:             input.BuildSelection,
+		GitBranchName:              gitBranchName,
 		AppURL:                     appURL,
 		AppLink:                    normalizeOptionalToolInput(input.AppLink),
 		LaunchVars:                 input.LaunchVars,
@@ -726,6 +737,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	}
 
 	return nil, StartDeviceSessionOutput{
+		BranchSource: session.BranchSource, GitBranchName: session.GitBranchName,
 		BuildID: session.BuildID, BranchID: session.BranchID, BranchName: session.BranchName,
 		Success:            true,
 		SessionID:          session.SessionID,
@@ -1968,10 +1980,10 @@ func nativeImageResult(imageBytes []byte) *mcp.CallToolResult {
 // --- Install App ---
 
 type InstallAppInput struct {
-	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Customer project directory."`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	AppID          string `json:"app_id,omitempty" jsonschema:"App to resolve using the branch's default build or latest."`
-	BranchName     string `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; omitted uses the app default."`
-	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name), or pinned with build_version_id."`
+	BranchName     string `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
+	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name; ignores the project's Git branch), or pinned with build_version_id."`
 	AppURL         string `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
 	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Build version ID from a previous upload_build. The download URL is resolved automatically. Provide this OR app_url."`
 	BundleID       string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
@@ -1980,13 +1992,15 @@ type InstallAppInput struct {
 }
 
 type InstallAppOutput struct {
-	BuildID    string     `json:"build_id,omitempty"`
-	BranchID   string     `json:"branch_id,omitempty"`
-	BranchName string     `json:"branch_name,omitempty"`
-	Success    bool       `json:"success"`
-	BundleID   string     `json:"bundle_id,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	NextSteps  []NextStep `json:"next_steps,omitempty"`
+	GitBranchName string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
+	BranchSource  api.BranchSource `json:"branch_source,omitempty" jsonschema:"Where the branch came from: git_branch (the project's Git branch), default_branch (the app's default branch, also when the Git branch had no usable build), or explicit_branch (a branch named by this request or saved on the test). Omitted when an exact build or latest_all_branches chose the build"`
+	BuildID       string           `json:"build_id,omitempty"`
+	BranchID      string           `json:"branch_id,omitempty"`
+	BranchName    string           `json:"branch_name,omitempty"`
+	Success       bool             `json:"success"`
+	BundleID      string           `json:"bundle_id,omitempty"`
+	Error         string           `json:"error,omitempty"`
+	NextSteps     []NextStep       `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest, input InstallAppInput) (*mcp.CallToolResult, InstallAppOutput, error) {
@@ -2011,9 +2025,19 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	if appURL == "" && buildVersionID == "" && normalizeOptionalToolInput(input.AppID) == "" {
 		return nil, InstallAppOutput{Success: false, Error: "either app_url or build_version_id is required, or provide app_id to select a branch build"}, nil
 	}
+	gitBranchName := ""
+	if appURL == "" && buildVersionID == "" && input.BranchName == "" &&
+		api.BuildSelectionMode(input.BuildSelection) != api.BuildSelectionModeLatestAllBranches {
+		var err error
+		gitBranchName, err = s.detectGitBranch(ctx, input.ProjectDir)
+		if err != nil {
+			return nil, InstallAppOutput{Success: false, Error: err.Error()}, nil
+		}
+	}
 	resolved, err := startdevice.ResolveStartArtifact(ctx, s.apiClient, startdevice.StartArtifactOptions{
 		AppID: normalizeOptionalToolInput(input.AppID), BuildVersionID: buildVersionID,
 		AppURL: appURL, AppPackage: bundleID, BranchName: input.BranchName, BuildSelection: input.BuildSelection,
+		GitBranchName: gitBranchName,
 	})
 	if err != nil {
 		return nil, InstallAppOutput{Success: false, Error: err.Error()}, nil
@@ -2073,7 +2097,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		detectedBundleID = bundleID
 	}
 
-	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID, BuildID: resolved.BuildID, BranchID: resolved.BranchID, BranchName: resolved.BranchName}
+	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID, BuildID: resolved.BuildID, BranchID: resolved.BranchID, BranchName: resolved.BranchName, BranchSource: resolved.BranchSource, GitBranchName: resolved.GitBranchName}
 	if resp.Success {
 		launchReason := "Launch the installed app"
 		if detectedBundleID != "" {

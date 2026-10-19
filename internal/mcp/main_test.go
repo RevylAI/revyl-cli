@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/testutil"
 )
 
-// TestMain neutralizes an inherited REVYL_API_KEY before the suite runs.
+// TestMain neutralizes an inherited REVYL_API_KEY and CI identity before the
+// suite runs.
 //
 // Authentication state is resolved from that variable first, so running these
 // tests on a developer machine or agent that exports a real key would report an
@@ -18,6 +20,7 @@ func TestMain(m *testing.M) {
 	if err := os.Unsetenv("REVYL_API_KEY"); err != nil {
 		panic("clear REVYL_API_KEY: " + err.Error())
 	}
+	testutil.ClearCIEnvironment()
 	api.DefaultRetryBaseDelay = time.Millisecond
 	os.Exit(m.Run())
 }

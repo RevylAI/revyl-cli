@@ -11,9 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run Smoke Tests
-        uses: RevylAI/revyl-gh-action/run-workflow@v2.0.5
+        uses: RevylAI/revyl-gh-action/run-workflow@main
         with:
           workflow-id: "your-smoke-workflow-id" # <-- replace
+          branch: main # <-- the Revyl branch your main builds upload to
           retries: 2
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}

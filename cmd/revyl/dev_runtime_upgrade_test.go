@@ -109,7 +109,7 @@ func TestLegacyDevRuntimeUpgradeAcrossDetachedLifecycle(t *testing.T) {
 	cmd.Flags().Bool("json", true, "")
 	var spawnErr error
 	output := captureStdout(t, func() {
-		spawnErr = spawnDetachedDevLoopWithArgs(cmd, root, []string{"-test.run=^TestLegacyDetachedRuntimeHelper$", "--"})
+		spawnErr = spawnDetachedDevLoopWithArgs(cmd, root, []string{"-test.run=^TestLegacyDetachedRuntimeHelper$", "--"}, devDetachEnvironment(projectDevInvocation{}))
 	})
 	if spawnErr != nil {
 		t.Fatalf("detach upgrade: %v\n%s", spawnErr, output)

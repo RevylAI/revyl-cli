@@ -21,8 +21,9 @@ import (
 
 // executionModel manages the state of a running test execution.
 type executionModel struct {
-	buildSelection api.BuildSelection
-	overrideAppID  string
+	branchFallbackNotice string
+	buildSelection       api.BuildSelection
+	overrideAppID        string
 	// testID is the UUID of the test being executed.
 	testID string
 
@@ -133,27 +134,31 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 		if len(selections) > 0 {
 			choice = selections[0]
 		}
-		selection, err := prepareTestRunBuildSelection(ctx, client, choice)
+		selection, notice, err := prepareTestRunBuildSelection(ctx, client, choice)
 		if err != nil {
 			return ExecutionDoneMsg{Err: err}
 		}
 		resp, err := client.ExecuteTest(ctx, &api.ExecuteTestRequest{
-			TestID:            testID,
-			Retries:           1,
-			BranchID:          selection.BranchID,
-			BranchName:        selection.BranchName,
-			BuildSelection:    selection.Mode,
-			BuildVersionID:    selection.BuildID,
-			ContextBranchName: selection.ContextBranchName,
+			TestID:         testID,
+			Retries:        1,
+			BranchID:       selection.BranchID,
+			BranchName:     selection.BranchName,
+			BuildSelection: selection.Mode,
+			BuildVersionID: selection.BuildID,
+			GitBranchName:  selection.GitBranchName,
 		})
 		if err != nil {
 			return ExecutionDoneMsg{Err: fmt.Errorf("failed to start test: %w", err)}
 		}
 
+		if resp.BranchSource.FellBackFromGitBranch(selection.GitBranchName) {
+			notice = ui.BranchFallbackNotice(selection.GitBranchName, resp.BranchName)
+		}
 		return ExecutionStartedMsg{
-			TaskID:   resp.TaskID,
-			TestID:   testID,
-			TestName: testName,
+			BranchFallbackNotice: notice,
+			TaskID:               resp.TaskID,
+			TestID:               testID,
+			TestName:             testName,
 		}
 	}
 }
@@ -342,6 +347,7 @@ func (m executionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = phaseCompleted
 			return m, nil
 		}
+		m.branchFallbackNotice = msg.BranchFallbackNotice
 		m.taskID = msg.TaskID
 		m.phase = phaseQueued
 		m.reportURL = fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), msg.TaskID)
@@ -436,6 +442,9 @@ func (m executionModel) View() string {
 		dimStyle.Render(elapsed.String())
 	b.WriteString(header + "\n")
 	b.WriteString(separator(min(w, 60)) + "\n")
+	if m.branchFallbackNotice != "" {
+		b.WriteString("  " + warningStyle.Render(m.branchFallbackNotice) + "\n")
+	}
 
 	// Pipeline phase tracker
 	b.WriteString(sectionStyle.Render("  Pipeline") + "\n")

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,39 +43,50 @@ func TestBuildWhichCLI(t *testing.T) {
 	for _, scenario := range []struct {
 		name, gitBranch, explicitBranch, resolvedBranch, source string
 		status, serverError, wantError                          string
-		pinned, pinChanged, appByName                           bool
+		fallback, pinned, pinChanged, appByName                 bool
 		human, globalJSON, chdir, rejectBeforeAPI, telemetry    bool
 	}{
 		{name: "default latest", resolvedBranch: "base", source: "default_branch", telemetry: true},
 		{name: "default pinned", resolvedBranch: "base", source: "default_branch", pinned: true},
-		{name: "feature checkout uses default latest", gitBranch: "feature/login", resolvedBranch: "base", source: "default_branch"},
-		{name: "feature checkout uses default pin", gitBranch: "feature/login", resolvedBranch: "base", source: "default_branch", pinned: true},
+		{name: "git latest", gitBranch: "feature/login", resolvedBranch: "feature/login", source: "git_branch"},
+		{name: "git pinned", gitBranch: "feature/login", resolvedBranch: "feature/login", source: "git_branch", pinned: true},
 		{name: "explicit overrides git", gitBranch: "feature/login", explicitBranch: "release", resolvedBranch: "release", source: "explicit_branch"},
 		{name: "literal HEAD", gitBranch: "feature/login", explicitBranch: "HEAD", resolvedBranch: "HEAD", source: "explicit_branch"},
-		{name: "unrelated checkout uses default", gitBranch: "missing", resolvedBranch: "base", source: "default_branch"},
-		{name: "unrelated checkout uses default pin", gitBranch: "empty", resolvedBranch: "base", source: "default_branch", pinned: true},
-		{name: "unsupported Git name does not affect selection", gitBranch: strings.Repeat("long/", 60) + "feature", resolvedBranch: "base", source: "default_branch"},
+		{name: "missing git fallback", gitBranch: "missing", resolvedBranch: "base", source: "default_branch", fallback: true},
+		{name: "empty git fallback to pinned", gitBranch: "empty", resolvedBranch: "base", source: "default_branch", fallback: true, pinned: true},
+		{name: "unsupported git fallback", gitBranch: strings.Repeat("long/", 60) + "feature", resolvedBranch: "base", source: "default_branch", fallback: true},
 		{name: "explicit empty branch", explicitBranch: "empty", status: "branch_has_no_builds", wantError: `branch "empty" on "My App" has no builds; upload a build to it first`, telemetry: true},
 		{name: "no compatible default", status: "no_compatible_build", wantError: `branch "base" on "My App" has no usable build`},
 		{name: "explicit no compatible build", explicitBranch: "preview", status: "no_compatible_build", wantError: `branch "preview" on "My App" has no usable build`},
 		{name: "explicit missing branch", explicitBranch: "missing", serverError: "selected branch was not found", wantError: "selected branch was not found"},
 		{name: "default unavailable pin", serverError: unavailablePinError, wantError: unavailablePinError, telemetry: true},
-		{name: "feature checkout default pin unavailable", gitBranch: "feature/login", serverError: unavailablePinError, wantError: unavailablePinError},
+		{name: "git unavailable pin", gitBranch: "feature/login", serverError: unavailablePinError, wantError: unavailablePinError},
 		{name: "explicit unsupported branch", explicitBranch: strings.Repeat("x", 256), wantError: "branch name must be", rejectBeforeAPI: true},
 		{name: "blank explicit branch", explicitBranch: " ", wantError: "--branch requires a Revyl branch name", rejectBeforeAPI: true},
 		{name: "current branch setting", resolvedBranch: "base", source: "default_branch", pinned: true, pinChanged: true},
 		{name: "app name", resolvedBranch: "base", source: "default_branch", appByName: true},
 		{name: "global json", resolvedBranch: "base", source: "default_branch", globalJSON: true},
-		{name: "chdir feature checkout uses default", gitBranch: "feature/login", resolvedBranch: "base", source: "default_branch", chdir: true},
-		{name: "human default pin", gitBranch: "missing", resolvedBranch: "base", source: "default_branch", pinned: true, human: true},
+		{name: "chdir git", gitBranch: "feature/login", resolvedBranch: "feature/login", source: "git_branch", chdir: true},
+		{name: "human pinned fallback", gitBranch: "missing", resolvedBranch: "base", source: "default_branch", fallback: true, pinned: true, human: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			testutil.SetHomeDir(t, t.TempDir())
 			workDir := t.TempDir()
 			if scenario.gitBranch != "" {
 				gitInitBuildRepository(t, workDir)
-				if output, err := exec.Command("git", "-C", workDir, "symbolic-ref", "HEAD", "refs/heads/"+scenario.gitBranch).CombinedOutput(); err != nil {
+				gitContext, cancelGit := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancelGit()
+				// The oversized Revyl branch name must still be a readable Git ref on Windows.
+				if output, err := exec.CommandContext(gitContext, "git", "-C", workDir, "config", "--local", "core.longpaths", "true").CombinedOutput(); err != nil {
+					t.Fatalf("enable long Git fixture paths: %v: %s", err, output)
+				}
+				branchRef := "refs/heads/" + scenario.gitBranch
+				if output, err := exec.CommandContext(gitContext, "git", "-C", workDir, "symbolic-ref", "HEAD", branchRef).CombinedOutput(); err != nil {
 					t.Fatalf("set Git branch: %v: %s", err, output)
+				}
+				output, err := exec.CommandContext(gitContext, "git", "-C", workDir, "symbolic-ref", "--quiet", "HEAD").CombinedOutput()
+				if err != nil || strings.TrimRight(string(output), "\r\n") != branchRef {
+					t.Fatalf("read Git fixture branch: %v: got %q, want %q", err, output, branchRef)
 				}
 			}
 			var requests, resolutions atomic.Int32
@@ -118,6 +130,8 @@ func TestBuildWhichCLI(t *testing.T) {
 					want := map[string]string{"build_var_id": appID}
 					if scenario.explicitBranch != "" {
 						want["branch_name"] = scenario.explicitBranch
+					} else if scenario.gitBranch != "" {
+						want["git_branch_name"] = scenario.gitBranch
 					}
 					if !reflect.DeepEqual(request, want) {
 						t.Errorf("selection request = %#v, want %#v", request, want)
@@ -131,7 +145,7 @@ func TestBuildWhichCLI(t *testing.T) {
 						_ = json.NewEncoder(w).Encode(map[string]string{"resolution_status": scenario.status, "branch_name": cmp.Or(scenario.explicitBranch, "base"), "app_name": "My App"})
 						return
 					}
-					_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": branchID, "branch_name": scenario.resolvedBranch, "resolution_status": "resolved"})
+					_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": branchID, "branch_name": scenario.resolvedBranch, "resolution_status": "resolved", "branch_source": scenario.source})
 				case "/api/v1/apps/builds/" + buildID:
 					if r.URL.Query().Get("include_download_url") != "false" {
 						t.Errorf("detail requested a signed URL: %s", r.URL)
@@ -240,7 +254,7 @@ func TestBuildWhichCLI(t *testing.T) {
 				if err == nil || !strings.Contains(stderr.String(), scenario.wantError) || stdout.Len() != 0 {
 					t.Fatalf("err=%v stdout=%q stderr=%q, want error %q and empty stdout", err, stdout.String(), stderr.String(), scenario.wantError)
 				}
-				if strings.Contains(stderr.String(), "using app default") {
+				if strings.Contains(stderr.String(), "using the app's default branch") {
 					t.Fatalf("failed selection reported fallback: %s", stderr.String())
 				}
 				return
@@ -248,11 +262,15 @@ func TestBuildWhichCLI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CLI: %v\nstdout: %s\nstderr: %s", err, &stdout, &stderr)
 			}
-			if stderr.Len() != 0 {
+			if scenario.fallback {
+				if !strings.Contains(stderr.String(), fmt.Sprintf("Git branch %q has no usable build on \"My App\"; using the app's default branch %q.", scenario.gitBranch, scenario.resolvedBranch)) {
+					t.Fatalf("missing fallback notice: %q", stderr.String())
+				}
+			} else if stderr.Len() != 0 {
 				t.Fatalf("unexpected stderr: %s", &stderr)
 			}
 			if scenario.human {
-				for _, text := range []string{"Branch: base", "Reason: app default branch", "Build: 1.2.3 (" + buildID + ")", "Default build: Pinned build"} {
+				for _, text := range []string{"Branch: base", "Reason: app default branch; Git branch has no usable build", "Build: 1.2.3 (" + buildID + ")", "Default build: Pinned build"} {
 					if !strings.Contains(stdout.String(), text) {
 						t.Errorf("human output missing %q: %s", text, &stdout)
 					}
@@ -261,8 +279,10 @@ func TestBuildWhichCLI(t *testing.T) {
 			}
 			want := map[string]any{
 				"app_id": appID, "app_name": "My App", "branch_id": branchID, "branch_name": scenario.resolvedBranch,
-				"branch_source": scenario.source,
-				"build_id":      buildID, "build_version": "1.2.3", "branch_build_selection": "latest",
+				"branch_source": scenario.source, "build_id": buildID, "build_version": "1.2.3", "branch_build_selection": "latest",
+			}
+			if scenario.gitBranch != "" && scenario.explicitBranch == "" {
+				want["git_branch_name"] = scenario.gitBranch
 			}
 			if scenario.pinned {
 				want["branch_build_selection"] = "pinned"
