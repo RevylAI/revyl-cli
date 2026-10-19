@@ -20,8 +20,9 @@ type DeviceWebSignIn struct {
 }
 
 type DeviceWebOptions struct {
-	Viewport *DeviceWebViewport `json:"viewport,omitempty"`
-	SignIn   *DeviceWebSignIn   `json:"sign_in,omitempty"`
+	SecretEnvVars map[string]string  `json:"secret_env_vars,omitempty"`
+	Viewport      *DeviceWebViewport `json:"viewport,omitempty"`
+	SignIn        *DeviceWebSignIn   `json:"sign_in,omitempty"`
 }
 
 type ExternalURLBuildRequest struct {

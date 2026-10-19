@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -14,6 +15,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/launchenv"
 )
 
 var webCommitPattern = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
@@ -30,6 +32,54 @@ func ValidateWebURL(raw string) error {
 		if err != nil || number > 65535 {
 			return fmt.Errorf("url must have a valid port")
 		}
+	}
+	return nil
+}
+
+var webLaunchEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
+var webRuntimeReservedEnvNames = []string{"PATH", "HOME", "LANG", "PORT", "HOSTNAME", "WEB_APP_BOOTSTRAP"}
+
+// ValidateWebLaunchEnv bounds a Web session's plain and secret environment
+// overrides the way the backend does. Errors name keys, never values.
+func ValidateWebLaunchEnv(plain, secret map[string]string) error {
+	env := make(map[string]string, len(plain)+len(secret))
+	for name, value := range plain {
+		env[name] = value
+	}
+	for name, value := range secret {
+		if _, ok := plain[name]; ok {
+			return fmt.Errorf("launch_env %s is either plain or secret, not both", name)
+		}
+		if value == "" {
+			return fmt.Errorf("secret launch_env %s is empty", name)
+		}
+		env[name] = value
+	}
+	if len(env) > 32 {
+		return fmt.Errorf("a Web session accepts at most 32 launch_env overrides")
+	}
+	totalBytes := 0
+	for name, value := range env {
+		totalBytes += len(name) + len(value)
+		if !webLaunchEnvNamePattern.MatchString(name) {
+			return fmt.Errorf("launch_env name %q must match [A-Za-z_][A-Za-z0-9_]{0,127} on platform web", name)
+		}
+		if err := launchenv.KeyError(name); err != nil {
+			return fmt.Errorf("invalid launch_env name: %w", err)
+		}
+		if slices.Contains(webRuntimeReservedEnvNames, strings.ToUpper(name)) {
+			return fmt.Errorf("launch_env name %q is reserved by the Web runtime", name)
+		}
+		if len(value) > 4096 {
+			return fmt.Errorf("launch_env %s exceeds 4096 bytes", name)
+		}
+		if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			return fmt.Errorf("launch_env %s contains control characters", name)
+		}
+	}
+	if totalBytes > 128*1024 {
+		return fmt.Errorf("launch_env overrides exceed the Web runtime's 131072-byte environment limit")
 	}
 	return nil
 }
@@ -54,13 +104,20 @@ func ValidateWebSessionStartOptions(opts StartSessionOptions) error {
 	if opts.IdleTimeout < 0 {
 		return fmt.Errorf("idle_timeout must be positive on platform web")
 	}
+	var secretLaunchEnv map[string]string
+	if opts.Web != nil {
+		secretLaunchEnv = opts.Web.SecretEnvVars
+	}
+	if err := ValidateWebLaunchEnv(opts.LaunchEnv, secretLaunchEnv); err != nil {
+		return err
+	}
 	phoneInputs := []struct {
 		name    string
 		present bool
 	}{
 		{"app_url", opts.AppURL != ""}, {"app_link", opts.AppLink != ""}, {"app_package", opts.AppPackage != ""},
 		{"launch_vars", len(opts.LaunchVars) > 0}, {"launch_arg_sets", len(opts.LaunchArgSets) > 0}, {"launch_arguments", len(opts.LaunchArguments) > 0},
-		{"launch_env", len(opts.LaunchEnv) > 0}, {"disable_inherited_launch_vars", opts.DisableInheritedLaunchVars}, {"test_id", opts.TestID != ""},
+		{"disable_inherited_launch_vars", opts.DisableInheritedLaunchVars}, {"test_id", opts.TestID != ""},
 		{"skip_app_install", opts.SkipAppInstall}, {"orientation", opts.InitialOrientation != ""}, {"locale", opts.InitialLocale != ""},
 		{"device_model", opts.DeviceModel != ""}, {"os_version", opts.OsVersion != ""}, {"device_runner_id", opts.DeviceRunnerID != ""},
 	}

@@ -3598,7 +3598,7 @@ func init() {
 	deviceStartCmd.Flags().StringArray("launch-arg-set", nil, "Stored iOS argument-set name or ID to apply (repeatable)")
 	deviceStartCmd.Flags().StringArray("launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")
 	deviceStartCmd.Flags().Bool("no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
-	deviceStartCmd.Flags().StringArray("launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides --launch-var)")
+	deviceStartCmd.Flags().StringArray("launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides --launch-var). On platform web, NAME alone sends the local variable NAME as a secret")
 	deviceStartCmd.Flags().String("locale", "", "Initial device locale identifier (e.g. en_US, fr_FR)")
 	deviceStartCmd.Flags().String("orientation", "", "Initial device orientation (portrait or landscape)")
 	deviceStartCmd.Flags().Bool("json", false, "Output as JSON")

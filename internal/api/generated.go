@@ -5825,13 +5825,15 @@ type LaunchEnvVarErrorDetail struct {
 // LaunchEnvVarSnapshotEntry Sanitized immutable launch-variable fact stored on a device session.
 type LaunchEnvVarSnapshotEntry struct {
 	Arguments *[]string `json:"arguments,omitempty"`
+	Host      *string   `json:"host,omitempty"`
 	Id        *string   `json:"id,omitempty"`
 	IsSecret  *bool     `json:"is_secret,omitempty"`
 	Key       string    `json:"key"`
 
 	// Kind Stored app-launch configuration payload type.
-	Kind  *LaunchConfigurationKind `json:"kind,omitempty"`
-	Value *string                  `json:"value,omitempty"`
+	Kind       *LaunchConfigurationKind `json:"kind,omitempty"`
+	Overridden *bool                    `json:"overridden,omitempty"`
+	Value      *string                  `json:"value,omitempty"`
 }
 
 // LaunchFailureCategory defines model for LaunchFailureCategory.
@@ -8179,6 +8181,8 @@ type WebExternalBuildRequest struct {
 
 // WebSessionOptions defines model for WebSessionOptions.
 type WebSessionOptions struct {
+	SecretEnvVars *map[string]string `json:"secret_env_vars,omitempty"`
+
 	// SignIn A caller's sign-in link naming, never carrying, its org secret.
 	SignIn *WebSignInRequest `json:"sign_in,omitempty"`
 

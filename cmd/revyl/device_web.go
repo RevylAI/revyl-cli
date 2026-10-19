@@ -31,7 +31,7 @@ func parseWebViewport(raw string) (*api.DeviceWebViewport, error) {
 }
 
 func runWebDeviceStart(cmd *cobra.Command) error {
-	for _, name := range []string{"app-url", "app-link", "launch-var", "launch-arg-set", "launch-arg", "launch-env", "no-inherited-launch-vars", "locale", "orientation", "device", "device-model", "os-version", "device-name"} {
+	for _, name := range []string{"app-url", "app-link", "launch-var", "launch-arg-set", "launch-arg", "no-inherited-launch-vars", "locale", "orientation", "device", "device-model", "os-version", "device-name"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("--%s is not available on platform web", name)
 		}
@@ -74,7 +74,11 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), Web: &api.DeviceWebOptions{Viewport: viewport}}
+	launchEnv, secretLaunchEnv, err := parseWebLaunchEnv(getExactStringArrayFlag(cmd, "launch-env"))
+	if err != nil {
+		return err
+	}
+	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport}}
 	if err := mcppkg.ValidateWebSessionStartOptions(opts); err != nil {
 		return err
 	}
@@ -133,4 +137,32 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		_ = ui.OpenBrowser(session.ViewerURL)
 	}
 	return nil
+}
+
+// parseWebLaunchEnv splits Web --launch-env entries into plain KEY=VALUE
+// overrides and secret NAME overrides, whose values come from the local
+// environment variable NAME so they never appear on argv or in output.
+func parseWebLaunchEnv(entries []string) (map[string]string, map[string]string, error) {
+	var plainEntries []string
+	secret := map[string]string{}
+	for _, entry := range entries {
+		if strings.Contains(entry, "=") {
+			plainEntries = append(plainEntries, entry)
+			continue
+		}
+		name := strings.TrimSpace(entry)
+		value, ok := os.LookupEnv(name)
+		if !ok || value == "" {
+			return nil, nil, fmt.Errorf("--launch-env %s reads the local environment variable %s, which is unset or empty", name, name)
+		}
+		secret[name] = value
+	}
+	plain, err := parseLaunchEnvVars(plainEntries)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(secret) == 0 {
+		secret = nil
+	}
+	return plain, secret, nil
 }

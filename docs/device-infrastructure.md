@@ -159,6 +159,49 @@ The config block is accepted in shared project configuration, but only Web
 sessions act on it. Existing mobile `launch_vars`, `before_script`, and
 `deep_link` behavior is unchanged.
 
+#### Per-session environment overrides
+
+A managed Web session can replace or add to its app's environment for that
+session only, for example to point the app at a pull request's backend behind a
+public tunnel. Pass each value with `--launch-env`, the same flag mobile starts
+use, and no configuration change is needed:
+
+```bash
+revyl device start --platform web \
+  --launch-env BACKEND_URL=https://pr-123.example.dev \
+  --launch-env REVYL_SIGN_IN_SECRET
+```
+
+`--launch-env KEY=VALUE` is a plain override. `--launch-env NAME` with no `=`
+is a secret override: the CLI reads its value from the local environment
+variable `NAME`, so the value is never a command argument, never printed, and
+never written to session metadata. MCP `launch_env` takes plain values only,
+because a secret value would pass through the agent's tool arguments.
+
+An override replaces the organization's value for one of the run's `env_keys`
+or adds a new variable to the app process. Names must match
+`[A-Za-z_][A-Za-z0-9_]{0,127}`. A session takes at most 32 overrides, each
+value is at most 4,096 bytes with no control characters, and names plus values
+together stay within the runtime's 128 KiB environment limit. A pull request
+preview start (`scm_preview_id`) takes no overrides. The runtime owns
+`PATH`, `HOME`, `LANG`, `PORT`, `HOSTNAME`, and `WEB_APP_BOOTSTRAP`, and
+names starting with `DYLD_`, `SIMCTL_CHILD_`, or `COGNISIM_` are reserved, so
+overrides can't use them. A plain override can't use a name in the run's
+`secret_names` or an encrypted organization launch variable; pass those as
+secret overrides.
+
+A session with any override gets none of the organization's secrets: no
+`secret_names` values and no organization sign-in secret. Secret overrides
+reach the app process as its secrets instead. If one is named by
+`session.auth_bypass.sign_in.secret`, it becomes the session's sign-in secret:
+the worker signs the sign-in code with it, and it never enters the app's
+environment. That name can't be a plain override. Without it, sign-in is off for
+that session. Revyl stores override values encrypted for the session only and
+deletes them when the session ends. Sessions without overrides are unchanged,
+and overrides need a managed Web bundle. The session report lists each
+overridden name, marks secret ones, and shows only the host of plain values that
+parse as URLs.
+
 While a Web session is running, organization members who can control it can
 click, scroll, type, and press Enter, Tab, Backspace, Escape, and the arrow keys
 in the live viewer. Each input is recorded as a Manual control step, and typed
