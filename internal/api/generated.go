@@ -2483,6 +2483,9 @@ type ActionBlock struct {
 	// StepType Type of step action (inferred when omitted)
 	StepType *ActionBlock_StepType `json:"step_type,omitempty"`
 
+	// TimeoutSeconds Code execution deadline in seconds (1–300); defaults to 60 when omitted
+	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
+
 	// Type Must be one of: instructions, extraction, manual, validation, code_execution, module_import
 	Type ActionBlockType `json:"type"`
 
@@ -5966,6 +5969,7 @@ type ModuleBlock struct {
 	StepDescription *string        `json:"step_description,omitempty"`
 	StepType        *string        `json:"step_type,omitempty"`
 	ThenChildren    *[]ModuleBlock `json:"thenChildren,omitempty"`
+	TimeoutSeconds  *int           `json:"timeout_seconds,omitempty"`
 	Type            string         `json:"type"`
 	VariableName    *string        `json:"variable_name,omitempty"`
 	VariableScope   *string        `json:"variable_scope,omitempty"`

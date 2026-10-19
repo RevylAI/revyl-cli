@@ -168,8 +168,13 @@ Execute a server-side script by org-unique script name.
 ` + "```yaml" + `
 - type: code_execution
   script: "Seed User"
-  variable_name: "result"  # Optional: store result in variable
+  variable_name: "result"  # Optional: store successful stdout
+  timeout_seconds: 120    # Optional: integer 1–300; default 60
 ` + "```" + `
+
+Only provisioning is retried. Once submitted, the script is never automatically
+resubmitted. Stderr stays separate from captured stdout. A failed script follows
+the test's fail_fast setting; allowing later steps does not make the test pass.
 
 ### 8. module_import
 Import a reusable module (group of blocks) by org-unique module name.
@@ -440,9 +445,10 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			"code_execution": map[string]interface{}{
 				"description": "Execute a server-side script",
 				"fields": map[string]string{
-					"type":          "code_execution",
-					"script":        "string (script name)",
-					"variable_name": "string (optional)",
+					"type":            "code_execution",
+					"timeout_seconds": "integer 1-300 (optional; default 60)",
+					"script":          "string (script name)",
+					"variable_name":   "string (optional)",
 				},
 			},
 			"module_import": map[string]interface{}{

@@ -428,6 +428,11 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 			)
 
 			// Status reason on next line, indented to align with description
+			if stepType == "code_execution" {
+				indent := numWidth + 2 + typeWidth + 2
+				fmt.Printf("  %s%s\n", strings.Repeat(" ", indent),
+					ui.DimStyle.Render(formatRecordedScriptTimeout(step.RecordedCodeExecutionTimeoutSeconds())))
+			}
 			reason := stringValue(step.EffectiveStatusReason)
 			if reason != "" && (stepStatus == "failed" || stepStatus == "warning") {
 				indent := numWidth + 2 + typeWidth + 2
@@ -784,4 +789,11 @@ func truncateStep(s string, width int) string {
 		return s[:width]
 	}
 	return s[:width-3] + "..."
+}
+
+func formatRecordedScriptTimeout(seconds *int) string {
+	if seconds == nil {
+		return "Timeout: not recorded"
+	}
+	return fmt.Sprintf("Timeout: %ds", *seconds)
 }

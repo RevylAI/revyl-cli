@@ -965,6 +965,9 @@ func printSummary(cmd *cobra.Command, s runinspect.Summary) error {
 		}
 		fmt.Fprintf(w, "  %s%2d. [%s] %s\n",
 			marker, step.Index, step.StepType, step.Description)
+		if step.StepType == "code_execution" {
+			fmt.Fprintf(w, "       %s\n", formatRecordedScriptTimeout(step.TimeoutSeconds))
+		}
 		if step.StatusReason != "" {
 			fmt.Fprintf(w, "       reason: %s\n", step.StatusReason)
 		}

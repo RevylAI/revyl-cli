@@ -59,6 +59,7 @@ type ReportStep struct {
 	Description    string
 	Status         string // "passed" | "warning" | "failed" | "running" | "pending"
 	StatusReason   string
+	TimeoutSeconds *int
 }
 
 func FetchReportReference(ctx context.Context, client *api.Client, taskID, kind string) (*Report, error) {
@@ -142,6 +143,7 @@ func FetchReportReference(ctx context.Context, client *api.Client, taskID, kind 
 				Description:    strDeref(s.StepDescription),
 				Status:         strDeref(s.EffectiveStatus),
 				StatusReason:   strDeref(s.EffectiveStatusReason),
+				TimeoutSeconds: s.RecordedCodeExecutionTimeoutSeconds(),
 			})
 		}
 	}

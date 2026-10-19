@@ -948,6 +948,8 @@ type TestBlock struct {
 	// ScriptID is the resolved script UUID for code_execution blocks.
 	ScriptID string `yaml:"script_id,omitempty" json:"script_id,omitempty"`
 
+	TimeoutSeconds *int `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+
 	// Script is the human-readable script name for code_execution blocks.
 	Script string `yaml:"script,omitempty" json:"script,omitempty"`
 

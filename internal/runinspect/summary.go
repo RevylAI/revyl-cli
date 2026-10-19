@@ -40,11 +40,12 @@ type Summary struct {
 
 // SummaryStep is the per-step shape inside Summary.
 type SummaryStep struct {
-	Index        int    `json:"index"`
-	StepType     string `json:"step_type"`
-	Description  string `json:"description,omitempty"`
-	Status       string `json:"status"`
-	StatusReason string `json:"status_reason,omitempty"`
+	Index          int    `json:"index"`
+	StepType       string `json:"step_type"`
+	Description    string `json:"description,omitempty"`
+	Status         string `json:"status"`
+	StatusReason   string `json:"status_reason,omitempty"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
 }
 
 // Artifacts lists which post-run artifacts are downloadable for the
@@ -79,11 +80,12 @@ func BuildSummary(report *Report, identity []IdentityField) Summary {
 	}
 	for _, s := range report.Steps {
 		out.Steps = append(out.Steps, SummaryStep{
-			Index:        s.ExecutionOrder,
-			StepType:     s.StepType,
-			Description:  s.Description,
-			Status:       s.Status,
-			StatusReason: s.StatusReason,
+			Index:          s.ExecutionOrder,
+			StepType:       s.StepType,
+			Description:    s.Description,
+			Status:         s.Status,
+			StatusReason:   s.StatusReason,
+			TimeoutSeconds: s.TimeoutSeconds,
 		})
 		if s.Status == "failed" && out.FailedStepIndex == nil {
 			idx := s.ExecutionOrder

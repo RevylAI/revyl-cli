@@ -104,6 +104,9 @@ test:
 
 Legacy YAML using `code_execution.step_description` as a script UUID or `module_import.module_id` as a module UUID is still accepted for compatibility. New YAML should use `script` and `module`.
 
+Code-execution blocks also accept `timeout_seconds` (1–300, default 60). See
+[Code execution blocks](../../docs/code-execution.md) for output capture and failure behavior.
+
 ## Variables
 
 Use `{{variable-name}}` or `{{variable_name}}` in step descriptions. Avoid
