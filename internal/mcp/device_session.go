@@ -609,7 +609,7 @@ func (m *DeviceSessionManager) StartSession(
 	}
 	if platform == "web" {
 		now := time.Now()
-		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
+		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName, BranchSource: resolvedArtifact.BranchSource, GitBranchName: resolvedArtifact.GitBranchName, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
 		frame, screenToken, err := m.waitForRuntimeReadyLocked(ctx, session, deviceWorkerReadyTimeout, opts.OnPhase)
 		if err != nil {
 			return -1, nil, m.requestRuntimeStartCleanup(sessionID, err)

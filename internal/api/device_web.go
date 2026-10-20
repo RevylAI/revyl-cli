@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
+
+	"github.com/google/uuid"
 )
 
 type DeviceWebViewport struct {
@@ -34,11 +37,15 @@ type ExternalURLBuildRequest struct {
 }
 
 type WebBuild struct {
-	ID           string `json:"id"`
-	AppID        string `json:"app_id"`
-	ArtifactKind string `json:"artifact_kind"`
-	Version      string `json:"version,omitempty"`
-	WasReused    bool   `json:"was_reused,omitempty"`
+	ID            string       `json:"id"`
+	AppID         string       `json:"app_id"`
+	ArtifactKind  string       `json:"artifact_kind"`
+	Version       string       `json:"version,omitempty"`
+	WasReused     bool         `json:"was_reused,omitempty"`
+	BranchID      string       `json:"branch_id,omitempty"`
+	BranchName    string       `json:"branch_name,omitempty"`
+	BranchSource  BranchSource `json:"branch_source,omitempty"`
+	GitBranchName string       `json:"git_branch_name,omitempty"`
 }
 
 type ExternalURLBuild = WebBuild
@@ -71,51 +78,71 @@ func (c *Client) GetWebBuild(ctx context.Context, buildID string) (*WebBuild, er
 	return &result, nil
 }
 
-// GetLatestWebBuild returns the newest URL or bundle build on the selected
-// branch, or across every branch when neither branchID nor branchName is set.
-func (c *Client) GetLatestWebBuild(ctx context.Context, appID, branchID, branchName string) (*BuildVersion, error) {
-	query := url.Values{"include_jobs": {"false"}, "artifact_kinds": {"web_external", "web_bundle"}, "page": {"1"}, "page_size": {"1"}}
-	if branchID != "" {
-		query.Set("branch_id", branchID)
+// GetLatestWebBuild resolves the newest URL or bundle build using branch policy.
+func (c *Client) GetLatestWebBuild(ctx context.Context, appID string, selection BuildSelection) (*WebBuild, error) {
+	if selection.Mode == "" {
+		selection.Mode = BuildSelectionModeLatest
 	}
-	if branchName != "" {
-		query.Set("branch_name", branchName)
+	if selection.Mode != BuildSelectionModeLatest && selection.Mode != BuildSelectionModeLatestAllBranches || selection.BuildID != "" {
+		return nil, fmt.Errorf("latest Web build requires latest or latest_all_branches selection")
 	}
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/apps/%s/builds?%s", url.PathEscape(appID), query.Encode()), nil)
+	if err := selection.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/resolve?include_download_url=false", buildResolutionRequest{
+		AppID: appID, BranchID: selection.BranchID, BranchName: selection.BranchName,
+		GitBranchName: gitBranchNameFor(selection.Mode, selection.GitBranchName), BuildSelection: selection.Mode,
+	})
 	if err != nil {
 		return nil, err
 	}
-	var result BuildVersionsPage
+	var result BuildResolutionResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
-	if len(result.Items) == 0 {
+	if result.ResolutionStatus == nil {
+		return nil, fmt.Errorf("latest Web build response omitted a resolution status")
+	}
+	switch *result.ResolutionStatus {
+	case BuildResolutionResponseResolutionStatusBranchHasNoBuilds, BuildResolutionResponseResolutionStatusNoCompatibleBuild:
 		return nil, nil
+	case BuildResolutionResponseResolutionStatusResolved:
+	default:
+		return nil, fmt.Errorf("latest Web build response contained an unknown resolution status")
 	}
-	if len(result.Items) != 1 || !IsWebBuildArtifactKind(result.Items[0].ArtifactKind) || result.Items[0].ID == "" {
-		return nil, fmt.Errorf("latest Web build response did not contain a URL or bundle build")
+	if result.BuildVarId.String() != appID || !strings.EqualFold(result.Platform, "web") || result.VersionId == nil || *result.VersionId == uuid.Nil || result.ArtifactKind == nil || !IsWebBuildArtifactKind(*result.ArtifactKind) {
+		return nil, fmt.Errorf("latest Web build response did not contain a URL or bundle build on the selected app")
 	}
-	return &result.Items[0], nil
+	build := &WebBuild{ID: result.VersionId.String(), AppID: appID, ArtifactKind: *result.ArtifactKind}
+	if result.BranchId != nil {
+		build.BranchID = result.BranchId.String()
+	}
+	if result.BranchName != nil {
+		build.BranchName = *result.BranchName
+	}
+	if result.Version != nil {
+		build.Version = *result.Version
+	}
+	if result.BranchSource != nil {
+		build.BranchSource = *result.BranchSource
+	}
+	if result.GitBranchName != nil {
+		build.GitBranchName = *result.GitBranchName
+	}
+	return build, nil
 }
 
 func IsWebBuildArtifactKind(kind string) bool {
 	return kind == "web_external" || kind == "web_bundle"
 }
 
-func (c *Client) GetLatestExternalURLBuild(ctx context.Context, appID string) (*BuildVersion, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/apps/%s/builds?artifact_kind=web_external&page=1&page_size=1", url.PathEscape(appID)), nil)
-	if err != nil {
+func (c *Client) GetLatestExternalURLBuild(ctx context.Context, appID string) (*WebBuild, error) {
+	build, err := c.GetLatestWebBuild(ctx, appID, BuildSelection{Mode: BuildSelectionModeLatest})
+	if err != nil || build == nil {
 		return nil, err
 	}
-	var result BuildVersionsPage
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-	if len(result.Items) == 0 {
-		return nil, nil
-	}
-	if len(result.Items) != 1 || result.Items[0].ArtifactKind != "web_external" || result.Items[0].ID == "" {
+	if build.ArtifactKind != "web_external" {
 		return nil, fmt.Errorf("latest URL build response did not contain a URL build")
 	}
-	return &result.Items[0], nil
+	return build, nil
 }

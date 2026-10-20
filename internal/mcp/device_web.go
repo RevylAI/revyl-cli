@@ -185,15 +185,15 @@ func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts
 	}
 	buildID := strings.TrimSpace(opts.BuildVersionID)
 	var build *api.WebBuild
+	artifact := startdevice.ResolvedStartArtifact{AppID: appID}
 	if opts.WebURL != "" {
 		build, err = m.apiClient.CreateExternalURLBuild(ctx, appID, &api.ExternalURLBuildRequest{BranchID: opts.BranchID, BranchName: opts.BranchName, URL: opts.WebURL, CommitSHA: opts.WebCommitSHA})
 	} else {
 		if buildID == "" {
-			branchID := opts.BranchID
-			if branchID == "" && opts.BranchName == "" && opts.BuildSelection != string(api.BuildSelectionModeLatestAllBranches) {
-				branchID = app.DefaultBranchID
-			}
-			latest, err := m.apiClient.GetLatestWebBuild(ctx, appID, branchID, opts.BranchName)
+			latest, err := m.apiClient.GetLatestWebBuild(ctx, appID, api.BuildSelection{
+				BranchID: opts.BranchID, BranchName: opts.BranchName,
+				GitBranchName: opts.GitBranchName, Mode: api.BuildSelectionMode(opts.BuildSelection),
+			})
 			if err != nil {
 				return startdevice.ResolvedStartArtifact{}, err
 			}
@@ -201,6 +201,8 @@ func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts
 				return startdevice.ResolvedStartArtifact{}, fmt.Errorf("no Web build found; run 'revyl build --platform web' or register a URL with --app and --url (MCP: app_id and url)")
 			}
 			buildID = latest.ID
+			artifact.BranchID, artifact.BranchName = latest.BranchID, latest.BranchName
+			artifact.BranchSource, artifact.GitBranchName = latest.BranchSource, latest.GitBranchName
 		}
 		build, err = m.apiClient.GetWebBuild(ctx, buildID)
 	}
@@ -214,7 +216,8 @@ func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts
 	if err != nil || parsedID == uuid.Nil {
 		return startdevice.ResolvedStartArtifact{}, fmt.Errorf("Web build response omitted a valid build ID")
 	}
-	return startdevice.ResolvedStartArtifact{AppID: appID, BuildID: build.ID}, nil
+	artifact.BuildID = build.ID
+	return artifact, nil
 }
 
 func isWebSessionDetail(detail *api.DeviceSessionDetail) bool {

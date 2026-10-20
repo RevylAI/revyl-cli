@@ -3,11 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
 )
+
+const webFixtureAppID = "11111111-1111-4111-8111-111111111111"
+const webFixtureBuildID = "33333333-3333-4333-8333-333333333333"
 
 func TestWebPlatformRequestsUseCanonicalLowercase(t *testing.T) {
 	for _, input := range []string{"web", "Web", "WEB"} {
@@ -91,24 +95,22 @@ func TestExternalURLBuildCreateOmitsCommitAndDoesNotRetry(t *testing.T) {
 
 func TestLatestExternalURLBuildFailsClosed(t *testing.T) {
 	for _, test := range []struct {
-		name, response string
-		wantError      bool
+		name, kind string
+		wantError  bool
 	}{
-		{"empty", `{"items":[]}`, false},
-		{"bundle", `{"items":[{"id":"build","artifact_kind":"web_bundle"}]}`, true},
-		{"missing id", `{"items":[{"artifact_kind":"web_external"}]}`, true},
-		{"multiple", `{"items":[{"id":"one","artifact_kind":"web_external"},{"id":"two","artifact_kind":"web_external"}]}`, true},
+		{"bundle", "web_bundle", true},
+		{"URL", "web_external", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Query().Get("artifact_kind") != "web_external" || r.URL.Query().Get("page_size") != "1" || r.URL.Query().Get("include_jobs") != "" {
-					t.Error("incorrect build filter")
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/apps/resolve" || r.URL.Query().Get("include_download_url") != "false" {
+					t.Errorf("incorrect resolver request: %s %s", r.Method, r.URL.String())
 				}
-				_, _ = w.Write([]byte(test.response))
+				_, _ = w.Write([]byte(fmt.Sprintf(`{"build_var_id":%q,"version_id":%q,"platform":"web","artifact_kind":%q,"resolution_status":"resolved"}`, webFixtureAppID, webFixtureBuildID, test.kind)))
 			}))
 			defer server.Close()
-			build, err := NewClientWithBaseURL("fixture-key", server.URL).GetLatestExternalURLBuild(context.Background(), "fixture-app")
-			if (err != nil) != test.wantError || build != nil {
+			build, err := NewClientWithBaseURL("fixture-key", server.URL).GetLatestExternalURLBuild(context.Background(), webFixtureAppID)
+			if (err != nil) != test.wantError || (test.wantError && build != nil) || (!test.wantError && build == nil) {
 				t.Fatalf("build=%#v error=%v", build, err)
 			}
 		})
@@ -117,33 +119,39 @@ func TestLatestExternalURLBuildFailsClosed(t *testing.T) {
 
 func TestLatestWebBuildAcceptsURLAndBundle(t *testing.T) {
 	for _, test := range []struct {
-		name, response, wantKind string
-		wantError                bool
+		name, kind, status string
+		wantError          bool
 	}{
-		{name: "URL", response: `{"items":[{"id":"build","artifact_kind":"web_external"}]}`, wantKind: "web_external"},
-		{name: "bundle", response: `{"items":[{"id":"build","artifact_kind":"web_bundle"}]}`, wantKind: "web_bundle"},
-		{name: "empty", response: `{"items":[]}`},
-		{name: "phone", response: `{"items":[{"id":"build","artifact_kind":"android_apk"}]}`, wantError: true},
-		{name: "unknown", response: `{"items":[{"id":"build","artifact_kind":"unknown"}]}`, wantError: true},
-		{name: "missing id", response: `{"items":[{"artifact_kind":"web_bundle"}]}`, wantError: true},
-		{name: "multiple", response: `{"items":[{"id":"one","artifact_kind":"web_bundle"},{"id":"two","artifact_kind":"web_external"}]}`, wantError: true},
+		{name: "URL", kind: "web_external", status: "resolved"},
+		{name: "bundle", kind: "web_bundle", status: "resolved"},
+		{name: "empty", status: "branch_has_no_builds"},
+		{name: "phone", kind: "android_apk", status: "resolved", wantError: true},
+		{name: "unknown", kind: "unknown", status: "resolved", wantError: true},
+		{name: "missing kind", status: "resolved", wantError: true},
+		{name: "unknown status", status: "unknown", wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				query := r.URL.Query()
-				if r.Method != http.MethodGet || r.URL.Path != "/api/v1/apps/fixture-app/builds" || query.Get("artifact_kind") != "" || !slices.Equal(query["artifact_kinds"], []string{"web_external", "web_bundle"}) || query.Get("page_size") != "1" || query.Get("page") != "1" || query.Get("include_jobs") != "false" || query.Has("branch_id") || query.Has("branch_name") {
-					t.Errorf("incorrect Web build lookup: %s %s", r.Method, r.URL.String())
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/apps/resolve" || r.URL.Query().Get("include_download_url") != "false" {
+					t.Errorf("incorrect resolver request: %s %s", r.Method, r.URL.String())
 				}
-				_, _ = w.Write([]byte(test.response))
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				if body["build_var_id"] != webFixtureAppID || body["build_selection"] != "latest" {
+					t.Fatalf("incorrect Web selection: %#v", body)
+				}
+				_, _ = w.Write([]byte(fmt.Sprintf(`{"build_var_id":%q,"version_id":%q,"platform":"web","artifact_kind":%q,"resolution_status":%q}`, webFixtureAppID, webFixtureBuildID, test.kind, test.status)))
 			}))
 			defer server.Close()
-			build, err := NewClientWithBaseURL("fixture-key", server.URL).GetLatestWebBuild(context.Background(), "fixture-app", "", "")
+			build, err := NewClientWithBaseURL("fixture-key", server.URL).GetLatestWebBuild(context.Background(), webFixtureAppID, BuildSelection{})
 			if (err != nil) != test.wantError {
 				t.Fatalf("build=%#v error=%v", build, err)
 			}
-			if test.wantKind != "" {
-				if build == nil || build.ArtifactKind != test.wantKind || build.ID != "build" {
-					t.Fatalf("build=%#v, want %s", build, test.wantKind)
+			if !test.wantError && test.kind != "" {
+				if build == nil || build.ArtifactKind != test.kind || build.ID != webFixtureBuildID {
+					t.Fatalf("build=%#v, want %s", build, test.kind)
 				}
 			} else if build != nil {
 				t.Fatalf("unexpected build: %#v", build)
@@ -153,34 +161,20 @@ func TestLatestWebBuildAcceptsURLAndBundle(t *testing.T) {
 }
 
 func TestLatestWebBuildSkipsNewerPendingUpload(t *testing.T) {
-	kinds := []string{"web_external", "web_bundle"}
-	for i, kind := range kinds {
+	for _, kind := range []string{"web_external", "web_bundle"} {
 		t.Run(kind, func(t *testing.T) {
-			builds := []BuildVersion{
-				{ID: "pending", ArtifactKind: "unknown"},
-				{ID: "usable", ArtifactKind: kind},
-				{ID: "older", ArtifactKind: kinds[1-i]},
-			}
 			requests := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests++
-				query := r.URL.Query()
-				if query.Get("page_size") != "1" || query.Get("page") != "1" {
-					t.Errorf("unbounded Web build lookup: %s", r.URL.String())
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/apps/resolve" {
+					t.Errorf("Web latest tried build history: %s %s", r.Method, r.URL.String())
 				}
-				for _, build := range builds {
-					if kinds := query["artifact_kinds"]; len(kinds) != 0 && !slices.Contains(kinds, build.ArtifactKind) {
-						continue
-					}
-					_ = json.NewEncoder(w).Encode(BuildVersionsPage{Items: []BuildVersion{build}})
-					return
-				}
-				_ = json.NewEncoder(w).Encode(BuildVersionsPage{})
+				_, _ = fmt.Fprintf(w, `{"build_var_id":%q,"version_id":%q,"platform":"web","artifact_kind":%q,"resolution_status":"resolved","branch_id":%q,"branch_name":"base","version":"eligible"}`, webFixtureAppID, webFixtureBuildID, kind, branchTestID)
 			}))
 			defer server.Close()
-			build, err := NewClientWithBaseURL("fixture-key", server.URL).GetLatestWebBuild(context.Background(), "fixture-app", "", "")
-			if err != nil || build == nil || build.ID != "usable" || build.ArtifactKind != kind || requests != 1 {
-				t.Fatalf("build=%#v requests=%d error=%v", build, requests, err)
+			build, err := NewClientWithBaseURL("fixture-key", server.URL).GetLatestWebBuild(context.Background(), webFixtureAppID, BuildSelection{BranchID: branchTestID})
+			if err != nil || build == nil || build.ID != webFixtureBuildID || build.ArtifactKind != kind || build.BranchID != branchTestID || build.BranchName != "base" || build.Version != "eligible" || requests != 1 {
+				t.Fatalf("build=%#v error=%v requests=%d", build, err, requests)
 			}
 		})
 	}
@@ -205,30 +199,35 @@ func TestGetWebBuildPreservesExplicitBuildIdentity(t *testing.T) {
 }
 
 func TestLatestWebBuildAndURLBuildCarryTheSelectedBranch(t *testing.T) {
-	var lookups []string
+	var selections []string
 	var created map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/apps/resolve" {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			selections = append(selections, fmt.Sprintf("%v|%v|%v", body["branch_id"], body["branch_name"], body["build_selection"]))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"build_var_id":%q,"version_id":%q,"platform":"web","artifact_kind":"web_external","resolution_status":"resolved"}`, webFixtureAppID, webFixtureBuildID)))
+			return
+		}
 		if r.Method == http.MethodPost {
 			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
 				t.Error(err)
 			}
-			_, _ = w.Write([]byte(`{"id":"build","app_id":"fixture-app","artifact_kind":"web_external"}`))
-			return
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"id":%q,"app_id":%q,"artifact_kind":"web_external"}`, webFixtureBuildID, webFixtureAppID)))
 		}
-		query := r.URL.Query()
-		lookups = append(lookups, query.Get("branch_id")+"|"+query.Get("branch_name"))
-		_, _ = w.Write([]byte(`{"items":[{"id":"build","artifact_kind":"web_external"}]}`))
 	}))
 	defer server.Close()
 	client := NewClientWithBaseURL("fixture-key", server.URL)
 	for _, branch := range [][2]string{{"33333333-3333-4333-8333-333333333333", ""}, {"", "pr-42"}} {
-		if _, err := client.GetLatestWebBuild(context.Background(), "fixture-app", branch[0], branch[1]); err != nil {
+		if _, err := client.GetLatestWebBuild(context.Background(), webFixtureAppID, BuildSelection{BranchID: branch[0], BranchName: branch[1]}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !slices.Equal(lookups, []string{"33333333-3333-4333-8333-333333333333|", "|pr-42"}) {
-		t.Fatalf("branch lookups = %#v", lookups)
+	if !slices.Equal(selections, []string{"33333333-3333-4333-8333-333333333333|<nil>|latest", "<nil>|pr-42|latest"}) {
+		t.Fatalf("branch selections = %#v", selections)
 	}
 	if _, err := client.CreateExternalURLBuild(context.Background(), "fixture-app", &ExternalURLBuildRequest{BranchName: "pr-42", URL: "https://example.test/"}); err != nil {
 		t.Fatal(err)

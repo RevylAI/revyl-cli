@@ -68,7 +68,7 @@ func TestWebStartResolvesOnlyURLBuildsAndSendsCanonicalRequest(t *testing.T) {
 			}
 			latest := strings.HasPrefix(mode, "latest")
 			var sessionID string
-			var listed, created, started int
+			var resolved, created, started int
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.URL.Path == "/api/v1/apps/builds/"+webFixtureBuildID {
@@ -79,20 +79,19 @@ func TestWebStartResolvesOnlyURLBuildsAndSendsCanonicalRequest(t *testing.T) {
 					return
 				}
 				switch r.URL.Path {
-				case "/api/v1/apps/" + webFixtureAppID + "/builds":
-					listed++
-					query := r.URL.Query()
-					if query.Get("artifact_kind") != "" || !slices.Equal(query["artifact_kinds"], []string{"web_external", "web_bundle"}) || query.Get("page_size") != "1" || query.Get("page") != "1" || query.Get("include_jobs") != "false" {
-						t.Errorf("latest build lookup is not filtered and bounded: %s", r.URL.RawQuery)
+				case "/api/v1/apps/resolve":
+					resolved++
+					if r.Method != http.MethodPost || r.URL.Query().Get("include_download_url") != "false" {
+						t.Errorf("incorrect Web resolver request: %s %s", r.Method, r.URL.String())
 					}
-					builds := []api.BuildVersion{{ID: "pending-upload", ArtifactKind: "unknown"}, {ID: webFixtureBuildID, ArtifactKind: kind}}
-					for _, build := range builds {
-						if kinds := query["artifact_kinds"]; len(kinds) > 0 && !slices.Contains(kinds, build.ArtifactKind) {
-							continue
-						}
-						_ = json.NewEncoder(w).Encode(api.BuildVersionsPage{Items: []api.BuildVersion{build}})
-						break
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Fatal(err)
 					}
+					if body["build_var_id"] != webFixtureAppID || body["build_selection"] != "latest" {
+						t.Errorf("incorrect Web resolver selection: %#v", body)
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"build_var_id": webFixtureAppID, "version_id": webFixtureBuildID, "platform": "web", "artifact_kind": kind, "resolution_status": "resolved"})
 				case "/api/v1/apps/" + webFixtureAppID + "/builds/external":
 					created++
 					var body map[string]any
@@ -159,7 +158,7 @@ func TestWebStartResolvesOnlyURLBuildsAndSendsCanonicalRequest(t *testing.T) {
 				t.Fatalf("start failed: %#v %v", output, err)
 			}
 			manager.StopIdleTimer(output.SessionIndex)
-			if latest && listed != 1 || !latest && listed != 0 || (mode == "url" || mode == "reused") && created != 1 {
+			if latest && resolved != 1 || !latest && resolved != 0 || (mode == "url" || mode == "reused") && created != 1 {
 				t.Fatal("incorrect build selection path")
 			}
 			encoded, _ := json.Marshal(output)
@@ -218,13 +217,14 @@ func TestWebStartHonorsTheSelectedBranch(t *testing.T) {
 		name       string
 		opts       StartSessionOptions
 		wantLookup string
+		wantMode   string
 		wantCreate map[string]any
 	}{
-		{"default branch", StartSessionOptions{}, defaultBranchID + "|", nil},
-		{"latest on default branch", StartSessionOptions{BuildSelection: "latest"}, defaultBranchID + "|", nil},
-		{"named branch", StartSessionOptions{BranchName: "pr-42"}, "|pr-42", nil},
-		{"all branches", StartSessionOptions{BuildSelection: "latest_all_branches"}, "|", nil},
-		{"URL on named branch", StartSessionOptions{BranchName: "pr-42", WebURL: "https://pr-42.example.test/"}, "", map[string]any{"url": "https://pr-42.example.test/", "branch_name": "pr-42"}},
+		{"default branch", StartSessionOptions{GitBranchName: "feature/source"}, "|", "latest", nil},
+		{"latest on default branch", StartSessionOptions{BuildSelection: "latest", GitBranchName: "feature/source"}, "|", "latest", nil},
+		{"named branch", StartSessionOptions{BranchName: "pr-42"}, "|pr-42", "latest", nil},
+		{"all branches", StartSessionOptions{BuildSelection: "latest_all_branches", GitBranchName: "feature/source"}, "|", "latest_all_branches", nil},
+		{"URL on named branch", StartSessionOptions{BranchName: "pr-42", WebURL: "https://pr-42.example.test/"}, "", "", map[string]any{"url": "https://pr-42.example.test/", "branch_name": "pr-42"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var lookups []string
@@ -234,10 +234,23 @@ func TestWebStartHonorsTheSelectedBranch(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/v1/apps/" + webFixtureAppID:
 					_ = json.NewEncoder(w).Encode(map[string]any{"id": webFixtureAppID, "platform": "Web", "default_branch_id": defaultBranchID})
-				case "/api/v1/apps/" + webFixtureAppID + "/builds":
-					query := r.URL.Query()
-					lookups = append(lookups, query.Get("branch_id")+"|"+query.Get("branch_name"))
-					_ = json.NewEncoder(w).Encode(api.BuildVersionsPage{Items: []api.BuildVersion{{ID: webFixtureBuildID, ArtifactKind: "web_external"}}})
+				case "/api/v1/apps/resolve":
+					var body map[string]string
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Fatal(err)
+					}
+					if r.Method != http.MethodPost || r.URL.Query().Get("include_download_url") != "false" || body["build_selection"] != test.wantMode {
+						t.Errorf("incorrect resolver request: %s %s %#v", r.Method, r.URL.String(), body)
+					}
+					wantGitBranch := test.opts.GitBranchName
+					if test.wantMode == "latest_all_branches" {
+						wantGitBranch = ""
+					}
+					if body["git_branch_name"] != wantGitBranch {
+						t.Errorf("Git branch = %q, want %q", body["git_branch_name"], wantGitBranch)
+					}
+					lookups = append(lookups, body["branch_id"]+"|"+body["branch_name"])
+					_ = json.NewEncoder(w).Encode(map[string]any{"build_var_id": webFixtureAppID, "version_id": webFixtureBuildID, "platform": "web", "artifact_kind": "web_external", "resolution_status": "resolved", "branch_id": defaultBranchID, "branch_name": "base", "branch_source": "default_branch", "git_branch_name": wantGitBranch})
 				case "/api/v1/apps/" + webFixtureAppID + "/builds/external":
 					if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
 						t.Error(err)
@@ -256,7 +269,8 @@ func TestWebStartHonorsTheSelectedBranch(t *testing.T) {
 				t.Fatal(err)
 			}
 			manager := NewDeviceSessionManager(api.NewClientWithBaseURL("fixture-key", backend.URL), t.TempDir())
-			if _, err := manager.resolveWebStartArtifact(context.Background(), opts); err != nil {
+			artifact, err := manager.resolveWebStartArtifact(context.Background(), opts)
+			if err != nil {
 				t.Fatal(err)
 			}
 			if test.wantCreate != nil {
@@ -264,6 +278,9 @@ func TestWebStartHonorsTheSelectedBranch(t *testing.T) {
 					t.Fatalf("lookups=%#v created=%#v", lookups, created)
 				}
 				return
+			}
+			if artifact.BranchID != defaultBranchID || artifact.BranchName != "base" || artifact.BranchSource != api.BranchSourceDefaultBranch {
+				t.Fatalf("lost branch provenance: %+v", artifact)
 			}
 			if !slices.Equal(lookups, []string{test.wantLookup}) || created != nil {
 				t.Fatalf("lookups=%#v created=%#v", lookups, created)
