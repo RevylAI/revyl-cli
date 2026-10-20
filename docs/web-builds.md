@@ -57,15 +57,15 @@ run:
 
 The server must listen on all interfaces (`0.0.0.0`) at the configured port, not
 only `localhost` or `127.0.0.1`; the browser reaches it at
-`http://revyl-app:<port>`. Revyl sets `HOSTNAME=0.0.0.0` and `PORT` for the
+`http://revyl-app.localhost:<port>`. Revyl sets `HOSTNAME=0.0.0.0` and `PORT` for the
 process. Without `run.start`, the session serves static output. A request for a
 missing path without a file extension gets `<path>.html` when that file exists,
 otherwise the root `index.html`, so client-side routes and clean URLs load on
 reload or deep link; a missing asset such as `/app.js` still returns 404. The
 app is ready when `GET <healthcheck>` returns any 2xx or 3xx status; redirects
-are not followed. Revyl health-checks the app at that same address, so a
-localhost-only app fails the health check with "couldn't connect to
-revyl-app:<port>". The defaults are port `3000`, healthcheck `/`, and a
+are not followed. Revyl health-checks the app through its sidecar hostname at
+the same port, so a localhost-only app fails the health check with "couldn't
+connect to revyl-app:<port>". The defaults are port `3000`, healthcheck `/`, and a
 60-second startup timeout (10–600 seconds allowed).
 
 `run.env_keys` names existing plaintext organization launch variables;
