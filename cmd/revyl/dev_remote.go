@@ -244,6 +244,17 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	statusPath := devCtxStatusPath(cwd, ctxName)
 	writeDevStatusRemoteBuildRunning(statusPath, session, viewerURL, devicePlatform, platformKey, "", buildCaches, "", false)
 	setDevStatusSelection(statusPath, invocation)
+	// A branch named for the first time exists once a build is accepted;
+	// later rebuilds upload to it by ID.
+	adoptTriggeredBranch := func(job remoteDevBuildJob) {
+		if !invocation.branchAwaitsFirstUpload() {
+			return
+		}
+		invocation = invocation.withUploadedBranch(job.branchID, "")
+		devCtx.BranchID, devCtx.BranchName = invocation.BranchID, invocation.BranchName
+		_ = saveDevContext(cwd, devCtx)
+		setDevStatusSelection(statusPath, invocation)
+	}
 	registeredTriggerCh := make(chan remoteDevBuildTrigger, 1)
 	go func() {
 		trigger := <-triggerCh
@@ -285,7 +296,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	// authenticated within seconds while the fresh source builds remotely. The
 	// bundle id from the seed is reused for the later hot-swap.
 	bundleID := ""
-	if seedRequested() {
+	if seedRequested() && invocation.branchAwaitsFirstUpload() {
+		ui.PrintInfo("No existing build to seed; device stays on the home screen until the fresh build lands.")
+	} else if seedRequested() {
 		seededBundleID, seededVersion, seedErr := seedLatestDevBuild(
 			ctx, client, deviceMgr, session, devicePlatform, appID,
 			strings.TrimSpace(devStartBuildVerID), devBuildSelection(invocation),
@@ -322,6 +335,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 		ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
 	} else {
 		buildJob := trigger.job
+		adoptTriggeredBranch(buildJob)
 		progressSink := newDevStatusRemoteBuildProgressSink(statusPath)
 		remoteBuild, buildErr := waitRemoteDevBuild(ctx, client, buildJob, cwd, progressSink)
 		if buildErr != nil {
@@ -421,6 +435,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 
 		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, invocation, progressSink)
 		if buildErr == nil {
+			adoptTriggeredBranch(buildJob)
 			// Surface the live job id while the runner builds.
 			setDevStatusRemoteJobID(statusPath, buildJob.jobID)
 			var remoteBuild remoteDevBuildResult
@@ -511,8 +526,11 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 // remoteDevBuildJob identifies a triggered remote build that has not
 // completed yet.
 type remoteDevBuildJob struct {
-	jobID   string
-	started time.Time
+	jobID string
+	// branchID is the branch the build uploads to, resolved when the job was
+	// accepted; a branch named for the first time is created then.
+	branchID string
+	started  time.Time
 }
 
 // remoteDevBuildProgress describes one remote build phase published to status consumers.
@@ -706,7 +724,11 @@ func triggerRemoteDevBuild(
 		return remoteDevBuildJob{}, fmt.Errorf("failed to trigger remote build: %w", err)
 	}
 
-	return remoteDevBuildJob{jobID: triggerResp.BuildJobId, started: start}, nil
+	job := remoteDevBuildJob{jobID: triggerResp.BuildJobId, started: start}
+	if triggerResp.BranchId != nil {
+		job.branchID = triggerResp.BranchId.String()
+	}
+	return job, nil
 }
 
 // waitRemoteDevBuild blocks until a triggered remote build completes and
@@ -799,13 +821,15 @@ func remoteDevTriggerRequestFromProject(
 		Version:             stringPtrOrNil(version),
 		BuildDefinitionHash: stringPtrOrNil(invocation.BuildDefinitionHash),
 	}
-	if invocation.BranchID != "" {
-		branchID, err := uuid.Parse(invocation.BranchID)
+	branchID, branchName, gitBranchName := invocation.uploadDestination()
+	if branchID != "" {
+		parsedBranchID, err := uuid.Parse(branchID)
 		if err != nil {
 			return nil, fmt.Errorf("invalid development branch ID: %w", err)
 		}
-		request.BranchId = &branchID
+		request.BranchId = &parsedBranchID
 	}
+	request.BranchName, request.GitBranchName = stringPtrOrNil(branchName), stringPtrOrNil(gitBranchName)
 	return request, nil
 }
 

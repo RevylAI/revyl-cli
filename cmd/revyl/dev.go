@@ -698,6 +698,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 					localSimBuildPath = simBuild.Path
 					ui.PrintSuccess("Uploaded local simulator build")
 					buildVersionID = uploadResult.VersionID
+					invocation = invocation.withUploadedBranch(uploadResult.BranchID, uploadResult.BranchName)
 				} else {
 					ui.PrintDebug("local simulator upload failed, falling back to configured build: %v", uploadErr)
 				}
@@ -714,7 +715,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		if buildErr != nil {
 			return buildErr
 		}
-		invocation = invocation.withAppID(buildResult.Invocation.AppID)
+		invocation = invocation.withAppID(buildResult.Invocation.AppID).withUploadedBranch(buildResult.Upload.BranchID, buildResult.Upload.BranchName)
 		selectedAppID = invocation.AppID
 		buildVersionID = buildResult.Upload.VersionID
 	}
@@ -2219,7 +2220,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 
 	appID := strings.TrimSpace(invocation.AppID)
 	uploadedVersionID := strings.TrimSpace(devStartBuildVerID)
-	needsBuild := devStartBuild
+	needsBuild := devStartBuild || invocation.branchAwaitsFirstUpload()
 	if !needsBuild {
 		existing, resolveErr := client.ResolveBuildSelection(cmd.Context(), appID, devBuildSelection(invocation))
 		if resolveErr != nil && !devResolveErrorNeedsBuild(invocation, resolveErr) {
@@ -2254,10 +2255,11 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 					formatBuildAge(simBuild.Age()), simBuild.ModTime.Format("Mon Jan 2 15:04"))
 			}
 			ui.StartSpinner("Uploading local simulator build...")
-			var uploadErr error
-			_, _, uploadedVersionID, uploadErr = uploadExistingArtifact(cmd.Context(), client, simBuild.Path, appID, cwd, invocation.BranchID)
+			_, _, uploaded, uploadErr := uploadExistingArtifact(cmd.Context(), client, simBuild.Path, appID, cwd, invocation)
 			ui.StopSpinner()
 			if uploadErr == nil {
+				uploadedVersionID = uploaded.VersionID
+				invocation = invocation.withUploadedBranch(uploaded.BranchID, uploaded.BranchName)
 				needsBuild = false
 				usedLocalSimBuild = true
 				localSimBuildPath = simBuild.Path
@@ -2274,7 +2276,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		if buildErr != nil {
 			return fmt.Errorf("build failed: %w", buildErr)
 		}
-		invocation = invocation.withAppID(buildResult.Invocation.AppID)
+		invocation = invocation.withAppID(buildResult.Invocation.AppID).withUploadedBranch(buildResult.Upload.BranchID, buildResult.Upload.BranchName)
 		appID = strings.TrimSpace(invocation.AppID)
 		uploadedVersionID = buildResult.Upload.VersionID
 	} else if usedLocalSimBuild {
@@ -3388,7 +3390,7 @@ func devBuildAndDeltaPush(
 		}
 	}
 	ui.StartSpinner("Uploading full artifact to cloud...")
-	downloadURL, detectedBID, uploadedBuildID, uploadErr := uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, metadata, invocation.BranchID)
+	downloadURL, detectedBID, uploaded, uploadErr := uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, metadata, invocation)
 	ui.StopSpinner()
 	if uploadErr != nil {
 		result.pushErr = fmt.Errorf("full artifact upload failed: %w", uploadErr)
@@ -3396,6 +3398,7 @@ func devBuildAndDeltaPush(
 		result.elapsed = time.Since(rebuildStart)
 		return result
 	}
+	uploadedBuildID := uploaded.VersionID
 	if detectedBID != "" && bundleID == "" {
 		bundleID = detectedBID
 	}
@@ -3525,13 +3528,9 @@ func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation p
 			return
 		}
 	}
-	_, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
-		AppID:    appID,
-		BranchID: invocation.BranchID,
-		Version:  versionStr,
-		FilePath: uploadPath,
-		Metadata: metadata,
-	})
+	request := &api.UploadBuildRequest{AppID: appID, Version: versionStr, FilePath: uploadPath, Metadata: metadata}
+	request.BranchID, request.BranchName, request.GitBranchName = invocation.uploadDestination()
+	_, uploadErr := client.UploadBuild(ctx, request)
 	if uploadErr != nil {
 		if ctx.Err() != nil {
 			return
@@ -3574,30 +3573,31 @@ func updateBgUploadStatus(statusPath privateRuntimePath, status string) {
 //   - artifactPath: resolved path to the built artifact (.app, .apk, or .tar.gz)
 //   - appID: application ID for the upload
 //   - cwd: working directory for version string generation
+//   - invocation: dev loop whose branch receives the upload
 //
 // Returns:
 //   - downloadURL: presigned URL the worker can fetch from
 //   - bundleID: package name from the uploaded build (may be empty)
-//   - versionID: exact version created by the upload
+//   - uploaded: the build the upload created and the branch it landed on
 //   - error: upload or resolution failure
-func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, branchIDs ...string) (downloadURL, bundleID, versionID string, err error) {
-	return uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, nil, branchIDs...)
+func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, invocation projectDevInvocation) (downloadURL, bundleID string, uploaded *api.UploadBuildResponse, err error) {
+	return uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, nil, invocation)
 }
 
-func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, metadata map[string]interface{}, branchIDs ...string) (downloadURL, bundleID, versionID string, err error) {
+func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, metadata map[string]interface{}, invocation projectDevInvocation) (downloadURL, bundleID string, uploaded *api.UploadBuildResponse, err error) {
 	uploadPath := artifactPath
 	var tmpZip string
 	if build.IsTarGz(artifactPath) {
 		zipped, extractErr := build.ExtractAppFromTarGz(artifactPath)
 		if extractErr != nil {
-			return "", "", "", fmt.Errorf("failed to extract app from archive: %w", extractErr)
+			return "", "", nil, fmt.Errorf("failed to extract app from archive: %w", extractErr)
 		}
 		tmpZip = zipped
 		uploadPath = zipped
 	} else if build.IsAppBundle(artifactPath) {
 		zipped, zipErr := build.ZipAppBundle(artifactPath)
 		if zipErr != nil {
-			return "", "", "", fmt.Errorf("failed to zip artifact: %w", zipErr)
+			return "", "", nil, fmt.Errorf("failed to zip artifact: %w", zipErr)
 		}
 		tmpZip = zipped
 		uploadPath = zipped
@@ -3606,31 +3606,22 @@ func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client,
 		defer os.Remove(tmpZip)
 	}
 
-	branchID := ""
-	if len(branchIDs) > 0 {
-		branchID = branchIDs[0]
-	}
-	versionStr := build.GenerateVersionStringForWorkDir(cwd)
-	uploadResp, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
-		AppID:    appID,
-		BranchID: branchID,
-		Version:  versionStr,
-		FilePath: uploadPath,
-		Metadata: metadata,
-	})
+	request := &api.UploadBuildRequest{AppID: appID, Version: build.GenerateVersionStringForWorkDir(cwd), FilePath: uploadPath, Metadata: metadata}
+	request.BranchID, request.BranchName, request.GitBranchName = invocation.uploadDestination()
+	uploadResp, uploadErr := client.UploadBuild(ctx, request)
 	if uploadErr != nil {
-		return "", "", "", fmt.Errorf("upload failed: %w", uploadErr)
+		return "", "", nil, fmt.Errorf("upload failed: %w", uploadErr)
 	}
 
-	versionID = strings.TrimSpace(uploadResp.VersionID)
-	if versionID == "" {
-		return "", "", "", fmt.Errorf("upload succeeded but no build version ID was returned for app %s", appID)
+	uploadResp.VersionID = strings.TrimSpace(uploadResp.VersionID)
+	if uploadResp.VersionID == "" {
+		return "", "", nil, fmt.Errorf("upload succeeded but no build version ID was returned for app %s", appID)
 	}
-	bd, bdErr := client.GetBuildVersionDownloadURL(ctx, versionID)
+	bd, bdErr := client.GetBuildVersionDownloadURL(ctx, uploadResp.VersionID)
 	if bdErr != nil {
-		return "", "", "", fmt.Errorf("could not get download URL: %w", bdErr)
+		return "", "", nil, fmt.Errorf("could not get download URL: %w", bdErr)
 	}
-	return strings.TrimSpace(bd.DownloadURL), strings.TrimSpace(bd.PackageName), versionID, nil
+	return strings.TrimSpace(bd.DownloadURL), strings.TrimSpace(bd.PackageName), uploadResp, nil
 }
 
 // ---------------------------------------------------------------------------

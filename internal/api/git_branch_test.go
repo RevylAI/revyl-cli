@@ -23,7 +23,9 @@ func TestGitBranchLookupPrecedence(t *testing.T) {
 		{name: "empty read", hint: "empty", expected: "base", fallback: true},
 		{name: "invalid read", hint: " invalid ", expected: "base", fallback: true},
 		{name: "missing explicit", branch: "feature", expected: "feature", missing: true, fail: true},
+		{name: "existing upload", hint: "feature", expected: "feature", upload: true},
 		{name: "missing upload", hint: "feature", expected: "feature", missing: true, upload: true},
+		{name: "missing explicit upload", branch: "feature", expected: "feature", missing: true, upload: true},
 		{name: "invalid upload", hint: " invalid ", upload: true, fail: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,12 +48,7 @@ func TestGitBranchLookupPrecedence(t *testing.T) {
 				}
 				if r.Method == http.MethodPost {
 					creates++
-					var body map[string]string
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					if body["name"] != tc.expected {
-						t.Errorf("wrong create name %q", body["name"])
-					}
-					_ = json.NewEncoder(w).Encode(BuildBranch{ID: branchTestID, Name: tc.expected})
+					http.Error(w, "branches are created by uploads", http.StatusBadRequest)
 					return
 				}
 				if r.URL.Path == "/api/v1/apps/app/branches/"+branchTestID {
@@ -72,7 +69,7 @@ func TestGitBranchLookupPrecedence(t *testing.T) {
 			var branch *BuildBranch
 			var err error
 			if tc.upload {
-				branch, err = client.ResolveUploadBranchWithGitBranch(context.Background(), "app", tc.id, tc.branch, tc.hint)
+				branch, err = client.FindUploadBranch(context.Background(), "app", tc.id, tc.branch, tc.hint)
 			} else {
 				branch, err = client.ResolveBranchWithGitBranch(context.Background(), "app", tc.id, tc.branch, tc.hint)
 			}
@@ -88,8 +85,11 @@ func TestGitBranchLookupPrecedence(t *testing.T) {
 			if branch != nil && (branch.Name != tc.expected || branch.BranchSource.FellBackFromGitBranch(branch.GitBranchName) != tc.fallback) {
 				t.Errorf("wrong resolved branch: %+v", branch)
 			}
-			if (creates > 0) != (tc.missing && tc.upload) {
-				t.Errorf("unexpected creates %d", creates)
+			if tc.upload && !tc.fail && (branch == nil) != tc.missing {
+				t.Errorf("upload branch = %+v, want none only for a missing branch", branch)
+			}
+			if creates > 0 {
+				t.Errorf("an upload lookup created %d branches; the upload creates a missing branch", creates)
 			}
 		})
 	}

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,13 +19,13 @@ import (
 	"github.com/revyl/cli/internal/devloop"
 )
 
-func TestDevCreatesInferredBranchThenFreezesDestination(t *testing.T) {
+func TestDevLeavesANewInferredBranchToItsFirstUploadThenFreezesIt(t *testing.T) {
 	resetDevSelectionFlags(t)
 	const appID = "11111111-1111-4111-8111-111111111111"
 	const branchID = "22222222-2222-4222-8222-222222222222"
 	root := initDevRepository(t)
 	setDevTestBranch(t, root, "feature/fresh")
-	lookups, creates := 0, 0
+	lookups := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -33,25 +35,10 @@ func TestDevCreatesInferredBranchThenFreezesDestination(t *testing.T) {
 				t.Errorf("branch query = %s", r.URL.RawQuery)
 			}
 			_, _ = w.Write([]byte(`{"branches":[],"total":0}`))
-		case r.URL.Path == "/api/v1/apps/"+appID+"/branches" && r.Method == http.MethodPost:
-			creates++
-			var request map[string]string
-			_ = json.NewDecoder(r.Body).Decode(&request)
-			if request["name"] != "feature/fresh" {
-				t.Errorf("created branch = %#v", request)
-			}
-			_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q,"name":"feature/fresh"}`, branchID, appID)
 		case r.URL.Path == "/api/v1/apps/"+appID+"/branches/"+branchID:
-			_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q,"name":"renamed"}`, branchID, appID)
-		case r.URL.Path == "/api/v1/apps/resolve":
-			var request map[string]string
-			_ = json.NewDecoder(r.Body).Decode(&request)
-			if request["branch_id"] != branchID || request["git_branch_name"] != "" || request["build_selection"] != "" {
-				t.Errorf("seed scope was not frozen: %#v", request)
-			}
-			_, _ = w.Write([]byte(`{"resolution_status":"branch_has_no_builds"}`))
+			_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q,"name":"feature/fresh"}`, branchID, appID)
 		default:
-			t.Errorf("unexpected default/fallback request: %s", r.URL.Path)
+			t.Errorf("unexpected request, such as creating the branch before its upload: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
 		}
 	}))
@@ -61,19 +48,57 @@ func TestDevCreatesInferredBranchThenFreezesDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if initial.BranchID != "" || initial.GitBranchName != "feature/fresh" || !initial.branchAwaitsFirstUpload() {
+		t.Fatalf("a missing Git branch must wait for its first upload: %+v", initial)
+	}
 	setDevTestBranch(t, root, "feature/changed")
 	if selected, _, _, err := selectDevStartBuild(context.Background(), client, appID, initial); err != nil || selected != nil {
 		t.Fatalf("new branch must bootstrap a build: selected=%+v err=%v", selected, err)
 	}
-	continued, err := resolveDevDestination(context.Background(), client, initial, initial.BranchID, "", "", "", true)
+	firstUpload := projectBuildInvocationFromDev(initial)
+	if firstUpload.BranchID != "" || firstUpload.BranchName != "" || firstUpload.GitBranchName != "feature/fresh" || !firstUpload.GitBranchResolved {
+		t.Fatalf("first upload must name the detected Git branch: %+v", firstUpload)
+	}
+	uploaded := initial.withUploadedBranch(branchID, "feature/fresh")
+	continued, err := resolveDevDestination(context.Background(), client, uploaded, uploaded.BranchID, "", "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if continued.BranchID != branchID || continued.GitBranchName != "feature/fresh" || lookups != 1 || creates != 1 {
-		t.Fatalf("destination changed: %+v lookups=%d creates=%d", continued, lookups, creates)
+	if continued.BranchID != branchID || continued.GitBranchName != "feature/fresh" || continued.branchAwaitsFirstUpload() || lookups != 1 {
+		t.Fatalf("destination changed: %+v lookups=%d", continued, lookups)
 	}
-	if projectBuildInvocationFromDev(continued).BranchID != branchID {
-		t.Fatal("rebuild upload lost its frozen destination")
+	rebuild := projectBuildInvocationFromDev(continued)
+	if rebuild.BranchID != branchID || rebuild.BranchName != "" || rebuild.GitBranchName != "" {
+		t.Fatalf("rebuild upload lost its frozen destination: %+v", rebuild)
+	}
+}
+
+func TestDevKeepsAMissingExplicitBranchForItsFirstUpload(t *testing.T) {
+	resetDevSelectionFlags(t)
+	const appID = "11111111-1111-4111-8111-111111111111"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/apps/"+appID+"/branches" || r.Method != http.MethodGet || r.URL.Query().Get("name") != "release" {
+			t.Errorf("unexpected request, such as creating the branch before its upload: %s %s", r.Method, r.URL)
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"branches":[],"total":0}`))
+	}))
+	defer server.Close()
+	invocation, err := resolveDevDestination(context.Background(), api.NewClientWithBaseURL("test", server.URL), projectDevInvocation{AppID: appID, ProjectRoot: t.TempDir(), Profile: "dev", Platform: "android"}, "", "release", "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.BranchID != "" || invocation.BranchName != "release" || !invocation.branchAwaitsFirstUpload() {
+		t.Fatalf("a missing explicit branch must wait for its first upload: %+v", invocation)
+	}
+	if branchID, branchName, gitBranchName := invocation.uploadDestination(); branchID != "" || branchName != "release" || gitBranchName != "" {
+		t.Fatalf("first upload destination = %q, %q, %q; want the branch name", branchID, branchName, gitBranchName)
+	}
+	args := projectDetachArgs([]string{"dev", "--branch", "release", "--detach"}, invocation)
+	if strings.Join(args, " ") != "dev --branch release --profile dev --platform android" {
+		t.Fatalf("detached child lost the new branch: %v", args)
 	}
 }
 
@@ -384,6 +409,74 @@ func TestSelectDevStartBuildUsesLatestByDefaultAndKeepsNamedBranchPolicy(t *test
 			}
 			if gotBuild != test.wantBuild || len(warnings) != test.wantWarnings {
 				t.Fatalf("selected %q with warnings %q, want %q with %d warnings", gotBuild, warnings, test.wantBuild, test.wantWarnings)
+			}
+		})
+	}
+}
+
+func TestDevUploadsCreateANewBranchThenRebuildsUploadToIt(t *testing.T) {
+	const appID = "11111111-1111-4111-8111-111111111111"
+	const branchID = "22222222-2222-4222-8222-222222222222"
+	const buildID = "33333333-3333-4333-8333-333333333333"
+	var sessions []api.BuildUploadSessionRequest
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/apps/" + appID + "/builds/upload-session":
+			var session api.BuildUploadSessionRequest
+			if err := json.NewDecoder(r.Body).Decode(&session); err != nil {
+				t.Error(err)
+			}
+			sessions = append(sessions, session)
+			_, _ = fmt.Fprintf(w, `{"upload_id":%q,"upload_url":%q,"content_type":"application/octet-stream","branch_id":%q}`, buildID, server.URL+"/artifact", branchID)
+		case "/artifact":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/apps/" + appID + "/builds":
+			_, _ = fmt.Fprintf(w, `{"id":%q,"version":"v1","branch_id":%q,"branch_name":"main"}`, buildID, branchID)
+		case "/api/v1/apps/builds/" + buildID:
+			_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q,"version":"v1","download_url":"https://example.com/app.apk"}`, buildID, appID)
+		default:
+			t.Errorf("unexpected request, such as creating the branch before its upload: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := api.NewClientWithBaseURL("test", server.URL)
+	artifact := filepath.Join(t.TempDir(), "app.apk")
+	if err := os.WriteFile(artifact, []byte("fixture-apk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		name       string
+		invocation projectDevInvocation
+		want       api.BuildUploadSessionRequest
+	}{
+		{name: "detected Git branch", invocation: projectDevInvocation{AppID: appID, GitBranchName: "main"}, want: api.BuildUploadSessionRequest{GitBranchName: stringPtrOrNil("main")}},
+		{name: "explicit branch", invocation: projectDevInvocation{AppID: appID, BranchName: "main"}, want: api.BuildUploadSessionRequest{BranchName: stringPtrOrNil("main")}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			sessions = nil
+			invocation := scenario.invocation
+			for range 2 {
+				_, _, uploaded, err := uploadExistingArtifact(context.Background(), client, artifact, appID, t.TempDir(), invocation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				invocation = invocation.withUploadedBranch(uploaded.BranchID, uploaded.BranchName)
+			}
+			if invocation.BranchID != branchID || invocation.BranchName != "main" {
+				t.Fatalf("the loop did not freeze the branch its first upload created: %+v", invocation)
+			}
+			if len(sessions) != 2 {
+				t.Fatalf("upload sessions = %d, want 2", len(sessions))
+			}
+			first, second := sessions[0], sessions[1]
+			if first.BranchId != nil || stringValue(first.BranchName) != stringValue(scenario.want.BranchName) || stringValue(first.GitBranchName) != stringValue(scenario.want.GitBranchName) {
+				t.Fatalf("first upload destination = %+v, want %+v", first, scenario.want)
+			}
+			if second.BranchId == nil || second.BranchId.String() != branchID || second.BranchName != nil || second.GitBranchName != nil {
+				t.Fatalf("rebuild upload destination = %+v, want the created branch by ID", second)
 			}
 		})
 	}

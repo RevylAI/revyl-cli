@@ -1,10 +1,11 @@
 # Build branches from the CLI
 
-Every build belongs to one branch of its app, and each app has a default branch
-(`base` at first). A run on a branch uses its default build: its Latest build,
-or a build you pin. Without `--branch`, uploads go to your Git branch, created if
-needed, and runs try it first when it has a usable build, then the app's default
-branch. Choices you make, for one run or saved, never fall back. See
+Every build belongs to one branch of its app, and each app has a default branch:
+`base` at first, then the branch of the app's first upload. A run on a branch
+uses its default build: its Latest build, or a build you pin. Without
+`--branch`, uploads go to your Git branch, created if needed, and runs try it
+first when it has a usable build, then the app's default branch. Choices you
+make, for one run or saved, never fall back. See
 [Build branches](https://docs.revyl.com/builds/branches) for the full model.
 
 ## Manage branches
@@ -47,8 +48,8 @@ revyl build list --app "My App" --branch HEAD
   a different repository or commit than the checkout, the checkout doesn't
   choose the branch. Pass `--branch` when the artifact wasn't built from this
   checkout.
-- `revyl init` uploads a new app's first build to `base`, and a linked app's to
-  your Git branch; `--branch` overrides either.
+- `revyl init` chooses its uploads' branch the same way, so the first build it
+  uploads to an app it created sets that app's default branch.
 - `--pin` pins the branch to the new build. If the version label already
   exists, the upload reuses that build and doesn't pin; the warning prints the
   `revyl app branch pin` command to run.

@@ -354,11 +354,13 @@ func (c *Client) CreateBuildBranch(ctx context.Context, appID, name string) (*Bu
 	return &result, nil
 }
 
-func (c *Client) ResolveUploadBranch(ctx context.Context, appID, branchID, branchName string) (*BuildBranch, error) {
-	return c.ResolveUploadBranchWithGitBranch(ctx, appID, branchID, branchName, "")
-}
-
-func (c *Client) ResolveUploadBranchWithGitBranch(ctx context.Context, appID, branchID, branchName, gitBranchName string) (*BuildBranch, error) {
+// FindUploadBranch returns the existing branch an upload to this destination
+// lands on: the branch by ID or name, the branch named after gitBranchName, or
+// the app's default branch when no destination is given. It returns nil, with
+// no error, when the named branch doesn't exist yet. Such an upload sends the
+// name instead of creating the branch first, so the backend creates it and can
+// make a new app's first upload its default branch.
+func (c *Client) FindUploadBranch(ctx context.Context, appID, branchID, branchName, gitBranchName string) (*BuildBranch, error) {
 	if branchID == "" && branchName == "" && gitBranchName != "" {
 		if err := validateGitBranchName(gitBranchName); err != nil {
 			return nil, err
@@ -370,7 +372,7 @@ func (c *Client) ResolveUploadBranchWithGitBranch(ctx context.Context, appID, br
 	}
 	branch, err := c.ResolveBranch(ctx, appID, branchID, branchName)
 	if errors.Is(err, ErrBranchNotFound) && branchName != "" {
-		return c.CreateBuildBranch(ctx, appID, branchName)
+		return nil, nil
 	}
 	return branch, err
 }

@@ -167,6 +167,8 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 		if !namedBranch && !explicitBuildSelection && invocation.GitBranchName == "" {
 			result = append(result, "--build-selection", "latest")
 		}
+	} else if invocation.BranchName != "" {
+		result = append(result, "--branch", invocation.BranchName)
 	}
 	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)
 }

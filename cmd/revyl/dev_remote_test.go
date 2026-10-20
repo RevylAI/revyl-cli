@@ -548,6 +548,39 @@ func TestRemoteDevBuildsNeverPinTheirBranch(t *testing.T) {
 	}
 }
 
+func TestRemoteDevBuildNamesANewBranchUntilItExists(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	const branchID = "00000000-0000-4000-8000-000000000789"
+	output := "build/app.apk"
+	recipe := config.EffectiveBuildRecipe{BuildCommands: config.CommandStepItems([]string{"./gradlew assembleDebug"}), OutputPath: &output}
+	for _, scenario := range []struct {
+		name                                string
+		invocation                          projectDevInvocation
+		wantBranchID, wantName, wantGitName string
+	}{
+		{name: "new Git branch", invocation: projectDevInvocation{GitBranchName: "main"}, wantGitName: "main"},
+		{name: "new explicit branch", invocation: projectDevInvocation{BranchName: "release"}, wantName: "release"},
+		{name: "existing branch", invocation: projectDevInvocation{BranchID: branchID, BranchName: "main", GitBranchName: "main"}, wantBranchID: branchID},
+		{name: "created by the first build", invocation: projectDevInvocation{GitBranchName: "main"}.withUploadedBranch(branchID, ""), wantBranchID: branchID},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			invocation := scenario.invocation
+			invocation.Platform, invocation.AppID, invocation.Recipe = "android", appID.String(), recipe
+			request, err := remoteDevTriggerRequestFromProject(appID, "source.tar.gz", "v1", invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotBranchID := ""
+			if request.BranchId != nil {
+				gotBranchID = request.BranchId.String()
+			}
+			if gotBranchID != scenario.wantBranchID || stringValue(request.BranchName) != scenario.wantName || stringValue(request.GitBranchName) != scenario.wantGitName {
+				t.Fatalf("destination = %q, %q, %q; want %q, %q, %q", gotBranchID, stringValue(request.BranchName), stringValue(request.GitBranchName), scenario.wantBranchID, scenario.wantName, scenario.wantGitName)
+			}
+		})
+	}
+}
+
 func TestRemoteDevTriggerRequestCarriesMultipleBuildCommands(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
 	req, err := remoteDevTriggerRequest(

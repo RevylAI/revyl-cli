@@ -148,18 +148,27 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 		if err != nil {
 			return BuildUploadedMsg{Err: err}
 		}
-		branch, err := client.ResolveUploadBranchWithGitBranch(ctx, appID, selection.BranchID, selection.BranchName, selection.GitBranchName)
+		branch, err := client.FindUploadBranch(ctx, appID, selection.BranchID, selection.BranchName, selection.GitBranchName)
 		if err != nil {
 			return BuildUploadedMsg{Err: fmt.Errorf("resolve upload branch: %w", err)}
 		}
-		resp, err := client.UploadBuild(ctx, &api.UploadBuildRequest{
-			AppID:    appID,
-			BranchID: branch.ID,
-			Version:  version,
-			FilePath: filePath,
-		})
+		request := &api.UploadBuildRequest{AppID: appID, Version: version, FilePath: filePath}
+		switch {
+		case branch != nil:
+			request.BranchID = branch.ID
+		case selection.BranchName != "":
+			request.BranchName = selection.BranchName
+		default:
+			request.GitBranchName = selection.GitBranchName
+		}
+		resp, err := client.UploadBuild(ctx, request)
 		if err != nil {
+			// A branch the upload was to create has no ID to retry; the retry
+			// names it again.
 			return BuildUploadedMsg{Branch: branch, Err: fmt.Errorf("upload failed: %w", err)}
+		}
+		if branch == nil {
+			branch = &api.BuildBranch{ID: resp.BranchID, AppID: appID, Name: cmp.Or(resp.BranchName, request.BranchName, request.GitBranchName)}
 		}
 
 		uploaded := buildselection.UploadedBuild{

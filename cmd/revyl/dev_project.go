@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -39,7 +40,7 @@ type projectDevInvocation struct {
 }
 
 func projectBuildInvocationFromDev(invocation projectDevInvocation) projectBuildInvocation {
-	return projectBuildInvocation{
+	converted := projectBuildInvocation{
 		ProjectRoot:         invocation.ProjectRoot,
 		ConfigPath:          invocation.ConfigPath,
 		OriginalConfigBytes: append([]byte(nil), invocation.OriginalConfigBytes...),
@@ -51,6 +52,41 @@ func projectBuildInvocationFromDev(invocation projectDevInvocation) projectBuild
 		BuildDefinitionHash: invocation.BuildDefinitionHash,
 		SelectionSource:     invocation.SelectionSource,
 	}
+	if invocation.branchAwaitsFirstUpload() {
+		converted.BranchName, converted.GitBranchName, converted.GitBranchResolved = invocation.BranchName, invocation.GitBranchName, true
+	}
+	return converted
+}
+
+// branchAwaitsFirstUpload reports that the loop's named branch doesn't exist
+// yet. Its first upload names it, so the backend creates it, and it has no
+// build to start from.
+func (invocation projectDevInvocation) branchAwaitsFirstUpload() bool {
+	return invocation.BranchID == "" && (invocation.BranchName != "" || invocation.GitBranchName != "")
+}
+
+// uploadDestination returns where the loop's uploads go: its branch by ID once
+// it exists, otherwise the name its first upload creates.
+func (invocation projectDevInvocation) uploadDestination() (branchID, branchName, gitBranchName string) {
+	switch {
+	case invocation.BranchID != "":
+		return invocation.BranchID, "", ""
+	case invocation.BranchName != "":
+		return "", invocation.BranchName, ""
+	default:
+		return "", "", invocation.GitBranchName
+	}
+}
+
+// withUploadedBranch freezes the branch the loop's first upload created, so
+// later rebuilds upload to it by ID.
+func (invocation projectDevInvocation) withUploadedBranch(branchID, branchName string) projectDevInvocation {
+	if !invocation.branchAwaitsFirstUpload() || branchID == "" {
+		return invocation
+	}
+	invocation.BranchID = branchID
+	invocation.BranchName = cmp.Or(branchName, invocation.BranchName, invocation.GitBranchName)
+	return invocation
 }
 
 func (invocation projectDevInvocation) withAppID(appID string) projectDevInvocation {
@@ -263,7 +299,10 @@ func cloneDevSession(session config.AuthoredSession) config.AuthoredSession {
 	return cloned
 }
 
-func resolveDevDestination(ctx context.Context, client *api.Client, invocation projectDevInvocation, branchID, branchName, buildID, mode string, allowCreate bool) (projectDevInvocation, error) {
+// resolveDevDestination selects the loop's branch. With allowNewBranch, a named
+// or Git branch that doesn't exist yet is kept by name for the first upload to
+// create.
+func resolveDevDestination(ctx context.Context, client *api.Client, invocation projectDevInvocation, branchID, branchName, buildID, mode string, allowNewBranch bool) (projectDevInvocation, error) {
 	selection := api.BuildSelection{BranchID: branchID, BranchName: branchName, BuildID: buildID, Mode: api.BuildSelectionMode(mode)}
 	if err := selection.Validate(); err != nil {
 		return invocation, err
@@ -298,18 +337,22 @@ func resolveDevDestination(ctx context.Context, client *api.Client, invocation p
 		}
 		invocation.GitBranchName = gitBranchName
 	}
-	if allowCreate {
-		branch, err = client.ResolveUploadBranchWithGitBranch(ctx, invocation.AppID, branchID, branchName, gitBranchName)
+	if allowNewBranch {
+		branch, err = client.FindUploadBranch(ctx, invocation.AppID, branchID, branchName, gitBranchName)
 	} else {
 		branch, err = client.ResolveBranchWithGitBranch(ctx, invocation.AppID, branchID, branchName, gitBranchName, api.BuildSelectionMode(mode))
 	}
 	if err != nil {
 		return invocation, fmt.Errorf("resolve development branch: %w", err)
 	}
-	if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
-		ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branch.Name))
+	if branch == nil {
+		invocation.BranchID, invocation.BranchName = "", branchName
+	} else {
+		if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
+			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branch.Name))
+		}
+		invocation.BranchID, invocation.BranchName = branch.ID, branch.Name
 	}
-	invocation.BranchID, invocation.BranchName = branch.ID, branch.Name
 	// Capture the handoff before the detach parent exits after session readiness.
 	invocation.DetachedAppDefaultSelection = isDetachedDevAppDefault(branchID, branchName, buildID, mode)
 	return invocation, nil
@@ -337,6 +380,9 @@ func devResolveErrorNeedsBuild(invocation projectDevInvocation, err error) bool 
 }
 
 func selectDevStartBuild(ctx context.Context, client buildselection.ResolverClient, appID string, invocation projectDevInvocation) (*api.BuildVersion, string, []string, error) {
+	if invocation.branchAwaitsFirstUpload() {
+		return nil, "", nil, nil
+	}
 	selected, source, warnings, err := buildselection.SelectBuildVersion(ctx, client, appID, devBuildSelection(invocation))
 	if devResolveErrorNeedsBuild(invocation, err) {
 		return nil, "", nil, nil

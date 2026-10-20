@@ -398,7 +398,7 @@ func printIfDevStartContextAlreadyRunning(repoRoot, ctxName string, invocation p
 	}
 	if existing.BranchID == "" && devSelectionIsAppDefault(invocation) {
 		ui.PrintWarning("Dev context %q was started without a recorded branch; showing its existing session", ctxName)
-	} else if existing.BranchID != invocation.BranchID {
+	} else if existing.BranchID != invocation.BranchID || invocation.branchAwaitsFirstUpload() {
 		return false, fmt.Errorf("dev context %q is running on a different or unrecorded branch; stop that context or choose another --context", ctxName)
 	}
 	printDevContextAlreadyRunning(existing)
