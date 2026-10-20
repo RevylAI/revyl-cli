@@ -157,6 +157,47 @@ func TestRuntimeProxyDiagnosticsStatusAndTraceRedaction(t *testing.T) {
 	}
 }
 
+func TestRuntimeLiveStepUnavailableIsTypedAndActionable(t *testing.T) {
+	calls := 0
+	manager, session := runtimeDiagnosticManager(t, func(request *http.Request) (*http.Response, error) {
+		calls++
+		body := `{"error":"step_output_not_available"}`
+		return &http.Response{
+			StatusCode: http.StatusNotImplemented,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})
+
+	_, err := manager.ExecuteLiveStepOnSession(
+		context.Background(),
+		session,
+		LiveStepRequest{StepType: "validation", StepDescription: "private step description"},
+	)
+	var workerErr *WorkerHTTPError
+	if !errors.As(err, &workerErr) || workerErr.StatusCode != http.StatusNotImplemented || workerErr.Code != "step_output_not_available" || calls != 1 {
+		t.Fatalf("live-step error = %v, want one typed 501 response", err)
+	}
+	if got := analytics.FailureClassForError(err); got != analytics.FailureClassUsage {
+		t.Fatalf("failure class = %q, want %q", got, analytics.FailureClassUsage)
+	}
+	message := err.Error()
+	for _, want := range []string{"not available on this Web session", "screenshot", "failure_class=usage", "session_trace_id=" + fixtureSessionTraceID} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error = %q, want %q", message, want)
+		}
+	}
+	for _, forbidden := range []string{"/worker_request", "failure_class=server", "private step description", "execution_uncertain", "validation"} {
+		if strings.Contains(message, forbidden) {
+			t.Fatalf("error = %q, must not contain %q", message, forbidden)
+		}
+	}
+	nextSteps := errorNextSteps(err)
+	if len(nextSteps) != 1 || nextSteps[0].Tool != "screenshot" {
+		t.Fatalf("next steps = %#v, want screenshot", nextSteps)
+	}
+}
+
 func TestRuntimeProxyDiagnosticsUncertainInputAndPhoneCompatibility(t *testing.T) {
 	for _, platform := range []string{"web", "ios", "android"} {
 		t.Run(platform, func(t *testing.T) {

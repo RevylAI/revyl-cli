@@ -2569,6 +2569,12 @@ func (e *WorkerHTTPError) Error() string {
 		message = "action_applied: the action was applied but recording failed; do not repeat it. Inspect the session report"
 	} else if e.Code == "stale_target" {
 		message = "stale_target: the screen changed; capture a fresh screenshot and resolve the target again before another action"
+	} else if e.Code == "step_output_not_available" {
+		if e.Path == "/execute_step" {
+			message = "this live-step type is not available on this Web session; Web live sessions do not support live code execution or cross-step variables yet; check the page with 'revyl device screenshot --out screen.png' or run a Web test execution"
+		} else {
+			message = "the requested live-step output is not available from this Web session/server; run a Web test execution"
+		}
 	}
 	if e.cause != nil {
 		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassForError(e.cause))
@@ -3235,7 +3241,11 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 		}
 		if session.Platform == "web" {
 			workerErr.cause = &api.APIError{StatusCode: statusCode}
-			if code == "request_timeout" {
+			if code == "step_output_not_available" {
+				workerErr.cause = analytics.WithFailureClass(
+					workerErr.cause, analytics.FailureClassUsage,
+				)
+			} else if code == "request_timeout" {
 				workerErr.cause = analytics.WithFailureClass(workerErr.cause, analytics.FailureClassTimeout)
 				workerErr.InputDispatched = failure.InputDispatched
 				switch failure.FailureStage {

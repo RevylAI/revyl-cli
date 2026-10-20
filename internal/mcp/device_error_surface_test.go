@@ -87,6 +87,10 @@ func newSurfaceTestBackend(t *testing.T, connectionStatus, connectionMessage str
 			}
 			if status, ok := backend.proxyStatus[action]; ok {
 				w.WriteHeader(status)
+				if status == http.StatusNotImplemented && action == "execute_step" {
+					_, _ = w.Write([]byte(`{"error":"step_output_not_available"}`))
+					return
+				}
 				_, _ = w.Write([]byte(`{"detail":"worker detail"}`))
 				return
 			}
@@ -235,6 +239,18 @@ func TestDeviceSessionErrorsRenderPerSurface(t *testing.T) {
 			},
 			wantCLI: "worker returned 503 on /execute_step. The device is still connecting",
 			wantMCP: "worker returned 503 on /execute_step. The device may not be fully connected yet",
+		},
+		{
+			name:        "unsupported Web live-step types are typed",
+			proxyStatus: map[string]int{"execute_step": http.StatusNotImplemented},
+			invoke: func(t *testing.T, backend *surfaceTestBackend, surface ErrorSurface) error {
+				mgr := backend.manager(t, surface, surfaceTestSession(0))
+				mgr.sessions[0].Platform = "web"
+				_, err := mgr.ExecuteLiveStepOnSession(context.Background(), mgr.GetSession(0), LiveStepRequest{StepType: "validation"})
+				return err
+			},
+			wantCLI: "this live-step type is not available on this Web session",
+			wantMCP: "this live-step type is not available on this Web session",
 		},
 		{
 			name: "grounding miss",

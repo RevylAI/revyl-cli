@@ -974,6 +974,13 @@ func (s *Server) resolveCoordsFromAnchor(
 
 // errorNextSteps returns recovery-oriented NextSteps based on the error type.
 func errorNextSteps(err error) []NextStep {
+	var workerErr *WorkerHTTPError
+	if errors.As(err, &workerErr) && workerErr.Code == "step_output_not_available" {
+		return []NextStep{{
+			Tool:   "screenshot",
+			Reason: "This live-step type is unavailable on this Web session; check the page directly",
+		}}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no active device session"):

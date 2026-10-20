@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-__version__ = "0.1.179"
+__version__ = "0.1.180"
 
 
 def get_platform_info() -> tuple[str, str, str]:
@@ -63,9 +63,7 @@ def ensure_binary() -> Path:
     if env_override:
         resolved = Path(env_override).expanduser().resolve()
         if not resolved.is_file():
-            raise RuntimeError(
-                f"REVYL_BINARY points to non-existent path: {resolved}"
-            )
+            raise RuntimeError(f"REVYL_BINARY points to non-existent path: {resolved}")
         return resolved
 
     binary_path = get_binary_path()
