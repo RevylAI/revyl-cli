@@ -1008,6 +1008,1158 @@ func (e CompileSourceType) Valid() bool {
 	}
 }
 
+// Defines values for ComputerAPIErrorDetail0.
+const (
+	ComputerAPIErrorDetail0EvidenceConflict       ComputerAPIErrorDetail0 = "evidence_conflict"
+	ComputerAPIErrorDetail0EvidenceUnavailable    ComputerAPIErrorDetail0 = "evidence_unavailable"
+	ComputerAPIErrorDetail0Inaccessible           ComputerAPIErrorDetail0 = "inaccessible"
+	ComputerAPIErrorDetail0InvalidHandle          ComputerAPIErrorDetail0 = "invalid_handle"
+	ComputerAPIErrorDetail0InvalidRequest         ComputerAPIErrorDetail0 = "invalid_request"
+	ComputerAPIErrorDetail0OperationLimit         ComputerAPIErrorDetail0 = "operation_limit"
+	ComputerAPIErrorDetail0OperationNotFound      ComputerAPIErrorDetail0 = "operation_not_found"
+	ComputerAPIErrorDetail0OwnerUnavailable       ComputerAPIErrorDetail0 = "owner_unavailable"
+	ComputerAPIErrorDetail0RequestConflict        ComputerAPIErrorDetail0 = "request_conflict"
+	ComputerAPIErrorDetail0RunClosed              ComputerAPIErrorDetail0 = "run_closed"
+	ComputerAPIErrorDetail0RunConflict            ComputerAPIErrorDetail0 = "run_conflict"
+	ComputerAPIErrorDetail0ScreenControlHeld      ComputerAPIErrorDetail0 = "screen_control_held"
+	ComputerAPIErrorDetail0ScreenControlLost      ComputerAPIErrorDetail0 = "screen_control_lost"
+	ComputerAPIErrorDetail0ScreenInputUnavailable ComputerAPIErrorDetail0 = "screen_input_unavailable"
+	ComputerAPIErrorDetail0ScreenInputUncertain   ComputerAPIErrorDetail0 = "screen_input_uncertain"
+	ComputerAPIErrorDetail0ScreenKeyUnsupported   ComputerAPIErrorDetail0 = "screen_key_unsupported"
+	ComputerAPIErrorDetail0ScreenPointOutside     ComputerAPIErrorDetail0 = "screen_point_outside"
+	ComputerAPIErrorDetail0ScreenTextUnsupported  ComputerAPIErrorDetail0 = "screen_text_unsupported"
+	ComputerAPIErrorDetail0ScreenUnavailable      ComputerAPIErrorDetail0 = "screen_unavailable"
+	ComputerAPIErrorDetail0StartFailed            ComputerAPIErrorDetail0 = "start_failed"
+)
+
+// Valid indicates whether the value is a known member of the ComputerAPIErrorDetail0 enum.
+func (e ComputerAPIErrorDetail0) Valid() bool {
+	switch e {
+	case ComputerAPIErrorDetail0EvidenceConflict:
+		return true
+	case ComputerAPIErrorDetail0EvidenceUnavailable:
+		return true
+	case ComputerAPIErrorDetail0Inaccessible:
+		return true
+	case ComputerAPIErrorDetail0InvalidHandle:
+		return true
+	case ComputerAPIErrorDetail0InvalidRequest:
+		return true
+	case ComputerAPIErrorDetail0OperationLimit:
+		return true
+	case ComputerAPIErrorDetail0OperationNotFound:
+		return true
+	case ComputerAPIErrorDetail0OwnerUnavailable:
+		return true
+	case ComputerAPIErrorDetail0RequestConflict:
+		return true
+	case ComputerAPIErrorDetail0RunClosed:
+		return true
+	case ComputerAPIErrorDetail0RunConflict:
+		return true
+	case ComputerAPIErrorDetail0ScreenControlHeld:
+		return true
+	case ComputerAPIErrorDetail0ScreenControlLost:
+		return true
+	case ComputerAPIErrorDetail0ScreenInputUnavailable:
+		return true
+	case ComputerAPIErrorDetail0ScreenInputUncertain:
+		return true
+	case ComputerAPIErrorDetail0ScreenKeyUnsupported:
+		return true
+	case ComputerAPIErrorDetail0ScreenPointOutside:
+		return true
+	case ComputerAPIErrorDetail0ScreenTextUnsupported:
+		return true
+	case ComputerAPIErrorDetail0ScreenUnavailable:
+		return true
+	case ComputerAPIErrorDetail0StartFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerAPIErrorDetail1.
+const (
+	ComputerAPIErrorDetail1AuthenticationUnavailable ComputerAPIErrorDetail1 = "authentication_unavailable"
+	ComputerAPIErrorDetail1ComputerLimit             ComputerAPIErrorDetail1 = "computer_limit"
+	ComputerAPIErrorDetail1ComputerNotEnabled        ComputerAPIErrorDetail1 = "computer_not_enabled"
+	ComputerAPIErrorDetail1Forbidden                 ComputerAPIErrorDetail1 = "forbidden"
+	ComputerAPIErrorDetail1RuntimeUnavailable        ComputerAPIErrorDetail1 = "runtime_unavailable"
+	ComputerAPIErrorDetail1Unauthenticated           ComputerAPIErrorDetail1 = "unauthenticated"
+)
+
+// Valid indicates whether the value is a known member of the ComputerAPIErrorDetail1 enum.
+func (e ComputerAPIErrorDetail1) Valid() bool {
+	switch e {
+	case ComputerAPIErrorDetail1AuthenticationUnavailable:
+		return true
+	case ComputerAPIErrorDetail1ComputerLimit:
+		return true
+	case ComputerAPIErrorDetail1ComputerNotEnabled:
+		return true
+	case ComputerAPIErrorDetail1Forbidden:
+		return true
+	case ComputerAPIErrorDetail1RuntimeUnavailable:
+		return true
+	case ComputerAPIErrorDetail1Unauthenticated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerAPIErrorDetail2.
+const (
+	ComputerAPIErrorDetail2ScreenCleanupUnknown    ComputerAPIErrorDetail2 = "screen_cleanup_unknown"
+	ComputerAPIErrorDetail2ScreenNegotiationFailed ComputerAPIErrorDetail2 = "screen_negotiation_failed"
+	ComputerAPIErrorDetail2ScreenStarting          ComputerAPIErrorDetail2 = "screen_starting"
+	ComputerAPIErrorDetail2ScreenUnavailable       ComputerAPIErrorDetail2 = "screen_unavailable"
+	ComputerAPIErrorDetail2ScreenViewerExpired     ComputerAPIErrorDetail2 = "screen_viewer_expired"
+	ComputerAPIErrorDetail2ScreenViewerLimit       ComputerAPIErrorDetail2 = "screen_viewer_limit"
+)
+
+// Valid indicates whether the value is a known member of the ComputerAPIErrorDetail2 enum.
+func (e ComputerAPIErrorDetail2) Valid() bool {
+	switch e {
+	case ComputerAPIErrorDetail2ScreenCleanupUnknown:
+		return true
+	case ComputerAPIErrorDetail2ScreenNegotiationFailed:
+		return true
+	case ComputerAPIErrorDetail2ScreenStarting:
+		return true
+	case ComputerAPIErrorDetail2ScreenUnavailable:
+		return true
+	case ComputerAPIErrorDetail2ScreenViewerExpired:
+		return true
+	case ComputerAPIErrorDetail2ScreenViewerLimit:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFArgumentsKind.
+const (
+	ComputerATIFArgumentsKindExec             ComputerATIFArgumentsKind = "exec"
+	ComputerATIFArgumentsKindFileRead         ComputerATIFArgumentsKind = "file_read"
+	ComputerATIFArgumentsKindFileStat         ComputerATIFArgumentsKind = "file_stat"
+	ComputerATIFArgumentsKindFileWrite        ComputerATIFArgumentsKind = "file_write"
+	ComputerATIFArgumentsKindProcessInspect   ComputerATIFArgumentsKind = "process_inspect"
+	ComputerATIFArgumentsKindProcessList      ComputerATIFArgumentsKind = "process_list"
+	ComputerATIFArgumentsKindProcessTerminate ComputerATIFArgumentsKind = "process_terminate"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFArgumentsKind enum.
+func (e ComputerATIFArgumentsKind) Valid() bool {
+	switch e {
+	case ComputerATIFArgumentsKindExec:
+		return true
+	case ComputerATIFArgumentsKindFileRead:
+		return true
+	case ComputerATIFArgumentsKindFileStat:
+		return true
+	case ComputerATIFArgumentsKindFileWrite:
+		return true
+	case ComputerATIFArgumentsKindProcessInspect:
+		return true
+	case ComputerATIFArgumentsKindProcessList:
+		return true
+	case ComputerATIFArgumentsKindProcessTerminate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFResultContent.
+const (
+	ComputerATIFResultContentFailed    ComputerATIFResultContent = "failed"
+	ComputerATIFResultContentSucceeded ComputerATIFResultContent = "succeeded"
+	ComputerATIFResultContentTimedOut  ComputerATIFResultContent = "timed_out"
+	ComputerATIFResultContentUnknown   ComputerATIFResultContent = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFResultContent enum.
+func (e ComputerATIFResultContent) Valid() bool {
+	switch e {
+	case ComputerATIFResultContentFailed:
+		return true
+	case ComputerATIFResultContentSucceeded:
+		return true
+	case ComputerATIFResultContentTimedOut:
+		return true
+	case ComputerATIFResultContentUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFRunExtensionEvidenceCompleteness.
+const (
+	ComputerATIFRunExtensionEvidenceCompletenessComplete ComputerATIFRunExtensionEvidenceCompleteness = "complete"
+	ComputerATIFRunExtensionEvidenceCompletenessPartial  ComputerATIFRunExtensionEvidenceCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFRunExtensionEvidenceCompleteness enum.
+func (e ComputerATIFRunExtensionEvidenceCompleteness) Valid() bool {
+	switch e {
+	case ComputerATIFRunExtensionEvidenceCompletenessComplete:
+		return true
+	case ComputerATIFRunExtensionEvidenceCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFRunExtensionEvidenceWriteStatus.
+const (
+	ComputerATIFRunExtensionEvidenceWriteStatusFailed   ComputerATIFRunExtensionEvidenceWriteStatus = "failed"
+	ComputerATIFRunExtensionEvidenceWriteStatusPending  ComputerATIFRunExtensionEvidenceWriteStatus = "pending"
+	ComputerATIFRunExtensionEvidenceWriteStatusRecorded ComputerATIFRunExtensionEvidenceWriteStatus = "recorded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFRunExtensionEvidenceWriteStatus enum.
+func (e ComputerATIFRunExtensionEvidenceWriteStatus) Valid() bool {
+	switch e {
+	case ComputerATIFRunExtensionEvidenceWriteStatusFailed:
+		return true
+	case ComputerATIFRunExtensionEvidenceWriteStatusPending:
+		return true
+	case ComputerATIFRunExtensionEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFRunExtensionOs.
+const (
+	ComputerATIFRunExtensionOsLinux ComputerATIFRunExtensionOs = "linux"
+	ComputerATIFRunExtensionOsMacos ComputerATIFRunExtensionOs = "macos"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFRunExtensionOs enum.
+func (e ComputerATIFRunExtensionOs) Valid() bool {
+	switch e {
+	case ComputerATIFRunExtensionOsLinux:
+		return true
+	case ComputerATIFRunExtensionOsMacos:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFRunExtensionRelease.
+const (
+	ComputerATIFRunExtensionReleaseConfirmed ComputerATIFRunExtensionRelease = "confirmed"
+	ComputerATIFRunExtensionReleasePending   ComputerATIFRunExtensionRelease = "pending"
+	ComputerATIFRunExtensionReleaseUnknown   ComputerATIFRunExtensionRelease = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFRunExtensionRelease enum.
+func (e ComputerATIFRunExtensionRelease) Valid() bool {
+	switch e {
+	case ComputerATIFRunExtensionReleaseConfirmed:
+		return true
+	case ComputerATIFRunExtensionReleasePending:
+		return true
+	case ComputerATIFRunExtensionReleaseUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFRunExtensionState.
+const (
+	ComputerATIFRunExtensionStateActive    ComputerATIFRunExtensionState = "active"
+	ComputerATIFRunExtensionStateClosing   ComputerATIFRunExtensionState = "closing"
+	ComputerATIFRunExtensionStateFailed    ComputerATIFRunExtensionState = "failed"
+	ComputerATIFRunExtensionStateOwnerLost ComputerATIFRunExtensionState = "owner_lost"
+	ComputerATIFRunExtensionStateStarting  ComputerATIFRunExtensionState = "starting"
+	ComputerATIFRunExtensionStateStopped   ComputerATIFRunExtensionState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFRunExtensionState enum.
+func (e ComputerATIFRunExtensionState) Valid() bool {
+	switch e {
+	case ComputerATIFRunExtensionStateActive:
+		return true
+	case ComputerATIFRunExtensionStateClosing:
+		return true
+	case ComputerATIFRunExtensionStateFailed:
+		return true
+	case ComputerATIFRunExtensionStateOwnerLost:
+		return true
+	case ComputerATIFRunExtensionStateStarting:
+		return true
+	case ComputerATIFRunExtensionStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFStepMessage.
+const (
+	ComputerATIFStepMessageComputerCreated           ComputerATIFStepMessage = "Computer created"
+	ComputerATIFStepMessageComputerOperationAccepted ComputerATIFStepMessage = "Computer operation accepted"
+	ComputerATIFStepMessageComputerReleaseConfirmed  ComputerATIFStepMessage = "Computer release confirmed"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFStepMessage enum.
+func (e ComputerATIFStepMessage) Valid() bool {
+	switch e {
+	case ComputerATIFStepMessageComputerCreated:
+		return true
+	case ComputerATIFStepMessageComputerOperationAccepted:
+		return true
+	case ComputerATIFStepMessageComputerReleaseConfirmed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFStepSource.
+const (
+	ComputerATIFStepSourceAgent  ComputerATIFStepSource = "agent"
+	ComputerATIFStepSourceSystem ComputerATIFStepSource = "system"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFStepSource enum.
+func (e ComputerATIFStepSource) Valid() bool {
+	switch e {
+	case ComputerATIFStepSourceAgent:
+		return true
+	case ComputerATIFStepSourceSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerATIFToolCallFunctionName.
+const (
+	ComputerATIFToolCallFunctionNameComputerExec             ComputerATIFToolCallFunctionName = "computer.exec"
+	ComputerATIFToolCallFunctionNameComputerFileRead         ComputerATIFToolCallFunctionName = "computer.file_read"
+	ComputerATIFToolCallFunctionNameComputerFileStat         ComputerATIFToolCallFunctionName = "computer.file_stat"
+	ComputerATIFToolCallFunctionNameComputerFileWrite        ComputerATIFToolCallFunctionName = "computer.file_write"
+	ComputerATIFToolCallFunctionNameComputerProcessInspect   ComputerATIFToolCallFunctionName = "computer.process_inspect"
+	ComputerATIFToolCallFunctionNameComputerProcessList      ComputerATIFToolCallFunctionName = "computer.process_list"
+	ComputerATIFToolCallFunctionNameComputerProcessTerminate ComputerATIFToolCallFunctionName = "computer.process_terminate"
+)
+
+// Valid indicates whether the value is a known member of the ComputerATIFToolCallFunctionName enum.
+func (e ComputerATIFToolCallFunctionName) Valid() bool {
+	switch e {
+	case ComputerATIFToolCallFunctionNameComputerExec:
+		return true
+	case ComputerATIFToolCallFunctionNameComputerFileRead:
+		return true
+	case ComputerATIFToolCallFunctionNameComputerFileStat:
+		return true
+	case ComputerATIFToolCallFunctionNameComputerFileWrite:
+		return true
+	case ComputerATIFToolCallFunctionNameComputerProcessInspect:
+		return true
+	case ComputerATIFToolCallFunctionNameComputerProcessList:
+		return true
+	case ComputerATIFToolCallFunctionNameComputerProcessTerminate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerChildReportReferencePlatform.
+const (
+	ComputerChildReportReferencePlatformAndroid ComputerChildReportReferencePlatform = "android"
+	ComputerChildReportReferencePlatformIos     ComputerChildReportReferencePlatform = "ios"
+	ComputerChildReportReferencePlatformWeb     ComputerChildReportReferencePlatform = "web"
+)
+
+// Valid indicates whether the value is a known member of the ComputerChildReportReferencePlatform enum.
+func (e ComputerChildReportReferencePlatform) Valid() bool {
+	switch e {
+	case ComputerChildReportReferencePlatformAndroid:
+		return true
+	case ComputerChildReportReferencePlatformIos:
+		return true
+	case ComputerChildReportReferencePlatformWeb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerCommandResponseEvidence.
+const (
+	ComputerCommandResponseEvidenceFailed   ComputerCommandResponseEvidence = "failed"
+	ComputerCommandResponseEvidencePending  ComputerCommandResponseEvidence = "pending"
+	ComputerCommandResponseEvidenceRecorded ComputerCommandResponseEvidence = "recorded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerCommandResponseEvidence enum.
+func (e ComputerCommandResponseEvidence) Valid() bool {
+	switch e {
+	case ComputerCommandResponseEvidenceFailed:
+		return true
+	case ComputerCommandResponseEvidencePending:
+		return true
+	case ComputerCommandResponseEvidenceRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerFailedErrorCode.
+const (
+	ComputerFailedErrorCodeAccessDenied ComputerFailedErrorCode = "access_denied"
+	ComputerFailedErrorCodeExecNonzero  ComputerFailedErrorCode = "exec_nonzero"
+	ComputerFailedErrorCodeNotFound     ComputerFailedErrorCode = "not_found"
+)
+
+// Valid indicates whether the value is a known member of the ComputerFailedErrorCode enum.
+func (e ComputerFailedErrorCode) Valid() bool {
+	switch e {
+	case ComputerFailedErrorCodeAccessDenied:
+		return true
+	case ComputerFailedErrorCodeExecNonzero:
+		return true
+	case ComputerFailedErrorCodeNotFound:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerFileStatResultFileKind.
+const (
+	ComputerFileStatResultFileKindDirectory ComputerFileStatResultFileKind = "directory"
+	ComputerFileStatResultFileKindFile      ComputerFileStatResultFileKind = "file"
+)
+
+// Valid indicates whether the value is a known member of the ComputerFileStatResultFileKind enum.
+func (e ComputerFileStatResultFileKind) Valid() bool {
+	switch e {
+	case ComputerFileStatResultFileKindDirectory:
+		return true
+	case ComputerFileStatResultFileKindFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerFileStatSummaryFileKind.
+const (
+	ComputerFileStatSummaryFileKindDirectory ComputerFileStatSummaryFileKind = "directory"
+	ComputerFileStatSummaryFileKindFile      ComputerFileStatSummaryFileKind = "file"
+)
+
+// Valid indicates whether the value is a known member of the ComputerFileStatSummaryFileKind enum.
+func (e ComputerFileStatSummaryFileKind) Valid() bool {
+	switch e {
+	case ComputerFileStatSummaryFileKindDirectory:
+		return true
+	case ComputerFileStatSummaryFileKindFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationDetailErrorCode.
+const (
+	ComputerOperationDetailErrorCodeAccessDenied          ComputerOperationDetailErrorCode = "access_denied"
+	ComputerOperationDetailErrorCodeExecNonzero           ComputerOperationDetailErrorCode = "exec_nonzero"
+	ComputerOperationDetailErrorCodeExecutorError         ComputerOperationDetailErrorCode = "executor_error"
+	ComputerOperationDetailErrorCodeInvalidExecutorResult ComputerOperationDetailErrorCode = "invalid_executor_result"
+	ComputerOperationDetailErrorCodeLostAck               ComputerOperationDetailErrorCode = "lost_ack"
+	ComputerOperationDetailErrorCodeNotFound              ComputerOperationDetailErrorCode = "not_found"
+	ComputerOperationDetailErrorCodeOwnerLost             ComputerOperationDetailErrorCode = "owner_lost"
+	ComputerOperationDetailErrorCodeStartEvidenceFailed   ComputerOperationDetailErrorCode = "start_evidence_failed"
+	ComputerOperationDetailErrorCodeStopped               ComputerOperationDetailErrorCode = "stopped"
+	ComputerOperationDetailErrorCodeTimedOut              ComputerOperationDetailErrorCode = "timed_out"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationDetailErrorCode enum.
+func (e ComputerOperationDetailErrorCode) Valid() bool {
+	switch e {
+	case ComputerOperationDetailErrorCodeAccessDenied:
+		return true
+	case ComputerOperationDetailErrorCodeExecNonzero:
+		return true
+	case ComputerOperationDetailErrorCodeExecutorError:
+		return true
+	case ComputerOperationDetailErrorCodeInvalidExecutorResult:
+		return true
+	case ComputerOperationDetailErrorCodeLostAck:
+		return true
+	case ComputerOperationDetailErrorCodeNotFound:
+		return true
+	case ComputerOperationDetailErrorCodeOwnerLost:
+		return true
+	case ComputerOperationDetailErrorCodeStartEvidenceFailed:
+		return true
+	case ComputerOperationDetailErrorCodeStopped:
+		return true
+	case ComputerOperationDetailErrorCodeTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationDetailKind.
+const (
+	ComputerOperationDetailKindExec             ComputerOperationDetailKind = "exec"
+	ComputerOperationDetailKindFileRead         ComputerOperationDetailKind = "file_read"
+	ComputerOperationDetailKindFileStat         ComputerOperationDetailKind = "file_stat"
+	ComputerOperationDetailKindFileWrite        ComputerOperationDetailKind = "file_write"
+	ComputerOperationDetailKindProcessInspect   ComputerOperationDetailKind = "process_inspect"
+	ComputerOperationDetailKindProcessList      ComputerOperationDetailKind = "process_list"
+	ComputerOperationDetailKindProcessTerminate ComputerOperationDetailKind = "process_terminate"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationDetailKind enum.
+func (e ComputerOperationDetailKind) Valid() bool {
+	switch e {
+	case ComputerOperationDetailKindExec:
+		return true
+	case ComputerOperationDetailKindFileRead:
+		return true
+	case ComputerOperationDetailKindFileStat:
+		return true
+	case ComputerOperationDetailKindFileWrite:
+		return true
+	case ComputerOperationDetailKindProcessInspect:
+		return true
+	case ComputerOperationDetailKindProcessList:
+		return true
+	case ComputerOperationDetailKindProcessTerminate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationDetailOutcome.
+const (
+	ComputerOperationDetailOutcomeFailed    ComputerOperationDetailOutcome = "failed"
+	ComputerOperationDetailOutcomeStarted   ComputerOperationDetailOutcome = "started"
+	ComputerOperationDetailOutcomeSucceeded ComputerOperationDetailOutcome = "succeeded"
+	ComputerOperationDetailOutcomeTimedOut  ComputerOperationDetailOutcome = "timed_out"
+	ComputerOperationDetailOutcomeUnknown   ComputerOperationDetailOutcome = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationDetailOutcome enum.
+func (e ComputerOperationDetailOutcome) Valid() bool {
+	switch e {
+	case ComputerOperationDetailOutcomeFailed:
+		return true
+	case ComputerOperationDetailOutcomeStarted:
+		return true
+	case ComputerOperationDetailOutcomeSucceeded:
+		return true
+	case ComputerOperationDetailOutcomeTimedOut:
+		return true
+	case ComputerOperationDetailOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationDetailTermination.
+const (
+	ComputerOperationDetailTerminationConfirmed ComputerOperationDetailTermination = "confirmed"
+	ComputerOperationDetailTerminationUnknown   ComputerOperationDetailTermination = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationDetailTermination enum.
+func (e ComputerOperationDetailTermination) Valid() bool {
+	switch e {
+	case ComputerOperationDetailTerminationConfirmed:
+		return true
+	case ComputerOperationDetailTerminationUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationEvidenceErrorCode.
+const (
+	ComputerOperationEvidenceErrorCodeAccessDenied          ComputerOperationEvidenceErrorCode = "access_denied"
+	ComputerOperationEvidenceErrorCodeExecNonzero           ComputerOperationEvidenceErrorCode = "exec_nonzero"
+	ComputerOperationEvidenceErrorCodeExecutorError         ComputerOperationEvidenceErrorCode = "executor_error"
+	ComputerOperationEvidenceErrorCodeInvalidExecutorResult ComputerOperationEvidenceErrorCode = "invalid_executor_result"
+	ComputerOperationEvidenceErrorCodeLostAck               ComputerOperationEvidenceErrorCode = "lost_ack"
+	ComputerOperationEvidenceErrorCodeNotFound              ComputerOperationEvidenceErrorCode = "not_found"
+	ComputerOperationEvidenceErrorCodeOwnerLost             ComputerOperationEvidenceErrorCode = "owner_lost"
+	ComputerOperationEvidenceErrorCodeStartEvidenceFailed   ComputerOperationEvidenceErrorCode = "start_evidence_failed"
+	ComputerOperationEvidenceErrorCodeStopped               ComputerOperationEvidenceErrorCode = "stopped"
+	ComputerOperationEvidenceErrorCodeTimedOut              ComputerOperationEvidenceErrorCode = "timed_out"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationEvidenceErrorCode enum.
+func (e ComputerOperationEvidenceErrorCode) Valid() bool {
+	switch e {
+	case ComputerOperationEvidenceErrorCodeAccessDenied:
+		return true
+	case ComputerOperationEvidenceErrorCodeExecNonzero:
+		return true
+	case ComputerOperationEvidenceErrorCodeExecutorError:
+		return true
+	case ComputerOperationEvidenceErrorCodeInvalidExecutorResult:
+		return true
+	case ComputerOperationEvidenceErrorCodeLostAck:
+		return true
+	case ComputerOperationEvidenceErrorCodeNotFound:
+		return true
+	case ComputerOperationEvidenceErrorCodeOwnerLost:
+		return true
+	case ComputerOperationEvidenceErrorCodeStartEvidenceFailed:
+		return true
+	case ComputerOperationEvidenceErrorCodeStopped:
+		return true
+	case ComputerOperationEvidenceErrorCodeTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationEvidenceKind.
+const (
+	ComputerOperationEvidenceKindExec             ComputerOperationEvidenceKind = "exec"
+	ComputerOperationEvidenceKindFileRead         ComputerOperationEvidenceKind = "file_read"
+	ComputerOperationEvidenceKindFileStat         ComputerOperationEvidenceKind = "file_stat"
+	ComputerOperationEvidenceKindFileWrite        ComputerOperationEvidenceKind = "file_write"
+	ComputerOperationEvidenceKindProcessInspect   ComputerOperationEvidenceKind = "process_inspect"
+	ComputerOperationEvidenceKindProcessList      ComputerOperationEvidenceKind = "process_list"
+	ComputerOperationEvidenceKindProcessTerminate ComputerOperationEvidenceKind = "process_terminate"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationEvidenceKind enum.
+func (e ComputerOperationEvidenceKind) Valid() bool {
+	switch e {
+	case ComputerOperationEvidenceKindExec:
+		return true
+	case ComputerOperationEvidenceKindFileRead:
+		return true
+	case ComputerOperationEvidenceKindFileStat:
+		return true
+	case ComputerOperationEvidenceKindFileWrite:
+		return true
+	case ComputerOperationEvidenceKindProcessInspect:
+		return true
+	case ComputerOperationEvidenceKindProcessList:
+		return true
+	case ComputerOperationEvidenceKindProcessTerminate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationEvidenceOutcome.
+const (
+	ComputerOperationEvidenceOutcomeFailed    ComputerOperationEvidenceOutcome = "failed"
+	ComputerOperationEvidenceOutcomeStarted   ComputerOperationEvidenceOutcome = "started"
+	ComputerOperationEvidenceOutcomeSucceeded ComputerOperationEvidenceOutcome = "succeeded"
+	ComputerOperationEvidenceOutcomeTimedOut  ComputerOperationEvidenceOutcome = "timed_out"
+	ComputerOperationEvidenceOutcomeUnknown   ComputerOperationEvidenceOutcome = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationEvidenceOutcome enum.
+func (e ComputerOperationEvidenceOutcome) Valid() bool {
+	switch e {
+	case ComputerOperationEvidenceOutcomeFailed:
+		return true
+	case ComputerOperationEvidenceOutcomeStarted:
+		return true
+	case ComputerOperationEvidenceOutcomeSucceeded:
+		return true
+	case ComputerOperationEvidenceOutcomeTimedOut:
+		return true
+	case ComputerOperationEvidenceOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerOperationEvidenceTermination.
+const (
+	ComputerOperationEvidenceTerminationConfirmed ComputerOperationEvidenceTermination = "confirmed"
+	ComputerOperationEvidenceTerminationUnknown   ComputerOperationEvidenceTermination = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerOperationEvidenceTermination enum.
+func (e ComputerOperationEvidenceTermination) Valid() bool {
+	switch e {
+	case ComputerOperationEvidenceTerminationConfirmed:
+		return true
+	case ComputerOperationEvidenceTerminationUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerProcessInfoState.
+const (
+	ComputerProcessInfoStateExited  ComputerProcessInfoState = "exited"
+	ComputerProcessInfoStateRunning ComputerProcessInfoState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ComputerProcessInfoState enum.
+func (e ComputerProcessInfoState) Valid() bool {
+	switch e {
+	case ComputerProcessInfoStateExited:
+		return true
+	case ComputerProcessInfoStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerProcessInspectSummaryState.
+const (
+	ComputerProcessInspectSummaryStateExited  ComputerProcessInspectSummaryState = "exited"
+	ComputerProcessInspectSummaryStateRunning ComputerProcessInspectSummaryState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ComputerProcessInspectSummaryState enum.
+func (e ComputerProcessInspectSummaryState) Valid() bool {
+	switch e {
+	case ComputerProcessInspectSummaryStateExited:
+		return true
+	case ComputerProcessInspectSummaryStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportEvidenceCompleteness.
+const (
+	ComputerReportEvidenceCompletenessComplete ComputerReportEvidenceCompleteness = "complete"
+	ComputerReportEvidenceCompletenessPartial  ComputerReportEvidenceCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportEvidenceCompleteness enum.
+func (e ComputerReportEvidenceCompleteness) Valid() bool {
+	switch e {
+	case ComputerReportEvidenceCompletenessComplete:
+		return true
+	case ComputerReportEvidenceCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportEvidenceWriteStatus.
+const (
+	ComputerReportEvidenceWriteStatusFailed   ComputerReportEvidenceWriteStatus = "failed"
+	ComputerReportEvidenceWriteStatusPending  ComputerReportEvidenceWriteStatus = "pending"
+	ComputerReportEvidenceWriteStatusRecorded ComputerReportEvidenceWriteStatus = "recorded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportEvidenceWriteStatus enum.
+func (e ComputerReportEvidenceWriteStatus) Valid() bool {
+	switch e {
+	case ComputerReportEvidenceWriteStatusFailed:
+		return true
+	case ComputerReportEvidenceWriteStatusPending:
+		return true
+	case ComputerReportEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportOs.
+const (
+	ComputerReportOsLinux ComputerReportOs = "linux"
+	ComputerReportOsMacos ComputerReportOs = "macos"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportOs enum.
+func (e ComputerReportOs) Valid() bool {
+	switch e {
+	case ComputerReportOsLinux:
+		return true
+	case ComputerReportOsMacos:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportRelease.
+const (
+	ComputerReportReleaseConfirmed ComputerReportRelease = "confirmed"
+	ComputerReportReleasePending   ComputerReportRelease = "pending"
+	ComputerReportReleaseUnknown   ComputerReportRelease = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportRelease enum.
+func (e ComputerReportRelease) Valid() bool {
+	switch e {
+	case ComputerReportReleaseConfirmed:
+		return true
+	case ComputerReportReleasePending:
+		return true
+	case ComputerReportReleaseUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportState.
+const (
+	ComputerReportStateActive    ComputerReportState = "active"
+	ComputerReportStateClosing   ComputerReportState = "closing"
+	ComputerReportStateFailed    ComputerReportState = "failed"
+	ComputerReportStateOwnerLost ComputerReportState = "owner_lost"
+	ComputerReportStateStarting  ComputerReportState = "starting"
+	ComputerReportStateStopped   ComputerReportState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportState enum.
+func (e ComputerReportState) Valid() bool {
+	switch e {
+	case ComputerReportStateActive:
+		return true
+	case ComputerReportStateClosing:
+		return true
+	case ComputerReportStateFailed:
+		return true
+	case ComputerReportStateOwnerLost:
+		return true
+	case ComputerReportStateStarting:
+		return true
+	case ComputerReportStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportDetailEvidenceCompleteness.
+const (
+	ComputerReportDetailEvidenceCompletenessComplete ComputerReportDetailEvidenceCompleteness = "complete"
+	ComputerReportDetailEvidenceCompletenessPartial  ComputerReportDetailEvidenceCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportDetailEvidenceCompleteness enum.
+func (e ComputerReportDetailEvidenceCompleteness) Valid() bool {
+	switch e {
+	case ComputerReportDetailEvidenceCompletenessComplete:
+		return true
+	case ComputerReportDetailEvidenceCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportDetailEvidenceWriteStatus.
+const (
+	ComputerReportDetailEvidenceWriteStatusFailed   ComputerReportDetailEvidenceWriteStatus = "failed"
+	ComputerReportDetailEvidenceWriteStatusPending  ComputerReportDetailEvidenceWriteStatus = "pending"
+	ComputerReportDetailEvidenceWriteStatusRecorded ComputerReportDetailEvidenceWriteStatus = "recorded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportDetailEvidenceWriteStatus enum.
+func (e ComputerReportDetailEvidenceWriteStatus) Valid() bool {
+	switch e {
+	case ComputerReportDetailEvidenceWriteStatusFailed:
+		return true
+	case ComputerReportDetailEvidenceWriteStatusPending:
+		return true
+	case ComputerReportDetailEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportDetailOs.
+const (
+	ComputerReportDetailOsLinux ComputerReportDetailOs = "linux"
+	ComputerReportDetailOsMacos ComputerReportDetailOs = "macos"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportDetailOs enum.
+func (e ComputerReportDetailOs) Valid() bool {
+	switch e {
+	case ComputerReportDetailOsLinux:
+		return true
+	case ComputerReportDetailOsMacos:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportDetailRelease.
+const (
+	ComputerReportDetailReleaseConfirmed ComputerReportDetailRelease = "confirmed"
+	ComputerReportDetailReleasePending   ComputerReportDetailRelease = "pending"
+	ComputerReportDetailReleaseUnknown   ComputerReportDetailRelease = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportDetailRelease enum.
+func (e ComputerReportDetailRelease) Valid() bool {
+	switch e {
+	case ComputerReportDetailReleaseConfirmed:
+		return true
+	case ComputerReportDetailReleasePending:
+		return true
+	case ComputerReportDetailReleaseUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportDetailState.
+const (
+	ComputerReportDetailStateActive    ComputerReportDetailState = "active"
+	ComputerReportDetailStateClosing   ComputerReportDetailState = "closing"
+	ComputerReportDetailStateFailed    ComputerReportDetailState = "failed"
+	ComputerReportDetailStateOwnerLost ComputerReportDetailState = "owner_lost"
+	ComputerReportDetailStateStarting  ComputerReportDetailState = "starting"
+	ComputerReportDetailStateStopped   ComputerReportDetailState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportDetailState enum.
+func (e ComputerReportDetailState) Valid() bool {
+	switch e {
+	case ComputerReportDetailStateActive:
+		return true
+	case ComputerReportDetailStateClosing:
+		return true
+	case ComputerReportDetailStateFailed:
+		return true
+	case ComputerReportDetailStateOwnerLost:
+		return true
+	case ComputerReportDetailStateStarting:
+		return true
+	case ComputerReportDetailStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRunCreateOs.
+const (
+	ComputerRunCreateOsLinux ComputerRunCreateOs = "linux"
+	ComputerRunCreateOsMacos ComputerRunCreateOs = "macos"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRunCreateOs enum.
+func (e ComputerRunCreateOs) Valid() bool {
+	switch e {
+	case ComputerRunCreateOsLinux:
+		return true
+	case ComputerRunCreateOsMacos:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRunSummaryEvidenceCompleteness.
+const (
+	ComputerRunSummaryEvidenceCompletenessComplete ComputerRunSummaryEvidenceCompleteness = "complete"
+	ComputerRunSummaryEvidenceCompletenessPartial  ComputerRunSummaryEvidenceCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRunSummaryEvidenceCompleteness enum.
+func (e ComputerRunSummaryEvidenceCompleteness) Valid() bool {
+	switch e {
+	case ComputerRunSummaryEvidenceCompletenessComplete:
+		return true
+	case ComputerRunSummaryEvidenceCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRunSummaryEvidenceWriteStatus.
+const (
+	ComputerRunSummaryEvidenceWriteStatusFailed   ComputerRunSummaryEvidenceWriteStatus = "failed"
+	ComputerRunSummaryEvidenceWriteStatusPending  ComputerRunSummaryEvidenceWriteStatus = "pending"
+	ComputerRunSummaryEvidenceWriteStatusRecorded ComputerRunSummaryEvidenceWriteStatus = "recorded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRunSummaryEvidenceWriteStatus enum.
+func (e ComputerRunSummaryEvidenceWriteStatus) Valid() bool {
+	switch e {
+	case ComputerRunSummaryEvidenceWriteStatusFailed:
+		return true
+	case ComputerRunSummaryEvidenceWriteStatusPending:
+		return true
+	case ComputerRunSummaryEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRunSummaryOs.
+const (
+	ComputerRunSummaryOsLinux ComputerRunSummaryOs = "linux"
+	ComputerRunSummaryOsMacos ComputerRunSummaryOs = "macos"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRunSummaryOs enum.
+func (e ComputerRunSummaryOs) Valid() bool {
+	switch e {
+	case ComputerRunSummaryOsLinux:
+		return true
+	case ComputerRunSummaryOsMacos:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRunSummaryRelease.
+const (
+	ComputerRunSummaryReleaseConfirmed ComputerRunSummaryRelease = "confirmed"
+	ComputerRunSummaryReleasePending   ComputerRunSummaryRelease = "pending"
+	ComputerRunSummaryReleaseUnknown   ComputerRunSummaryRelease = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRunSummaryRelease enum.
+func (e ComputerRunSummaryRelease) Valid() bool {
+	switch e {
+	case ComputerRunSummaryReleaseConfirmed:
+		return true
+	case ComputerRunSummaryReleasePending:
+		return true
+	case ComputerRunSummaryReleaseUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRunSummaryState.
+const (
+	ComputerRunSummaryStateActive    ComputerRunSummaryState = "active"
+	ComputerRunSummaryStateClosing   ComputerRunSummaryState = "closing"
+	ComputerRunSummaryStateFailed    ComputerRunSummaryState = "failed"
+	ComputerRunSummaryStateOwnerLost ComputerRunSummaryState = "owner_lost"
+	ComputerRunSummaryStateStarting  ComputerRunSummaryState = "starting"
+	ComputerRunSummaryStateStopped   ComputerRunSummaryState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRunSummaryState enum.
+func (e ComputerRunSummaryState) Valid() bool {
+	switch e {
+	case ComputerRunSummaryStateActive:
+		return true
+	case ComputerRunSummaryStateClosing:
+		return true
+	case ComputerRunSummaryStateFailed:
+		return true
+	case ComputerRunSummaryStateOwnerLost:
+		return true
+	case ComputerRunSummaryStateStarting:
+		return true
+	case ComputerRunSummaryStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerTimedOutTermination.
+const (
+	ComputerTimedOutTerminationConfirmed ComputerTimedOutTermination = "confirmed"
+	ComputerTimedOutTerminationUnknown   ComputerTimedOutTermination = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerTimedOutTermination enum.
+func (e ComputerTimedOutTermination) Valid() bool {
+	switch e {
+	case ComputerTimedOutTerminationConfirmed:
+		return true
+	case ComputerTimedOutTerminationUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerUnknownErrorCode.
+const (
+	ComputerUnknownErrorCodeExecutorError         ComputerUnknownErrorCode = "executor_error"
+	ComputerUnknownErrorCodeInvalidExecutorResult ComputerUnknownErrorCode = "invalid_executor_result"
+	ComputerUnknownErrorCodeLostAck               ComputerUnknownErrorCode = "lost_ack"
+	ComputerUnknownErrorCodeOwnerLost             ComputerUnknownErrorCode = "owner_lost"
+	ComputerUnknownErrorCodeStartEvidenceFailed   ComputerUnknownErrorCode = "start_evidence_failed"
+	ComputerUnknownErrorCodeStopped               ComputerUnknownErrorCode = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerUnknownErrorCode enum.
+func (e ComputerUnknownErrorCode) Valid() bool {
+	switch e {
+	case ComputerUnknownErrorCodeExecutorError:
+		return true
+	case ComputerUnknownErrorCodeInvalidExecutorResult:
+		return true
+	case ComputerUnknownErrorCodeLostAck:
+		return true
+	case ComputerUnknownErrorCodeOwnerLost:
+		return true
+	case ComputerUnknownErrorCodeStartEvidenceFailed:
+		return true
+	case ComputerUnknownErrorCodeStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerUnknownTermination.
+const (
+	ComputerUnknownTerminationConfirmed ComputerUnknownTermination = "confirmed"
+	ComputerUnknownTerminationUnknown   ComputerUnknownTermination = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerUnknownTermination enum.
+func (e ComputerUnknownTermination) Valid() bool {
+	switch e {
+	case ComputerUnknownTerminationConfirmed:
+		return true
+	case ComputerUnknownTerminationUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConfigurationAuthority.
 const (
 	ConfigurationAuthorityGitDefaultBranch ConfigurationAuthority = "git_default_branch"
@@ -1116,6 +2268,27 @@ func (e DeviceSessionDetailResponseViewerKind) Valid() bool {
 	case DeviceSessionDetailResponseViewerKindNone:
 		return true
 	case DeviceSessionDetailResponseViewerKindWhep:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceSessionHistoryItemComputerRelease.
+const (
+	DeviceSessionHistoryItemComputerReleaseConfirmed DeviceSessionHistoryItemComputerRelease = "confirmed"
+	DeviceSessionHistoryItemComputerReleasePending   DeviceSessionHistoryItemComputerRelease = "pending"
+	DeviceSessionHistoryItemComputerReleaseUnknown   DeviceSessionHistoryItemComputerRelease = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the DeviceSessionHistoryItemComputerRelease enum.
+func (e DeviceSessionHistoryItemComputerRelease) Valid() bool {
+	switch e {
+	case DeviceSessionHistoryItemComputerReleaseConfirmed:
+		return true
+	case DeviceSessionHistoryItemComputerReleasePending:
+		return true
+	case DeviceSessionHistoryItemComputerReleaseUnknown:
 		return true
 	default:
 		return false
@@ -2531,6 +3704,7 @@ type ActiveDeviceSessionItem struct {
 	BuildVersion              *string                 `json:"build_version,omitempty"`
 	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
 	CanInteract               *bool                   `json:"can_interact,omitempty"`
+	ComputerSessionId         *string                 `json:"computer_session_id,omitempty"`
 	CreatedAt                 *time.Time              `json:"created_at,omitempty"`
 	DeviceModel               *string                 `json:"device_model,omitempty"`
 	ExplorationRunId          *string                 `json:"exploration_run_id,omitempty"`
@@ -2567,11 +3741,14 @@ type ActiveDeviceSessionItem struct {
 // with “concurrency_limit“ equal to the lane sum. Web, when enabled, has
 // its own independent lane in either mode.
 type ActiveDeviceSessionsResponse struct {
-	AndroidConcurrencyLimit *int                                         `json:"android_concurrency_limit,omitempty"`
-	ConcurrencyLimit        *int                                         `json:"concurrency_limit,omitempty"`
-	ConcurrencyMode         *ActiveDeviceSessionsResponseConcurrencyMode `json:"concurrency_mode,omitempty"`
-	IosConcurrencyLimit     *int                                         `json:"ios_concurrency_limit,omitempty"`
-	OrgId                   string                                       `json:"org_id"`
+	AndroidConcurrencyLimit *int `json:"android_concurrency_limit,omitempty"`
+
+	// ComputerSlotsInUse Device slots the org's unreleased computers hold: one each, on the iOS lane under platform concurrency and in the shared pool otherwise. Computer sessions are not part of the listed sessions' slot use
+	ComputerSlotsInUse  *int                                         `json:"computer_slots_in_use,omitempty"`
+	ConcurrencyLimit    *int                                         `json:"concurrency_limit,omitempty"`
+	ConcurrencyMode     *ActiveDeviceSessionsResponseConcurrencyMode `json:"concurrency_mode,omitempty"`
+	IosConcurrencyLimit *int                                         `json:"ios_concurrency_limit,omitempty"`
+	OrgId               string                                       `json:"org_id"`
 
 	// ProofRunId The proof run this listing is confined to, set only when the caller is a proof agent; every listed session belongs to it
 	ProofRunId          *string                   `json:"proof_run_id,omitempty"`
@@ -4634,6 +5811,592 @@ type CompiledIntentStep struct {
 	StepType string `json:"step_type"`
 }
 
+// ComputerAPIError defines model for ComputerAPIError.
+type ComputerAPIError struct {
+	Detail ComputerAPIError_Detail `json:"detail"`
+}
+
+// ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.
+type ComputerAPIErrorDetail0 string
+
+// ComputerAPIErrorDetail1 defines model for ComputerAPIError.Detail.1.
+type ComputerAPIErrorDetail1 string
+
+// ComputerAPIErrorDetail2 defines model for ComputerAPIError.Detail.2.
+type ComputerAPIErrorDetail2 string
+
+// ComputerAPIError_Detail defines model for ComputerAPIError.Detail.
+type ComputerAPIError_Detail struct {
+	union json.RawMessage
+}
+
+// ComputerATIFAgent defines model for ComputerATIFAgent.
+type ComputerATIFAgent struct {
+	Name    *string `json:"name,omitempty"`
+	Version *string `json:"version,omitempty"`
+}
+
+// ComputerATIFArguments defines model for ComputerATIFArguments.
+type ComputerATIFArguments struct {
+	Capture *string                   `json:"capture,omitempty"`
+	Kind    ComputerATIFArgumentsKind `json:"kind"`
+}
+
+// ComputerATIFArgumentsKind defines model for ComputerATIFArguments.Kind.
+type ComputerATIFArgumentsKind string
+
+// ComputerATIFExtra defines model for ComputerATIFExtra.
+type ComputerATIFExtra struct {
+	Revyl ComputerATIFRunExtension `json:"revyl"`
+}
+
+// ComputerATIFObservation defines model for ComputerATIFObservation.
+type ComputerATIFObservation struct {
+	Results []ComputerATIFResult `json:"results"`
+}
+
+// ComputerATIFOperationExtension defines model for ComputerATIFOperationExtension.
+type ComputerATIFOperationExtension struct {
+	Evidence ComputerOperationEvidence `json:"evidence"`
+	Version  *int                      `json:"version,omitempty"`
+}
+
+// ComputerATIFResult defines model for ComputerATIFResult.
+type ComputerATIFResult struct {
+	Content      ComputerATIFResultContent `json:"content"`
+	Extra        ComputerATIFResultExtra   `json:"extra"`
+	SourceCallId openapi_types.UUID        `json:"source_call_id"`
+}
+
+// ComputerATIFResultContent defines model for ComputerATIFResult.Content.
+type ComputerATIFResultContent string
+
+// ComputerATIFResultExtra defines model for ComputerATIFResultExtra.
+type ComputerATIFResultExtra struct {
+	Revyl ComputerATIFOperationExtension `json:"revyl"`
+}
+
+// ComputerATIFRunExtension defines model for ComputerATIFRunExtension.
+type ComputerATIFRunExtension struct {
+	AsOf                 time.Time                                    `json:"as_of"`
+	ChildReports         []ComputerChildReportReference               `json:"child_reports"`
+	EvidenceCompleteness ComputerATIFRunExtensionEvidenceCompleteness `json:"evidence_completeness"`
+	EvidenceWriteStatus  ComputerATIFRunExtensionEvidenceWriteStatus  `json:"evidence_write_status"`
+	ExecutionEndedAt     *time.Time                                   `json:"execution_ended_at"`
+	ExecutionStartedAt   *time.Time                                   `json:"execution_started_at,omitempty"`
+	ExpiresAt            time.Time                                    `json:"expires_at"`
+	Os                   ComputerATIFRunExtensionOs                   `json:"os"`
+	Release              ComputerATIFRunExtensionRelease              `json:"release"`
+	ReleasedAt           *time.Time                                   `json:"released_at"`
+	ReportId             openapi_types.UUID                           `json:"report_id"`
+	State                ComputerATIFRunExtensionState                `json:"state"`
+	Version              *int                                         `json:"version,omitempty"`
+}
+
+// ComputerATIFRunExtensionEvidenceCompleteness defines model for ComputerATIFRunExtension.EvidenceCompleteness.
+type ComputerATIFRunExtensionEvidenceCompleteness string
+
+// ComputerATIFRunExtensionEvidenceWriteStatus defines model for ComputerATIFRunExtension.EvidenceWriteStatus.
+type ComputerATIFRunExtensionEvidenceWriteStatus string
+
+// ComputerATIFRunExtensionOs defines model for ComputerATIFRunExtension.Os.
+type ComputerATIFRunExtensionOs string
+
+// ComputerATIFRunExtensionRelease defines model for ComputerATIFRunExtension.Release.
+type ComputerATIFRunExtensionRelease string
+
+// ComputerATIFRunExtensionState defines model for ComputerATIFRunExtension.State.
+type ComputerATIFRunExtensionState string
+
+// ComputerATIFStep defines model for ComputerATIFStep.
+type ComputerATIFStep struct {
+	LlmCallCount *int                     `json:"llm_call_count,omitempty"`
+	Message      ComputerATIFStepMessage  `json:"message"`
+	Observation  *ComputerATIFObservation `json:"observation,omitempty"`
+	Source       ComputerATIFStepSource   `json:"source"`
+	StepId       int                      `json:"step_id"`
+	Timestamp    time.Time                `json:"timestamp"`
+	ToolCalls    *[]ComputerATIFToolCall  `json:"tool_calls,omitempty"`
+}
+
+// ComputerATIFStepMessage defines model for ComputerATIFStep.Message.
+type ComputerATIFStepMessage string
+
+// ComputerATIFStepSource defines model for ComputerATIFStep.Source.
+type ComputerATIFStepSource string
+
+// ComputerATIFToolCall defines model for ComputerATIFToolCall.
+type ComputerATIFToolCall struct {
+	Arguments    ComputerATIFArguments            `json:"arguments"`
+	FunctionName ComputerATIFToolCallFunctionName `json:"function_name"`
+	ToolCallId   openapi_types.UUID               `json:"tool_call_id"`
+}
+
+// ComputerATIFToolCallFunctionName defines model for ComputerATIFToolCall.FunctionName.
+type ComputerATIFToolCallFunctionName string
+
+// ComputerATIFTrajectory defines model for ComputerATIFTrajectory.
+type ComputerATIFTrajectory struct {
+	Agent         *ComputerATIFAgent `json:"agent,omitempty"`
+	Extra         ComputerATIFExtra  `json:"extra"`
+	SchemaVersion *string            `json:"schema_version,omitempty"`
+	SessionId     openapi_types.UUID `json:"session_id"`
+	Steps         []ComputerATIFStep `json:"steps"`
+	TrajectoryId  openapi_types.UUID `json:"trajectory_id"`
+}
+
+// ComputerChildReportReference defines model for ComputerChildReportReference.
+type ComputerChildReportReference struct {
+	Platform  ComputerChildReportReferencePlatform `json:"platform"`
+	ReportId  openapi_types.UUID                   `json:"report_id"`
+	SessionId openapi_types.UUID                   `json:"session_id"`
+}
+
+// ComputerChildReportReferencePlatform defines model for ComputerChildReportReference.Platform.
+type ComputerChildReportReferencePlatform string
+
+// ComputerCommandRequest defines model for ComputerCommandRequest.
+type ComputerCommandRequest struct {
+	Command           ComputerCommandRequest_Command `json:"command"`
+	ComputerSessionId openapi_types.UUID             `json:"computer_session_id"`
+	RequestId         openapi_types.UUID             `json:"request_id"`
+}
+
+// ComputerCommandRequest_Command defines model for ComputerCommandRequest.Command.
+type ComputerCommandRequest_Command struct {
+	union json.RawMessage
+}
+
+// ComputerCommandResponse defines model for ComputerCommandResponse.
+type ComputerCommandResponse struct {
+	ComputerSessionId openapi_types.UUID                `json:"computer_session_id"`
+	Evidence          ComputerCommandResponseEvidence   `json:"evidence"`
+	Execution         ComputerCommandResponse_Execution `json:"execution"`
+	OperationId       openapi_types.UUID                `json:"operation_id"`
+}
+
+// ComputerCommandResponseEvidence defines model for ComputerCommandResponse.Evidence.
+type ComputerCommandResponseEvidence string
+
+// ComputerCommandResponse_Execution defines model for ComputerCommandResponse.Execution.
+type ComputerCommandResponse_Execution struct {
+	union json.RawMessage
+}
+
+// ComputerExec defines model for ComputerExec.
+type ComputerExec struct {
+	Argv []string `json:"argv"`
+	Kind string   `json:"kind,omitempty"`
+
+	// Stdin Padded URL-safe base64 bytes; standard base64 input is also accepted. Argv plus decoded stdin is bounded to 16,384 bytes.
+	Stdin     *string `json:"stdin,omitempty"`
+	TimeoutMs *int    `json:"timeout_ms,omitempty"`
+}
+
+// ComputerExecResult defines model for ComputerExecResult.
+type ComputerExecResult struct {
+	ExitCode int    `json:"exit_code"`
+	Kind     string `json:"kind,omitempty"`
+
+	// Stderr Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.
+	Stderr *string `json:"stderr,omitempty"`
+
+	// Stdout Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.
+	Stdout *string `json:"stdout,omitempty"`
+}
+
+// ComputerExecSummary defines model for ComputerExecSummary.
+type ComputerExecSummary struct {
+	ExitCode        int    `json:"exit_code"`
+	Kind            string `json:"kind,omitempty"`
+	StderrByteCount int    `json:"stderr_byte_count"`
+	StdoutByteCount int    `json:"stdout_byte_count"`
+}
+
+// ComputerFailed defines model for ComputerFailed.
+type ComputerFailed struct {
+	ErrorCode ComputerFailedErrorCode `json:"error_code"`
+	Outcome   string                  `json:"outcome,omitempty"`
+	Result    *ComputerExecResult     `json:"result,omitempty"`
+}
+
+// ComputerFailedErrorCode defines model for ComputerFailed.ErrorCode.
+type ComputerFailedErrorCode string
+
+// ComputerFileRead defines model for ComputerFileRead.
+type ComputerFileRead struct {
+	Kind      string `json:"kind,omitempty"`
+	MaxBytes  *int   `json:"max_bytes,omitempty"`
+	Path      string `json:"path"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
+// ComputerFileReadResult defines model for ComputerFileReadResult.
+type ComputerFileReadResult struct {
+	// Data Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.
+	Data string `json:"data"`
+	Kind string `json:"kind,omitempty"`
+}
+
+// ComputerFileReadSummary defines model for ComputerFileReadSummary.
+type ComputerFileReadSummary struct {
+	ByteCount int    `json:"byte_count"`
+	Kind      string `json:"kind,omitempty"`
+}
+
+// ComputerFileStat defines model for ComputerFileStat.
+type ComputerFileStat struct {
+	Kind      string `json:"kind,omitempty"`
+	Path      string `json:"path"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
+// ComputerFileStatResult defines model for ComputerFileStatResult.
+type ComputerFileStatResult struct {
+	FileKind  ComputerFileStatResultFileKind `json:"file_kind"`
+	Kind      string                         `json:"kind,omitempty"`
+	SizeBytes int                            `json:"size_bytes"`
+}
+
+// ComputerFileStatResultFileKind defines model for ComputerFileStatResult.FileKind.
+type ComputerFileStatResultFileKind string
+
+// ComputerFileStatSummary defines model for ComputerFileStatSummary.
+type ComputerFileStatSummary struct {
+	FileKind  ComputerFileStatSummaryFileKind `json:"file_kind"`
+	Kind      string                          `json:"kind,omitempty"`
+	SizeBytes int                             `json:"size_bytes"`
+}
+
+// ComputerFileStatSummaryFileKind defines model for ComputerFileStatSummary.FileKind.
+type ComputerFileStatSummaryFileKind string
+
+// ComputerFileWrite defines model for ComputerFileWrite.
+type ComputerFileWrite struct {
+	// Data Padded URL-safe base64 bytes, bounded to 65,536 decoded bytes; standard base64 input is also accepted.
+	Data      string `json:"data"`
+	Kind      string `json:"kind,omitempty"`
+	Path      string `json:"path"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
+// ComputerFileWriteResult defines model for ComputerFileWriteResult.
+type ComputerFileWriteResult struct {
+	ByteCount int    `json:"byte_count"`
+	Kind      string `json:"kind,omitempty"`
+}
+
+// ComputerFileWriteSummary defines model for ComputerFileWriteSummary.
+type ComputerFileWriteSummary struct {
+	ByteCount int    `json:"byte_count"`
+	Kind      string `json:"kind,omitempty"`
+}
+
+// ComputerOperationDetail defines model for ComputerOperationDetail.
+type ComputerOperationDetail struct {
+	// CommandDisplay Redacted exec command line, truncated with a trailing ellipsis. Never the output.
+	CommandDisplay   *string                             `json:"command_display,omitempty"`
+	CompletedAt      *time.Time                          `json:"completed_at,omitempty"`
+	ErrorCode        *ComputerOperationDetailErrorCode   `json:"error_code,omitempty"`
+	ExecutionOrder   int                                 `json:"execution_order"`
+	Kind             ComputerOperationDetailKind         `json:"kind"`
+	ObservedExitCode *int                                `json:"observed_exit_code,omitempty"`
+	Outcome          *ComputerOperationDetailOutcome     `json:"outcome,omitempty"`
+	StartedAt        time.Time                           `json:"started_at"`
+	StepId           openapi_types.UUID                  `json:"step_id"`
+	Summary          *ComputerOperationDetail_Summary    `json:"summary,omitempty"`
+	Termination      *ComputerOperationDetailTermination `json:"termination,omitempty"`
+}
+
+// ComputerOperationDetailErrorCode defines model for ComputerOperationDetail.ErrorCode.
+type ComputerOperationDetailErrorCode string
+
+// ComputerOperationDetailKind defines model for ComputerOperationDetail.Kind.
+type ComputerOperationDetailKind string
+
+// ComputerOperationDetailOutcome defines model for ComputerOperationDetail.Outcome.
+type ComputerOperationDetailOutcome string
+
+// ComputerOperationDetail_Summary defines model for ComputerOperationDetail.Summary.
+type ComputerOperationDetail_Summary struct {
+	union json.RawMessage
+}
+
+// ComputerOperationDetailTermination defines model for ComputerOperationDetail.Termination.
+type ComputerOperationDetailTermination string
+
+// ComputerOperationEvidence defines model for ComputerOperationEvidence.
+type ComputerOperationEvidence struct {
+	CompletedAt      *time.Time                            `json:"completed_at,omitempty"`
+	ErrorCode        *ComputerOperationEvidenceErrorCode   `json:"error_code,omitempty"`
+	ExecutionOrder   int                                   `json:"execution_order"`
+	Kind             ComputerOperationEvidenceKind         `json:"kind"`
+	ObservedExitCode *int                                  `json:"observed_exit_code,omitempty"`
+	Outcome          *ComputerOperationEvidenceOutcome     `json:"outcome,omitempty"`
+	StartedAt        time.Time                             `json:"started_at"`
+	StepId           openapi_types.UUID                    `json:"step_id"`
+	Summary          *ComputerOperationEvidence_Summary    `json:"summary,omitempty"`
+	Termination      *ComputerOperationEvidenceTermination `json:"termination,omitempty"`
+}
+
+// ComputerOperationEvidenceErrorCode defines model for ComputerOperationEvidence.ErrorCode.
+type ComputerOperationEvidenceErrorCode string
+
+// ComputerOperationEvidenceKind defines model for ComputerOperationEvidence.Kind.
+type ComputerOperationEvidenceKind string
+
+// ComputerOperationEvidenceOutcome defines model for ComputerOperationEvidence.Outcome.
+type ComputerOperationEvidenceOutcome string
+
+// ComputerOperationEvidence_Summary defines model for ComputerOperationEvidence.Summary.
+type ComputerOperationEvidence_Summary struct {
+	union json.RawMessage
+}
+
+// ComputerOperationEvidenceTermination defines model for ComputerOperationEvidence.Termination.
+type ComputerOperationEvidenceTermination string
+
+// ComputerProcessHandle defines model for ComputerProcessHandle.
+type ComputerProcessHandle struct {
+	ComputerSessionId openapi_types.UUID `json:"computer_session_id"`
+	HandleId          openapi_types.UUID `json:"handle_id"`
+}
+
+// ComputerProcessInfo defines model for ComputerProcessInfo.
+type ComputerProcessInfo struct {
+	ExitCode *int                     `json:"exit_code,omitempty"`
+	Handle   ComputerProcessHandle    `json:"handle"`
+	State    ComputerProcessInfoState `json:"state"`
+}
+
+// ComputerProcessInfoState defines model for ComputerProcessInfo.State.
+type ComputerProcessInfoState string
+
+// ComputerProcessInspect defines model for ComputerProcessInspect.
+type ComputerProcessInspect struct {
+	Handle    ComputerProcessHandle `json:"handle"`
+	Kind      string                `json:"kind,omitempty"`
+	TimeoutMs *int                  `json:"timeout_ms,omitempty"`
+}
+
+// ComputerProcessInspectResult defines model for ComputerProcessInspectResult.
+type ComputerProcessInspectResult struct {
+	Kind    string              `json:"kind,omitempty"`
+	Process ComputerProcessInfo `json:"process"`
+}
+
+// ComputerProcessInspectSummary defines model for ComputerProcessInspectSummary.
+type ComputerProcessInspectSummary struct {
+	ExitCode *int                               `json:"exit_code,omitempty"`
+	Kind     string                             `json:"kind,omitempty"`
+	State    ComputerProcessInspectSummaryState `json:"state"`
+}
+
+// ComputerProcessInspectSummaryState defines model for ComputerProcessInspectSummary.State.
+type ComputerProcessInspectSummaryState string
+
+// ComputerProcessList defines model for ComputerProcessList.
+type ComputerProcessList struct {
+	Kind      string `json:"kind,omitempty"`
+	MaxItems  *int   `json:"max_items,omitempty"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
+// ComputerProcessListResult defines model for ComputerProcessListResult.
+type ComputerProcessListResult struct {
+	Kind      string                `json:"kind,omitempty"`
+	Processes []ComputerProcessInfo `json:"processes"`
+}
+
+// ComputerProcessListSummary defines model for ComputerProcessListSummary.
+type ComputerProcessListSummary struct {
+	ItemCount int    `json:"item_count"`
+	Kind      string `json:"kind,omitempty"`
+}
+
+// ComputerProcessTerminate defines model for ComputerProcessTerminate.
+type ComputerProcessTerminate struct {
+	Handle    ComputerProcessHandle `json:"handle"`
+	Kind      string                `json:"kind,omitempty"`
+	TimeoutMs *int                  `json:"timeout_ms,omitempty"`
+}
+
+// ComputerProcessTerminateResult defines model for ComputerProcessTerminateResult.
+type ComputerProcessTerminateResult struct {
+	Kind        string  `json:"kind,omitempty"`
+	Termination *string `json:"termination,omitempty"`
+}
+
+// ComputerProcessTerminateSummary defines model for ComputerProcessTerminateSummary.
+type ComputerProcessTerminateSummary struct {
+	Kind        string  `json:"kind,omitempty"`
+	Termination *string `json:"termination,omitempty"`
+}
+
+// ComputerReport defines model for ComputerReport.
+type ComputerReport struct {
+	AsOf                 time.Time                           `json:"as_of"`
+	ChildReports         *[]ComputerChildReportReference     `json:"child_reports,omitempty"`
+	ComputerSessionId    openapi_types.UUID                  `json:"computer_session_id"`
+	CreatedAt            time.Time                           `json:"created_at"`
+	EvidenceCompleteness *ComputerReportEvidenceCompleteness `json:"evidence_completeness,omitempty"`
+	EvidenceWriteStatus  *ComputerReportEvidenceWriteStatus  `json:"evidence_write_status,omitempty"`
+	ExecutionEndedAt     *time.Time                          `json:"execution_ended_at,omitempty"`
+	ExecutionStartedAt   *time.Time                          `json:"execution_started_at,omitempty"`
+	ExpiresAt            time.Time                           `json:"expires_at"`
+	FailureReason        *string                             `json:"failure_reason,omitempty"`
+	Kind                 *string                             `json:"kind,omitempty"`
+	OrgId                openapi_types.UUID                  `json:"org_id"`
+	Os                   ComputerReportOs                    `json:"os"`
+	Release              *ComputerReportRelease              `json:"release,omitempty"`
+	ReleasedAt           *time.Time                          `json:"released_at,omitempty"`
+	ReportId             openapi_types.UUID                  `json:"report_id"`
+	State                *ComputerReportState                `json:"state,omitempty"`
+	Steps                *[]ComputerOperationEvidence        `json:"steps,omitempty"`
+	Version              *int                                `json:"version,omitempty"`
+
+	// WaitingForHostSince While a starting computer's owner run waits for a host with a free slot, when it first found none.
+	WaitingForHostSince *time.Time `json:"waiting_for_host_since,omitempty"`
+}
+
+// ComputerReportEvidenceCompleteness defines model for ComputerReport.EvidenceCompleteness.
+type ComputerReportEvidenceCompleteness string
+
+// ComputerReportEvidenceWriteStatus defines model for ComputerReport.EvidenceWriteStatus.
+type ComputerReportEvidenceWriteStatus string
+
+// ComputerReportOs defines model for ComputerReport.Os.
+type ComputerReportOs string
+
+// ComputerReportRelease defines model for ComputerReport.Release.
+type ComputerReportRelease string
+
+// ComputerReportState defines model for ComputerReport.State.
+type ComputerReportState string
+
+// ComputerReportDetail defines model for ComputerReportDetail.
+type ComputerReportDetail struct {
+	AsOf                 time.Time                                 `json:"as_of"`
+	ChildReports         *[]ComputerChildReportReference           `json:"child_reports,omitempty"`
+	ComputerSessionId    openapi_types.UUID                        `json:"computer_session_id"`
+	CreatedAt            time.Time                                 `json:"created_at"`
+	EvidenceCompleteness *ComputerReportDetailEvidenceCompleteness `json:"evidence_completeness,omitempty"`
+	EvidenceWriteStatus  *ComputerReportDetailEvidenceWriteStatus  `json:"evidence_write_status,omitempty"`
+	ExecutionEndedAt     *time.Time                                `json:"execution_ended_at,omitempty"`
+	ExecutionStartedAt   *time.Time                                `json:"execution_started_at,omitempty"`
+	ExpiresAt            time.Time                                 `json:"expires_at"`
+	FailureReason        *string                                   `json:"failure_reason,omitempty"`
+	Kind                 *string                                   `json:"kind,omitempty"`
+	OrgId                openapi_types.UUID                        `json:"org_id"`
+	Os                   ComputerReportDetailOs                    `json:"os"`
+	Release              *ComputerReportDetailRelease              `json:"release,omitempty"`
+	ReleasedAt           *time.Time                                `json:"released_at,omitempty"`
+	ReportId             openapi_types.UUID                        `json:"report_id"`
+	State                *ComputerReportDetailState                `json:"state,omitempty"`
+	Steps                *[]ComputerOperationDetail                `json:"steps,omitempty"`
+	Version              *int                                      `json:"version,omitempty"`
+
+	// WaitingForHostSince While a starting computer's owner run waits for a host with a free slot, when it first found none.
+	WaitingForHostSince *time.Time `json:"waiting_for_host_since,omitempty"`
+}
+
+// ComputerReportDetailEvidenceCompleteness defines model for ComputerReportDetail.EvidenceCompleteness.
+type ComputerReportDetailEvidenceCompleteness string
+
+// ComputerReportDetailEvidenceWriteStatus defines model for ComputerReportDetail.EvidenceWriteStatus.
+type ComputerReportDetailEvidenceWriteStatus string
+
+// ComputerReportDetailOs defines model for ComputerReportDetail.Os.
+type ComputerReportDetailOs string
+
+// ComputerReportDetailRelease defines model for ComputerReportDetail.Release.
+type ComputerReportDetailRelease string
+
+// ComputerReportDetailState defines model for ComputerReportDetail.State.
+type ComputerReportDetailState string
+
+// ComputerRunCreate defines model for ComputerRunCreate.
+type ComputerRunCreate struct {
+	ComputerSessionId openapi_types.UUID  `json:"computer_session_id"`
+	Os                ComputerRunCreateOs `json:"os"`
+}
+
+// ComputerRunCreateOs defines model for ComputerRunCreate.Os.
+type ComputerRunCreateOs string
+
+// ComputerRunListResponse defines model for ComputerRunListResponse.
+type ComputerRunListResponse struct {
+	Computers []ComputerRunSummary `json:"computers"`
+	Limit     int                  `json:"limit"`
+	Offset    int                  `json:"offset"`
+	Total     int                  `json:"total"`
+}
+
+// ComputerRunSummary defines model for ComputerRunSummary.
+type ComputerRunSummary struct {
+	ComputerSessionId    openapi_types.UUID                     `json:"computer_session_id"`
+	CreatedAt            time.Time                              `json:"created_at"`
+	EvidenceCompleteness ComputerRunSummaryEvidenceCompleteness `json:"evidence_completeness"`
+	EvidenceWriteStatus  ComputerRunSummaryEvidenceWriteStatus  `json:"evidence_write_status"`
+	ExecutionEndedAt     *time.Time                             `json:"execution_ended_at"`
+	ExecutionStartedAt   *time.Time                             `json:"execution_started_at"`
+	ExpiresAt            time.Time                              `json:"expires_at"`
+	Os                   ComputerRunSummaryOs                   `json:"os"`
+	Release              ComputerRunSummaryRelease              `json:"release"`
+	ReleasedAt           *time.Time                             `json:"released_at"`
+	State                ComputerRunSummaryState                `json:"state"`
+}
+
+// ComputerRunSummaryEvidenceCompleteness defines model for ComputerRunSummary.EvidenceCompleteness.
+type ComputerRunSummaryEvidenceCompleteness string
+
+// ComputerRunSummaryEvidenceWriteStatus defines model for ComputerRunSummary.EvidenceWriteStatus.
+type ComputerRunSummaryEvidenceWriteStatus string
+
+// ComputerRunSummaryOs defines model for ComputerRunSummary.Os.
+type ComputerRunSummaryOs string
+
+// ComputerRunSummaryRelease defines model for ComputerRunSummary.Release.
+type ComputerRunSummaryRelease string
+
+// ComputerRunSummaryState defines model for ComputerRunSummary.State.
+type ComputerRunSummaryState string
+
+// ComputerSucceeded defines model for ComputerSucceeded.
+type ComputerSucceeded struct {
+	Outcome string                   `json:"outcome,omitempty"`
+	Result  ComputerSucceeded_Result `json:"result"`
+}
+
+// ComputerSucceeded_Result defines model for ComputerSucceeded.Result.
+type ComputerSucceeded_Result struct {
+	union json.RawMessage
+}
+
+// ComputerTimedOut defines model for ComputerTimedOut.
+type ComputerTimedOut struct {
+	ErrorCode        *string                     `json:"error_code,omitempty"`
+	ObservedExitCode *int                        `json:"observed_exit_code,omitempty"`
+	Outcome          string                      `json:"outcome,omitempty"`
+	Termination      ComputerTimedOutTermination `json:"termination"`
+}
+
+// ComputerTimedOutTermination defines model for ComputerTimedOut.Termination.
+type ComputerTimedOutTermination string
+
+// ComputerUnknown defines model for ComputerUnknown.
+type ComputerUnknown struct {
+	ErrorCode   ComputerUnknownErrorCode    `json:"error_code"`
+	Outcome     string                      `json:"outcome,omitempty"`
+	Termination *ComputerUnknownTermination `json:"termination,omitempty"`
+}
+
+// ComputerUnknownErrorCode defines model for ComputerUnknown.ErrorCode.
+type ComputerUnknownErrorCode string
+
+// ComputerUnknownTermination defines model for ComputerUnknown.Termination.
+type ComputerUnknownTermination string
+
 // ConfigurationAuthority Server-derived owner of the current project configuration.
 type ConfigurationAuthority string
 
@@ -4963,6 +6726,7 @@ type DeviceSessionDetailResponse struct {
 	CanCancel                 *bool                                     `json:"can_cancel,omitempty"`
 	CanInteract               *bool                                     `json:"can_interact,omitempty"`
 	CloudAgentConversation    *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	ComputerSessionId         *string                                   `json:"computer_session_id,omitempty"`
 	CreatedAt                 *string                                   `json:"created_at,omitempty"`
 	DeviceModel               *string                                   `json:"device_model,omitempty"`
 	DurationSeconds           *float32                                  `json:"duration_seconds,omitempty"`
@@ -5013,6 +6777,7 @@ type DeviceSessionHistoryItem struct {
 
 	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
 	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+	ComputerRelease                 *DeviceSessionHistoryItemComputerRelease        `json:"computer_release,omitempty"`
 	CreatedAt                       *string                                         `json:"created_at,omitempty"`
 	DeviceModel                     *string                                         `json:"device_model,omitempty"`
 	DurationSeconds                 *float32                                        `json:"duration_seconds,omitempty"`
@@ -5038,6 +6803,9 @@ type DeviceSessionHistoryItem struct {
 	WorkflowName                    *string                                         `json:"workflow_name,omitempty"`
 	WorkflowRunId                   *string                                         `json:"workflow_run_id,omitempty"`
 }
+
+// DeviceSessionHistoryItemComputerRelease defines model for DeviceSessionHistoryItem.ComputerRelease.
+type DeviceSessionHistoryItemComputerRelease string
 
 // DeviceSessionHistoryResponse Paginated device session history response.
 type DeviceSessionHistoryResponse struct {
@@ -7323,8 +9091,11 @@ type StartDeviceInfo struct {
 	// BuildId Specific `builds` table row UUID. When provided, the backend uses this exact build instead of resolving the latest build for the given `app_id`.
 	BuildId        *openapi_types.UUID `json:"build_id,omitempty"`
 	BuildSelection *BuildSelectionMode `json:"build_selection,omitempty"`
-	DeviceLocal    *bool               `json:"device_local,omitempty"`
-	DeviceModel    *string             `json:"device_model,omitempty"`
+
+	// ComputerSessionId Run this Web app session inside a live computer in the caller's organization (requires a role that can modify sessions). Only external Web builds are accepted, and only while the computer's hosting capability lists the platform.
+	ComputerSessionId *openapi_types.UUID `json:"computer_session_id,omitempty"`
+	DeviceLocal       *bool               `json:"device_local,omitempty"`
+	DeviceModel       *string             `json:"device_model,omitempty"`
 
 	// DeviceRunnerId Optional worker DEVICE_ID label to require for direct device sessions.
 	DeviceRunnerId *string            `json:"device_runner_id,omitempty"`
@@ -9094,6 +10865,17 @@ type CreateSessionGroundedAnnotationThreadParams struct {
 	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
 }
 
+// ListComputerRunsApiV1ComputerRunsGetParams defines parameters for ListComputerRunsApiV1ComputerRunsGet.
+type ListComputerRunsApiV1ComputerRunsGetParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostParams defines parameters for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost.
+type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostParams struct {
+	Prefer *string `json:"prefer,omitempty"`
+}
+
 // ListOrganizationMembersApiV1EntityOrgsMembersGetParams defines parameters for ListOrganizationMembersApiV1EntityOrgsMembersGet.
 type ListOrganizationMembersApiV1EntityOrgsMembersGetParams struct {
 	Q     *string `form:"q,omitempty" json:"q,omitempty"`
@@ -9119,6 +10901,8 @@ type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams struct {
 
 // GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams defines parameters for GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGet.
 type GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams struct {
+	IncludeComputers                       *bool   `form:"include_computers,omitempty" json:"include_computers,omitempty"`
+	ExcludeHosted                          *bool   `form:"exclude_hosted,omitempty" json:"exclude_hosted,omitempty"`
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
@@ -9139,6 +10923,13 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	AppId                                *openapi_types.UUID   `form:"app_id,omitempty" json:"app_id,omitempty"`
 	BranchId                             *openapi_types.UUID   `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	BranchName                           *string               `form:"branch_name,omitempty" json:"branch_name,omitempty"`
+	IncludeComputers                     *bool                 `form:"include_computers,omitempty" json:"include_computers,omitempty"`
+	ExcludeHosted                        *bool                 `form:"exclude_hosted,omitempty" json:"exclude_hosted,omitempty"`
+}
+
+// GetDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdGetParams defines parameters for GetDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdGet.
+type GetDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdGetParams struct {
+	IncludeComputers *bool `form:"include_computers,omitempty" json:"include_computers,omitempty"`
 }
 
 // StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPostParams defines parameters for StopDeviceSessionApiV1ExecutionDeviceSessionsSessionIdStopPost.
@@ -9574,6 +11365,12 @@ type PreviewSessionAtlasAnnotationAnchorJSONRequestBody = AtlasSessionAnnotation
 
 // CreateSessionGroundedAnnotationThreadJSONRequestBody defines body for CreateSessionGroundedAnnotationThread for application/json ContentType.
 type CreateSessionGroundedAnnotationThreadJSONRequestBody = AtlasSessionGroundedAnnotationThreadCreateRequest
+
+// CreateComputerRunApiV1ComputerRunsPostJSONRequestBody defines body for CreateComputerRunApiV1ComputerRunsPost for application/json ContentType.
+type CreateComputerRunApiV1ComputerRunsPostJSONRequestBody = ComputerRunCreate
+
+// SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody defines body for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost for application/json ContentType.
+type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody = ComputerCommandRequest
 
 // CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody defines body for CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPost for application/json ContentType.
 type CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody = CreateCLIDeviceAuthorizationRequest
@@ -12632,6 +14429,1199 @@ func (t CloudAgentConversationAttributionSummary_Launch) MarshalJSON() ([]byte, 
 }
 
 func (t *CloudAgentConversationAttributionSummary_Launch) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerAPIErrorDetail0 returns the union data inside the ComputerAPIError_Detail as a ComputerAPIErrorDetail0
+func (t ComputerAPIError_Detail) AsComputerAPIErrorDetail0() (ComputerAPIErrorDetail0, error) {
+	var body ComputerAPIErrorDetail0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerAPIErrorDetail0 overwrites any union data inside the ComputerAPIError_Detail as the provided ComputerAPIErrorDetail0
+func (t *ComputerAPIError_Detail) FromComputerAPIErrorDetail0(v ComputerAPIErrorDetail0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerAPIErrorDetail0 performs a merge with any union data inside the ComputerAPIError_Detail, using the provided ComputerAPIErrorDetail0
+func (t *ComputerAPIError_Detail) MergeComputerAPIErrorDetail0(v ComputerAPIErrorDetail0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerAPIErrorDetail1 returns the union data inside the ComputerAPIError_Detail as a ComputerAPIErrorDetail1
+func (t ComputerAPIError_Detail) AsComputerAPIErrorDetail1() (ComputerAPIErrorDetail1, error) {
+	var body ComputerAPIErrorDetail1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerAPIErrorDetail1 overwrites any union data inside the ComputerAPIError_Detail as the provided ComputerAPIErrorDetail1
+func (t *ComputerAPIError_Detail) FromComputerAPIErrorDetail1(v ComputerAPIErrorDetail1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerAPIErrorDetail1 performs a merge with any union data inside the ComputerAPIError_Detail, using the provided ComputerAPIErrorDetail1
+func (t *ComputerAPIError_Detail) MergeComputerAPIErrorDetail1(v ComputerAPIErrorDetail1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerAPIErrorDetail2 returns the union data inside the ComputerAPIError_Detail as a ComputerAPIErrorDetail2
+func (t ComputerAPIError_Detail) AsComputerAPIErrorDetail2() (ComputerAPIErrorDetail2, error) {
+	var body ComputerAPIErrorDetail2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerAPIErrorDetail2 overwrites any union data inside the ComputerAPIError_Detail as the provided ComputerAPIErrorDetail2
+func (t *ComputerAPIError_Detail) FromComputerAPIErrorDetail2(v ComputerAPIErrorDetail2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerAPIErrorDetail2 performs a merge with any union data inside the ComputerAPIError_Detail, using the provided ComputerAPIErrorDetail2
+func (t *ComputerAPIError_Detail) MergeComputerAPIErrorDetail2(v ComputerAPIErrorDetail2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerAPIError_Detail) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerAPIError_Detail) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerExec returns the union data inside the ComputerCommandRequest_Command as a ComputerExec
+func (t ComputerCommandRequest_Command) AsComputerExec() (ComputerExec, error) {
+	var body ComputerExec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerExec overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerExec
+func (t *ComputerCommandRequest_Command) FromComputerExec(v ComputerExec) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerExec performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerExec
+func (t *ComputerCommandRequest_Command) MergeComputerExec(v ComputerExec) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileRead returns the union data inside the ComputerCommandRequest_Command as a ComputerFileRead
+func (t ComputerCommandRequest_Command) AsComputerFileRead() (ComputerFileRead, error) {
+	var body ComputerFileRead
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileRead overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerFileRead
+func (t *ComputerCommandRequest_Command) FromComputerFileRead(v ComputerFileRead) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileRead performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerFileRead
+func (t *ComputerCommandRequest_Command) MergeComputerFileRead(v ComputerFileRead) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileWrite returns the union data inside the ComputerCommandRequest_Command as a ComputerFileWrite
+func (t ComputerCommandRequest_Command) AsComputerFileWrite() (ComputerFileWrite, error) {
+	var body ComputerFileWrite
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileWrite overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerFileWrite
+func (t *ComputerCommandRequest_Command) FromComputerFileWrite(v ComputerFileWrite) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileWrite performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerFileWrite
+func (t *ComputerCommandRequest_Command) MergeComputerFileWrite(v ComputerFileWrite) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileStat returns the union data inside the ComputerCommandRequest_Command as a ComputerFileStat
+func (t ComputerCommandRequest_Command) AsComputerFileStat() (ComputerFileStat, error) {
+	var body ComputerFileStat
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileStat overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerFileStat
+func (t *ComputerCommandRequest_Command) FromComputerFileStat(v ComputerFileStat) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileStat performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerFileStat
+func (t *ComputerCommandRequest_Command) MergeComputerFileStat(v ComputerFileStat) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessList returns the union data inside the ComputerCommandRequest_Command as a ComputerProcessList
+func (t ComputerCommandRequest_Command) AsComputerProcessList() (ComputerProcessList, error) {
+	var body ComputerProcessList
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessList overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerProcessList
+func (t *ComputerCommandRequest_Command) FromComputerProcessList(v ComputerProcessList) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessList performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerProcessList
+func (t *ComputerCommandRequest_Command) MergeComputerProcessList(v ComputerProcessList) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessInspect returns the union data inside the ComputerCommandRequest_Command as a ComputerProcessInspect
+func (t ComputerCommandRequest_Command) AsComputerProcessInspect() (ComputerProcessInspect, error) {
+	var body ComputerProcessInspect
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessInspect overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerProcessInspect
+func (t *ComputerCommandRequest_Command) FromComputerProcessInspect(v ComputerProcessInspect) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessInspect performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerProcessInspect
+func (t *ComputerCommandRequest_Command) MergeComputerProcessInspect(v ComputerProcessInspect) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessTerminate returns the union data inside the ComputerCommandRequest_Command as a ComputerProcessTerminate
+func (t ComputerCommandRequest_Command) AsComputerProcessTerminate() (ComputerProcessTerminate, error) {
+	var body ComputerProcessTerminate
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessTerminate overwrites any union data inside the ComputerCommandRequest_Command as the provided ComputerProcessTerminate
+func (t *ComputerCommandRequest_Command) FromComputerProcessTerminate(v ComputerProcessTerminate) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessTerminate performs a merge with any union data inside the ComputerCommandRequest_Command, using the provided ComputerProcessTerminate
+func (t *ComputerCommandRequest_Command) MergeComputerProcessTerminate(v ComputerProcessTerminate) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerCommandRequest_Command) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ComputerCommandRequest_Command) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "exec":
+		return t.AsComputerExec()
+	case "file_read":
+		return t.AsComputerFileRead()
+	case "file_stat":
+		return t.AsComputerFileStat()
+	case "file_write":
+		return t.AsComputerFileWrite()
+	case "process_inspect":
+		return t.AsComputerProcessInspect()
+	case "process_list":
+		return t.AsComputerProcessList()
+	case "process_terminate":
+		return t.AsComputerProcessTerminate()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ComputerCommandRequest_Command) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerCommandRequest_Command) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerSucceeded returns the union data inside the ComputerCommandResponse_Execution as a ComputerSucceeded
+func (t ComputerCommandResponse_Execution) AsComputerSucceeded() (ComputerSucceeded, error) {
+	var body ComputerSucceeded
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerSucceeded overwrites any union data inside the ComputerCommandResponse_Execution as the provided ComputerSucceeded
+func (t *ComputerCommandResponse_Execution) FromComputerSucceeded(v ComputerSucceeded) error {
+	v.Outcome = "succeeded"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerSucceeded performs a merge with any union data inside the ComputerCommandResponse_Execution, using the provided ComputerSucceeded
+func (t *ComputerCommandResponse_Execution) MergeComputerSucceeded(v ComputerSucceeded) error {
+	v.Outcome = "succeeded"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFailed returns the union data inside the ComputerCommandResponse_Execution as a ComputerFailed
+func (t ComputerCommandResponse_Execution) AsComputerFailed() (ComputerFailed, error) {
+	var body ComputerFailed
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFailed overwrites any union data inside the ComputerCommandResponse_Execution as the provided ComputerFailed
+func (t *ComputerCommandResponse_Execution) FromComputerFailed(v ComputerFailed) error {
+	v.Outcome = "failed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFailed performs a merge with any union data inside the ComputerCommandResponse_Execution, using the provided ComputerFailed
+func (t *ComputerCommandResponse_Execution) MergeComputerFailed(v ComputerFailed) error {
+	v.Outcome = "failed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerTimedOut returns the union data inside the ComputerCommandResponse_Execution as a ComputerTimedOut
+func (t ComputerCommandResponse_Execution) AsComputerTimedOut() (ComputerTimedOut, error) {
+	var body ComputerTimedOut
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerTimedOut overwrites any union data inside the ComputerCommandResponse_Execution as the provided ComputerTimedOut
+func (t *ComputerCommandResponse_Execution) FromComputerTimedOut(v ComputerTimedOut) error {
+	v.Outcome = "timed_out"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerTimedOut performs a merge with any union data inside the ComputerCommandResponse_Execution, using the provided ComputerTimedOut
+func (t *ComputerCommandResponse_Execution) MergeComputerTimedOut(v ComputerTimedOut) error {
+	v.Outcome = "timed_out"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerUnknown returns the union data inside the ComputerCommandResponse_Execution as a ComputerUnknown
+func (t ComputerCommandResponse_Execution) AsComputerUnknown() (ComputerUnknown, error) {
+	var body ComputerUnknown
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerUnknown overwrites any union data inside the ComputerCommandResponse_Execution as the provided ComputerUnknown
+func (t *ComputerCommandResponse_Execution) FromComputerUnknown(v ComputerUnknown) error {
+	v.Outcome = "unknown"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerUnknown performs a merge with any union data inside the ComputerCommandResponse_Execution, using the provided ComputerUnknown
+func (t *ComputerCommandResponse_Execution) MergeComputerUnknown(v ComputerUnknown) error {
+	v.Outcome = "unknown"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerCommandResponse_Execution) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"outcome"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ComputerCommandResponse_Execution) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "failed":
+		return t.AsComputerFailed()
+	case "succeeded":
+		return t.AsComputerSucceeded()
+	case "timed_out":
+		return t.AsComputerTimedOut()
+	case "unknown":
+		return t.AsComputerUnknown()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ComputerCommandResponse_Execution) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerCommandResponse_Execution) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerExecSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerExecSummary
+func (t ComputerOperationDetail_Summary) AsComputerExecSummary() (ComputerExecSummary, error) {
+	var body ComputerExecSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerExecSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerExecSummary
+func (t *ComputerOperationDetail_Summary) FromComputerExecSummary(v ComputerExecSummary) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerExecSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerExecSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerExecSummary(v ComputerExecSummary) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileReadSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerFileReadSummary
+func (t ComputerOperationDetail_Summary) AsComputerFileReadSummary() (ComputerFileReadSummary, error) {
+	var body ComputerFileReadSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileReadSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerFileReadSummary
+func (t *ComputerOperationDetail_Summary) FromComputerFileReadSummary(v ComputerFileReadSummary) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileReadSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerFileReadSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerFileReadSummary(v ComputerFileReadSummary) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileWriteSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerFileWriteSummary
+func (t ComputerOperationDetail_Summary) AsComputerFileWriteSummary() (ComputerFileWriteSummary, error) {
+	var body ComputerFileWriteSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileWriteSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerFileWriteSummary
+func (t *ComputerOperationDetail_Summary) FromComputerFileWriteSummary(v ComputerFileWriteSummary) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileWriteSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerFileWriteSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerFileWriteSummary(v ComputerFileWriteSummary) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileStatSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerFileStatSummary
+func (t ComputerOperationDetail_Summary) AsComputerFileStatSummary() (ComputerFileStatSummary, error) {
+	var body ComputerFileStatSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileStatSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerFileStatSummary
+func (t *ComputerOperationDetail_Summary) FromComputerFileStatSummary(v ComputerFileStatSummary) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileStatSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerFileStatSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerFileStatSummary(v ComputerFileStatSummary) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessListSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerProcessListSummary
+func (t ComputerOperationDetail_Summary) AsComputerProcessListSummary() (ComputerProcessListSummary, error) {
+	var body ComputerProcessListSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessListSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerProcessListSummary
+func (t *ComputerOperationDetail_Summary) FromComputerProcessListSummary(v ComputerProcessListSummary) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessListSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerProcessListSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerProcessListSummary(v ComputerProcessListSummary) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessInspectSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerProcessInspectSummary
+func (t ComputerOperationDetail_Summary) AsComputerProcessInspectSummary() (ComputerProcessInspectSummary, error) {
+	var body ComputerProcessInspectSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessInspectSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerProcessInspectSummary
+func (t *ComputerOperationDetail_Summary) FromComputerProcessInspectSummary(v ComputerProcessInspectSummary) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessInspectSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerProcessInspectSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerProcessInspectSummary(v ComputerProcessInspectSummary) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessTerminateSummary returns the union data inside the ComputerOperationDetail_Summary as a ComputerProcessTerminateSummary
+func (t ComputerOperationDetail_Summary) AsComputerProcessTerminateSummary() (ComputerProcessTerminateSummary, error) {
+	var body ComputerProcessTerminateSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessTerminateSummary overwrites any union data inside the ComputerOperationDetail_Summary as the provided ComputerProcessTerminateSummary
+func (t *ComputerOperationDetail_Summary) FromComputerProcessTerminateSummary(v ComputerProcessTerminateSummary) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessTerminateSummary performs a merge with any union data inside the ComputerOperationDetail_Summary, using the provided ComputerProcessTerminateSummary
+func (t *ComputerOperationDetail_Summary) MergeComputerProcessTerminateSummary(v ComputerProcessTerminateSummary) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerOperationDetail_Summary) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ComputerOperationDetail_Summary) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "exec":
+		return t.AsComputerExecSummary()
+	case "file_read":
+		return t.AsComputerFileReadSummary()
+	case "file_stat":
+		return t.AsComputerFileStatSummary()
+	case "file_write":
+		return t.AsComputerFileWriteSummary()
+	case "process_inspect":
+		return t.AsComputerProcessInspectSummary()
+	case "process_list":
+		return t.AsComputerProcessListSummary()
+	case "process_terminate":
+		return t.AsComputerProcessTerminateSummary()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ComputerOperationDetail_Summary) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerOperationDetail_Summary) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerExecSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerExecSummary
+func (t ComputerOperationEvidence_Summary) AsComputerExecSummary() (ComputerExecSummary, error) {
+	var body ComputerExecSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerExecSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerExecSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerExecSummary(v ComputerExecSummary) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerExecSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerExecSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerExecSummary(v ComputerExecSummary) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileReadSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerFileReadSummary
+func (t ComputerOperationEvidence_Summary) AsComputerFileReadSummary() (ComputerFileReadSummary, error) {
+	var body ComputerFileReadSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileReadSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerFileReadSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerFileReadSummary(v ComputerFileReadSummary) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileReadSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerFileReadSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerFileReadSummary(v ComputerFileReadSummary) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileWriteSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerFileWriteSummary
+func (t ComputerOperationEvidence_Summary) AsComputerFileWriteSummary() (ComputerFileWriteSummary, error) {
+	var body ComputerFileWriteSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileWriteSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerFileWriteSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerFileWriteSummary(v ComputerFileWriteSummary) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileWriteSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerFileWriteSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerFileWriteSummary(v ComputerFileWriteSummary) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileStatSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerFileStatSummary
+func (t ComputerOperationEvidence_Summary) AsComputerFileStatSummary() (ComputerFileStatSummary, error) {
+	var body ComputerFileStatSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileStatSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerFileStatSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerFileStatSummary(v ComputerFileStatSummary) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileStatSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerFileStatSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerFileStatSummary(v ComputerFileStatSummary) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessListSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerProcessListSummary
+func (t ComputerOperationEvidence_Summary) AsComputerProcessListSummary() (ComputerProcessListSummary, error) {
+	var body ComputerProcessListSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessListSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerProcessListSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerProcessListSummary(v ComputerProcessListSummary) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessListSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerProcessListSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerProcessListSummary(v ComputerProcessListSummary) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessInspectSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerProcessInspectSummary
+func (t ComputerOperationEvidence_Summary) AsComputerProcessInspectSummary() (ComputerProcessInspectSummary, error) {
+	var body ComputerProcessInspectSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessInspectSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerProcessInspectSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerProcessInspectSummary(v ComputerProcessInspectSummary) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessInspectSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerProcessInspectSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerProcessInspectSummary(v ComputerProcessInspectSummary) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessTerminateSummary returns the union data inside the ComputerOperationEvidence_Summary as a ComputerProcessTerminateSummary
+func (t ComputerOperationEvidence_Summary) AsComputerProcessTerminateSummary() (ComputerProcessTerminateSummary, error) {
+	var body ComputerProcessTerminateSummary
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessTerminateSummary overwrites any union data inside the ComputerOperationEvidence_Summary as the provided ComputerProcessTerminateSummary
+func (t *ComputerOperationEvidence_Summary) FromComputerProcessTerminateSummary(v ComputerProcessTerminateSummary) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessTerminateSummary performs a merge with any union data inside the ComputerOperationEvidence_Summary, using the provided ComputerProcessTerminateSummary
+func (t *ComputerOperationEvidence_Summary) MergeComputerProcessTerminateSummary(v ComputerProcessTerminateSummary) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerOperationEvidence_Summary) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ComputerOperationEvidence_Summary) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "exec":
+		return t.AsComputerExecSummary()
+	case "file_read":
+		return t.AsComputerFileReadSummary()
+	case "file_stat":
+		return t.AsComputerFileStatSummary()
+	case "file_write":
+		return t.AsComputerFileWriteSummary()
+	case "process_inspect":
+		return t.AsComputerProcessInspectSummary()
+	case "process_list":
+		return t.AsComputerProcessListSummary()
+	case "process_terminate":
+		return t.AsComputerProcessTerminateSummary()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ComputerOperationEvidence_Summary) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerOperationEvidence_Summary) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerExecResult returns the union data inside the ComputerSucceeded_Result as a ComputerExecResult
+func (t ComputerSucceeded_Result) AsComputerExecResult() (ComputerExecResult, error) {
+	var body ComputerExecResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerExecResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerExecResult
+func (t *ComputerSucceeded_Result) FromComputerExecResult(v ComputerExecResult) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerExecResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerExecResult
+func (t *ComputerSucceeded_Result) MergeComputerExecResult(v ComputerExecResult) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileReadResult returns the union data inside the ComputerSucceeded_Result as a ComputerFileReadResult
+func (t ComputerSucceeded_Result) AsComputerFileReadResult() (ComputerFileReadResult, error) {
+	var body ComputerFileReadResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileReadResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerFileReadResult
+func (t *ComputerSucceeded_Result) FromComputerFileReadResult(v ComputerFileReadResult) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileReadResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerFileReadResult
+func (t *ComputerSucceeded_Result) MergeComputerFileReadResult(v ComputerFileReadResult) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileWriteResult returns the union data inside the ComputerSucceeded_Result as a ComputerFileWriteResult
+func (t ComputerSucceeded_Result) AsComputerFileWriteResult() (ComputerFileWriteResult, error) {
+	var body ComputerFileWriteResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileWriteResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerFileWriteResult
+func (t *ComputerSucceeded_Result) FromComputerFileWriteResult(v ComputerFileWriteResult) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileWriteResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerFileWriteResult
+func (t *ComputerSucceeded_Result) MergeComputerFileWriteResult(v ComputerFileWriteResult) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileStatResult returns the union data inside the ComputerSucceeded_Result as a ComputerFileStatResult
+func (t ComputerSucceeded_Result) AsComputerFileStatResult() (ComputerFileStatResult, error) {
+	var body ComputerFileStatResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileStatResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerFileStatResult
+func (t *ComputerSucceeded_Result) FromComputerFileStatResult(v ComputerFileStatResult) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileStatResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerFileStatResult
+func (t *ComputerSucceeded_Result) MergeComputerFileStatResult(v ComputerFileStatResult) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessListResult returns the union data inside the ComputerSucceeded_Result as a ComputerProcessListResult
+func (t ComputerSucceeded_Result) AsComputerProcessListResult() (ComputerProcessListResult, error) {
+	var body ComputerProcessListResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessListResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerProcessListResult
+func (t *ComputerSucceeded_Result) FromComputerProcessListResult(v ComputerProcessListResult) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessListResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerProcessListResult
+func (t *ComputerSucceeded_Result) MergeComputerProcessListResult(v ComputerProcessListResult) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessInspectResult returns the union data inside the ComputerSucceeded_Result as a ComputerProcessInspectResult
+func (t ComputerSucceeded_Result) AsComputerProcessInspectResult() (ComputerProcessInspectResult, error) {
+	var body ComputerProcessInspectResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessInspectResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerProcessInspectResult
+func (t *ComputerSucceeded_Result) FromComputerProcessInspectResult(v ComputerProcessInspectResult) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessInspectResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerProcessInspectResult
+func (t *ComputerSucceeded_Result) MergeComputerProcessInspectResult(v ComputerProcessInspectResult) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessTerminateResult returns the union data inside the ComputerSucceeded_Result as a ComputerProcessTerminateResult
+func (t ComputerSucceeded_Result) AsComputerProcessTerminateResult() (ComputerProcessTerminateResult, error) {
+	var body ComputerProcessTerminateResult
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessTerminateResult overwrites any union data inside the ComputerSucceeded_Result as the provided ComputerProcessTerminateResult
+func (t *ComputerSucceeded_Result) FromComputerProcessTerminateResult(v ComputerProcessTerminateResult) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessTerminateResult performs a merge with any union data inside the ComputerSucceeded_Result, using the provided ComputerProcessTerminateResult
+func (t *ComputerSucceeded_Result) MergeComputerProcessTerminateResult(v ComputerProcessTerminateResult) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerSucceeded_Result) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ComputerSucceeded_Result) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "exec":
+		return t.AsComputerExecResult()
+	case "file_read":
+		return t.AsComputerFileReadResult()
+	case "file_stat":
+		return t.AsComputerFileStatResult()
+	case "file_write":
+		return t.AsComputerFileWriteResult()
+	case "process_inspect":
+		return t.AsComputerProcessInspectResult()
+	case "process_list":
+		return t.AsComputerProcessListResult()
+	case "process_terminate":
+		return t.AsComputerProcessTerminateResult()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ComputerSucceeded_Result) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerSucceeded_Result) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

@@ -90,7 +90,7 @@ func TestRuntimeViewerWHEPDiscoveryPreservesObservedReadiness(t *testing.T) {
 				case "/api/v1/entity/users/get_user_uuid":
 					_, _ = w.Write([]byte(`{"org_id":"fixture-org","email":"fixture@example.test"}`))
 				case "/api/v1/execution/device-sessions/active":
-					_, _ = w.Write([]byte(`{"org_id":"fixture-org","sessions":[{"id":"` + startIDSessionID + `","org_id":"fixture-org","platform":"web","status":"running","source":"api"}]}`))
+					_, _ = w.Write([]byte(`{"org_id":"fixture-org","sessions":[{"id":"` + startIDSessionID + `","org_id":"fixture-org","platform":"web","status":"running","source":"api","user_email":"fixture@example.test"}]}`))
 				case "/api/v1/execution/device-sessions/" + startIDSessionID:
 					detail := runtimeProjectedSessionDetail(startIDSessionID, "running")
 					detail["viewer_kind"] = viewerKind

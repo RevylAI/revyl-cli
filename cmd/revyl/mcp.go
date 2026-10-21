@@ -137,6 +137,7 @@ func init() {
 	mcpCmd.AddCommand(mcpServeCmd)
 	mcpServeCmd.Flags().String("profile", "", "Tool profile: 'dev' (focused), 'core', or 'full'. Omit for legacy flat mode.")
 	mcpServeCmd.Flags().Bool("experimental-workspace", false, "Enable the experimental embedded Atlas and device workspace (MCP Apps hosts only)")
+	mcpServeCmd.Flags().Bool("experimental-computer", false, "Enable the unreleased computer screen tool")
 }
 
 // runMCPServe starts the MCP server.
@@ -147,6 +148,9 @@ func runMCPServe(cmd *cobra.Command, args []string) error {
 	var opts []mcp.ServerOption
 	if enabled, _ := cmd.Flags().GetBool("experimental-workspace"); enabled {
 		opts = append(opts, mcp.WithExperimentalWorkspace())
+	}
+	if enabled, _ := cmd.Flags().GetBool("experimental-computer"); enabled {
+		opts = append(opts, mcp.WithExperimentalComputer())
 	}
 	switch profileStr {
 	case "dev":

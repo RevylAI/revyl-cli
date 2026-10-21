@@ -92,13 +92,13 @@ func serveProofRunListing(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/entity/users/get_user_uuid":
-			_, _ = w.Write([]byte(`{"user_id":"proof","org_id":"org-1","email":""}`))
+			_, _ = w.Write([]byte(`{"user_id":"proof","org_id":"org-1","email":"proof@example.test"}`))
 		case "/api/v1/execution/device-sessions/active":
 			_, _ = w.Write([]byte(`{"org_id":"org-1","proof_run_id":"` + proofStartRunID + `","sessions":[
-				{"id":"` + proofStartSessionID + `","org_id":"org-1","platform":"ios","source":"cli","status":"queued",
+				{"id":"` + proofStartSessionID + `","org_id":"org-1","platform":"ios","source":"cli","status":"queued","user_email":"proof@example.test",
 				 "created_at":"` + time.Now().Add(-90*time.Second).UTC().Format(time.RFC3339) + `",
 				 "source_metadata":{"scm_review_run_id":"` + proofStartRunID + `"}},
-				{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb61","org_id":"org-1","platform":"android","source":"cli","status":"starting",
+				{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb61","org_id":"org-1","platform":"android","source":"cli","status":"starting","user_email":"proof@example.test",
 				 "source_metadata":{"scm_review_run_id":"bc610fc1-0000-0000-0000-000000000061"}}
 			]}`))
 		default:

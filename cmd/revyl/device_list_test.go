@@ -37,9 +37,9 @@ func TestDeviceListDisplayPreservesPhoneAndJSON(t *testing.T) {
 				backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/api/v1/entity/users/get_user_uuid":
-						_, _ = w.Write([]byte(`{"org_id":"fixture-org"}`))
+						_, _ = w.Write([]byte(`{"org_id":"fixture-org","email":"fixture@example.test"}`))
 					case "/api/v1/execution/device-sessions/active":
-						_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": "fixture-session", "platform": test.platform, "app_name": test.appName}}})
+						_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": "fixture-session", "platform": test.platform, "app_name": test.appName, "user_email": "fixture@example.test"}}})
 					case "/api/v1/execution/device-sessions/fixture-session":
 						detailReads.Add(1)
 						_ = json.NewEncoder(w).Encode(map[string]any{"app_name": test.appName})

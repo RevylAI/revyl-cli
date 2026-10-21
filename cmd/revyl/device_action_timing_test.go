@@ -39,6 +39,8 @@ func TestDeviceTapActionTimingJSON(t *testing.T) {
 				case "/api/v1/execution/device-sessions/" + flowSessionID:
 					sessionCalls.Add(1)
 					fmt.Fprintf(w, `{"id":%q,"org_id":"fixture-org","platform":%q,"viewer_kind":"whep","status":"running","workflow_run_id":%q}`, flowSessionID, tc.platform, flowWorkflowRunID)
+				case "/api/v1/execution/device-proxy/" + flowWorkflowRunID + "/health":
+					_, _ = w.Write([]byte(`{"status":"ok","device_connected":true,"screen_width":402,"screen_height":874}`))
 				case "/api/v1/execution/device-proxy/" + flowWorkflowRunID + "/resolve_target":
 					resolveCalls.Add(1)
 					_, _ = w.Write([]byte(`{"found":true,"x":12,"y":34,"screen_token":"fixture-observation"}`))

@@ -66,21 +66,21 @@ func TestResolveCoords_Validation(t *testing.T) {
 			target:  "",
 			x:       nil,
 			y:       nil,
-			wantErr: "provide target (element description) or x+y (pixel coordinates)",
+			wantErr: "provide target (element description) or x+y (device coordinates)",
 		},
 		{
 			name:    "only x without y returns error",
 			target:  "",
 			x:       intPtr(100),
 			y:       nil,
-			wantErr: "provide target (element description) or x+y (pixel coordinates)",
+			wantErr: "provide target (element description) or x+y (device coordinates)",
 		},
 		{
 			name:    "only y without x returns error",
 			target:  "",
 			x:       nil,
 			y:       intPtr(200),
-			wantErr: "provide target (element description) or x+y (pixel coordinates)",
+			wantErr: "provide target (element description) or x+y (device coordinates)",
 		},
 		{
 			name:   "raw coords pass through",
@@ -351,8 +351,9 @@ func TestHandleListDeviceSessions_FallsBackToPersistedCache(t *testing.T) {
 	tmpDir := t.TempDir()
 	now := time.Now()
 	state := persistedState{
-		Active:  0,
-		NextIdx: 1,
+		Active:   0,
+		NextIdx:  1,
+		Selected: &persistedSessionRef{SessionID: "persisted-sess-1", WorkflowRunID: "wf-persisted"},
 		Sessions: []*DeviceSession{
 			{
 				Index:         0,

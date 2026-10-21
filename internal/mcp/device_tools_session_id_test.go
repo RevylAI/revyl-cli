@@ -123,6 +123,7 @@ func newSessionIDToolServer(t *testing.T) (*Server, *sessionIDToolBackend) {
 	session := func(index int, sessionID, workflowRunID string) *DeviceSession {
 		return &DeviceSession{
 			Index: index, SessionID: sessionID, WorkflowRunID: workflowRunID, Platform: "ios",
+			ScreenWidth: 402, ScreenHeight: 874,
 			StartedAt: now, LastActivity: now, IdleTimeout: 5 * time.Minute,
 		}
 	}

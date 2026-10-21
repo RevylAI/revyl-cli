@@ -152,9 +152,9 @@ Commands act on the active session by default. `-s` selects a specific one and
 takes either form: a local index from `revyl device list`, or the server-issued
 `session_id` from `revyl device start --json`. `--session-id <uuid>` is the
 explicit spelling, and `REVYL_SESSION_ID` scopes a whole shell for the commands
-that accept `-s`. `revyl device stop --all` ignores that scope and still stops
-every session `revyl device list` would show. The `revyl dev` commands use
-their dev context instead.
+that accept `-s`. `revyl device stop --all` ignores that scope and stops
+only sessions owned by this CLI or started or explicitly selected here; it never
+stops an unowned session. The `revyl dev` commands use their dev context instead.
 
 Prefer session IDs whenever more than one session is live. Indexes live in a
 per-project file shared by every CLI process in that directory, and only mean

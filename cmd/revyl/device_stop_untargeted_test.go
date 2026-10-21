@@ -222,7 +222,8 @@ func TestUntargetedDeviceStopWithUnreadableInventorySaysSessionsAreCached(t *tes
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 	t.Setenv(sessionIDEnvVar, "")
 	t.Setenv("REVYL_BACKEND_URL", newEmptyInventoryServer(t, http.StatusForbidden).URL)
-	state := `{"active":0,"next_index":2,"org_id":"org-1","user_email":"test@example.com","sessions":[
+	state := `{"active":0,"next_index":2,"org_id":"org-1","user_email":"test@example.com","started_here":[
+		{"session_id":"` + flowSessionID + `"},{"session_id":"` + secondFlowSessionID + `"}],"sessions":[
 		{"index":0,"session_id":"` + flowSessionID + `","workflow_run_id":"` + flowWorkflowRunID + `","platform":"ios"},
 		{"index":1,"session_id":"` + secondFlowSessionID + `","workflow_run_id":"` + secondFlowWorkflowRunID + `","platform":"android"}]}`
 	if err := os.MkdirAll(filepath.Join(dir, ".revyl"), 0o700); err != nil {

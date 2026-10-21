@@ -23,3 +23,7 @@
 # rather than an ordinary API key, so generating it onto the customer-facing
 # client surface would advertise an endpoint no ordinary caller can use.
 /api/v1/scm/proof-runs/comment
+
+# Computer screen control uses handwritten CLI transport models.
+/api/v1/computer-runs/%s/screen/actions
+/api/v1/computer-runs/%s/screen/screenshot

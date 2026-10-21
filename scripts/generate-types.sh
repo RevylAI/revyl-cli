@@ -124,73 +124,11 @@ echo ""
 # - Convert nullable types from [type, null] to type with nullable: true
 echo "Processing OpenAPI spec for compatibility..."
 cd "$PROJECT_DIR"
-python3 << 'PYTHON_SCRIPT'
+PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 << 'PYTHON_SCRIPT'
 import json
 import sys
 
-def process_schema(schema):
-    """Recursively process schema to fix OpenAPI 3.1 -> 3.0 compatibility issues."""
-    if not isinstance(schema, dict):
-        return schema
-    
-    # Handle anyOf with null type (OpenAPI 3.1 nullable pattern)
-    if 'anyOf' in schema:
-        any_of = schema['anyOf']
-        non_null_types = [t for t in any_of if not (isinstance(t, dict) and t.get('type') == 'null')]
-        has_null = len(non_null_types) < len(any_of)
-        
-        if has_null and len(non_null_types) == 1:
-            # Convert to nullable type
-            new_schema = dict(non_null_types[0])
-            new_schema['nullable'] = True
-            # Copy over other properties
-            for key in schema:
-                if key != 'anyOf':
-                    new_schema[key] = schema[key]
-            schema = new_schema
-        elif has_null and len(non_null_types) > 1:
-            # Keep anyOf but remove null type
-            schema['anyOf'] = non_null_types
-            schema['nullable'] = True
-    
-    # Handle type: [type, null] pattern
-    if 'type' in schema and isinstance(schema['type'], list):
-        types = schema['type']
-        non_null_types = [t for t in types if t != 'null']
-        if 'null' in types and len(non_null_types) == 1:
-            schema['type'] = non_null_types[0]
-            schema['nullable'] = True
-        elif 'null' in types:
-            schema['type'] = non_null_types
-            schema['nullable'] = True
-    
-    # Convert exclusiveMinimum/exclusiveMaximum from 3.1 (number) to 3.0 (boolean + minimum/maximum)
-    if 'exclusiveMinimum' in schema and not isinstance(schema['exclusiveMinimum'], bool):
-        val = schema.pop('exclusiveMinimum')
-        schema['minimum'] = val
-        schema['exclusiveMinimum'] = True
-    if 'exclusiveMaximum' in schema and not isinstance(schema['exclusiveMaximum'], bool):
-        val = schema.pop('exclusiveMaximum')
-        schema['maximum'] = val
-        schema['exclusiveMaximum'] = True
-
-    # Recursively process nested schemas
-    for key in ['properties', 'items', 'additionalProperties']:
-        if key in schema:
-            if key == 'properties' and isinstance(schema[key], dict):
-                for prop_name, prop_schema in schema[key].items():
-                    schema[key][prop_name] = process_schema(prop_schema)
-            elif isinstance(schema[key], dict):
-                schema[key] = process_schema(schema[key])
-    
-    if 'allOf' in schema:
-        schema['allOf'] = [process_schema(s) for s in schema['allOf']]
-    if 'oneOf' in schema:
-        schema['oneOf'] = [process_schema(s) for s in schema['oneOf']]
-    if 'anyOf' in schema:
-        schema['anyOf'] = [process_schema(s) for s in schema['anyOf']]
-    
-    return schema
+from openapi_compatibility import computer_validation_schema, prepare_discriminator_fields, process_schema
 
 # Load the spec
 with open('openapi.json', 'r') as f:
@@ -202,8 +140,13 @@ with open('openapi.json', 'r') as f:
 with open('openapi.json', 'w') as f:
     json.dump(spec, f)
 
+with open('internal/api/computer_schema_generated.json', 'w') as f:
+    json.dump(computer_validation_schema(spec), f, sort_keys=True, indent=2)
+    f.write('\n')
+
 # Downgrade version
 spec['openapi'] = '3.0.3'
+prepare_discriminator_fields(spec)
 
 # Process all schemas in components
 if 'components' in spec and 'schemas' in spec['components']:

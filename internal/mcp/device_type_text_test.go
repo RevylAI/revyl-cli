@@ -153,7 +153,7 @@ func TestDeviceTypePasswordOnlyTransportScope(t *testing.T) {
 				}))
 				t.Cleanup(backend.Close)
 				manager := NewDeviceSessionManager(api.NewClientWithBaseURL("test-key", backend.URL), "")
-				manager.sessions[0] = &DeviceSession{Index: 0, SessionID: startIDSessionID, WorkflowRunID: startIDWorkflowRunID, Platform: platform}
+				manager.sessions[0] = &DeviceSession{Index: 0, SessionID: startIDSessionID, WorkflowRunID: startIDWorkflowRunID, Platform: platform, ScreenWidth: 402, ScreenHeight: 874}
 				manager.activeIndex = 0
 				t.Cleanup(func() { manager.StopIdleTimer(0) })
 				server := &Server{sessionMgr: manager}

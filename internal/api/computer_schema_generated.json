@@ -1,0 +1,1948 @@
+{
+  "$defs": {
+    "ComputerATIFAgent": {
+      "properties": {
+        "name": {
+          "const": "revyl-computer-runtime",
+          "default": "revyl-computer-runtime",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "const": "1",
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "ComputerATIFAgent",
+      "type": "object"
+    },
+    "ComputerATIFArguments": {
+      "properties": {
+        "capture": {
+          "const": "summary_only_not_replayable",
+          "default": "summary_only_not_replayable",
+          "title": "Capture",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "exec",
+            "file_read",
+            "file_write",
+            "file_stat",
+            "process_list",
+            "process_inspect",
+            "process_terminate"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ComputerATIFArguments",
+      "type": "object"
+    },
+    "ComputerATIFExtra": {
+      "properties": {
+        "revyl": {
+          "$ref": "#/$defs/ComputerATIFRunExtension"
+        }
+      },
+      "required": [
+        "revyl"
+      ],
+      "title": "ComputerATIFExtra",
+      "type": "object"
+    },
+    "ComputerATIFObservation": {
+      "properties": {
+        "results": {
+          "maxItems": 1,
+          "minItems": 1,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/ComputerATIFResult"
+            }
+          ],
+          "title": "Results",
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "title": "ComputerATIFObservation",
+      "type": "object"
+    },
+    "ComputerATIFOperationExtension": {
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/ComputerOperationEvidence"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "evidence"
+      ],
+      "title": "ComputerATIFOperationExtension",
+      "type": "object"
+    },
+    "ComputerATIFResult": {
+      "properties": {
+        "content": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "timed_out",
+            "unknown"
+          ],
+          "title": "Content",
+          "type": "string"
+        },
+        "extra": {
+          "$ref": "#/$defs/ComputerATIFResultExtra"
+        },
+        "source_call_id": {
+          "format": "uuid",
+          "title": "Source Call Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_call_id",
+        "content",
+        "extra"
+      ],
+      "title": "ComputerATIFResult",
+      "type": "object"
+    },
+    "ComputerATIFResultExtra": {
+      "properties": {
+        "revyl": {
+          "$ref": "#/$defs/ComputerATIFOperationExtension"
+        }
+      },
+      "required": [
+        "revyl"
+      ],
+      "title": "ComputerATIFResultExtra",
+      "type": "object"
+    },
+    "ComputerATIFRunExtension": {
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "child_reports": {
+          "items": {
+            "$ref": "#/$defs/ComputerChildReportReference"
+          },
+          "maxItems": 64,
+          "title": "Child Reports",
+          "type": "array"
+        },
+        "evidence_completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "title": "Evidence Completeness",
+          "type": "string"
+        },
+        "evidence_write_status": {
+          "enum": [
+            "recorded",
+            "pending",
+            "failed"
+          ],
+          "title": "Evidence Write Status",
+          "type": "string"
+        },
+        "execution_ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Ended At"
+        },
+        "execution_started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Started At"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "os": {
+          "enum": [
+            "macos",
+            "linux"
+          ],
+          "title": "Os",
+          "type": "string"
+        },
+        "release": {
+          "enum": [
+            "pending",
+            "confirmed",
+            "unknown"
+          ],
+          "title": "Release",
+          "type": "string"
+        },
+        "released_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Released At"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "active",
+            "closing",
+            "stopped",
+            "failed",
+            "owner_lost"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "report_id",
+        "os",
+        "as_of",
+        "expires_at",
+        "execution_ended_at",
+        "state",
+        "release",
+        "released_at",
+        "evidence_completeness",
+        "evidence_write_status",
+        "child_reports"
+      ],
+      "title": "ComputerATIFRunExtension",
+      "type": "object"
+    },
+    "ComputerATIFStep": {
+      "properties": {
+        "llm_call_count": {
+          "anyOf": [
+            {
+              "const": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Llm Call Count"
+        },
+        "message": {
+          "enum": [
+            "Computer created",
+            "Computer operation accepted",
+            "Computer release confirmed"
+          ],
+          "title": "Message",
+          "type": "string"
+        },
+        "observation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerATIFObservation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "enum": [
+            "system",
+            "agent"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "step_id": {
+          "minimum": 1.0,
+          "title": "Step Id",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/ComputerATIFToolCall"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Calls"
+        }
+      },
+      "required": [
+        "step_id",
+        "timestamp",
+        "source",
+        "message"
+      ],
+      "title": "ComputerATIFStep",
+      "type": "object"
+    },
+    "ComputerATIFToolCall": {
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/ComputerATIFArguments"
+        },
+        "function_name": {
+          "enum": [
+            "computer.exec",
+            "computer.file_read",
+            "computer.file_write",
+            "computer.file_stat",
+            "computer.process_list",
+            "computer.process_inspect",
+            "computer.process_terminate"
+          ],
+          "title": "Function Name",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "format": "uuid",
+          "title": "Tool Call Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "function_name",
+        "arguments"
+      ],
+      "title": "ComputerATIFToolCall",
+      "type": "object"
+    },
+    "ComputerATIFTrajectory": {
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/ComputerATIFAgent",
+          "default": {
+            "name": "revyl-computer-runtime",
+            "version": "1"
+          }
+        },
+        "extra": {
+          "$ref": "#/$defs/ComputerATIFExtra"
+        },
+        "schema_version": {
+          "const": "ATIF-v1.7",
+          "default": "ATIF-v1.7",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ComputerATIFStep"
+          },
+          "maxItems": 258,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "trajectory_id": {
+          "format": "uuid",
+          "title": "Trajectory Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "trajectory_id",
+        "steps",
+        "extra"
+      ],
+      "title": "ComputerATIFTrajectory",
+      "type": "object"
+    },
+    "ComputerChildReportReference": {
+      "properties": {
+        "platform": {
+          "enum": [
+            "ios",
+            "android",
+            "web"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "report_id",
+        "platform"
+      ],
+      "title": "ComputerChildReportReference",
+      "type": "object"
+    },
+    "ComputerCommandResponse": {
+      "properties": {
+        "computer_session_id": {
+          "format": "uuid",
+          "title": "Computer Session Id",
+          "type": "string"
+        },
+        "evidence": {
+          "enum": [
+            "recorded",
+            "pending",
+            "failed"
+          ],
+          "title": "Evidence",
+          "type": "string"
+        },
+        "execution": {
+          "discriminator": {
+            "mapping": {
+              "failed": "#/$defs/ComputerFailed",
+              "succeeded": "#/$defs/ComputerSucceeded",
+              "timed_out": "#/$defs/ComputerTimedOut",
+              "unknown": "#/$defs/ComputerUnknown"
+            },
+            "propertyName": "outcome"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ComputerSucceeded"
+            },
+            {
+              "$ref": "#/$defs/ComputerFailed"
+            },
+            {
+              "$ref": "#/$defs/ComputerTimedOut"
+            },
+            {
+              "$ref": "#/$defs/ComputerUnknown"
+            }
+          ],
+          "title": "Execution"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "computer_session_id",
+        "operation_id",
+        "execution",
+        "evidence"
+      ],
+      "title": "ComputerCommandResponse",
+      "type": "object"
+    },
+    "ComputerExecResult": {
+      "properties": {
+        "exit_code": {
+          "maximum": 255.0,
+          "minimum": -255.0,
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "exec",
+          "default": "exec",
+          "title": "Kind",
+          "type": "string"
+        },
+        "stderr": {
+          "contentEncoding": "base64",
+          "contentMediaType": "application/octet-stream",
+          "default": "",
+          "description": "Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.",
+          "maxLength": 1398104,
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "contentEncoding": "base64",
+          "contentMediaType": "application/octet-stream",
+          "default": "",
+          "description": "Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.",
+          "maxLength": 1398104,
+          "title": "Stdout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exit_code"
+      ],
+      "title": "ComputerExecResult",
+      "type": "object"
+    },
+    "ComputerExecSummary": {
+      "properties": {
+        "exit_code": {
+          "maximum": 255.0,
+          "minimum": -255.0,
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "exec",
+          "default": "exec",
+          "title": "Kind",
+          "type": "string"
+        },
+        "stderr_byte_count": {
+          "maximum": 9.223372036854776e+18,
+          "minimum": 0.0,
+          "title": "Stderr Byte Count",
+          "type": "integer"
+        },
+        "stdout_byte_count": {
+          "maximum": 9.223372036854776e+18,
+          "minimum": 0.0,
+          "title": "Stdout Byte Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "exit_code",
+        "stdout_byte_count",
+        "stderr_byte_count"
+      ],
+      "title": "ComputerExecSummary",
+      "type": "object"
+    },
+    "ComputerFailed": {
+      "properties": {
+        "error_code": {
+          "enum": [
+            "not_found",
+            "access_denied",
+            "exec_nonzero"
+          ],
+          "title": "Error Code",
+          "type": "string"
+        },
+        "outcome": {
+          "const": "failed",
+          "default": "failed",
+          "title": "Outcome",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerExecResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "error_code"
+      ],
+      "title": "ComputerFailed",
+      "type": "object"
+    },
+    "ComputerFileReadResult": {
+      "properties": {
+        "data": {
+          "contentEncoding": "base64",
+          "contentMediaType": "application/octet-stream",
+          "description": "Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.",
+          "maxLength": 1398104,
+          "title": "Data",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file_read",
+          "default": "file_read",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "ComputerFileReadResult",
+      "type": "object"
+    },
+    "ComputerFileReadSummary": {
+      "properties": {
+        "byte_count": {
+          "maximum": 1048576.0,
+          "minimum": 0.0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "file_read",
+          "default": "file_read",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "byte_count"
+      ],
+      "title": "ComputerFileReadSummary",
+      "type": "object"
+    },
+    "ComputerFileStatResult": {
+      "properties": {
+        "file_kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "title": "File Kind",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file_stat",
+          "default": "file_stat",
+          "title": "Kind",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9.223372036854776e+18,
+          "minimum": 0.0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_kind",
+        "size_bytes"
+      ],
+      "title": "ComputerFileStatResult",
+      "type": "object"
+    },
+    "ComputerFileStatSummary": {
+      "properties": {
+        "file_kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "title": "File Kind",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file_stat",
+          "default": "file_stat",
+          "title": "Kind",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9.223372036854776e+18,
+          "minimum": 0.0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_kind",
+        "size_bytes"
+      ],
+      "title": "ComputerFileStatSummary",
+      "type": "object"
+    },
+    "ComputerFileWriteResult": {
+      "properties": {
+        "byte_count": {
+          "maximum": 65536.0,
+          "minimum": 0.0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "file_write",
+          "default": "file_write",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "byte_count"
+      ],
+      "title": "ComputerFileWriteResult",
+      "type": "object"
+    },
+    "ComputerFileWriteSummary": {
+      "properties": {
+        "byte_count": {
+          "maximum": 65536.0,
+          "minimum": 0.0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "file_write",
+          "default": "file_write",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "byte_count"
+      ],
+      "title": "ComputerFileWriteSummary",
+      "type": "object"
+    },
+    "ComputerOperationDetail": {
+      "properties": {
+        "command_display": {
+          "anyOf": [
+            {
+              "description": "Redacted exec command line, truncated with a trailing ellipsis. Never the output.",
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Command Display"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "not_found",
+                "access_denied",
+                "exec_nonzero",
+                "timed_out",
+                "lost_ack",
+                "executor_error",
+                "invalid_executor_result",
+                "owner_lost",
+                "stopped",
+                "start_evidence_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "execution_order": {
+          "maximum": 256.0,
+          "minimum": 1.0,
+          "title": "Execution Order",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "exec",
+            "file_read",
+            "file_write",
+            "file_stat",
+            "process_list",
+            "process_inspect",
+            "process_terminate"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "observed_exit_code": {
+          "anyOf": [
+            {
+              "maximum": 255.0,
+              "minimum": -255.0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed Exit Code"
+        },
+        "outcome": {
+          "default": "started",
+          "enum": [
+            "started",
+            "succeeded",
+            "failed",
+            "timed_out",
+            "unknown"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "step_id": {
+          "format": "uuid",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "exec": "#/$defs/ComputerExecSummary",
+                  "file_read": "#/$defs/ComputerFileReadSummary",
+                  "file_stat": "#/$defs/ComputerFileStatSummary",
+                  "file_write": "#/$defs/ComputerFileWriteSummary",
+                  "process_inspect": "#/$defs/ComputerProcessInspectSummary",
+                  "process_list": "#/$defs/ComputerProcessListSummary",
+                  "process_terminate": "#/$defs/ComputerProcessTerminateSummary"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ComputerExecSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerFileReadSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerFileWriteSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerFileStatSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerProcessListSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerProcessInspectSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerProcessTerminateSummary"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Summary"
+        },
+        "termination": {
+          "anyOf": [
+            {
+              "enum": [
+                "confirmed",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Termination"
+        }
+      },
+      "required": [
+        "step_id",
+        "kind",
+        "execution_order",
+        "started_at"
+      ],
+      "title": "ComputerOperationDetail",
+      "type": "object"
+    },
+    "ComputerOperationEvidence": {
+      "properties": {
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "not_found",
+                "access_denied",
+                "exec_nonzero",
+                "timed_out",
+                "lost_ack",
+                "executor_error",
+                "invalid_executor_result",
+                "owner_lost",
+                "stopped",
+                "start_evidence_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "execution_order": {
+          "maximum": 256.0,
+          "minimum": 1.0,
+          "title": "Execution Order",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "exec",
+            "file_read",
+            "file_write",
+            "file_stat",
+            "process_list",
+            "process_inspect",
+            "process_terminate"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "observed_exit_code": {
+          "anyOf": [
+            {
+              "maximum": 255.0,
+              "minimum": -255.0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed Exit Code"
+        },
+        "outcome": {
+          "default": "started",
+          "enum": [
+            "started",
+            "succeeded",
+            "failed",
+            "timed_out",
+            "unknown"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "step_id": {
+          "format": "uuid",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "exec": "#/$defs/ComputerExecSummary",
+                  "file_read": "#/$defs/ComputerFileReadSummary",
+                  "file_stat": "#/$defs/ComputerFileStatSummary",
+                  "file_write": "#/$defs/ComputerFileWriteSummary",
+                  "process_inspect": "#/$defs/ComputerProcessInspectSummary",
+                  "process_list": "#/$defs/ComputerProcessListSummary",
+                  "process_terminate": "#/$defs/ComputerProcessTerminateSummary"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ComputerExecSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerFileReadSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerFileWriteSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerFileStatSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerProcessListSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerProcessInspectSummary"
+                },
+                {
+                  "$ref": "#/$defs/ComputerProcessTerminateSummary"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Summary"
+        },
+        "termination": {
+          "anyOf": [
+            {
+              "enum": [
+                "confirmed",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Termination"
+        }
+      },
+      "required": [
+        "step_id",
+        "kind",
+        "execution_order",
+        "started_at"
+      ],
+      "title": "ComputerOperationEvidence",
+      "type": "object"
+    },
+    "ComputerProcessHandle": {
+      "properties": {
+        "computer_session_id": {
+          "format": "uuid",
+          "title": "Computer Session Id",
+          "type": "string"
+        },
+        "handle_id": {
+          "format": "uuid",
+          "title": "Handle Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "computer_session_id",
+        "handle_id"
+      ],
+      "title": "ComputerProcessHandle",
+      "type": "object"
+    },
+    "ComputerProcessInfo": {
+      "properties": {
+        "exit_code": {
+          "anyOf": [
+            {
+              "maximum": 255.0,
+              "minimum": -255.0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "handle": {
+          "$ref": "#/$defs/ComputerProcessHandle"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "exited"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "handle",
+        "state"
+      ],
+      "title": "ComputerProcessInfo",
+      "type": "object"
+    },
+    "ComputerProcessInspectResult": {
+      "properties": {
+        "kind": {
+          "const": "process_inspect",
+          "default": "process_inspect",
+          "title": "Kind",
+          "type": "string"
+        },
+        "process": {
+          "$ref": "#/$defs/ComputerProcessInfo"
+        }
+      },
+      "required": [
+        "process"
+      ],
+      "title": "ComputerProcessInspectResult",
+      "type": "object"
+    },
+    "ComputerProcessInspectSummary": {
+      "properties": {
+        "exit_code": {
+          "anyOf": [
+            {
+              "maximum": 255.0,
+              "minimum": -255.0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "kind": {
+          "const": "process_inspect",
+          "default": "process_inspect",
+          "title": "Kind",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "exited"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "ComputerProcessInspectSummary",
+      "type": "object"
+    },
+    "ComputerProcessListResult": {
+      "properties": {
+        "kind": {
+          "const": "process_list",
+          "default": "process_list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "processes": {
+          "items": {
+            "$ref": "#/$defs/ComputerProcessInfo"
+          },
+          "maxItems": 64,
+          "title": "Processes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "processes"
+      ],
+      "title": "ComputerProcessListResult",
+      "type": "object"
+    },
+    "ComputerProcessListSummary": {
+      "properties": {
+        "item_count": {
+          "maximum": 64.0,
+          "minimum": 0.0,
+          "title": "Item Count",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "process_list",
+          "default": "process_list",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_count"
+      ],
+      "title": "ComputerProcessListSummary",
+      "type": "object"
+    },
+    "ComputerProcessTerminateResult": {
+      "properties": {
+        "kind": {
+          "const": "process_terminate",
+          "default": "process_terminate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "termination": {
+          "const": "confirmed",
+          "default": "confirmed",
+          "title": "Termination",
+          "type": "string"
+        }
+      },
+      "title": "ComputerProcessTerminateResult",
+      "type": "object"
+    },
+    "ComputerProcessTerminateSummary": {
+      "properties": {
+        "kind": {
+          "const": "process_terminate",
+          "default": "process_terminate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "termination": {
+          "const": "confirmed",
+          "default": "confirmed",
+          "title": "Termination",
+          "type": "string"
+        }
+      },
+      "title": "ComputerProcessTerminateSummary",
+      "type": "object"
+    },
+    "ComputerReport": {
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "child_reports": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ComputerChildReportReference"
+          },
+          "maxItems": 64,
+          "title": "Child Reports",
+          "type": "array"
+        },
+        "computer_session_id": {
+          "format": "uuid",
+          "title": "Computer Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_completeness": {
+          "default": "partial",
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "title": "Evidence Completeness",
+          "type": "string"
+        },
+        "evidence_write_status": {
+          "default": "recorded",
+          "enum": [
+            "recorded",
+            "pending",
+            "failed"
+          ],
+          "title": "Evidence Write Status",
+          "type": "string"
+        },
+        "execution_ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Ended At"
+        },
+        "execution_started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Started At"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Reason"
+        },
+        "kind": {
+          "const": "computer",
+          "default": "computer",
+          "title": "Kind",
+          "type": "string"
+        },
+        "org_id": {
+          "format": "uuid",
+          "title": "Org Id",
+          "type": "string"
+        },
+        "os": {
+          "enum": [
+            "macos",
+            "linux"
+          ],
+          "title": "Os",
+          "type": "string"
+        },
+        "release": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "confirmed",
+            "unknown"
+          ],
+          "title": "Release",
+          "type": "string"
+        },
+        "released_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Released At"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "state": {
+          "default": "active",
+          "enum": [
+            "starting",
+            "active",
+            "closing",
+            "stopped",
+            "failed",
+            "owner_lost"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "steps": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ComputerOperationEvidence"
+          },
+          "maxItems": 256,
+          "title": "Steps",
+          "type": "array"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "waiting_for_host_since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While a starting computer's owner run waits for a host with a free slot, when it first found none.",
+          "title": "Waiting For Host Since"
+        }
+      },
+      "required": [
+        "report_id",
+        "computer_session_id",
+        "org_id",
+        "os",
+        "created_at",
+        "expires_at",
+        "as_of"
+      ],
+      "title": "ComputerReport",
+      "type": "object"
+    },
+    "ComputerReportDetail": {
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "child_reports": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ComputerChildReportReference"
+          },
+          "maxItems": 64,
+          "title": "Child Reports",
+          "type": "array"
+        },
+        "computer_session_id": {
+          "format": "uuid",
+          "title": "Computer Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_completeness": {
+          "default": "partial",
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "title": "Evidence Completeness",
+          "type": "string"
+        },
+        "evidence_write_status": {
+          "default": "recorded",
+          "enum": [
+            "recorded",
+            "pending",
+            "failed"
+          ],
+          "title": "Evidence Write Status",
+          "type": "string"
+        },
+        "execution_ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Ended At"
+        },
+        "execution_started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Started At"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Reason"
+        },
+        "kind": {
+          "const": "computer",
+          "default": "computer",
+          "title": "Kind",
+          "type": "string"
+        },
+        "org_id": {
+          "format": "uuid",
+          "title": "Org Id",
+          "type": "string"
+        },
+        "os": {
+          "enum": [
+            "macos",
+            "linux"
+          ],
+          "title": "Os",
+          "type": "string"
+        },
+        "release": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "confirmed",
+            "unknown"
+          ],
+          "title": "Release",
+          "type": "string"
+        },
+        "released_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Released At"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "state": {
+          "default": "active",
+          "enum": [
+            "starting",
+            "active",
+            "closing",
+            "stopped",
+            "failed",
+            "owner_lost"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "steps": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ComputerOperationDetail"
+          },
+          "maxItems": 256,
+          "title": "Steps",
+          "type": "array"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "waiting_for_host_since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While a starting computer's owner run waits for a host with a free slot, when it first found none.",
+          "title": "Waiting For Host Since"
+        }
+      },
+      "required": [
+        "report_id",
+        "computer_session_id",
+        "org_id",
+        "os",
+        "created_at",
+        "expires_at",
+        "as_of"
+      ],
+      "title": "ComputerReportDetail",
+      "type": "object"
+    },
+    "ComputerRunListResponse": {
+      "properties": {
+        "computers": {
+          "items": {
+            "$ref": "#/$defs/ComputerRunSummary"
+          },
+          "maxItems": 100,
+          "title": "Computers",
+          "type": "array"
+        },
+        "limit": {
+          "maximum": 100.0,
+          "minimum": 1.0,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0.0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0.0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "computers",
+        "total",
+        "limit",
+        "offset"
+      ],
+      "title": "ComputerRunListResponse",
+      "type": "object"
+    },
+    "ComputerRunSummary": {
+      "properties": {
+        "computer_session_id": {
+          "format": "uuid",
+          "title": "Computer Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "title": "Evidence Completeness",
+          "type": "string"
+        },
+        "evidence_write_status": {
+          "enum": [
+            "recorded",
+            "pending",
+            "failed"
+          ],
+          "title": "Evidence Write Status",
+          "type": "string"
+        },
+        "execution_ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Ended At"
+        },
+        "execution_started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Started At"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "os": {
+          "enum": [
+            "macos",
+            "linux"
+          ],
+          "title": "Os",
+          "type": "string"
+        },
+        "release": {
+          "enum": [
+            "pending",
+            "confirmed",
+            "unknown"
+          ],
+          "title": "Release",
+          "type": "string"
+        },
+        "released_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Released At"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "active",
+            "closing",
+            "stopped",
+            "failed",
+            "owner_lost"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "computer_session_id",
+        "os",
+        "created_at",
+        "expires_at",
+        "state",
+        "release",
+        "released_at",
+        "execution_started_at",
+        "execution_ended_at",
+        "evidence_write_status",
+        "evidence_completeness"
+      ],
+      "title": "ComputerRunSummary",
+      "type": "object"
+    },
+    "ComputerSucceeded": {
+      "properties": {
+        "outcome": {
+          "const": "succeeded",
+          "default": "succeeded",
+          "title": "Outcome",
+          "type": "string"
+        },
+        "result": {
+          "discriminator": {
+            "mapping": {
+              "exec": "#/$defs/ComputerExecResult",
+              "file_read": "#/$defs/ComputerFileReadResult",
+              "file_stat": "#/$defs/ComputerFileStatResult",
+              "file_write": "#/$defs/ComputerFileWriteResult",
+              "process_inspect": "#/$defs/ComputerProcessInspectResult",
+              "process_list": "#/$defs/ComputerProcessListResult",
+              "process_terminate": "#/$defs/ComputerProcessTerminateResult"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ComputerExecResult"
+            },
+            {
+              "$ref": "#/$defs/ComputerFileReadResult"
+            },
+            {
+              "$ref": "#/$defs/ComputerFileWriteResult"
+            },
+            {
+              "$ref": "#/$defs/ComputerFileStatResult"
+            },
+            {
+              "$ref": "#/$defs/ComputerProcessListResult"
+            },
+            {
+              "$ref": "#/$defs/ComputerProcessInspectResult"
+            },
+            {
+              "$ref": "#/$defs/ComputerProcessTerminateResult"
+            }
+          ],
+          "title": "Result"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "ComputerSucceeded",
+      "type": "object"
+    },
+    "ComputerTimedOut": {
+      "properties": {
+        "error_code": {
+          "const": "timed_out",
+          "default": "timed_out",
+          "title": "Error Code",
+          "type": "string"
+        },
+        "observed_exit_code": {
+          "anyOf": [
+            {
+              "maximum": 255.0,
+              "minimum": -255.0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed Exit Code"
+        },
+        "outcome": {
+          "const": "timed_out",
+          "default": "timed_out",
+          "title": "Outcome",
+          "type": "string"
+        },
+        "termination": {
+          "enum": [
+            "confirmed",
+            "unknown"
+          ],
+          "title": "Termination",
+          "type": "string"
+        }
+      },
+      "required": [
+        "termination"
+      ],
+      "title": "ComputerTimedOut",
+      "type": "object"
+    },
+    "ComputerUnknown": {
+      "properties": {
+        "error_code": {
+          "enum": [
+            "lost_ack",
+            "executor_error",
+            "invalid_executor_result",
+            "owner_lost",
+            "stopped",
+            "start_evidence_failed"
+          ],
+          "title": "Error Code",
+          "type": "string"
+        },
+        "outcome": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Outcome",
+          "type": "string"
+        },
+        "termination": {
+          "default": "unknown",
+          "enum": [
+            "confirmed",
+            "unknown"
+          ],
+          "title": "Termination",
+          "type": "string"
+        }
+      },
+      "required": [
+        "error_code"
+      ],
+      "title": "ComputerUnknown",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

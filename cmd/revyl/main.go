@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,6 +127,10 @@ func Execute() {
 				}
 			}
 		}
+		var computerErr *computerExitError
+		if errors.As(err, &computerErr) {
+			os.Exit(computerErr.code)
+		}
 		os.Exit(1)
 	}
 }
@@ -199,6 +204,7 @@ func init() {
 
 	// Device interaction commands
 	rootCmd.AddCommand(deviceCmd)
+	rootCmd.AddCommand(newComputerCommand())
 	rootCmd.AddCommand(devCmd)
 
 	// Finished-run inspection (device state, trace hints, …)

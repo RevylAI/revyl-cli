@@ -766,6 +766,10 @@ func TestDeviceInstallCommand_FailsWhenWorkerReportsFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"org_id":"org-1","email":"fixture@example.test"}`))
+		case r.URL.Path == "/api/v1/execution/device-sessions/active":
+			_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[{"id":"sess-existing","workflow_run_id":"wf-install-1","platform":"ios","user_email":"fixture@example.test"}]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device-proxy/wf-install-1/install":
 			_, _ = w.Write([]byte(`{"success":false,"action":"install","error":"install failed"}`))
 		default:
@@ -798,6 +802,10 @@ func TestDeviceDownloadFileCommand_FailsWhenWorkerReportsFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"org_id":"org-1","email":"fixture@example.test"}`))
+		case r.URL.Path == "/api/v1/execution/device-sessions/active":
+			_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[{"id":"sess-existing","workflow_run_id":"wf-download-1","platform":"ios","user_email":"fixture@example.test"}]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device-proxy/wf-download-1/download_file":
 			_, _ = w.Write([]byte(`{"success":false,"action":"download_file","error":"download failed"}`))
 		default:

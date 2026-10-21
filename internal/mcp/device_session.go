@@ -123,10 +123,11 @@ type DeviceSession struct {
 	// Platform is "ios", "android", or "web".
 	Platform string `json:"platform"`
 
-	// ScreenWidth is the device screen width in pixels (0 when unknown).
+	// ScreenWidth is the device screen width in device units: points on iOS,
+	// pixels on Android and Web (0 when unknown).
 	ScreenWidth int `json:"screen_width,omitempty"`
 
-	// ScreenHeight is the device screen height in pixels (0 when unknown).
+	// ScreenHeight is the device screen height in device units (0 when unknown).
 	ScreenHeight int `json:"screen_height,omitempty"`
 
 	// StartedAt is when the session was created.
@@ -415,6 +416,10 @@ type StartSessionOptions struct {
 	// DeviceRunnerID pins the session to a specific worker DEVICE_ID label.
 	DeviceRunnerID string
 
+	// ComputerSessionID runs the session inside this running computer, which
+	// chooses its own device.
+	ComputerSessionID string
+
 	// OnStartAccepted, when set, is called once the backend has accepted the
 	// start and named its session, before StartSession waits for the device.
 	OnStartAccepted func(sessionID string)
@@ -448,6 +453,21 @@ func (m *DeviceSessionManager) StartSession(
 	if err := ValidateWebSessionStartOptions(opts); err != nil {
 		return -1, nil, err
 	}
+	computerSessionID := strings.TrimSpace(opts.ComputerSessionID)
+	if computerSessionID != "" {
+		if _, err := uuid.Parse(computerSessionID); err != nil {
+			return -1, nil, fmt.Errorf("computer session ID must be a UUID")
+		}
+		if platform == "android" {
+			return -1, nil, fmt.Errorf("only iOS and Web app sessions can run inside a computer")
+		}
+		if opts.DeviceModel != "" || opts.OsVersion != "" || opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
+			return -1, nil, fmt.Errorf("a session inside a computer uses the computer's device and an uploaded build; omit the device, app URL and test")
+		}
+		if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
+			return -1, nil, fmt.Errorf("a session inside a computer launches the app with its defaults; omit launch variables, arguments, environment and run options")
+		}
+	}
 	launchVars := opts.LaunchVars
 	var inheritedLaunchConfigurationIDs []string
 	if platform == "web" {
@@ -458,7 +478,7 @@ func (m *DeviceSessionManager) StartSession(
 	} else if strings.TrimSpace(opts.TestID) == "" {
 		var err error
 		inheritedLaunchConfigurationIDs, err = launchvars.LoadInheritedIDs(
-			opts.DisableInheritedLaunchVars,
+			opts.DisableInheritedLaunchVars || computerSessionID != "",
 		)
 		if err != nil {
 			return -1, nil, err
@@ -577,6 +597,13 @@ func (m *DeviceSessionManager) StartSession(
 	if opts.DeviceRunnerID != "" {
 		req.DeviceRunnerID = strings.TrimSpace(opts.DeviceRunnerID)
 	}
+	if computerSessionID != "" {
+		if req.AppID == "" || req.BuildID == "" {
+			return -1, nil, fmt.Errorf("a session inside a computer needs an app and one of its builds")
+		}
+		req.ComputerSessionID = computerSessionID
+		req.AppURL, req.AppPackage = "", ""
+	}
 
 	// Start the device via backend API
 	resp, err := m.apiClient.StartDevice(ctx, req)
@@ -624,9 +651,9 @@ func (m *DeviceSessionManager) StartSession(
 
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, deviceWorkerReadyTimeout)
 	if err != nil {
-		// Cancel the device if we can't get the worker URL
+		startErr := m.workerStartFailureError(ctx, sessionID, err)
 		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
-		return -1, nil, fmt.Errorf("device started but worker not ready: %w. %s", err, m.nextStep(nextStepRetryStart))
+		return -1, nil, startErr
 	}
 
 	// Wait for the device to actually be connected (up to 30 seconds).
@@ -2289,6 +2316,49 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (worke
 	return parseWorkerHealth(body)
 }
 
+// RequireCoordsOnScreen refuses a raw native coordinate outside the device's
+// screen, which the device would otherwise report as a successful action on
+// nothing. Native coordinates are device units: points on iOS, pixels on
+// Android. The size recorded for the session decides when it contains the
+// point; otherwise the worker's current size decides, which covers a rotation
+// and a session resolved without a recorded size.
+//
+// Parameters:
+//   - ctx: Context for the worker size request.
+//   - session: The session the coordinate targets.
+//   - x, y: The raw coordinate.
+//
+// Returns:
+//   - unchecked: true when a native point could not be checked because neither
+//     the session nor the worker reports a screen size.
+//   - error naming the screen size and unit when the point is off screen; nil otherwise.
+func (m *DeviceSessionManager) RequireCoordsOnScreen(ctx context.Context, session *DeviceSession, x, y int) (bool, error) {
+	if session == nil || session.Platform == "web" {
+		return false, nil
+	}
+	width, height := session.ScreenWidth, session.ScreenHeight
+	onScreen := func() bool { return x >= 0 && y >= 0 && x < width && y < height }
+	if width > 0 && height > 0 && onScreen() {
+		return false, nil
+	}
+	if body, err := m.WorkerRequestOnSession(ctx, session, "/health", nil); err == nil {
+		if health, _ := parseWorkerHealth(body); health.ScreenWidth > 0 && health.ScreenHeight > 0 {
+			width, height = health.ScreenWidth, health.ScreenHeight
+		}
+	}
+	if width <= 0 || height <= 0 {
+		return true, nil
+	}
+	if onScreen() {
+		return false, nil
+	}
+	platform, unit := "Android", "pixels"
+	if session.Platform == "ios" {
+		platform, unit = "iOS", "points"
+	}
+	return false, fmt.Errorf("(%d, %d) is outside the %dx%d %s screen; %s coordinates are %s from the top-left corner", x, y, width, height, platform, platform, unit)
+}
+
 // parseWorkerHealth unmarshals the /health JSON body and validates device connectivity.
 //
 // Returns:
@@ -2311,8 +2381,8 @@ func parseWorkerHealth(body []byte) (workerHealthResponse, error) {
 //
 // Parameters:
 //   - session: The session to update.
-//   - width: Backend screen width in pixels. Nil or non-positive is ignored.
-//   - height: Backend screen height in pixels. Nil or non-positive is ignored.
+//   - width: Backend screen width in device units. Nil or non-positive is ignored.
+//   - height: Backend screen height in device units. Nil or non-positive is ignored.
 func applyBackendScreenDimensions(session *DeviceSession, width, height *int) {
 	if width != nil && *width > 0 {
 		session.ScreenWidth = *width
@@ -4098,9 +4168,19 @@ func scaleGroundedCoordinate(imageCoordinate, imageSize, deviceSize int) int {
 // Returns:
 //   - error: Any error during synchronization. Non-fatal errors (e.g. backend
 //     unreachable) are logged but may still return error to the caller.
-func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
+func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer func() {
+		if syncErr == nil {
+			return
+		}
+		for idx, session := range m.sessions {
+			if !m.sessionOwnerAllowedLocked(nil, sessionCacheIdentityFor(session)) {
+				m.discardSessionLocked(idx)
+			}
+		}
+	}()
 
 	// Load local cache first for orgID/userEmail if not yet populated
 	if len(m.sessions) == 0 {
@@ -4120,13 +4200,15 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	m.inventoryConfirmed = true
 	m.unreachableSessions = nil
 
-	// Step 3: Filter by user email (only your sessions)
-	backendSessions := make([]api.ActiveDeviceSessionItem, 0)
+	removedSessions := make([]sessionCacheIdentity, 0)
+	backendSessions := make([]api.ActiveDeviceSessionItem, 0, len(activeResp.Sessions))
 	for _, s := range activeResp.Sessions {
-		if m.userEmail != "" && s.UserEmail != nil && *s.UserEmail != m.userEmail {
-			continue
+		identity := sessionCacheIdentity{sessionID: s.Id, workflowRunID: stringValue(s.WorkflowRunId)}
+		if m.sessionOwnerAllowedLocked(s.UserEmail, identity) {
+			backendSessions = append(backendSessions, s)
+		} else {
+			removedSessions = append(removedSessions, identity)
 		}
-		backendSessions = append(backendSessions, s)
 	}
 
 	// Sort by created_at ASC for deterministic index assignment
@@ -4153,13 +4235,20 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	}
 
 	backendIDsByWorkflow := make(map[string]string)
-	backendSessionByID := make(map[string]api.ActiveDeviceSessionItem)
+	backendSessionByID := make(map[string]api.ActiveDeviceSessionItem, len(backendSessions))
 	backendSessionByWorkflow := make(map[string]api.ActiveDeviceSessionItem)
 	for _, bs := range backendSessions {
 		backendSessionByID[bs.Id] = bs
 		if bs.WorkflowRunId != nil && *bs.WorkflowRunId != "" {
 			backendIDsByWorkflow[*bs.WorkflowRunId] = bs.Id
 			backendSessionByWorkflow[*bs.WorkflowRunId] = bs
+		}
+	}
+
+	endedSessions := make([]*EndedSession, 0)
+	for idx, ls := range m.sessions {
+		if sessionCacheContainsIdentity(removedSessions, ls) {
+			m.discardSessionLocked(idx)
 		}
 	}
 
@@ -4196,8 +4285,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			applyBackendIdleTimeout(ls, bs)
 		}
 	}
-	removedSessions := make([]sessionCacheIdentity, 0)
-	endedSessions := make([]*EndedSession, 0)
 	pruneTime := time.Now()
 	var settlementReadErrors []error
 	for idx, ls := range m.sessions {
@@ -4209,14 +4296,18 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			var apiError *api.APIError
 			if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
 				settlementReadErrors = append(settlementReadErrors, fmt.Errorf("could not confirm session %s cleanup: %w", ls.SessionID, err))
+				if !m.sessionOwnerAllowedLocked(nil, sessionCacheIdentityFor(ls)) {
+					removedSessions = append(removedSessions, sessionCacheIdentityFor(ls))
+					m.discardSessionLocked(idx)
+				}
 				continue
 			}
 		} else if !detail.StopConfirmed() {
+			if !m.sessionOwnerAllowedLocked(detail.UserEmail, sessionCacheIdentityFor(ls)) {
+				removedSessions = append(removedSessions, sessionCacheIdentityFor(ls))
+				m.discardSessionLocked(idx)
+			}
 			continue
-		}
-		if timer, ok := m.idleTimers[idx]; ok {
-			timer.Stop()
-			delete(m.idleTimers, idx)
 		}
 		// Drop boot-time before_session secrets for sessions that vanished
 		// without StopSession (idle expiry on the backend, crash, etc.).
@@ -4227,9 +4318,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		}
 		// The backend is authoritative about which sessions still exist, so this
 		// pruning must survive the merge instead of being re-read from the file.
-		delete(m.sessions, idx)
-		delete(m.ownedSessions, idx)
-		delete(m.idleTimerDisabled, idx)
+		m.discardSessionLocked(idx)
 	}
 
 	// Step 6: Add backend sessions not in local map
@@ -4368,7 +4457,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	for _, session := range m.sessions {
 		updatedSessions = append(updatedSessions, session)
 	}
-	m.persistSessionsWithMutation(sessionCacheMutation{
+	syncErr = m.persistSessionsWithMutation(sessionCacheMutation{
 		removedSessions: removedSessions,
 		addedSessions:   addedSessions,
 		updatedSessions: updatedSessions,
@@ -4376,7 +4465,60 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		updateActive:    true,
 		resetNextIndex:  len(m.sessions) == 0,
 	})
-	return errors.Join(settlementReadErrors...)
+	return errors.Join(syncErr, errors.Join(settlementReadErrors...))
+}
+
+func (m *DeviceSessionManager) sessionOwnerAllowedLocked(userEmail *string, identity sessionCacheIdentity) bool {
+	if strings.EqualFold(strings.TrimSpace(m.userEmail), stringValue(userEmail)) && strings.TrimSpace(m.userEmail) != "" {
+		return true
+	}
+	if m.selected != nil && sessionCacheIdentitiesMatch(*m.selected, identity) {
+		return true
+	}
+	for _, started := range m.startedHere {
+		if sessionCacheIdentitiesMatch(started, identity) {
+			return true
+		}
+	}
+	for index, local := range m.sessions {
+		if m.ownedSessions[index] && sessionCacheIdentitiesMatch(sessionCacheIdentityFor(local), identity) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *DeviceSessionManager) discardSessionLocked(index int) {
+	if timer, ok := m.idleTimers[index]; ok {
+		timer.Stop()
+		delete(m.idleTimers, index)
+	}
+	delete(m.sessions, index)
+	delete(m.screenAnchors, index)
+	delete(m.ownedSessions, index)
+	delete(m.idleTimerDisabled, index)
+	if m.activeIndex == index {
+		m.activeIndex = -1
+	}
+}
+
+func (m *DeviceSessionManager) workerStartFailureError(ctx context.Context, sessionID string, waitErr error) error {
+	reason := waitErr.Error()
+	if sessionID != "" {
+		detailCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if detail, err := m.apiClient.GetDeviceSessionByID(detailCtx, sessionID); err == nil && detail.FailureReason() != "" {
+			reason = detail.FailureReason()
+		}
+	}
+	reason = strings.Join(strings.Fields(analytics.SanitizeDiagnostic(reason)), " ")
+	if len([]rune(reason)) > 256 {
+		reason = string([]rune(reason)[:256]) + "..."
+	}
+	if sessionID == "" {
+		return fmt.Errorf("device started but worker not ready: %s. %s", reason, m.nextStep(nextStepRetryStart))
+	}
+	return fmt.Errorf("device started but worker not ready for session %s: %s. %s", sessionID, reason, m.nextStep(nextStepRetryStart))
 }
 
 // AttachBySessionID connects to an existing session by its ID, bypassing the

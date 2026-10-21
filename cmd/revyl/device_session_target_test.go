@@ -130,6 +130,7 @@ type idTargetedFlowServer struct {
 	SessionLookups    *atomic.Int32
 	ActiveSessionCall *atomic.Int32
 	ProxiedPaths      chan string
+	HealthBody        string
 }
 
 // newIDTargetedFlowServer serves durable-ID resolution plus device-proxy
@@ -141,6 +142,7 @@ func newIDTargetedFlowServer(t *testing.T) *idTargetedFlowServer {
 		SessionLookups:    &atomic.Int32{},
 		ActiveSessionCall: &atomic.Int32{},
 		ProxiedPaths:      make(chan string, 16),
+		HealthBody:        `{"status":"ok","device_connected":true}`,
 	}
 
 	proxyPrefix := "/api/v1/execution/device-proxy/" + flowWorkflowRunID
@@ -173,7 +175,7 @@ func newIDTargetedFlowServer(t *testing.T) *idTargetedFlowServer {
 			}
 			switch action {
 			case "/health":
-				_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+				_, _ = w.Write([]byte(flow.HealthBody))
 			case "/execute_step":
 				_, _ = w.Write([]byte(`{"success":true,"status":"completed","step_type":"instruction","reasoning":"done"}`))
 			default:
@@ -416,6 +418,54 @@ func TestDeviceTapCommand_TargetsSessionByDurableID(t *testing.T) {
 		t.Fatalf("proxied actions = %v, want /tap on the resolved workflow run", actions)
 	}
 	assertSessionCacheUnchanged(t, tmpDir, originalCache)
+}
+
+func TestDeviceTapCommand_RefusesAnOffScreenPointOnASessionWithoutARecordedSize(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		x, y      string
+		wantErr   string
+		wantPaths []string
+	}{
+		{name: "off screen", x: "600", y: "1950", wantErr: "(600, 1950) is outside the 402x874 iOS screen; iOS coordinates are points", wantPaths: []string{"/health"}},
+		{name: "on screen", x: "200", y: "650", wantPaths: []string{"/health", "/tap"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withWorkingDirectory(t, t.TempDir())
+			t.Setenv("REVYL_API_KEY", "test-api-key")
+			t.Setenv(sessionIDEnvVar, "")
+			flow := newIDTargetedFlowServer(t)
+			flow.HealthBody = `{"status":"ok","device_connected":true,"screen_width":402,"screen_height":874}`
+			t.Setenv("REVYL_BACKEND_URL", flow.Server.URL)
+
+			cmd := &cobra.Command{}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("target", "", "")
+			cmd.Flags().Int("x", 0, "")
+			cmd.Flags().Int("y", 0, "")
+			cmd.Flags().Bool("json", false, "")
+			cmd.Flags().Bool("dev", false, "")
+			registerSessionTargetFlags(cmd)
+			for name, value := range map[string]string{"session-id": flowSessionID, "x": tc.x, "y": tc.y, "json": "true"} {
+				if err := cmd.Flags().Set(name, value); err != nil {
+					t.Fatalf("set %s flag: %v", name, err)
+				}
+			}
+
+			var err error
+			captureStdout(t, func() { err = deviceTapCmd.RunE(cmd, nil) })
+
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("device tap error = %v, want nil", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("device tap error = %v, want %q", err, tc.wantErr)
+			}
+			if got := flow.proxiedActions(); strings.Join(got, ",") != strings.Join(tc.wantPaths, ",") {
+				t.Fatalf("proxied actions = %v, want %v", got, tc.wantPaths)
+			}
+		})
+	}
 }
 
 func TestDeviceInstructionCommand_TargetsSessionFromEnvironment(t *testing.T) {

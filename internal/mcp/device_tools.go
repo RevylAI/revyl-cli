@@ -30,15 +30,13 @@ type NextStep struct {
 // boolPtr returns a pointer to a bool value. Used for ToolAnnotations fields.
 func boolPtr(b bool) *bool { return &b }
 
-// syncSessionsBestEffort refreshes in-memory sessions from backend, falling
-// back to local persisted cache if backend sync is unavailable.
+// syncSessionsBestEffort refreshes in-memory sessions from backend.
 func (s *Server) syncSessionsBestEffort(ctx context.Context) {
 	if s == nil || s.sessionMgr == nil {
 		return
 	}
 	if err := s.sessionMgr.SyncSessions(ctx); err != nil {
-		ui.PrintDebug("session sync failed; falling back to persisted cache: %v", err)
-		s.sessionMgr.LoadPersistedSession()
+		ui.PrintDebug("session sync failed: %v", err)
 	}
 }
 
@@ -219,6 +217,9 @@ func (s *Server) registerDeviceNavigateTool() {
 
 // registerDeviceTools registers all device interaction MCP tools.
 func (s *Server) registerDeviceTools() {
+	if s.experimentalComputer {
+		s.registerComputerTool()
+	}
 	// Session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "start_device_session",
@@ -524,7 +525,7 @@ func (s *Server) registerDeviceTools() {
 	// Multi-session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_device_sessions",
-		Description: "List all active device sessions with their session_id, index, platform, status, and uptime. Pass a session_id to other device tools to target that session.",
+		Description: "List your active device sessions and sessions started or explicitly selected here, with their session_id, index, platform, status, and uptime. Pass a session_id to other device tools to target any authorized session.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "List Device Sessions",
 			ReadOnlyHint: true,
@@ -761,7 +762,7 @@ func sessionIDParam(sessionID string) string {
 type StopDeviceSessionInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to stop. Omit to stop the active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
-	All          bool   `json:"all,omitempty" jsonschema:"Stop all sessions."`
+	All          bool   `json:"all,omitempty" jsonschema:"Stop your sessions and sessions started or explicitly selected here."`
 }
 
 // StopDeviceSessionOutput defines output for stop_device_session.
@@ -861,7 +862,7 @@ func (rc *resolveCoordsResult) workerBody(body map[string]interface{}) map[strin
 // Parameters:
 //   - ctx: Context for cancellation.
 //   - target: Natural language element description (mutually exclusive with x+y).
-//   - x, y: Raw pixel coordinates (mutually exclusive with target).
+//   - x, y: Raw device coordinates (mutually exclusive with target).
 //   - sessionIndex, sessionID: The tool's session targeting inputs (see resolveToolSession).
 //
 // Returns:
@@ -879,7 +880,7 @@ func (s *Server) resolveCoordsWithAnchor(ctx context.Context, target string, x, 
 		return nil, fmt.Errorf("provide either target OR x+y, not both")
 	}
 	if !hasTarget && !hasCoords {
-		return nil, fmt.Errorf("provide target (element description) or x+y (pixel coordinates)")
+		return nil, fmt.Errorf("provide target (element description) or x+y (device coordinates)")
 	}
 	if (x != nil && y == nil) || (x == nil && y != nil) {
 		return nil, fmt.Errorf("both x and y are required when using coordinates")
@@ -892,6 +893,9 @@ func (s *Server) resolveCoordsWithAnchor(ctx context.Context, target string, x, 
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	if hasCoords {
+		if _, err := s.sessionMgr.RequireCoordsOnScreen(ctx, session, *x, *y); err != nil {
+			return nil, err
+		}
 		runtimeToken, err := s.sessionMgr.RuntimeScreenTokenForAnchor(session, screenToken)
 		if err != nil {
 			return nil, err
@@ -1316,8 +1320,8 @@ func (s *Server) handleDeviceCodeExecution(ctx context.Context, req *mcp.CallToo
 // DeviceTapInput defines input for device_tap.
 type DeviceTapInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
-	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -1351,7 +1355,7 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	if !hasTarget && !hasCoords {
-		err := fmt.Errorf("provide target (element description) or x+y (pixel coordinates)")
+		err := fmt.Errorf("provide target (element description) or x+y (device coordinates)")
 		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	if (input.X != nil && input.Y == nil) || (input.X == nil && input.Y != nil) {
@@ -1423,8 +1427,8 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 
 type DeviceDoubleTapInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to double-tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
-	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -1455,8 +1459,8 @@ func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolReq
 
 type DeviceLongPressInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to long-press. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
-	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
 	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Press duration in ms (default 1500)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
@@ -1492,8 +1496,8 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 
 type DeviceTypeInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to type into (e.g. 'email input field')"`
-	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate"`
-	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels)"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels)"`
 	Text         string `json:"text,omitempty" jsonschema:"Text to type; mutually exclusive with text_env"`
 	TextEnv      string `json:"text_env,omitempty" jsonschema:"Local environment variable name containing text to type; never pass its value"`
 	ClearFirst   bool   `json:"clear_first,omitempty" jsonschema:"Clear field before typing (default true)"`
@@ -1582,8 +1586,8 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 
 type DeviceSwipeInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to swipe from. Use visible text ('product list') or visual traits ('main content area'). Auto-resolves via AI grounding."`
-	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
 	Direction    string `json:"direction" jsonschema:"Swipe direction: up, down, left, right. 'up' moves finger up (scrolls content down). REQUIRED."`
 	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Swipe duration in ms (default 500)"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
@@ -1680,8 +1684,8 @@ func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest,
 
 type DevicePinchInput struct {
 	Target       string  `json:"target,omitempty" jsonschema:"Element to pinch/zoom (grounded)"`
-	X            *int    `json:"x,omitempty" jsonschema:"Raw X coordinate (bypasses grounding)"`
-	Y            *int    `json:"y,omitempty" jsonschema:"Raw Y coordinate (bypasses grounding)"`
+	X            *int    `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
+	Y            *int    `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
 	Scale        float64 `json:"scale,omitempty" jsonschema:"Zoom scale (>1 zoom in, <1 zoom out). Default 2.0."`
 	DurationMs   int     `json:"duration_ms,omitempty" jsonschema:"Pinch duration in ms (default 300)"`
 	ScreenToken  string  `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
@@ -1722,8 +1726,8 @@ func (s *Server) handleDevicePinch(ctx context.Context, req *mcp.CallToolRequest
 
 type DeviceClearTextInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to clear (grounded)"`
-	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate (bypasses grounding)"`
-	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate (bypasses grounding)"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
 	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`

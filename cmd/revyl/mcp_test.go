@@ -12,3 +12,14 @@ func TestMCPWorkspaceFlagIsOptIn(t *testing.T) {
 		t.Fatalf("workspace must be an explicit boolean opt-in: %+v", flag)
 	}
 }
+
+func TestMCPComputerFlagIsOptIn(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"mcp", "serve"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := cmd.Flags().Lookup("experimental-computer")
+	if flag == nil || flag.DefValue != "false" || flag.Value.Type() != "bool" {
+		t.Fatalf("computer must be an explicit boolean opt-in: %+v", flag)
+	}
+}

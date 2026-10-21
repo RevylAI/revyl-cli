@@ -141,6 +141,8 @@ generate:
 check-openapi-allowlist:
 	@PYTHONPATH=$(SCRIPTS_DIR) python3 -m unittest discover \
 		-s $(SCRIPTS_DIR) -p 'test_filter_openapi_for_cli.py'
+	@PYTHONPATH=$(SCRIPTS_DIR) python3 -m unittest discover \
+		-s $(SCRIPTS_DIR) -p 'test_openapi_compatibility.py'
 	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
 	python3 $(SCRIPTS_DIR)/filter_openapi_for_cli.py \
 		--input openapi.json \
@@ -299,6 +301,13 @@ e2e-device:
 e2e-local:
 	@echo "Running local CLI tests (no backend needed)..."
 	@$(GOTEST) -tags e2e -v -timeout 2m -run TestCLILocal ./e2e/...
+
+.PHONY: computer-integration
+## computer-integration: Run the synthetic computer HTTP/CLI test (monorepo environment)
+computer-integration: build
+	@env -i HOME="$$HOME" PATH="$$PATH" OTEL_SDK_DISABLED=true \
+		PYTHONPATH="$(abspath ../cognisim_backend):$(abspath ../cognisim_schemas):$(abspath ../cognisim_python_cli)" \
+		../.venv/bin/python -m pytest -o addopts= -q e2e/test_computer_cli.py
 
 # Development shortcuts
 .PHONY: r b t

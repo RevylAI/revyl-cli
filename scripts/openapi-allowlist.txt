@@ -183,6 +183,15 @@ PUT /api/v1/workflows/update_run_config/{workflow_id}
 PUT /api/v1/workflows/update_tests/{workflow_id}
 POST /api/v1/atlas/v2/apps/{app_id}/annotation-attachments/uploads
 POST /api/v1/atlas/v2/apps/{app_id}/annotation-attachments/{attachment_id}/complete
+GET /api/v1/computer-runs
+POST /api/v1/computer-runs
+GET /api/v1/computer-runs/{computer_session_id}
+POST /api/v1/computer-runs/{computer_session_id}/operations
+GET /api/v1/computer-runs/{computer_session_id}/operations/{operation_id}
+GET /api/v1/computer-runs/{computer_session_id}/report
+GET /api/v1/computer-runs/{computer_session_id}/report/atif
+GET /api/v1/computer-runs/{computer_session_id}/export/harbor
+POST /api/v1/computer-runs/{computer_session_id}/stop
 
 GET /api/v1/apps/{app_id}/branches
 GET /api/v1/apps/{app_id}/branches/{branch_id}

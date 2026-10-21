@@ -87,13 +87,16 @@ type DeviceSessionInput struct {
 	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Idle timeout in seconds."`
 	SessionIndex               *int     `json:"session_index,omitempty" jsonschema:"Session index for stop, switch, info, or doctor."`
 	SessionID                  string   `json:"session_id,omitempty" jsonschema:"Server-issued session ID for stop, info, or doctor. Wins over session_index; pass it whenever several sessions are live."`
-	All                        bool     `json:"all,omitempty" jsonschema:"Stop every session."`
+	All                        bool     `json:"all,omitempty" jsonschema:"Stop your sessions and sessions started or explicitly selected here."`
 }
 
 // registerDevProfileTools registers the focused development and device surface.
 func (s *Server) registerDevProfileTools() {
 	s.registerSetupStatusTool()
 	s.registerScreenshotTool()
+	if s.experimentalComputer {
+		s.registerComputerTool()
+	}
 	s.registerDeviceNavigateTool()
 	s.registerDevLoopTools()
 	s.registerInteractTool()

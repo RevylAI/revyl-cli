@@ -75,14 +75,16 @@ func TestSyncSessions_ListsTheProofRunsOwnStartingSession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"org_id":"org-1","email":"proof@example.test"}`))
 		case r.URL.Path == "/api/v1/execution/device-sessions/active":
 			_, _ = w.Write([]byte(`{
 				"org_id":"org-1",
 				"proof_run_id":"` + ownProofRunID + `",
 				"sessions":[
-					{"id":"own-starting","org_id":"org-1","platform":"ios","source":"cli","status":"queued",
+					{"id":"own-starting","org_id":"org-1","platform":"ios","source":"cli","status":"queued","user_email":"proof@example.test",
 					 "source_metadata":{"scm_review_run_id":"` + ownProofRunID + `"}},
-					{"id":"sibling-proof","org_id":"org-1","platform":"android","source":"cli","status":"starting",
+					{"id":"sibling-proof","org_id":"org-1","platform":"android","source":"cli","status":"starting","user_email":"proof@example.test",
 					 "source_metadata":{"scm_review_run_id":"` + siblingProofRunID + `"}}
 				]
 			}`))

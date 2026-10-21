@@ -64,6 +64,7 @@ type Server struct {
 	// Composite tool profile (empty = legacy flat tools)
 	profile               Profile
 	experimentalWorkspace bool
+	experimentalComputer  bool
 	workspaceOrigin       string
 	chatGPTPluginID       string
 
@@ -277,7 +278,7 @@ For Web setup, first read https://github.com/RevylAI/revyl-cli/blob/main/skills/
 You can run multiple devices simultaneously. start_device_session returns a session_id; when more than one
 session may be live, including when several agents share this server, pass session_id to every device tool.
 session_id selects exactly that session and never falls back to the active one; a conflicting session_index is an error.
-- list_device_sessions() to see all active sessions with their session_id and index
+- list_device_sessions() to see your active sessions and sessions started or explicitly selected here with their session_id and index
 - session_index (0, 1, 2...) also targets a session; switch_device_session(index=1) changes the default for calls that name none
 - stop_device_session(session_id="...") to stop one session, stop_device_session(all=true) to stop everything
 
@@ -285,7 +286,7 @@ session_id selects exactly that session and never falls back to the active one; 
 
 Device action tools accept EITHER:
   - target (DEFAULT): Describe the element in natural language. Coordinates are auto-resolved via AI vision grounding.
-  - x, y: Direct pixel coordinates. For agents with vision or precise control.
+  - x, y: Direct device coordinates: points on iOS, pixels on Android and Web. For agents with vision or precise control.
 
 Writing good grounding targets (priority order):
   1. Visible text/labels: "the 'Sign In' button", "input box with 'Email'"

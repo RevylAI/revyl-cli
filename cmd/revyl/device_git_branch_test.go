@@ -89,6 +89,10 @@ func TestDeviceCommandsReportContextFallback(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					switch r.URL.Path {
+					case "/api/v1/entity/users/get_user_uuid":
+						_, _ = w.Write([]byte(`{"org_id":"org-1","email":"fixture@example.test"}`))
+					case "/api/v1/execution/device-sessions/active":
+						_ = json.NewEncoder(w).Encode(map[string]any{"org_id": "org-1", "sessions": []map[string]any{{"id": "sess-1", "workflow_run_id": workflowID, "platform": "ios", "user_email": "fixture@example.test"}}})
 					case "/api/v1/apps/resolve":
 						_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": "base-id", "branch_name": "base", "download_url": "https://artifact.example/app.apk", "branch_source": source, "git_branch_name": map[bool]any{true: "feature/missing", false: nil}[fallback]})
 					case "/api/v1/apps/builds/" + buildID:

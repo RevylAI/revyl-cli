@@ -59,6 +59,19 @@ and `revyl device list` shows that session as `queued` or `starting`, with no
 local index, until its device is ready; target it by session ID in the
 meantime.
 
+`revyl device list` shows sessions whose owner email matches the authenticated
+CLI identity, sessions started in this directory, and the session last selected
+with `revyl device attach` or `revyl device use`. Other sessions, including those
+with an unknown owner email, are hidden and cannot become default targets.
+`revyl device stop --all` stops the ready sessions in that set, not every session
+in the organization; it names any listed sessions that are not ready and were
+not stopped. `--session-id` and `REVYL_SESSION_ID` still target any session the
+backend authorizes without adding it to local discovery.
+
+If a device start fails after the backend assigns its session ID, the error
+names that ID and includes the backend failure reason when available. Reasons
+are length-limited and redact URLs and recognized credentials.
+
 For a repeatable CI run, select one exact build with `--build-version-id`
 instead of `--app-id`. A build ID is different from a remote build job ID. If you
 pass both, the build must belong to that app; otherwise `device start` names the

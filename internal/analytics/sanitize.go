@@ -15,7 +15,7 @@ var (
 	bearerPattern      = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
 	secretKVPattern    = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*\S+`)
 	emailPattern       = regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`)
-	urlPattern         = regexp.MustCompile(`https?://[^\s]+`)
+	urlPattern         = regexp.MustCompile(`(?i)(?:https?|wss?)://[^\s]+`)
 	userPathPattern    = regexp.MustCompile(`(?i)(/Users/|/home/)[^\s]+`)
 	windowsPathPattern = regexp.MustCompile(`(?i)\b[A-Z]:\\[^\s]+`)
 )
@@ -42,6 +42,10 @@ func sanitizeString(value string) string {
 		out = string([]rune(out)[:maxSanitizedStringLength]) + "...<truncated>"
 	}
 	return out
+}
+
+func SanitizeDiagnostic(value string) string {
+	return sanitizeString(value)
 }
 
 func sanitizeDiagnosticString(value string, redactions []string) string {

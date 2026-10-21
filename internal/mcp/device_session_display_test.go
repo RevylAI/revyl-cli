@@ -48,7 +48,7 @@ func TestListDeviceSessionsDisplayPreservesJSON(t *testing.T) {
 				case "/api/v1/entity/users/get_user_uuid":
 					_, _ = w.Write([]byte(`{"org_id":"fixture-org","email":"fixture@example.test"}`))
 				case "/api/v1/execution/device-sessions/active":
-					_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": "fixture-session", "platform": platform, "app_name": "Example App"}}})
+					_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": "fixture-session", "platform": platform, "app_name": "Example App", "user_email": "fixture@example.test"}}})
 				default:
 					t.Errorf("unexpected request: %s", r.URL.Path)
 					http.NotFound(w, r)
@@ -118,7 +118,7 @@ func TestSyncSessionsAppNameIsRefreshedWithoutPersistence(t *testing.T) {
 		case "/api/v1/entity/users/get_user_uuid":
 			_, _ = w.Write([]byte(`{"org_id":"fixture-org","email":"fixture@example.test"}`))
 		case "/api/v1/execution/device-sessions/active":
-			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": "fixture-session", "platform": "web", "app_name": name}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": "fixture-session", "platform": "web", "app_name": name, "user_email": "fixture@example.test"}}})
 		default:
 			t.Errorf("unexpected request: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -156,7 +156,7 @@ func TestSyncSessionsDiscoversWebAppName(t *testing.T) {
 		case "/api/v1/entity/users/get_user_uuid":
 			_, _ = w.Write([]byte(`{"org_id":"fixture-org","email":"fixture@example.test"}`))
 		case "/api/v1/execution/device-sessions/active":
-			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": startIDSessionID, "platform": "web", "app_name": "Example App"}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []map[string]any{{"id": startIDSessionID, "platform": "web", "app_name": "Example App", "user_email": "fixture@example.test"}}})
 		case "/api/v1/execution/device-sessions/" + startIDSessionID:
 			_ = json.NewEncoder(w).Encode(runtimeProjectedSessionDetail(startIDSessionID, "running"))
 		case "/api/v1/execution/device-proxy/" + startIDWorkflowRunID + "/screenshot":

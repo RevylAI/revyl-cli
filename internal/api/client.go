@@ -4351,6 +4351,9 @@ type StartDeviceRequest struct {
 	// SessionID allows callers to pre-generate the canonical device session identifier.
 	SessionID string `json:"session_id,omitempty"`
 
+	// ComputerSessionID runs the app session inside this running computer.
+	ComputerSessionID string `json:"computer_session_id,omitempty"`
+
 	// RunConfig contains optional execution configuration.
 	RunConfig *DeviceRunConfig `json:"run_config,omitempty"`
 }

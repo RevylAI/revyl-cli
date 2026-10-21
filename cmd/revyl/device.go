@@ -79,12 +79,8 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 		}
 	}
 
-	// Sync with backend to discover sessions from other clients.
-	// Non-fatal: if sync fails, we still have local cache.
 	if syncErr := sessionMgr.SyncSessions(cmd.Context()); syncErr != nil {
 		ui.PrintDebug("session sync: %v", syncErr)
-		// Fall back to local cache
-		sessionMgr.LoadPersistedSession()
 	}
 
 	return sessionMgr, nil
@@ -121,6 +117,13 @@ func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager,
 
 	x, _ := cmd.Flags().GetInt("x")
 	y, _ := cmd.Flags().GetInt("y")
+	unchecked, err := mgr.RequireCoordsOnScreen(cmd.Context(), session, x, y)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	if unchecked {
+		ui.PrintWarning("(%d, %d) was not checked against the screen: this session reports no screen size", x, y)
+	}
 	return x, y, "", nil
 }
 
@@ -820,6 +823,7 @@ your Git branch or a branch's pin.`,
 				return err
 			}
 		}
+		computerSessionID, _ := cmd.Flags().GetString("computer")
 		platformExplicit := cmd.Flags().Changed("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser, _ := cmd.Flags().GetBool("open")
@@ -1026,6 +1030,7 @@ your Git branch or a branch's pin.`,
 			IdleTimeout:                time.Duration(timeout) * time.Second,
 			DeviceModel:                selectedDeviceModel,
 			OsVersion:                  selectedOsVersion,
+			ComputerSessionID:          computerSessionID,
 		})
 		if prepErr != nil {
 			return prepErr
@@ -1125,7 +1130,11 @@ var deviceStopCmd = &cobra.Command{
 
 Without -s, --session-id, REVYL_SESSION_ID, or --all, it stops your only live
 session. When several sessions are live it stops nothing and lists each one
-with the command that stops it, since another agent may still be using it.`,
+with the command that stops it, since another agent may still be using it.
+
+Discovery and --all include only sessions with a verified matching owner, sessions
+started in this directory, and the session explicitly selected with device attach
+or device use. Other sessions stay accessible by --session-id when authorized.`,
 	Example: `  revyl device stop
   revyl device stop --all
   revyl device stop -s 1`,
@@ -2912,7 +2921,7 @@ var deviceDoctorCmd = &cobra.Command{
 
 var deviceListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List all active device sessions",
+	Short: "List your active device sessions",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -3649,10 +3658,12 @@ func init() {
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
+	deviceStartCmd.Flags().String("computer", "", "Run the app session inside this running computer (computer session ID); iOS simulator or Web")
+	_ = deviceStartCmd.Flags().MarkHidden("computer")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")
-	deviceStopCmd.Flags().Bool("all", false, "Stop all sessions")
+	deviceStopCmd.Flags().Bool("all", false, "Stop all sessions owned by or explicitly attached to this CLI")
 	sessionFlag(deviceStopCmd)
 
 	// Screenshot
@@ -3667,30 +3678,30 @@ func init() {
 
 	// Tap
 	deviceTapCmd.Flags().String("target", "", "Element description (grounded)")
-	deviceTapCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	deviceTapCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	deviceTapCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	deviceTapCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceTapCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceTapCmd)
 
 	// Double Tap
 	deviceDoubleTapCmd.Flags().String("target", "", "Element description (grounded)")
-	deviceDoubleTapCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	deviceDoubleTapCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	deviceDoubleTapCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	deviceDoubleTapCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceDoubleTapCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceDoubleTapCmd)
 
 	// Long Press
 	deviceLongPressCmd.Flags().String("target", "", "Element description (grounded)")
-	deviceLongPressCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	deviceLongPressCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	deviceLongPressCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	deviceLongPressCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceLongPressCmd.Flags().Int("duration", 1500, "Press duration in ms")
 	deviceLongPressCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceLongPressCmd)
 
 	// Type
 	deviceTypeCmd.Flags().String("target", "", "Element description (grounded)")
-	deviceTypeCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	deviceTypeCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	deviceTypeCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	deviceTypeCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceTypeCmd.Flags().String("text", "", "Text to type (mutually exclusive with --text-env)")
 	deviceTypeCmd.Flags().String("text-env", "", "Local environment variable name containing text to type; never pass its value")
 	deviceTypeCmd.Flags().Bool("clear-first", true, "Clear field before typing")
@@ -3699,8 +3710,8 @@ func init() {
 
 	// Swipe
 	deviceSwipeCmd.Flags().String("target", "", "Element description (grounded)")
-	deviceSwipeCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	deviceSwipeCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	deviceSwipeCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	deviceSwipeCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceSwipeCmd.Flags().String("direction", "", "Direction: up, down, left, right (required)")
 	deviceSwipeCmd.Flags().Int("duration", 500, "Swipe duration in ms")
 	deviceSwipeCmd.Flags().Bool("json", false, "Output as JSON")
@@ -3721,8 +3732,8 @@ func init() {
 
 	// Pinch
 	devicePinchCmd.Flags().String("target", "", "Element description (grounded)")
-	devicePinchCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	devicePinchCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	devicePinchCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	devicePinchCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	devicePinchCmd.Flags().Float64("scale", 2.0, "Zoom scale (>1 zoom in, <1 zoom out)")
 	devicePinchCmd.Flags().Int("duration", 300, "Pinch duration in ms")
 	devicePinchCmd.Flags().Bool("json", false, "Output as JSON")
@@ -3730,8 +3741,8 @@ func init() {
 
 	// Clear Text
 	deviceClearTextCmd.Flags().String("target", "", "Element description (grounded)")
-	deviceClearTextCmd.Flags().Int("x", 0, "X coordinate (raw)")
-	deviceClearTextCmd.Flags().Int("y", 0, "Y coordinate (raw)")
+	deviceClearTextCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
+	deviceClearTextCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceClearTextCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceClearTextCmd)
 
