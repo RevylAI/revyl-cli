@@ -157,7 +157,7 @@ func workflowReportURL(devMode bool, executionID string) string {
 
 func printWorkflowBranchFallbacks(notices *ui.BranchFallbackNotices, children []api.CLIWorkflowChildExecution) {
 	for _, child := range children {
-		if notice := notices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+		if notice := notices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			// The in-place progress line has no newline yet; the next progress update redraws it.
 			ui.ClearLine()
 			ui.PrintWarning("%s", notice)
@@ -165,7 +165,10 @@ func printWorkflowBranchFallbacks(notices *ui.BranchFallbackNotices, children []
 	}
 }
 
-func addWorkflowAppIdentity(output map[string]interface{}, appID, appName string, branchSource api.BranchSource, gitBranchName string) {
+func addWorkflowAppIdentity(output map[string]interface{}, appID, appName string, branchSource api.BranchSource, gitBranchName string, autoGitBranchEnabled *bool) {
+	if autoGitBranchEnabled != nil {
+		output["auto_git_branch_enabled"] = *autoGitBranchEnabled
+	}
 	if appID != "" {
 		output["app_id"] = appID
 	}
@@ -644,7 +647,7 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 					"status":  ct.Status,
 				}
 				addBuildIdentity(test, ct.BuildID, ct.BuildVersion, ct.BranchID, ct.BranchName)
-				addWorkflowAppIdentity(test, ct.AppID, ct.AppName, ct.BranchSource, ct.GitBranchName)
+				addWorkflowAppIdentity(test, ct.AppID, ct.AppName, ct.BranchSource, ct.GitBranchName, ct.AutoGitBranchEnabled)
 				if ct.TestName != "" {
 					test["test_name"] = ct.TestName
 				}
@@ -686,7 +689,7 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 
 	notices := &ui.BranchFallbackNotices{}
 	for _, child := range report.ChildTasks {
-		if notice := notices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+		if notice := notices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			ui.PrintWarning("%s", notice)
 		}
 	}

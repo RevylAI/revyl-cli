@@ -12,9 +12,11 @@ revyl workflow run <workflow-name>
 
 Exit code `0` = pass, `1` = fail. That's all your CI system needs.
 
-A test saved on Default branch runs on the job's Git branch when it has a usable
-build. GitLab CI and Jenkins check out a commit, so there runs and uploads use
-the app's default branch unless you pass `--branch`. See
+A test saved on Default branch runs on the job's Git branch when automatic Git
+branch detection is enabled in the app's Build branches settings and that branch
+has a usable build; otherwise it uses the app's default branch. GitLab CI and
+Jenkins check out a commit, so there runs and uploads use the app's default branch
+unless you pass `--branch`. Explicit branches and saved build choices still apply. See
 [Git branch detection](https://docs.revyl.com/builds/branches#git-branch-detection).
 
 Set `REVYL_INSTALL_DIR=/usr/local/bin` to place the binary on PATH without shell profile sourcing (recommended for CI).

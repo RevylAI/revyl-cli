@@ -29,6 +29,8 @@ func TestDevLeavesANewInferredBranchToItsFirstUploadThenFreezesIt(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/api/v1/apps/"+appID:
+			_, _ = fmt.Fprintf(w, `{"id":%q,"auto_git_branch_enabled":true}`, appID)
 		case r.URL.Path == "/api/v1/apps/"+appID+"/branches" && r.Method == http.MethodGet:
 			lookups++
 			if r.URL.Query().Get("name") != "feature/fresh" {
@@ -59,7 +61,7 @@ func TestDevLeavesANewInferredBranchToItsFirstUploadThenFreezesIt(t *testing.T) 
 	if firstUpload.BranchID != "" || firstUpload.BranchName != "" || firstUpload.GitBranchName != "feature/fresh" || !firstUpload.GitBranchResolved {
 		t.Fatalf("first upload must name the detected Git branch: %+v", firstUpload)
 	}
-	uploaded := initial.withUploadedBranch(branchID, "feature/fresh")
+	uploaded := initial.withResolvedBranch(branchID, "feature/fresh")
 	continued, err := resolveDevDestination(context.Background(), client, uploaded, uploaded.BranchID, "", "", "", true)
 	if err != nil {
 		t.Fatal(err)
@@ -99,6 +101,131 @@ func TestDevKeepsAMissingExplicitBranchForItsFirstUpload(t *testing.T) {
 	args := projectDetachArgs([]string{"dev", "--branch", "release", "--detach"}, invocation)
 	if strings.Join(args, " ") != "dev --branch release --profile dev --platform android" {
 		t.Fatalf("detached child lost the new branch: %v", args)
+	}
+}
+
+func TestDevDisabledAutomaticSelectionRemainsServerOwnedUntilBuildResolved(t *testing.T) {
+	resetDevSelectionFlags(t)
+	const appID = "11111111-1111-4111-8111-111111111111"
+	const branchID = "22222222-2222-4222-8222-222222222222"
+	t.Setenv(devloop.GitBranchEnvironment, "feature/mobile")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/apps/" + appID:
+			_, _ = fmt.Fprintf(w, `{"id":%q,"auto_git_branch_enabled":false,"default_branch_id":%q}`, appID, branchID)
+		case "/api/v1/apps/" + appID + "/branches/" + branchID:
+			_, _ = fmt.Fprintf(w, `{"id":%q,"name":"base"}`, branchID)
+		default:
+			t.Errorf("disabled automatic selection looked up Git branch: %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	invocation, err := resolveDevDestination(context.Background(), api.NewClientWithBaseURL("test", server.URL), projectDevInvocation{AppID: appID, Profile: "dev", Platform: "android"}, "", "", "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.BranchID != branchID || invocation.BranchName != "base" || !invocation.AutomaticBranchSelection {
+		t.Fatalf("wrong preview destination: %+v", invocation)
+	}
+	selection := devBuildSelection(invocation)
+	if selection.BranchID != branchID || selection.GitBranchName != "" || selection.Mode != "" {
+		t.Fatalf("seed request lost the app-policy destination or bypassed its pin: %+v", selection)
+	}
+	build := projectBuildInvocationFromDev(invocation)
+	if build.BranchID != "" || build.BranchName != "" || build.GitBranchName != "feature/mobile" || !build.GitBranchResolved {
+		t.Fatalf("automatic upload request became explicit: %+v", build)
+	}
+	args := projectDetachArgs([]string{"dev", "--detach"}, invocation)
+	if strings.Contains(strings.Join(args, " "), "--branch") {
+		t.Fatalf("detached child promoted automatic destination: %v", args)
+	}
+	if !strings.Contains(strings.Join(devDetachEnvironment(invocation), "\n"), devloop.GitBranchEnvironment+"=feature/mobile") {
+		t.Fatal("detached child lost the captured Git context")
+	}
+	frozen := invocation.withResolvedBranch(branchID, "base")
+	if frozen.AutomaticBranchSelection || devBuildSelection(frozen).BranchID != branchID {
+		t.Fatalf("resolved build did not freeze session destination: %+v", frozen)
+	}
+}
+
+func TestDevUploadSeedPreservesAppPolicyAndBootstrapsEmptyGitBranch(t *testing.T) {
+	const appID = "11111111-1111-4111-8111-111111111111"
+	const defaultID = "22222222-2222-4222-8222-222222222222"
+	const gitID = "33333333-3333-4333-8333-333333333333"
+	const buildID = "44444444-4444-4444-8444-444444444444"
+	for _, test := range []struct {
+		name                       string
+		enabled, missing, explicit bool
+	}{
+		{name: "enabled empty Git branch", enabled: true},
+		{name: "enabled missing Git branch", enabled: true, missing: true},
+		{name: "disabled uses default build"},
+		{name: "disabled explicit empty branch", explicit: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetDevSelectionFlags(t)
+			t.Setenv(devloop.GitBranchEnvironment, "feature")
+			seedRequests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/apps/" + appID:
+					_, _ = fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q,"auto_git_branch_enabled":%t}`, appID, defaultID, test.enabled)
+				case "/api/v1/apps/" + appID + "/branches":
+					if test.missing {
+						_, _ = w.Write([]byte(`{"branches":[]}`))
+					} else {
+						_, _ = fmt.Fprintf(w, `{"branches":[{"id":%q,"name":"feature"}]}`, gitID)
+					}
+				case "/api/v1/apps/" + appID + "/branches/" + defaultID:
+					_, _ = fmt.Fprintf(w, `{"id":%q,"name":"base"}`, defaultID)
+				case "/api/v1/apps/resolve":
+					seedRequests++
+					var selection map[string]string
+					_ = json.NewDecoder(r.Body).Decode(&selection)
+					wantBranch := defaultID
+					if test.enabled || test.explicit {
+						wantBranch = gitID
+					}
+					if selection["branch_id"] != wantBranch || selection["git_branch_name"] != "" {
+						t.Errorf("upload seed must check the policy-selected branch without falling back: %#v", selection)
+					}
+					if wantBranch == gitID {
+						_, _ = fmt.Fprintf(w, `{"branch_id":%q,"resolution_status":"branch_has_no_builds"}`, gitID)
+					} else {
+						_, _ = fmt.Fprintf(w, `{"version_id":%q,"branch_id":%q,"branch_name":"base","download_url":"https://example.test/app.zip","resolution_status":"resolved"}`, buildID, defaultID)
+					}
+				case "/api/v1/apps/builds/" + buildID:
+					_, _ = fmt.Fprintf(w, `{"id":%q,"app_id":%q}`, buildID, appID)
+				default:
+					t.Errorf("unexpected request: %s", r.URL)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client := api.NewClientWithBaseURL("test", server.URL)
+			explicitName := ""
+			if test.explicit {
+				explicitName = "feature"
+			}
+			invocation, err := resolveDevDestination(context.Background(), client, projectDevInvocation{AppID: appID}, "", explicitName, "", "", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected, _, _, err := selectDevStartBuild(context.Background(), client, appID, invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.enabled || test.explicit {
+				if selected != nil || (test.missing && seedRequests != 0) {
+					t.Fatalf("empty/missing Git branch should bootstrap there: %+v requests=%d", selected, seedRequests)
+				}
+			} else if selected == nil || selected.ID != buildID {
+				t.Fatalf("disabled detection did not use default seed: %+v", selected)
+			}
+		})
 	}
 }
 
@@ -196,8 +323,8 @@ func TestDevNoBuildFallbackRetainsDefaultBranchPolicy(t *testing.T) {
 						if request["git_branch_name"] != "feature/empty" || request["branch_id"] != "" {
 							t.Errorf("missing inference: %#v", request)
 						}
-					} else if request["git_branch_name"] != "" || request["branch_id"] != branchID {
-						t.Errorf("fallback destination not frozen: %#v", request)
+					} else if request["git_branch_name"] != "feature/empty" || request["branch_id"] != "" {
+						t.Errorf("automatic destination became explicit before seed selection: %#v", request)
 					}
 					source := "explicit_branch"
 					if resolveCalls == 1 {
@@ -463,7 +590,7 @@ func TestDevUploadsCreateANewBranchThenRebuildsUploadToIt(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				invocation = invocation.withUploadedBranch(uploaded.BranchID, uploaded.BranchName)
+				invocation = invocation.withResolvedBranch(uploaded.BranchID, uploaded.BranchName)
 			}
 			if invocation.BranchID != branchID || invocation.BranchName != "main" {
 				t.Fatalf("the loop did not freeze the branch its first upload created: %+v", invocation)

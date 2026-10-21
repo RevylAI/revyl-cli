@@ -38,8 +38,9 @@ Start with:
 Reads include all branches by default. Use --branch or --branch-id to narrow
 the scope, or --build to select one build. --build latest selects the newest
 usable build on the selected branch, even when the branch is pinned. With no
-branch, it uses the detected Git branch, or the app's default branch when Git
-names no branch with a usable build.`,
+branch, it uses the detected Git branch when automatic Git branch detection is
+enabled in the app's Build branches settings. When detection is disabled or Git
+names no branch with a usable build, it uses the app's default branch.`,
 	Args: cobra.NoArgs,
 	RunE: runAtlasGuide,
 }
@@ -382,8 +383,8 @@ func resolveAtlasScope(cmd *cobra.Command, client *api.Client, app *api.App) (st
 		if err != nil {
 			return "", "", err
 		}
-		if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
-			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branch.Name))
+		if notice := ui.BranchSelectionNotice(branch.GitBranchName, branch.Name, string(branch.BranchSource), branch.AutoGitBranchEnabled); notice != "" {
+			ui.PrintWarning("%s", notice)
 		}
 		id = branch.ID
 	}

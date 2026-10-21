@@ -275,7 +275,7 @@ func TestWorkflowBuildSettingsPreservePinWhileDisablingAndReselectingApp(t *test
 	}
 }
 
-func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
+func TestUploadBuildFreezesExplicitBranchAndPreservesAutomaticContext(t *testing.T) {
 	selectGitBranchWorktree(t, "main")
 	file := filepath.Join(t.TempDir(), "app.apk")
 	if err := os.WriteFile(file, []byte("artifact"), 0600); err != nil {
@@ -288,6 +288,8 @@ func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/api/v1/apps/" + pickerAppID:
+			fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, pickerAppID, pickerBranchID)
 		case "/api/v1/apps/" + pickerAppID + "/branches":
 			if r.URL.Query().Get("name") != "main" {
 				t.Errorf("destination name lost: %s", r.URL)
@@ -296,8 +298,12 @@ func TestUploadBuildFreezesSelectedBranchBeforeArtifactTransfer(t *testing.T) {
 		case "/api/v1/apps/" + pickerAppID + "/builds/upload-session":
 			var payload map[string]interface{}
 			_ = json.NewDecoder(r.Body).Decode(&payload)
-			if payload["branch_id"] != pickerBranchID || payload["branch_name"] != nil {
-				t.Errorf("upload must freeze destination ID: %#v", payload)
+			if payload["version"] == "v0" {
+				if payload["branch_id"] != pickerBranchID || payload["branch_name"] != nil || payload["git_branch_name"] != nil {
+					t.Errorf("explicit upload must freeze destination ID: %#v", payload)
+				}
+			} else if payload["branch_id"] != nil || payload["branch_name"] != nil || payload["git_branch_name"] != "main" {
+				t.Errorf("automatic upload must preserve Git context: %#v", payload)
 			}
 			fmt.Fprintf(w, `{"upload_id":"upload","upload_url":%q,"content_type":"application/octet-stream","branch_id":%q}`, server.URL+"/artifact", pickerBranchID)
 		case "/artifact":

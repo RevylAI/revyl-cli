@@ -156,9 +156,7 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 			req.AppPackage = resolved.AppPackage
 			req.AppID = resolved.AppID
 			req.BuildID = resolved.BuildID
-			if resolved.BranchSource.FellBackFromGitBranch(selection.GitBranchName) {
-				branchFallbackNotice = ui.BranchFallbackNotice(selection.GitBranchName, resolved.BranchName)
-			}
+			branchFallbackNotice = ui.BranchSelectionNotice(resolved.GitBranchName, resolved.BranchName, string(resolved.BranchSource), resolved.AutoGitBranchEnabled)
 		}
 
 		resp, err := client.StartDevice(ctx, req)

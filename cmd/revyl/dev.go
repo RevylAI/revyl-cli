@@ -182,7 +182,7 @@ func init() {
 }
 
 func registerDevStartFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&devStartBranch, "branch", "", "Revyl branch for initial build/rebuilds (default: Git branch, then app default)")
+	cmd.Flags().StringVar(&devStartBranch, "branch", "", "Revyl branch for initial build/rebuilds (default: Git branch when enabled in app settings, else app default)")
 	cmd.Flags().StringVar(&devStartBranchID, "branch-id", "", "Stable Revyl branch ID for continuation")
 	_ = cmd.Flags().MarkHidden("branch-id")
 	cmd.Flags().StringVar(&devStartBuildSelection, "build-selection", "", "Initial build: inherit (Automatic), latest, or pinned with --build-version-id")
@@ -660,6 +660,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		if selectedVersion != nil {
 			buildVersionID = selectedVersion.ID
 			buildSelectionSource = source
+			invocation = invocation.withResolvedBranch(selectedVersion.BranchID, selectedVersion.BranchName)
 		}
 	}
 
@@ -698,7 +699,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 					localSimBuildPath = simBuild.Path
 					ui.PrintSuccess("Uploaded local simulator build")
 					buildVersionID = uploadResult.VersionID
-					invocation = invocation.withUploadedBranch(uploadResult.BranchID, uploadResult.BranchName)
+					invocation = invocation.withResolvedBranch(uploadResult.BranchID, uploadResult.BranchName)
 				} else {
 					ui.PrintDebug("local simulator upload failed, falling back to configured build: %v", uploadErr)
 				}
@@ -715,7 +716,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		if buildErr != nil {
 			return buildErr
 		}
-		invocation = invocation.withAppID(buildResult.Invocation.AppID).withUploadedBranch(buildResult.Upload.BranchID, buildResult.Upload.BranchName)
+		invocation = invocation.withAppID(buildResult.Invocation.AppID).withResolvedBranch(buildResult.Upload.BranchID, buildResult.Upload.BranchName)
 		selectedAppID = invocation.AppID
 		buildVersionID = buildResult.Upload.VersionID
 	}
@@ -2228,6 +2229,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		}
 		if resolveErr == nil {
 			uploadedVersionID = existing.ID
+			invocation = invocation.withResolvedBranch(existing.BranchID, existing.BranchName)
 		} else {
 			needsBuild = true
 		}
@@ -2259,7 +2261,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			ui.StopSpinner()
 			if uploadErr == nil {
 				uploadedVersionID = uploaded.VersionID
-				invocation = invocation.withUploadedBranch(uploaded.BranchID, uploaded.BranchName)
+				invocation = invocation.withResolvedBranch(uploaded.BranchID, uploaded.BranchName)
 				needsBuild = false
 				usedLocalSimBuild = true
 				localSimBuildPath = simBuild.Path
@@ -2276,7 +2278,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		if buildErr != nil {
 			return fmt.Errorf("build failed: %w", buildErr)
 		}
-		invocation = invocation.withAppID(buildResult.Invocation.AppID).withUploadedBranch(buildResult.Upload.BranchID, buildResult.Upload.BranchName)
+		invocation = invocation.withAppID(buildResult.Invocation.AppID).withResolvedBranch(buildResult.Upload.BranchID, buildResult.Upload.BranchName)
 		appID = strings.TrimSpace(invocation.AppID)
 		uploadedVersionID = buildResult.Upload.VersionID
 	} else if usedLocalSimBuild {

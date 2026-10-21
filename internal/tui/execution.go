@@ -151,8 +151,8 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 			return ExecutionDoneMsg{Err: fmt.Errorf("failed to start test: %w", err)}
 		}
 
-		if resp.BranchSource.FellBackFromGitBranch(selection.GitBranchName) {
-			notice = ui.BranchFallbackNotice(selection.GitBranchName, resp.BranchName)
+		if resolvedNotice := ui.BranchSelectionNotice(resp.GitBranchName, resp.BranchName, string(resp.BranchSource), resp.AutoGitBranchEnabled); resolvedNotice != "" {
+			notice = resolvedNotice
 		}
 		return ExecutionStartedMsg{
 			BranchFallbackNotice: notice,

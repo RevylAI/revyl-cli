@@ -8,8 +8,9 @@ revyl build upload --url "https://example.com/build.gz" --platform ios --app <ap
 ```
 
 Add `--branch <name>` to choose the Revyl branch; otherwise the upload goes to
-[your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection),
-or the app's default branch when none is detected, and a missing branch is
+[your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection)
+when automatic detection is on, or the app's default branch when detection is
+off or no Git branch is detected. A missing destination branch is
 created. `--repo` and `--commit` that name another repository or commit stop the
 checkout from choosing the branch; pass `--branch` when the artifact wasn't
 built from this checkout. Uploads never pin; add `--pin` to make the new build

@@ -13,6 +13,7 @@ import (
 )
 
 type buildWhichResult struct {
+	AutoGitBranchEnabled *bool                  `json:"auto_git_branch_enabled,omitempty"`
 	AppID                string                 `json:"app_id"`
 	AppName              string                 `json:"app_name"`
 	BranchID             string                 `json:"branch_id"`
@@ -30,10 +31,12 @@ func init() {
 		Short: "Show the branch and build an app would use",
 		Long: `Show the build a run on an app would use, without starting a run.
 
-Uses --branch when supplied, otherwise the detected Git branch or the app's
-default branch, then that branch's default build: Latest build or its pinned
-build. Reports when the detected Git branch has no usable build and the app's
-default branch is used.
+Uses --branch when supplied. Otherwise it uses the detected Git branch when
+automatic Git branch detection is enabled in the app's Build branches settings,
+falling back to the app's default branch when no usable Git branch build exists.
+When detection is disabled, it uses the app's default branch directly. The chosen
+branch supplies its default build: Latest build or its pinned build. Reports the
+selected branch and the reason it was chosen.
 
 This inspects app-level selection only. A test or workflow can have its own
 saved branch or exact build, which this command does not inspect.
@@ -46,7 +49,7 @@ Examples:
 		RunE: runBuildWhich,
 	}
 	command.Flags().String("app", "", "App name or ID (required)")
-	command.Flags().String("branch", "", "Revyl branch (default: your Git branch, else the app's default branch)")
+	command.Flags().String("branch", "", "Revyl branch (default: Git branch when enabled in app settings, else app default)")
 	command.Flags().Bool("json", false, "Output the selected branch and build as JSON")
 	_ = command.MarkFlagRequired("app")
 	buildCmd.AddCommand(command)
@@ -59,7 +62,7 @@ func runBuildWhich(cmd *cobra.Command, _ []string) error {
 	}
 	branchName := commandBuildBranch(cmd)
 	if cmd.Flags().Changed("branch") && strings.TrimSpace(branchName) == "" {
-		return fmt.Errorf("--branch requires a Revyl branch name; omit it to use your Git branch or the app's default branch")
+		return fmt.Errorf("--branch requires a Revyl branch name; omit it to follow the app's automatic Git branch setting")
 	}
 	selection := api.BuildSelection{BranchName: branchName}
 	if err := selection.Validate(); err != nil {
@@ -82,22 +85,28 @@ func runBuildWhich(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	fellBack := build.BranchSource.FellBackFromGitBranch(gitBranchName)
-	source, reason := api.BranchSourceDefaultBranch, "app default branch"
-	if branchName != "" {
-		source, reason = api.BranchSourceExplicitBranch, "explicit --branch"
-	} else if gitBranchName != "" && !fellBack {
-		source, reason = api.BranchSourceGitBranch, "Git branch"
-	} else if fellBack {
-		reason = "app default branch; Git branch has no usable build"
+	fellBack := build.BranchSource.FellBackFromGitBranch(build.GitBranchName)
+	source, reason := build.BranchSource, "app default branch"
+	switch source {
+	case api.BranchSourceExplicitBranch:
+		reason = "explicit --branch"
+	case api.BranchSourceGitBranch:
+		reason = "Git branch"
+	case api.BranchSourceDefaultBranch:
+		if build.AutoGitBranchEnabled != nil && !*build.AutoGitBranchEnabled {
+			reason = "app default branch; automatic Git branch detection is off"
+		} else if fellBack {
+			reason = "app default branch; Git branch has no usable build"
+		}
 	}
 	result := buildWhichResult{
 		AppID: appID, AppName: appName,
-		BranchID: build.BranchID, BranchName: build.BranchName, BranchSource: source, GitBranchName: gitBranchName,
-		BuildID: build.ID, BuildVersion: build.Version, BranchBuildSelection: mode,
+		BranchID: build.BranchID, BranchName: build.BranchName, BranchSource: source, GitBranchName: build.GitBranchName,
+		AutoGitBranchEnabled: build.AutoGitBranchEnabled,
+		BuildID:              build.ID, BuildVersion: build.Version, BranchBuildSelection: mode,
 	}
-	if fellBack {
-		fmt.Fprintln(cmd.ErrOrStderr(), ui.AppBranchFallbackNotice(appName, gitBranchName, build.BranchName))
+	if notice := ui.AppBranchSelectionNotice(appName, build.GitBranchName, build.BranchName, string(source), build.AutoGitBranchEnabled); notice != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), notice)
 	}
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json")

@@ -66,3 +66,16 @@ func TestStartArtifactPreservesBranchSource(t *testing.T) {
 		}
 	}
 }
+
+func TestStartArtifactPreservesDisabledAutomaticGitBranch(t *testing.T) {
+	disabled := false
+	resolver := &contextArtifactResolver{detail: api.BuildVersionDetail{
+		ID: "build", AppID: "app", BranchID: "branch", BranchName: "base",
+		DownloadURL: "https://artifact.example/app.apk", BranchSource: api.BranchSourceDefaultBranch,
+		AutoGitBranchEnabled: &disabled,
+	}}
+	artifact, err := ResolveStartArtifact(context.Background(), resolver, StartArtifactOptions{AppID: "app", GitBranchName: "feature/source"})
+	if err != nil || artifact.AutoGitBranchEnabled == nil || *artifact.AutoGitBranchEnabled || artifact.GitBranchName != "" || artifact.BranchName != "base" {
+		t.Fatalf("artifact=%+v err=%v", artifact, err)
+	}
+}

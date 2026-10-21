@@ -243,7 +243,7 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "no-inherited-launch-vars")
 	analytics.MarkFlagValue(workflowRunCmd, "var")
 
-	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for each app (overrides saved selection; default: Git, then app default)")
+	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for each app (overrides saved selection; default: Git when enabled in app settings, else app default)")
 	workflowRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin)")
 	workflowRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	analytics.MarkFlagValue(workflowRunCmd, allBranchesFlagName)

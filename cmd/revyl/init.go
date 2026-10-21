@@ -85,7 +85,7 @@ func hasLocalRevylCredentials() bool {
 var initBuildBranch string
 
 func init() {
-	initCmd.Flags().StringVar(&initBuildBranch, "branch", "", "Revyl destination branch for initial builds (default: your Git branch, else the app's default branch)")
+	initCmd.Flags().StringVar(&initBuildBranch, "branch", "", "Revyl destination branch for initial builds (default: Git branch when enabled in app settings, else app default)")
 	initCmd.Flags().StringVar(&initProjectID, "project", "", "Link to existing Revyl project ID")
 	initCmd.Flags().BoolVar(&initDetect, "detect", false, "Re-run build system detection")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing configuration")

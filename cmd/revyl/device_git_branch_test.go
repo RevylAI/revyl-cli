@@ -73,17 +73,27 @@ func TestDeviceCommandsReportContextFallback(t *testing.T) {
 	const workflowID = "22222222-2222-4222-8222-222222222222"
 	const buildID = "33333333-3333-4333-8333-333333333333"
 	const sessionID = "44444444-4444-4444-8444-444444444444"
+	disabled := false
 	for _, operation := range []string{"start", "install"} {
-		for _, branch := range []string{"", "base"} {
-			t.Run(operation+"/"+branch, func(t *testing.T) {
+		for _, test := range []struct {
+			name, branch string
+			enabled      *bool
+		}{
+			{name: "old server"},
+			{name: "old server explicit", branch: "base"},
+			{name: "disabled", enabled: &disabled},
+			{name: "disabled explicit", branch: "base", enabled: &disabled},
+		} {
+			t.Run(operation+"/"+test.name, func(t *testing.T) {
+				branch := test.branch
 				root := initDevRepository(t)
 				setDevTestBranch(t, root, "feature/missing")
 				withWorkingDirectory(t, root)
 				writePersistedDeviceSession(t, root, workflowID)
 				t.Setenv("REVYL_API_KEY", "test")
-				fallback := branch == ""
+				fallback := branch == "" && (test.enabled == nil || *test.enabled)
 				source := api.BranchSourceExplicitBranch
-				if fallback {
+				if branch == "" {
 					source = api.BranchSourceDefaultBranch
 				}
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +104,7 @@ func TestDeviceCommandsReportContextFallback(t *testing.T) {
 					case "/api/v1/execution/device-sessions/active":
 						_ = json.NewEncoder(w).Encode(map[string]any{"org_id": "org-1", "sessions": []map[string]any{{"id": "sess-1", "workflow_run_id": workflowID, "platform": "ios", "user_email": "fixture@example.test"}}})
 					case "/api/v1/apps/resolve":
-						_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": "base-id", "branch_name": "base", "download_url": "https://artifact.example/app.apk", "branch_source": source, "git_branch_name": map[bool]any{true: "feature/missing", false: nil}[fallback]})
+						_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": "base-id", "branch_name": "base", "download_url": "https://artifact.example/app.apk", "branch_source": source, "auto_git_branch_enabled": test.enabled, "git_branch_name": map[bool]any{true: "feature/missing", false: nil}[fallback]})
 					case "/api/v1/apps/builds/" + buildID:
 						_ = json.NewEncoder(w).Encode(map[string]any{"id": buildID, "app_id": appID})
 					case "/api/v1/execution/start_device", "/api/v1/execution/device-proxy/" + workflowID + "/install":
@@ -137,6 +147,13 @@ func TestDeviceCommandsReportContextFallback(t *testing.T) {
 				}
 				if strings.Contains(stderr, `using the app's default branch "base"`) != fallback {
 					t.Fatalf("fallback=%t stderr=%s", fallback, stderr)
+				}
+				if test.enabled != nil && result["auto_git_branch_enabled"] != *test.enabled {
+					t.Fatalf("policy lost: %#v", result)
+				}
+				wantDisabledNotice := test.enabled != nil && !*test.enabled && branch == ""
+				if strings.Contains(stderr, `Using app default branch "base" because automatic Git branch detection is off.`) != wantDisabledNotice {
+					t.Fatalf("disabled notice=%t stderr=%s", wantDisabledNotice, stderr)
 				}
 			})
 		}

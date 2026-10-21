@@ -13,7 +13,8 @@ revyl explore cancel <run-id>
 
 If you omit the app, Revyl uses the mapping in `.revyl/config.yaml`. Choose a
 platform when the project maps more than one app. Without a branch, it uses your
-Git branch if it has a usable build, else the app's default branch. Use
+Git branch when automatic detection is on and it has a usable build, else the
+app's default branch. Use
 `--branch`, `--build-selection latest`, `--all-branches` or `--build-id` to
 choose another build. See [Build branches](https://docs.revyl.com/builds/branches).
 

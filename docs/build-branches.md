@@ -2,10 +2,14 @@
 
 Every build belongs to one branch of its app, and each app has a default branch:
 `base` at first, then the branch of the app's first upload. A run on a branch
-uses its default build: its Latest build, or a build you pin. Without
-`--branch`, uploads go to your Git branch, created if needed, and runs try it
-first when it has a usable build, then the app's default branch. Choices you
-make, for one run or saved, never fall back. See
+uses its default build: its Latest build, or a build you pin. With automatic
+Git branch detection on, uploads without `--branch` go to your Git branch,
+created if needed, and runs try it first when it has a usable build, then the
+app's default branch. Turn detection off in **App settings** > **Build branches**
+to use the app's default branch for automatic uploads and runs instead. The
+setting is per app, starts on, and isn't configured in `.revyl/config.yaml`.
+Explicit branches, exact builds, and saved choices, including All branches,
+still take precedence and never fall back. Git source metadata is preserved. See
 [Build branches](https://docs.revyl.com/builds/branches) for the full model.
 
 ## Manage branches
@@ -43,10 +47,10 @@ revyl build list --app "My App" --branch HEAD
 ```
 
 - `--branch` chooses the upload's branch and creates it if it doesn't exist.
-  Without it, the upload goes to your Git branch, created if needed, or the
-  app's default branch when none is detected. When `--repo` and `--commit` name
-  a different repository or commit than the checkout, the checkout doesn't
-  choose the branch. Pass `--branch` when the artifact wasn't built from this
+  Without it, the upload goes to your Git branch, created if needed, when
+  automatic detection is on. With detection off or no Git branch available,
+  it uses the app's default branch. When `--repo` and `--commit` name another
+  repository or commit, the checkout doesn't choose the branch. Pass `--branch` when the artifact wasn't built from this
   checkout.
 - `revyl init` chooses its uploads' branch the same way, so the first build it
   uploads to an app it created sets that app's default branch.
@@ -80,11 +84,13 @@ revyl build which --app "My App" --branch staging
 revyl build which --app "My App" --json
 ```
 
-`build which` uses `--branch`, otherwise your Git branch when it has a usable
-build, otherwise the app's default branch, then that branch's default build. It
-prints the app, branch, reason, build, and default build without starting a
-run, and prints the fallback notice on stderr when your Git branch couldn't be
-used. It reads the app's selection, not a test's or workflow's saved choice.
+`build which` uses `--branch`, otherwise your Git branch when automatic
+detection is on and it has a usable build, otherwise the app's default branch,
+then that branch's default build. It prints the app, branch, reason, build,
+and default build without starting a run, and prints the fallback notice on stderr when your Git branch couldn't be
+used. When detection is off, the reason identifies the app setting instead of
+reporting a missing Git build. It reads the app's selection, not a test's or
+workflow's saved choice.
 `HEAD` here is a literal branch name. A failed selection exits nonzero without a
 result.
 
@@ -117,10 +123,11 @@ revyl device install --app-id <app-id> --all-branches
 - A workflow's `--branch` and `--build-selection` apply to every app it runs.
   Each app needs that branch and, unless you give it an exact build, a usable
   build there; otherwise the workflow doesn't start and the error names the
-  apps. Without them, each app falls back from your Git branch on its own.
-- With test or workflow `--build`, the new build uploads to `--branch`, or your
-  Git branch, and the run uses that exact build. Don't combine `--build` with
-  `--build-selection`.
+  apps. Without them, each app applies its own detection setting and saved
+  choice before falling back to its default branch.
+- With test or workflow `--build`, the new build uploads to `--branch`, or the
+  branch selected by the app's detection setting, and the run uses that exact
+  build. Don't combine `--build` with `--build-selection`.
 - `--ios-app` and `--android-app` replace the workflow's saved app for one run;
   platforms you don't override use each test's saved choice.
 - Output names the branch of each build, such as
@@ -176,10 +183,12 @@ revyl workflow app clear smoke
 - The app build browser opens on All branches, including when you return to
   it. Its branch filter narrows the list and never chooses an upload's
   destination or a run's build.
-- Run, session, and upload pickers start with your Git branch when one is
-  detected: `Git branch (feature-login) · falls back to base` for runs and
-  sessions, or `Git branch (feature-login)` for uploads, which create it.
-  Pickers that save a choice, and pickers with no Git branch, start with
+- Run, session, and upload pickers start with your Git branch when detection is
+  on and a branch is detected: `Git branch (feature-login) · falls back to base`
+  for runs and sessions, or `Git branch (feature-login)` for uploads, which
+  create it.
+  With detection off, pickers start with the app's default branch. Pickers
+  that save a choice, and pickers with no Git branch, also start with
   `Default branch (base)` and its default build. The other branches follow,
   most recently active first, with the app's default marked `(default)`.
 - Pickers for runs, sessions, and saved choices list
@@ -209,15 +218,19 @@ revyl workflow app clear smoke
     run consulted it: with `git_branch`, and with `default_branch` when your
     Git branch couldn't be used (it doesn't exist, has no usable build, or
     isn't a valid Revyl branch name). It's left out for `explicit_branch`, an
-    exact build, All branches · Latest build, and a run with no Git branch.
+    exact build, All branches · Latest build, a run with detection off, and a
+    run with no Git branch.
     For example, a fallback reports
     `{"branch_name": "base", "branch_source": "default_branch", "git_branch_name": "feature-login"}`.
+  - `auto_git_branch_enabled` reports the app's setting. When it is `false`,
+    `default_branch` means automatic detection is off, not that the Git branch
+    had no usable build; `git_branch_name` is absent.
 - **`build which`:** `app_id`, `app_name`, `branch_id`, `branch_name`,
   `branch_source` (`explicit_branch`, `git_branch`, or `default_branch`, which a
   fallback also reports), `git_branch_name` (as for runs: present with
   `git_branch`, and with `default_branch` after a fallback), `build_id`,
-  `build_version`, and `branch_build_selection` (`latest` or `pinned`: the
-  branch's default build).
+  `auto_git_branch_enabled`, `build_version`, and `branch_build_selection`
+  (`latest` or `pinned`: the branch's default build).
 - **`build list`:** `versions`, `count`, `total`, `page`, `page_size`, and
   `has_next`; with `--branch`, also `branch_filter` and `branch_filter_kind`
   (`revyl_branch` or `git_branch`).

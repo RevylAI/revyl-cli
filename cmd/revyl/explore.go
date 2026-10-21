@@ -122,7 +122,7 @@ func init() {
 
 func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&exploreBuildID, "build-id", "", "Explore an exact build ID (otherwise follows the selected branch's default build)")
-	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: Git branch, then app default)")
+	cmd.Flags().StringVar(&exploreBranchName, "branch", "", "Revyl branch to explore (default: Git branch when enabled in app settings, else app default)")
 	cmd.Flags().StringVar(&exploreBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin); exact build: --build-id")
 	cmd.Flags().BoolVar(&exploreAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios, android, or web")
@@ -143,24 +143,25 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 }
 
 type exploreOutput struct {
-	BranchSource       api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName      string           `json:"git_branch_name,omitempty"`
-	RunID              string           `json:"run_id"`
-	AppID              string           `json:"app_id"`
-	BuildID            string           `json:"build_id"`
-	BranchID           string           `json:"branch_id,omitempty"`
-	BranchName         string           `json:"branch_name,omitempty"`
-	ExecutionStatus    string           `json:"execution_status"`
-	AtlasStatus        string           `json:"atlas_status"`
-	CustomerStatus     string           `json:"customer_status"`
-	Outcome            string           `json:"outcome"`
-	ReportURL          string           `json:"report_url"`
-	ExplorersRequested int              `json:"explorers_requested"`
-	ExplorersLaunched  int              `json:"explorers_launched"`
-	CompletedExplorers int              `json:"completed_explorers"`
-	TotalExplorers     int              `json:"total_explorers"`
-	FindingsCount      int              `json:"findings_count"`
-	Success            bool             `json:"success"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string           `json:"git_branch_name,omitempty"`
+	RunID                string           `json:"run_id"`
+	AppID                string           `json:"app_id"`
+	BuildID              string           `json:"build_id"`
+	BranchID             string           `json:"branch_id,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	ExecutionStatus      string           `json:"execution_status"`
+	AtlasStatus          string           `json:"atlas_status"`
+	CustomerStatus       string           `json:"customer_status"`
+	Outcome              string           `json:"outcome"`
+	ReportURL            string           `json:"report_url"`
+	ExplorersRequested   int              `json:"explorers_requested"`
+	ExplorersLaunched    int              `json:"explorers_launched"`
+	CompletedExplorers   int              `json:"completed_explorers"`
+	TotalExplorers       int              `json:"total_explorers"`
+	FindingsCount        int              `json:"findings_count"`
+	Success              bool             `json:"success"`
 }
 
 type exploreProgress struct {
@@ -199,12 +200,8 @@ func runExploreRun(cmd *cobra.Command, args []string) error {
 		launch.ReportUrl,
 		exploreExplorerCount,
 	)
-	gitBranchName := ""
-	if request.GitBranchName != nil {
-		gitBranchName = *request.GitBranchName
-	}
-	if output.BranchSource.FellBackFromGitBranch(gitBranchName) && !quiet {
-		fmt.Fprintln(cmd.ErrOrStderr(), ui.BranchFallbackNotice(gitBranchName, output.BranchName))
+	if notice := ui.BranchSelectionNotice(output.GitBranchName, output.BranchName, string(output.BranchSource), output.AutoGitBranchEnabled); notice != "" && !quiet {
+		fmt.Fprintln(cmd.ErrOrStderr(), notice)
 	}
 	if !quiet && exploreConcurrencyWasTrimmed(output) {
 		fmt.Fprintf(
@@ -703,33 +700,38 @@ func exploreOutputFromRun(
 		findingsCount = len(*run.Findings)
 	}
 	var branchSource api.BranchSource
+	var autoGitBranchEnabled *bool
 	gitBranchName := ""
 	if run.Config != nil {
 		if value, ok := (*run.Config)["branch_source"].(string); ok && api.BranchSource(value).Valid() {
 			branchSource = api.BranchSource(value)
 		}
 		gitBranchName, _ = (*run.Config)["git_branch_name"].(string)
+		if value, ok := (*run.Config)["auto_git_branch_enabled"].(bool); ok {
+			autoGitBranchEnabled = &value
+		}
 	}
 	outcome, success := exploreOutcome(run)
 	return exploreOutput{
-		BranchSource:       branchSource,
-		GitBranchName:      gitBranchName,
-		RunID:              run.Id,
-		AppID:              run.AppId,
-		BuildID:            buildID,
-		BranchID:           stringValue(run.BranchId),
-		BranchName:         stringValue(run.BranchName),
-		ExecutionStatus:    run.ExecutionStatus,
-		AtlasStatus:        run.AtlasStatus,
-		CustomerStatus:     run.CustomerStatus,
-		Outcome:            outcome,
-		ReportURL:          reportURL,
-		ExplorersRequested: requested,
-		ExplorersLaunched:  configured,
-		CompletedExplorers: completed,
-		TotalExplorers:     total,
-		FindingsCount:      findingsCount,
-		Success:            success,
+		BranchSource:         branchSource,
+		AutoGitBranchEnabled: autoGitBranchEnabled,
+		GitBranchName:        gitBranchName,
+		RunID:                run.Id,
+		AppID:                run.AppId,
+		BuildID:              buildID,
+		BranchID:             stringValue(run.BranchId),
+		BranchName:           stringValue(run.BranchName),
+		ExecutionStatus:      run.ExecutionStatus,
+		AtlasStatus:          run.AtlasStatus,
+		CustomerStatus:       run.CustomerStatus,
+		Outcome:              outcome,
+		ReportURL:            reportURL,
+		ExplorersRequested:   requested,
+		ExplorersLaunched:    configured,
+		CompletedExplorers:   completed,
+		TotalExplorers:       total,
+		FindingsCount:        findingsCount,
+		Success:              success,
 	}
 }
 

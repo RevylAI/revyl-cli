@@ -54,3 +54,26 @@ func TestWorkflowFallbackSurvivesFlatTerminalEvent(t *testing.T) {
 		t.Fatalf("status=%+v err=%v updates=%d", got, err, updates)
 	}
 }
+
+func TestWorkflowEventsPreservePerAppAutomaticGitBranchPolicy(t *testing.T) {
+	children := `[{"id":"disabled","app_id":"one","branch_name":"base","branch_source":"default_branch","auto_git_branch_enabled":false},{"id":"enabled","app_id":"two","branch_name":"feature","branch_source":"git_branch","git_branch_name":"feature","auto_git_branch_enabled":true}]`
+	workflow := `{"task":{"id":"workflow","status":"running"},"child_tasks":` + children + `}`
+	for _, test := range []struct{ event, data string }{
+		{"initial_state", `{"running_workflows":[` + workflow + `]}`},
+		{"workflow_updated", `{"workflow":` + workflow + `}`},
+		{"workflow_completed", `{"workflow":` + workflow + `}`},
+		{"workflow_failed", `{"task_id":"workflow","child_tasks":` + children + `}`},
+		{"workflow_cancelled", `{"id":"workflow","child_tasks":` + children + `}`},
+	} {
+		t.Run(test.event, func(t *testing.T) {
+			got := (&Monitor{}).handleWorkflowEvent(SSEEvent{Event: test.event, Data: json.RawMessage(test.data)}, "workflow")
+			if got == nil || len(got.ChildTasks) != 2 {
+				t.Fatalf("status=%+v", got)
+			}
+			disabled, enabled := got.ChildTasks[0], got.ChildTasks[1]
+			if disabled.AutoGitBranchEnabled == nil || *disabled.AutoGitBranchEnabled || disabled.GitBranchName != "" || enabled.AutoGitBranchEnabled == nil || !*enabled.AutoGitBranchEnabled || enabled.GitBranchName != "feature" {
+				t.Fatalf("mixed app policies lost: %+v", got.ChildTasks)
+			}
+		})
+	}
+}

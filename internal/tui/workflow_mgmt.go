@@ -1280,7 +1280,7 @@ func renderWorkflowExecution(m hubModel) string {
 
 	notices := &ui.BranchFallbackNotices{}
 	for _, child := range status.ChildTasks {
-		if notice := notices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+		if notice := notices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			b.WriteString("\n" + lipgloss.NewStyle().Width(innerW).MarginLeft(2).Render(warningStyle.Render(notice)) + "\n")
 		}
 	}

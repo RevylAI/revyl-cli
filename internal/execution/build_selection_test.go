@@ -322,3 +322,32 @@ func TestRunTestReportsDefaultBranchFallback(t *testing.T) {
 		t.Fatalf("fallback notice lost: %+v, notice=%q, err=%v", result, noticed, err)
 	}
 }
+
+func TestRunTestReportsDisabledAutomaticGitBranchWithoutFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/api/execute_test_id_async" {
+			t.Errorf("unexpected request: %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`{"task_id":"task","branch_source":"default_branch","branch_name":"base","auto_git_branch_enabled":false}`))
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	noticed, fellBack := false, false
+	result, err := RunTest(context.Background(), "key", nil, RunTestParams{
+		TestNameOrID: "test", NoWait: true, GitBranchName: "feature/source",
+		OnDefaultBranchFallback: func(string) { fellBack = true },
+		OnBranchSelection: func(gitBranchName, branchName string, source api.BranchSource, enabled *bool) {
+			noticed = true
+			if gitBranchName != "" || branchName != "base" || source != api.BranchSourceDefaultBranch || enabled == nil || *enabled {
+				t.Fatalf("selection callback lost server policy: git=%q branch=%q source=%q enabled=%v", gitBranchName, branchName, source, enabled)
+			}
+		},
+	})
+	if err != nil || result == nil || !noticed || fellBack || result.AutoGitBranchEnabled == nil || *result.AutoGitBranchEnabled || result.GitBranchName != "" {
+		t.Fatalf("result=%+v noticed=%t fallback=%t err=%v", result, noticed, fellBack, err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil || !strings.Contains(string(data), `"auto_git_branch_enabled":false`) || strings.Contains(string(data), "git_branch_name") {
+		t.Fatalf("disabled policy JSON=%s err=%v", data, err)
+	}
+}

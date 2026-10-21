@@ -359,7 +359,7 @@ func TestStartDeviceSessionCmd_ResolvesBranchPolicyAndPreservesExactBuild(t *tes
 			if selection["git_branch_name"] != "Feature/Customer" || selection["branch_name"] != nil {
 				t.Errorf("device resolution lost separate context: %#v", selection)
 			}
-			_, _ = w.Write([]byte(`{"build_var_id":"` + appID + `","version_id":"` + buildID + `","download_url":"` + downloadURL + `","branch_name":"base","branch_source":"default_branch"}`))
+			_, _ = w.Write([]byte(`{"build_var_id":"` + appID + `","version_id":"` + buildID + `","download_url":"` + downloadURL + `","branch_name":"base","branch_source":"default_branch","git_branch_name":"Feature/Customer"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/builds/"+buildID:
 			if got := r.URL.Query().Get("include_download_url"); got != "false" {
 				t.Fatalf("expected include_download_url=false, got %q", got)

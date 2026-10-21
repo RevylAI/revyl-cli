@@ -204,6 +204,7 @@ func (s *SavedBuildSelection) Validate() error {
 }
 
 type BuildBranch struct {
+	AutoGitBranchEnabled *bool   `json:"auto_git_branch_enabled,omitempty"`
 	ID                   string  `json:"id"`
 	AppID                string  `json:"app_id"`
 	Name                 string  `json:"name"`
@@ -303,6 +304,7 @@ func (c *Client) ResolveBranchWithGitBranch(ctx context.Context, appID, branchID
 			return nil, err
 		}
 		branch.BranchSource, branch.GitBranchName = result.BranchSource, result.GitBranchName
+		branch.AutoGitBranchEnabled = result.AutoGitBranchEnabled
 		return branch, nil
 	}
 	if err := validateBranchSelector(branchID, branchName); err != nil {
@@ -361,18 +363,36 @@ func (c *Client) CreateBuildBranch(ctx context.Context, appID, name string) (*Bu
 // name instead of creating the branch first, so the backend creates it and can
 // make a new app's first upload its default branch.
 func (c *Client) FindUploadBranch(ctx context.Context, appID, branchID, branchName, gitBranchName string) (*BuildBranch, error) {
+	var app *App
 	if branchID == "" && branchName == "" && gitBranchName != "" {
 		if err := validateGitBranchName(gitBranchName); err != nil {
 			return nil, err
 		}
-		if err := validateBranchSelector("", gitBranchName); err != nil {
-			return nil, fmt.Errorf("detected Git branch cannot be used as a Revyl branch; select one with --branch: %w", err)
+		var err error
+		app, err = c.getApp(ctx, appID, false)
+		if err != nil {
+			return nil, err
 		}
-		branchName = gitBranchName
+		if app.AutomaticGitBranchEnabled() {
+			if err := validateBranchSelector("", gitBranchName); err != nil {
+				return nil, fmt.Errorf("detected Git branch cannot be used as a Revyl branch; select one with --branch: %w", err)
+			}
+			branchName = gitBranchName
+		} else {
+			branchID = app.DefaultBranchID
+		}
 	}
 	branch, err := c.ResolveBranch(ctx, appID, branchID, branchName)
 	if errors.Is(err, ErrBranchNotFound) && branchName != "" {
 		return nil, nil
+	}
+	if branch != nil && app != nil {
+		branch.AutoGitBranchEnabled = app.AutoGitBranchEnabled
+		if app.AutomaticGitBranchEnabled() {
+			branch.BranchSource, branch.GitBranchName = BranchSourceGitBranch, gitBranchName
+		} else {
+			branch.BranchSource, branch.GitBranchName = BranchSourceDefaultBranch, ""
+		}
 	}
 	return branch, err
 }
@@ -411,15 +431,16 @@ type buildResolutionRequest struct {
 	PinnedBuildID  string             `json:"pinned_build_id,omitempty"`
 }
 type buildResolutionResult struct {
-	BranchSource     BranchSource `json:"branch_source"`
-	GitBranchName    string       `json:"git_branch_name"`
-	AppID            string       `json:"build_var_id"`
-	AppName          string       `json:"app_name"`
-	BuildID          string       `json:"version_id"`
-	BranchID         string       `json:"branch_id"`
-	BranchName       string       `json:"branch_name"`
-	ResolutionStatus string       `json:"resolution_status"`
-	DownloadURL      string       `json:"download_url"`
+	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource         BranchSource `json:"branch_source"`
+	GitBranchName        string       `json:"git_branch_name"`
+	AppID                string       `json:"build_var_id"`
+	AppName              string       `json:"app_name"`
+	BuildID              string       `json:"version_id"`
+	BranchID             string       `json:"branch_id"`
+	BranchName           string       `json:"branch_name"`
+	ResolutionStatus     string       `json:"resolution_status"`
+	DownloadURL          string       `json:"download_url"`
 }
 
 // FellBackFromGitBranch reports whether the app's default branch replaced
@@ -477,6 +498,7 @@ func (c *Client) resolveBuildSelection(ctx context.Context, appID string, select
 	detail.BranchID = result.BranchID
 	detail.BranchName = result.BranchName
 	detail.BranchSource, detail.GitBranchName = result.BranchSource, result.GitBranchName
+	detail.AutoGitBranchEnabled = result.AutoGitBranchEnabled
 	return detail, nil
 }
 

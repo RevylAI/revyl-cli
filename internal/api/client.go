@@ -919,13 +919,14 @@ type ExecuteTestRequest struct {
 
 // ExecuteTestResponse represents a test execution response.
 type ExecuteTestResponse struct {
-	BranchSource  BranchSource `json:"branch_source,omitempty"`
-	GitBranchName string       `json:"git_branch_name,omitempty"`
-	BranchName    string       `json:"branch_name,omitempty"`
-	ID            string       `json:"id"`
-	TaskID        string       `json:"task_id"`
-	Status        string       `json:"status"`
-	Message       string       `json:"message"`
+	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource         BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string       `json:"git_branch_name,omitempty"`
+	BranchName           string       `json:"branch_name,omitempty"`
+	ID                   string       `json:"id"`
+	TaskID               string       `json:"task_id"`
+	Status               string       `json:"status"`
+	Message              string       `json:"message"`
 }
 
 // ExecuteTest starts a test execution.
@@ -3174,6 +3175,7 @@ func (c *Client) ListOrgTestsWithTags(ctx context.Context, limit, offset int) (*
 // App represents an app in the organization.
 // This is a CLI-specific type that's simpler than the generated API response types.
 type App struct {
+	AutoGitBranchEnabled       *bool  `json:"auto_git_branch_enabled,omitempty"`
 	DefaultBranchID            string `json:"default_branch_id,omitempty"`
 	DefaultBranchName          string `json:"default_branch_name,omitempty"`
 	DefaultBranchPinnedBuildID string `json:"default_branch_pinned_build_id,omitempty"`
@@ -3185,6 +3187,10 @@ type App struct {
 	CurrentVersion             string `json:"current_version,omitempty"`
 	LatestVersion              string `json:"latest_version,omitempty"`
 	VersionsCount              int    `json:"versions_count"`
+}
+
+func (app App) AutomaticGitBranchEnabled() bool {
+	return app.AutoGitBranchEnabled == nil || *app.AutoGitBranchEnabled
 }
 
 // AtlasQuery carries the shared filters supported by Atlas inspection endpoints.
@@ -4251,16 +4257,17 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 // BuildVersionDetail represents a build version with an optional download URL.
 // Returned by GetBuildVersionDownloadURL.
 type BuildVersionDetail struct {
-	BranchSource  BranchSource           `json:"branch_source,omitempty"`
-	GitBranchName string                 `json:"git_branch_name,omitempty"`
-	BranchID      string                 `json:"branch_id,omitempty"`
-	BranchName    string                 `json:"branch_name,omitempty"`
-	ID            string                 `json:"id"`
-	AppID         string                 `json:"app_id,omitempty"`
-	Version       string                 `json:"version"`
-	DownloadURL   string                 `json:"download_url,omitempty"`
-	PackageName   string                 `json:"package_name,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	AutoGitBranchEnabled *bool                  `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource         BranchSource           `json:"branch_source,omitempty"`
+	GitBranchName        string                 `json:"git_branch_name,omitempty"`
+	BranchID             string                 `json:"branch_id,omitempty"`
+	BranchName           string                 `json:"branch_name,omitempty"`
+	ID                   string                 `json:"id"`
+	AppID                string                 `json:"app_id,omitempty"`
+	Version              string                 `json:"version"`
+	DownloadURL          string                 `json:"download_url,omitempty"`
+	PackageName          string                 `json:"package_name,omitempty"`
+	Metadata             map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // GetBuildVersionDownloadURL retrieves a build version with a presigned download URL.
@@ -5613,6 +5620,7 @@ func (c *Client) GenerateWorkflowShareableLink(ctx context.Context, workflowTask
 
 // CLIWorkflowChildExecution is a resolved child from workflow status and monitor events.
 type CLIWorkflowChildExecution struct {
+	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
 	ID                   string       `json:"id"`
 	TestID               string       `json:"test_id"`
 	SessionID            string       `json:"session_id,omitempty"`
@@ -5689,6 +5697,7 @@ type CLIWorkflowTestInfo struct {
 
 // CLIChildTaskReportInfo contains individual test execution data within a workflow.
 type CLIChildTaskReportInfo struct {
+	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
 	AppID                string       `json:"app_id,omitempty"`
 	AppName              string       `json:"app_name,omitempty"`
 	BranchSource         BranchSource `json:"branch_source,omitempty"`

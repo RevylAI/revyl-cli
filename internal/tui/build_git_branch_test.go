@@ -283,6 +283,8 @@ func TestGitBranchUploadRetryKeepsFrozenBranchAndVersionAfterGitChanges(t *testi
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/api/v1/apps/" + pickerAppID:
+			fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, pickerAppID, pickerBranchID)
 		case "/api/v1/apps/" + pickerAppID + "/branches":
 			branchNames = append(branchNames, r.URL.Query().Get("name"))
 			fmt.Fprintf(w, `{"branches":[{"id":%q,"name":"Feature/Customer"}],"total_pages":1}`, pickerBranchID)
@@ -295,8 +297,12 @@ func TestGitBranchUploadRetryKeepsFrozenBranchAndVersionAfterGitChanges(t *testi
 			}
 			version, _ := payload["version"].(string)
 			versions = append(versions, version)
-			if payload["branch_id"] != pickerBranchID {
-				t.Errorf("upload retargeted: %#v", payload)
+			if len(versions) == 1 {
+				if payload["branch_id"] != nil || payload["git_branch_name"] != "Feature/Customer" {
+					t.Errorf("automatic upload must retain Git context: %#v", payload)
+				}
+			} else if payload["branch_id"] != pickerBranchID || payload["git_branch_name"] != nil {
+				t.Errorf("retry retargeted: %#v", payload)
 			}
 			if len(versions) == 1 {
 				w.WriteHeader(http.StatusBadRequest)
@@ -320,6 +326,8 @@ func TestGitBranchUploadRetryKeepsFrozenBranchAndVersionAfterGitChanges(t *testi
 	defer server.Close()
 	m := newUploadBuildModel(api.NewClientWithBaseURL("test", server.URL), pickerAppID, "App", 80, 40)
 	m.step, m.resolvedPath = uploadStepConfirm, file
+	loaded, _ := m.Update(m.fetchUploadBranchContext()())
+	m = loaded.(uploadBuildModel)
 	next, cmd := m.handleConfirmKey("enter")
 	m = next.(uploadBuildModel)
 	first := cmd().(tea.BatchMsg)[1]().(BuildUploadedMsg)

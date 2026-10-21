@@ -52,12 +52,14 @@ type uploadBuildModel struct {
 	buildPicker     *buildPickerModel
 	branchSelection api.BuildSelection
 	branchLabel     string
-	// gitBranch is the Git branch detected when the dialog opened, shown as
-	// the destination when no branch is chosen. Confirmation freezes this
-	// context so the submitted destination matches what the user reviewed.
-	gitBranch      string
-	pendingBranch  *api.BuildBranch
-	pendingVersion string
+	// Confirmation retains the reviewed Git context; the server applies app policy.
+	gitBranch            string
+	autoGitBranchEnabled *bool
+	defaultBranchName    string
+	branchContextLoading bool
+	branchContextErr     error
+	pendingBranch        *api.BuildBranch
+	pendingVersion       string
 
 	// Context: which app we're uploading to
 	appID   string
@@ -111,15 +113,16 @@ func newUploadBuildModel(client *api.Client, appID, appName string, width, heigh
 	vInput.CharLimit = 128
 
 	return uploadBuildModel{
-		step:          uploadStepFilePath,
-		filePathInput: fpInput,
-		versionInput:  vInput,
-		appID:         appID,
-		appName:       appName,
-		client:        client,
-		spinner:       newSpinner(),
-		width:         width,
-		height:        height,
+		step:                 uploadStepFilePath,
+		branchContextLoading: true,
+		filePathInput:        fpInput,
+		versionInput:         vInput,
+		appID:                appID,
+		appName:              appName,
+		client:               client,
+		spinner:              newSpinner(),
+		width:                width,
+		height:               height,
 	}
 }
 
@@ -154,7 +157,7 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 		}
 		request := &api.UploadBuildRequest{AppID: appID, Version: version, FilePath: filePath}
 		switch {
-		case branch != nil:
+		case branch != nil && (selection.BranchID != "" || selection.BranchName != ""):
 			request.BranchID = branch.ID
 		case selection.BranchName != "":
 			request.BranchName = selection.BranchName
@@ -167,7 +170,7 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 			// names it again.
 			return BuildUploadedMsg{Branch: branch, Err: fmt.Errorf("upload failed: %w", err)}
 		}
-		if branch == nil {
+		if branch == nil || resp.BranchID != "" && branch.ID != resp.BranchID {
 			branch = &api.BuildBranch{ID: resp.BranchID, AppID: appID, Name: cmp.Or(resp.BranchName, request.BranchName, request.GitBranchName)}
 		}
 
@@ -192,20 +195,43 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 
 // Init starts the text input blink cursor.
 func (m uploadBuildModel) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, detectUploadGitBranchCmd)
+	return tea.Batch(textinput.Blink, m.fetchUploadBranchContext())
 }
 
-type uploadGitBranchMsg struct{ name string }
+type uploadGitBranchMsg struct {
+	name                 string
+	autoGitBranchEnabled *bool
+	defaultBranchName    string
+	err                  error
+}
 
-func detectUploadGitBranchCmd() tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	name, _ := detectRuntimeGitBranch(ctx)
-	return uploadGitBranchMsg{name: name}
+func (m uploadBuildModel) fetchUploadBranchContext() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		name, err := detectRuntimeGitBranch(ctx)
+		if err != nil {
+			return uploadGitBranchMsg{err: err}
+		}
+		if m.client == nil {
+			return uploadGitBranchMsg{name: name}
+		}
+		app, err := m.client.GetApp(ctx, m.appID)
+		if err != nil {
+			return uploadGitBranchMsg{err: fmt.Errorf("load upload branch settings: %w", err)}
+		}
+		return uploadGitBranchMsg{name: name, autoGitBranchEnabled: app.AutoGitBranchEnabled, defaultBranchName: app.DefaultBranchName}
+	}
 }
 
 // Update handles messages for the upload-build flow.
 func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if branchContext, ok := msg.(uploadGitBranchMsg); ok {
+		m.gitBranch, m.autoGitBranchEnabled, m.defaultBranchName = branchContext.name, branchContext.autoGitBranchEnabled, branchContext.defaultBranchName
+		m.branchContextLoading, m.branchContextErr = false, branchContext.err
+		m.err = branchContext.err
+		return m, nil
+	}
 	if m.buildPicker != nil {
 		picker, cmd := m.buildPicker.Update(msg)
 		m.buildPicker = &picker
@@ -213,6 +239,11 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.buildPicker = nil
 			if !picker.cancelled {
 				m.branchSelection, m.branchLabel = picker.selection, picker.label
+				m.gitBranch, m.autoGitBranchEnabled = picker.gitBranch, picker.autoGitBranchEnabled
+				m.branchContextLoading, m.branchContextErr = false, nil
+				if picker.defaultBranch != nil {
+					m.defaultBranchName = picker.defaultBranch.Name
+				}
 				m.pendingBranch, m.pendingVersion = nil, ""
 			}
 		}
@@ -222,10 +253,6 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
-
-	case uploadGitBranchMsg:
-		m.gitBranch = msg.name
 		return m, nil
 
 	case tea.KeyMsg:
@@ -386,6 +413,13 @@ func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 		m.buildPicker = &picker
 		return m, picker.Init()
 	case "enter", "y":
+		if m.branchContextLoading {
+			return m, nil
+		}
+		if m.branchContextErr != nil {
+			m.branchContextLoading = true
+			return m, m.fetchUploadBranchContext()
+		}
 		if m.client == nil {
 			m.err = fmt.Errorf("not authenticated")
 			return m, nil
@@ -498,9 +532,19 @@ func (m uploadBuildModel) View() string {
 		b.WriteString("  " + normalStyle.Render("Review:") + "\n\n")
 		b.WriteString("  " + dimStyle.Render("App:      ") + normalStyle.Render(m.appName) + "\n")
 		branchLabel := m.branchLabel
+		if m.branchSelection.BranchID == "" && m.branchSelection.BranchName == "" {
+			branchLabel = ""
+		}
+		if m.branchContextLoading {
+			branchLabel = "Loading app branch settings..."
+		}
 		if branchLabel == "" {
 			branchLabel = defaultBranchLabel
-			if m.gitBranch != "" {
+			if m.autoGitBranchEnabled != nil && !*m.autoGitBranchEnabled {
+				if m.defaultBranchName != "" {
+					branchLabel += " (" + m.defaultBranchName + ")"
+				}
+			} else if m.gitBranch != "" {
 				branchLabel = gitBranchLabel(m.gitBranch)
 			}
 		}
@@ -508,11 +552,16 @@ func (m uploadBuildModel) View() string {
 			branchLabel = m.pendingBranch.Name + " (retry destination)"
 		}
 		b.WriteString("  Branch:   " + branchLabel + "\n")
+		if m.pendingBranch == nil && m.branchSelection.BranchID == "" && m.branchSelection.BranchName == "" && m.autoGitBranchEnabled != nil && !*m.autoGitBranchEnabled {
+			b.WriteString("  " + dimStyle.Render("Automatic Git branch detection is off.") + "\n")
+		}
 		b.WriteString("  " + dimStyle.Render("File:     ") + normalStyle.Render(filepath.Base(m.resolvedPath)) + "\n")
 		b.WriteString("  " + dimStyle.Render("Size:     ") + normalStyle.Render(formatFileSize(m.fileSize)) + "\n")
 		b.WriteString("  " + dimStyle.Render("Version:  ") + normalStyle.Render(version) + "\n")
 		b.WriteString("  " + dimStyle.Render(uploadPinNotice) + "\n")
-		if m.err != nil {
+		if m.branchContextErr != nil {
+			b.WriteString("\n  " + errorStyle.Render(m.branchContextErr.Error()+"; press Enter to retry.") + "\n")
+		} else if m.err != nil {
 			b.WriteString("\n  " + errorStyle.Render(m.err.Error()) + "\n")
 		}
 		b.WriteString("\n  " + helpStyle.Render("b to choose branch, enter/y to upload, backspace/n to go back, esc to cancel") + "\n")

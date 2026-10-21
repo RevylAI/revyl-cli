@@ -32,6 +32,8 @@ func TestUploadNamesANewBranchInsteadOfCreatingIt(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				switch {
+				case r.URL.Path == "/api/v1/apps/"+pickerAppID:
+					fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, pickerAppID, pickerBranchID)
 				case r.URL.Path == "/api/v1/apps/"+pickerAppID+"/branches" && r.Method == http.MethodGet:
 					if r.URL.Query().Get("name") != scenario.lookup {
 						t.Errorf("branch lookup = %s", r.URL.RawQuery)

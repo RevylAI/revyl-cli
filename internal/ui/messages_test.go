@@ -162,3 +162,44 @@ func TestBranchFallbackNoticeNamesAppAndBranch(t *testing.T) {
 		t.Fatalf("notice without a fallback = %q", got)
 	}
 }
+
+func TestBranchSelectionNoticeUsesConfirmedPolicy(t *testing.T) {
+	enabled, disabled := true, false
+	for _, test := range []struct {
+		name, gitBranch, source, want string
+		enabled                       *bool
+	}{
+		{name: "disabled", source: "default_branch", enabled: &disabled, want: `Using app default branch "base" because automatic Git branch detection is off.`},
+		{name: "disabled ignores stale context", source: "default_branch", gitBranch: "feature", enabled: &disabled, want: `Using app default branch "base" because automatic Git branch detection is off.`},
+		{name: "enabled fallback", source: "default_branch", gitBranch: "feature", enabled: &enabled, want: `Git branch "feature" has no usable build; using the app's default branch "base".`},
+		{name: "old server fallback", source: "default_branch", gitBranch: "feature", want: `Git branch "feature" has no usable build; using the app's default branch "base".`},
+		{name: "default without git", source: "default_branch", enabled: &enabled},
+		{name: "explicit disabled", source: "explicit_branch", enabled: &disabled},
+		{name: "exact disabled", enabled: &disabled},
+		{name: "git matched", source: "git_branch", gitBranch: "feature", enabled: &enabled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := BranchSelectionNotice(test.gitBranch, "base", test.source, test.enabled); got != test.want {
+				t.Fatalf("notice = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBranchSelectionNoticesKeepAppsAndReasonsDistinct(t *testing.T) {
+	disabled := false
+	notices := &BranchFallbackNotices{}
+	want := `Using app default branch "base" on "Example" because automatic Git branch detection is off.`
+	if got := notices.SelectionNotice("app", "Example", "branch", "base", "", "default_branch", &disabled); got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+	if got := notices.SelectionNotice("app", "Example", "branch", "base", "", "default_branch", &disabled); got != "" {
+		t.Fatalf("repeated notice = %q", got)
+	}
+	if got := notices.SelectionNotice("other", "Other", "branch", "base", "", "default_branch", &disabled); !strings.Contains(got, `on "Other"`) {
+		t.Fatalf("other app notice = %q", got)
+	}
+	if got := notices.SelectionNotice("app", "Example", "branch", "base", "feature", "default_branch", nil); !strings.Contains(got, "has no usable build") {
+		t.Fatalf("changed reason notice = %q", got)
+	}
+}

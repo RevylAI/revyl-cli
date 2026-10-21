@@ -195,7 +195,7 @@ func init() {
 	testCmd.AddCommand(testVersionsCmd)
 	testCmd.AddCommand(testRestoreCmd)
 
-	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides saved selection; default: Git, then app default)")
+	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides saved selection; default: Git when enabled in app settings, else app default)")
 	testRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin); exact build: --build-id")
 	testRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	testCreateCmd.Flags().StringVar(&createTestBranch, "branch", "", "Save this Revyl branch for future runs")

@@ -608,7 +608,7 @@ func (s *Server) registerDeviceTools() {
 
 // StartDeviceSessionInput defines input for start_device_session.
 type StartDeviceSessionInput struct {
-	ProjectDir                 string                 `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
+	ProjectDir                 string                 `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	BranchName                 string                 `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
 	BuildSelection             string                 `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name; ignores the project's Git branch), or pinned with build_version_id."`
 	Platform                   string                 `json:"platform" jsonschema:"Target platform: ios, android, or web (REQUIRED)"`
@@ -631,20 +631,21 @@ type StartDeviceSessionInput struct {
 
 // StartDeviceSessionOutput defines output for start_device_session.
 type StartDeviceSessionOutput struct {
-	GitBranchName      string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
-	BranchSource       api.BranchSource `json:"branch_source,omitempty" jsonschema:"Where the branch came from: git_branch (the project's Git branch), default_branch (the app's default branch, also when the Git branch had no usable build), or explicit_branch (a branch named by this request or saved on the test). Omitted when an exact build or latest_all_branches chose the build"`
-	BuildID            string           `json:"build_id,omitempty"`
-	BranchID           string           `json:"branch_id,omitempty"`
-	BranchName         string           `json:"branch_name,omitempty"`
-	Success            bool             `json:"success"`
-	SessionID          string           `json:"session_id,omitempty"`
-	SessionIndex       int              `json:"session_index"`
-	Platform           string           `json:"platform,omitempty"`
-	ViewerURL          string           `json:"viewer_url,omitempty"`
-	WhepURL            string           `json:"whep_url,omitempty"`
-	IdleTimeoutSeconds float64          `json:"idle_timeout_seconds,omitempty"`
-	Error              string           `json:"error,omitempty"`
-	NextSteps          []NextStep       `json:"next_steps,omitempty"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty" jsonschema:"Whether automatic Git branch detection was enabled for this app when the build was selected"`
+	GitBranchName        string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty" jsonschema:"Where the branch came from: git_branch, default_branch, or explicit_branch (requested or saved). auto_git_branch_enabled=false means Git detection was disabled; default_branch with git_branch_name means the Git branch had no usable build. Omitted for an exact build or latest_all_branches"`
+	BuildID              string           `json:"build_id,omitempty"`
+	BranchID             string           `json:"branch_id,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	Success              bool             `json:"success"`
+	SessionID            string           `json:"session_id,omitempty"`
+	SessionIndex         int              `json:"session_index"`
+	Platform             string           `json:"platform,omitempty"`
+	ViewerURL            string           `json:"viewer_url,omitempty"`
+	WhepURL              string           `json:"whep_url,omitempty"`
+	IdleTimeoutSeconds   float64          `json:"idle_timeout_seconds,omitempty"`
+	Error                string           `json:"error,omitempty"`
+	NextSteps            []NextStep       `json:"next_steps,omitempty"`
 }
 
 var openDeviceSessionBrowser = ui.OpenBrowser
@@ -739,7 +740,8 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 
 	return nil, StartDeviceSessionOutput{
 		BranchSource: session.BranchSource, GitBranchName: session.GitBranchName,
-		BuildID: session.BuildID, BranchID: session.BranchID, BranchName: session.BranchName,
+		AutoGitBranchEnabled: session.AutoGitBranchEnabled,
+		BuildID:              session.BuildID, BranchID: session.BranchID, BranchName: session.BranchName,
 		Success:            true,
 		SessionID:          session.SessionID,
 		SessionIndex:       idx,
@@ -1991,7 +1993,7 @@ func nativeImageResult(imageBytes []byte) *mcp.CallToolResult {
 // --- Install App ---
 
 type InstallAppInput struct {
-	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	AppID          string `json:"app_id,omitempty" jsonschema:"App to resolve using the branch's default build or latest."`
 	BranchName     string `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
 	BuildSelection string `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name; ignores the project's Git branch), or pinned with build_version_id."`
@@ -2003,15 +2005,16 @@ type InstallAppInput struct {
 }
 
 type InstallAppOutput struct {
-	GitBranchName string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
-	BranchSource  api.BranchSource `json:"branch_source,omitempty" jsonschema:"Where the branch came from: git_branch (the project's Git branch), default_branch (the app's default branch, also when the Git branch had no usable build), or explicit_branch (a branch named by this request or saved on the test). Omitted when an exact build or latest_all_branches chose the build"`
-	BuildID       string           `json:"build_id,omitempty"`
-	BranchID      string           `json:"branch_id,omitempty"`
-	BranchName    string           `json:"branch_name,omitempty"`
-	Success       bool             `json:"success"`
-	BundleID      string           `json:"bundle_id,omitempty"`
-	Error         string           `json:"error,omitempty"`
-	NextSteps     []NextStep       `json:"next_steps,omitempty"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty" jsonschema:"Whether automatic Git branch detection was enabled for this app when the build was selected"`
+	GitBranchName        string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty" jsonschema:"Where the branch came from: git_branch, default_branch, or explicit_branch (requested or saved). auto_git_branch_enabled=false means Git detection was disabled; default_branch with git_branch_name means the Git branch had no usable build. Omitted for an exact build or latest_all_branches"`
+	BuildID              string           `json:"build_id,omitempty"`
+	BranchID             string           `json:"branch_id,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	Success              bool             `json:"success"`
+	BundleID             string           `json:"bundle_id,omitempty"`
+	Error                string           `json:"error,omitempty"`
+	NextSteps            []NextStep       `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest, input InstallAppInput) (*mcp.CallToolResult, InstallAppOutput, error) {
@@ -2108,7 +2111,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		detectedBundleID = bundleID
 	}
 
-	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID, BuildID: resolved.BuildID, BranchID: resolved.BranchID, BranchName: resolved.BranchName, BranchSource: resolved.BranchSource, GitBranchName: resolved.GitBranchName}
+	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID, BuildID: resolved.BuildID, BranchID: resolved.BranchID, BranchName: resolved.BranchName, BranchSource: resolved.BranchSource, GitBranchName: resolved.GitBranchName, AutoGitBranchEnabled: resolved.AutoGitBranchEnabled}
 	if resp.Success {
 		launchReason := "Launch the installed app"
 		if detectedBundleID != "" {

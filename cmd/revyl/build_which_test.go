@@ -45,9 +45,12 @@ func TestBuildWhichCLI(t *testing.T) {
 		status, serverError, wantError                          string
 		fallback, pinned, pinChanged, appByName                 bool
 		human, globalJSON, chdir, rejectBeforeAPI, telemetry    bool
+		disabled                                                bool
 	}{
 		{name: "default latest", resolvedBranch: "base", source: "default_branch", telemetry: true},
 		{name: "default pinned", resolvedBranch: "base", source: "default_branch", pinned: true},
+		{name: "automatic disabled", gitBranch: "feature/login", resolvedBranch: "base", source: "default_branch", disabled: true},
+		{name: "disabled explicit", gitBranch: "feature/login", explicitBranch: "release", resolvedBranch: "release", source: "explicit_branch", disabled: true},
 		{name: "git latest", gitBranch: "feature/login", resolvedBranch: "feature/login", source: "git_branch"},
 		{name: "git pinned", gitBranch: "feature/login", resolvedBranch: "feature/login", source: "git_branch", pinned: true},
 		{name: "explicit overrides git", gitBranch: "feature/login", explicitBranch: "release", resolvedBranch: "release", source: "explicit_branch"},
@@ -145,7 +148,13 @@ func TestBuildWhichCLI(t *testing.T) {
 						_ = json.NewEncoder(w).Encode(map[string]string{"resolution_status": scenario.status, "branch_name": cmp.Or(scenario.explicitBranch, "base"), "app_name": "My App"})
 						return
 					}
-					_ = json.NewEncoder(w).Encode(map[string]any{"version_id": buildID, "branch_id": branchID, "branch_name": scenario.resolvedBranch, "resolution_status": "resolved", "branch_source": scenario.source})
+					response := map[string]any{"version_id": buildID, "branch_id": branchID, "branch_name": scenario.resolvedBranch, "resolution_status": "resolved", "branch_source": scenario.source}
+					if scenario.disabled {
+						response["auto_git_branch_enabled"] = false
+					} else if scenario.gitBranch != "" && scenario.explicitBranch == "" {
+						response["git_branch_name"] = scenario.gitBranch
+					}
+					_ = json.NewEncoder(w).Encode(response)
 				case "/api/v1/apps/builds/" + buildID:
 					if r.URL.Query().Get("include_download_url") != "false" {
 						t.Errorf("detail requested a signed URL: %s", r.URL)
@@ -266,6 +275,10 @@ func TestBuildWhichCLI(t *testing.T) {
 				if !strings.Contains(stderr.String(), fmt.Sprintf("Git branch %q has no usable build on \"My App\"; using the app's default branch %q.", scenario.gitBranch, scenario.resolvedBranch)) {
 					t.Fatalf("missing fallback notice: %q", stderr.String())
 				}
+			} else if scenario.disabled && scenario.explicitBranch == "" {
+				if !strings.Contains(stderr.String(), "automatic Git branch detection is off") || strings.Contains(stderr.String(), "no usable build") {
+					t.Fatalf("wrong disabled notice: %s", &stderr)
+				}
 			} else if stderr.Len() != 0 {
 				t.Fatalf("unexpected stderr: %s", &stderr)
 			}
@@ -281,8 +294,11 @@ func TestBuildWhichCLI(t *testing.T) {
 				"app_id": appID, "app_name": "My App", "branch_id": branchID, "branch_name": scenario.resolvedBranch,
 				"branch_source": scenario.source, "build_id": buildID, "build_version": "1.2.3", "branch_build_selection": "latest",
 			}
-			if scenario.gitBranch != "" && scenario.explicitBranch == "" {
+			if scenario.gitBranch != "" && scenario.explicitBranch == "" && !scenario.disabled {
 				want["git_branch_name"] = scenario.gitBranch
+			}
+			if scenario.disabled {
+				want["auto_git_branch_enabled"] = false
 			}
 			if scenario.pinned {
 				want["branch_build_selection"] = "pinned"

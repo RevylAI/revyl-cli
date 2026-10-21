@@ -39,14 +39,15 @@ type StartArtifactOptions struct {
 
 // ResolvedStartArtifact is the concrete app artifact payload sent to start_device.
 type ResolvedStartArtifact struct {
-	BranchSource  api.BranchSource
-	GitBranchName string
-	AppID         string
-	BuildID       string
-	BranchID      string
-	BranchName    string
-	AppURL        string
-	AppPackage    string
+	AutoGitBranchEnabled *bool
+	BranchSource         api.BranchSource
+	GitBranchName        string
+	AppID                string
+	BuildID              string
+	BranchID             string
+	BranchName           string
+	AppURL               string
+	AppPackage           string
 }
 
 // ResolveStartArtifact resolves app-selection inputs into a concrete artifact URL.
@@ -121,6 +122,7 @@ func ResolveStartArtifact(
 	artifact.BranchID = detail.BranchID
 	artifact.BranchName = detail.BranchName
 	artifact.BranchSource, artifact.GitBranchName = detail.BranchSource, detail.GitBranchName
+	artifact.AutoGitBranchEnabled = detail.AutoGitBranchEnabled
 	artifact.AppURL = strings.TrimSpace(detail.DownloadURL)
 	if artifact.AppPackage == "" {
 		artifact.AppPackage = strings.TrimSpace(detail.PackageName)

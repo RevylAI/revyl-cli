@@ -35,6 +35,21 @@ func TestExplicitBranchDoesNotFallback(t *testing.T) {
 	}
 }
 
+func TestSelectBuildVersionUsesServerBranchReason(t *testing.T) {
+	disabled := false
+	client := &fakeBranchBuildsClient{resolved: api.BuildVersionDetail{
+		ID: "default-build", BranchName: "base", BranchSource: api.BranchSourceDefaultBranch,
+		AutoGitBranchEnabled: &disabled,
+	}}
+	selected, source, notices, err := SelectBuildVersion(context.Background(), client, "app", api.BuildSelection{GitBranchName: "feature"})
+	if err != nil || selected.ID != "default-build" || source != "default_branch" || len(notices) != 1 {
+		t.Fatalf("selection=%+v source=%q notices=%v err=%v", selected, source, notices, err)
+	}
+	if notices[0] != `Using app default branch "base" because automatic Git branch detection is off.` {
+		t.Fatalf("wrong selection reason: %q", notices[0])
+	}
+}
+
 type fakeBranchBuildsClient struct {
 	fakeClient
 	resolved   api.BuildVersionDetail

@@ -33,6 +33,7 @@ Use this as the default Revyl skill when workflows should be expressed as `revyl
 1. Prefer explicit command sequences.
 2. Keep secrets in env vars or test variables.
 3. Keep steps deterministic and avoid hidden assumptions.
+4. Runs, sessions, and uploads use detected Git context only when automatic Git branch detection is enabled in the app's Build branches settings; when disabled, they use the app's default branch. Explicit branches, exact builds, saved selections, and All branches remain authoritative. Use `revyl build which --app <app>` to explain automatic selection and its reason; this does not inspect a test or workflow's saved choice.
 
 ## Baseline Checks
 

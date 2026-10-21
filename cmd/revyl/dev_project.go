@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -22,19 +21,21 @@ import (
 // development loop. The profile and platform remain explicit for every later
 // rebuild so revalidation cannot drift to a different recipe.
 type projectDevInvocation struct {
-	ProjectRoot         string
-	ConfigPath          string
-	OriginalConfigBytes []byte
-	Profile             string
-	Platform            string
-	AppID               string
-	BranchID            string
-	BranchName          string
-	GitBranchName       string
-	Recipe              config.EffectiveBuildRecipe
-	BuildDefinitionHash string
-	SelectionSource     string
-	Session             config.AuthoredSession
+	ProjectRoot              string
+	ConfigPath               string
+	OriginalConfigBytes      []byte
+	Profile                  string
+	Platform                 string
+	AppID                    string
+	BranchID                 string
+	BranchName               string
+	GitBranchName            string
+	AutomaticBranchSelection bool
+	UseUploadBranchForSeed   bool
+	Recipe                   config.EffectiveBuildRecipe
+	BuildDefinitionHash      string
+	SelectionSource          string
+	Session                  config.AuthoredSession
 
 	DetachedAppDefaultSelection bool
 }
@@ -52,7 +53,9 @@ func projectBuildInvocationFromDev(invocation projectDevInvocation) projectBuild
 		BuildDefinitionHash: invocation.BuildDefinitionHash,
 		SelectionSource:     invocation.SelectionSource,
 	}
-	if invocation.branchAwaitsFirstUpload() {
+	if invocation.AutomaticBranchSelection {
+		converted.BranchID, converted.GitBranchName, converted.GitBranchResolved = "", invocation.GitBranchName, true
+	} else if invocation.branchAwaitsFirstUpload() {
 		converted.BranchName, converted.GitBranchName, converted.GitBranchResolved = invocation.BranchName, invocation.GitBranchName, true
 	}
 	return converted
@@ -69,6 +72,8 @@ func (invocation projectDevInvocation) branchAwaitsFirstUpload() bool {
 // it exists, otherwise the name its first upload creates.
 func (invocation projectDevInvocation) uploadDestination() (branchID, branchName, gitBranchName string) {
 	switch {
+	case invocation.AutomaticBranchSelection:
+		return "", "", invocation.GitBranchName
 	case invocation.BranchID != "":
 		return invocation.BranchID, "", ""
 	case invocation.BranchName != "":
@@ -78,14 +83,16 @@ func (invocation projectDevInvocation) uploadDestination() (branchID, branchName
 	}
 }
 
-// withUploadedBranch freezes the branch the loop's first upload created, so
-// later rebuilds upload to it by ID.
-func (invocation projectDevInvocation) withUploadedBranch(branchID, branchName string) projectDevInvocation {
-	if !invocation.branchAwaitsFirstUpload() || branchID == "" {
+// withResolvedBranch freezes the branch after a seed build or upload is resolved.
+func (invocation projectDevInvocation) withResolvedBranch(branchID, branchName string) projectDevInvocation {
+	if (!invocation.branchAwaitsFirstUpload() && !invocation.AutomaticBranchSelection) || branchID == "" {
 		return invocation
 	}
+	invocation.AutomaticBranchSelection = false
+	if branchName != "" || invocation.BranchID != branchID {
+		invocation.BranchName = branchName
+	}
 	invocation.BranchID = branchID
-	invocation.BranchName = cmp.Or(branchName, invocation.BranchName, invocation.GitBranchName)
 	return invocation
 }
 
@@ -303,6 +310,8 @@ func cloneDevSession(session config.AuthoredSession) config.AuthoredSession {
 // or Git branch that doesn't exist yet is kept by name for the first upload to
 // create.
 func resolveDevDestination(ctx context.Context, client *api.Client, invocation projectDevInvocation, branchID, branchName, buildID, mode string, allowNewBranch bool) (projectDevInvocation, error) {
+	invocation.AutomaticBranchSelection = false
+	invocation.UseUploadBranchForSeed = allowNewBranch
 	selection := api.BuildSelection{BranchID: branchID, BranchName: branchName, BuildID: buildID, Mode: api.BuildSelectionMode(mode)}
 	if err := selection.Validate(); err != nil {
 		return invocation, err
@@ -336,6 +345,7 @@ func resolveDevDestination(ctx context.Context, client *api.Client, invocation p
 			gitBranchName = gitBranch.Name
 		}
 		invocation.GitBranchName = gitBranchName
+		invocation.AutomaticBranchSelection = gitBranchName != ""
 	}
 	if allowNewBranch {
 		branch, err = client.FindUploadBranch(ctx, invocation.AppID, branchID, branchName, gitBranchName)
@@ -348,8 +358,8 @@ func resolveDevDestination(ctx context.Context, client *api.Client, invocation p
 	if branch == nil {
 		invocation.BranchID, invocation.BranchName = "", branchName
 	} else {
-		if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
-			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branch.Name))
+		if notice := ui.BranchSelectionNotice(branch.GitBranchName, branch.Name, string(branch.BranchSource), branch.AutoGitBranchEnabled); notice != "" {
+			ui.PrintInfo("%s", notice)
 		}
 		invocation.BranchID, invocation.BranchName = branch.ID, branch.Name
 	}
@@ -371,7 +381,11 @@ func devBuildSelection(invocation projectDevInvocation) api.BuildSelection {
 	if devStartSeedLatest || devSelectionIsAppDefault(invocation) {
 		mode = api.BuildSelectionModeLatest
 	}
-	return api.BuildSelection{BranchID: invocation.BranchID, Mode: mode, BuildID: strings.TrimSpace(devStartBuildVerID)}
+	selection := api.BuildSelection{BranchID: invocation.BranchID, Mode: mode, BuildID: strings.TrimSpace(devStartBuildVerID)}
+	if invocation.AutomaticBranchSelection && !invocation.UseUploadBranchForSeed {
+		selection.BranchID, selection.GitBranchName = "", invocation.GitBranchName
+	}
+	return selection
 }
 
 func devResolveErrorNeedsBuild(invocation projectDevInvocation, err error) bool {

@@ -514,8 +514,10 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		LaunchArgSets:              append([]string(nil), runLaunchArgSets...),
 		LaunchArguments:            append([]string(nil), runLaunchArguments...),
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
-		OnDefaultBranchFallback: func(branchName string) {
-			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, branchName))
+		OnBranchSelection: func(gitBranchName, branchName string, source api.BranchSource, enabled *bool) {
+			if notice := ui.BranchSelectionNotice(gitBranchName, branchName, string(source), enabled); notice != "" {
+				ui.PrintWarning("%s", notice)
+			}
 		},
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
@@ -694,6 +696,9 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 	output["branch_name"] = result.BranchName
 	output["build_version"] = result.BuildVersion
 	output["build_id"] = result.BuildID
+	if result.AutoGitBranchEnabled != nil {
+		output["auto_git_branch_enabled"] = *result.AutoGitBranchEnabled
+	}
 	if result.BranchSource != "" {
 		output["branch_source"] = result.BranchSource
 	}
@@ -1239,7 +1244,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	for _, child := range result.Tests {
-		if notice := fallbackNotices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+		if notice := fallbackNotices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			ui.PrintWarning("%s", notice)
 		}
 	}
@@ -1348,7 +1353,7 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 		if t.BranchID != "" {
 			entry["branch_id"] = t.BranchID
 		}
-		addWorkflowAppIdentity(entry, t.AppID, t.AppName, t.BranchSource, t.GitBranchName)
+		addWorkflowAppIdentity(entry, t.AppID, t.AppName, t.BranchSource, t.GitBranchName, t.AutoGitBranchEnabled)
 		if t.TaskID != "" {
 			entry["task_id"] = t.TaskID
 		}

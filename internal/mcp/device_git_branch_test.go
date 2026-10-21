@@ -120,9 +120,21 @@ func setDeviceMCPTestBranch(t *testing.T, dir, name string) {
 func TestDeviceMCPReportsBranchSource(t *testing.T) {
 	const workflowID = "22222222-2222-4222-8222-222222222222"
 	const sessionID = "44444444-4444-4444-8444-444444444444"
+	enabled, disabled := true, false
 	for _, operation := range []string{"start", "start_test", "install"} {
-		for _, branch := range []string{"", "base"} {
-			t.Run(operation+"/"+branch, func(t *testing.T) {
+		for _, test := range []struct {
+			name, branch string
+			enabled      *bool
+		}{
+			{name: "old server"},
+			{name: "old server explicit", branch: "base"},
+			{name: "enabled", enabled: &enabled},
+			{name: "disabled", enabled: &disabled},
+			{name: "disabled explicit", branch: "base", enabled: &disabled},
+		} {
+			t.Run(operation+"/"+test.name, func(t *testing.T) {
+				branch := test.branch
+				fallback := branch == "" && (test.enabled == nil || *test.enabled)
 				source := api.BranchSourceExplicitBranch
 				if branch == "" {
 					source = api.BranchSourceDefaultBranch
@@ -133,7 +145,7 @@ func TestDeviceMCPReportsBranchSource(t *testing.T) {
 					w.Header().Set("Content-Type", "application/json")
 					switch r.URL.Path {
 					case "/api/v1/apps/resolve":
-						_ = json.NewEncoder(w).Encode(map[string]any{"version_id": "build", "branch_id": "base-id", "branch_name": "base", "download_url": "https://artifact.example/app.apk", "branch_source": source, "git_branch_name": map[bool]any{true: "feature/missing", false: nil}[branch == ""]})
+						_ = json.NewEncoder(w).Encode(map[string]any{"version_id": "build", "branch_id": "base-id", "branch_name": "base", "download_url": "https://artifact.example/app.apk", "branch_source": source, "auto_git_branch_enabled": test.enabled, "git_branch_name": map[bool]any{true: "feature/missing", false: nil}[fallback]})
 					case "/api/v1/apps/builds/build":
 						_, _ = w.Write([]byte(`{"id":"build","app_id":"app"}`))
 					case "/api/v1/execution/start_device", "/api/v1/execution/device-proxy/" + workflowID + "/install":
@@ -149,7 +161,8 @@ func TestDeviceMCPReportsBranchSource(t *testing.T) {
 						started := map[string]any{"workflow_run_id": workflowID, "session_id": sessionID, "Success": true}
 						if operation == "start_test" {
 							started["branch_source"] = source
-							if branch == "" {
+							started["auto_git_branch_enabled"] = test.enabled
+							if fallback {
 								started["git_branch_name"] = "feature/missing"
 							}
 						}
@@ -196,8 +209,25 @@ func TestDeviceMCPReportsBranchSource(t *testing.T) {
 				if err := json.Unmarshal(encoded, &result); err != nil {
 					t.Fatal(err)
 				}
-				if result["branch_source"] != string(source) || (result["git_branch_name"] == "feature/missing") != (branch == "") {
+				if result["branch_source"] != string(source) || (result["git_branch_name"] == "feature/missing") != fallback {
 					t.Fatalf("result=%s", encoded)
+				}
+				if test.enabled == nil {
+					if _, exists := result["auto_git_branch_enabled"]; exists {
+						t.Fatalf("invented policy for old server: %s", encoded)
+					}
+				} else if result["auto_git_branch_enabled"] != *test.enabled {
+					t.Fatalf("policy omitted or changed: %s", encoded)
+				}
+				if operation != "install" {
+					state := readStoreTestState(t, manager.workDir)
+					if len(state.Sessions) != 1 {
+						t.Fatalf("persisted sessions=%+v", state.Sessions)
+					}
+					policy := state.Sessions[0].AutoGitBranchEnabled
+					if (policy == nil) != (test.enabled == nil) || policy != nil && *policy != *test.enabled {
+						t.Fatalf("persisted policy=%v, want %v", policy, test.enabled)
+					}
 				}
 				if operation == "start_test" {
 					if result["build_id"] != nil || result["branch_name"] != nil {

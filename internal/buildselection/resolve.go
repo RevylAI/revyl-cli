@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/ui"
 )
 
 type ResolverClient interface {
@@ -74,15 +75,22 @@ func SelectBuildVersion(ctx context.Context, client ResolverClient, appID string
 	if err != nil {
 		return nil, "", nil, err
 	}
-	source := "default_branch"
+	source := string(detail.BranchSource)
 	if selection.BuildID != "" {
 		source = "exact_build"
-	} else if selection.BranchID != "" || selection.BranchName != "" {
-		source = "explicit_branch"
-	} else if selection.GitBranchName != "" {
-		source = "git_branch"
+	} else if selection.Mode == api.BuildSelectionModeLatestAllBranches {
+		source = "latest_all_branches"
+	} else if source == "" {
+		source = "default_branch"
+		if selection.BranchID != "" || selection.BranchName != "" {
+			source = "explicit_branch"
+		}
 	}
-	return detail.BuildVersion(), source, nil, nil
+	var notices []string
+	if notice := ui.BranchSelectionNotice(detail.GitBranchName, detail.BranchName, string(detail.BranchSource), detail.AutoGitBranchEnabled); notice != "" {
+		notices = append(notices, notice)
+	}
+	return detail.BuildVersion(), source, notices, nil
 }
 
 // CurrentBranch returns the current git branch for the work directory.

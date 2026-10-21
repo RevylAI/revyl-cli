@@ -176,10 +176,12 @@ See [Web builds](web-builds.md) for recipes and runtime variable names.
 
 ## Build branches and defaults
 
-`revyl build` uploads to `--branch`, otherwise your Git branch (created if
-needed), otherwise the app's default branch. Uploads never pin; pass `--pin` to
-make the new build the branch's default build. In automation that must keep
-uploading to the app's default branch, pass `--branch` with its name. See
+`revyl build` uploads to `--branch`, otherwise your Git branch when automatic
+detection is on (created if needed), otherwise the app's default branch.
+Turn detection off in **App settings** > **Build branches** to use the app's
+default branch for automatic uploads and runs across surfaces. Explicit
+`--branch` choices still take precedence. Uploads never pin; pass `--pin` to
+make the new build the branch's default build. See
 [Build branches from the CLI](build-branches.md), and use the
 [build-and-explore recipes](explore.md#keep-main-or-staging-current) to keep
 `main` or `staging` mapped.

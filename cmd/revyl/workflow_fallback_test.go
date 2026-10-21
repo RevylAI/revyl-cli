@@ -167,3 +167,27 @@ func TestWorkflowFallbackWarningUsesStderr(t *testing.T) {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
 }
+
+func TestWorkflowDisabledAutomaticGitBranchNoticeAndJSON(t *testing.T) {
+	disabled := false
+	stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+		notices := &ui.BranchFallbackNotices{}
+		children := []api.CLIWorkflowChildExecution{{AppID: "app", AppName: "Example", BranchID: "base", BranchName: "base", BranchSource: api.BranchSourceDefaultBranch, AutoGitBranchEnabled: &disabled}}
+		printWorkflowBranchFallbacks(notices, children)
+		printWorkflowBranchFallbacks(notices, children)
+		outputWorkflowResultJSON(&execution.RunWorkflowResult{
+			Status: "completed", Success: true,
+			Tests: []execution.WorkflowTestResult{{AppID: "app", AppName: "Example", BranchName: "base", BranchSource: api.BranchSourceDefaultBranch, AutoGitBranchEnabled: &disabled}},
+		})
+	})
+	want := `Using app default branch "base" on "Example" because automatic Git branch detection is off.`
+	if strings.Count(stderr, want) != 1 || strings.Contains(stderr, "has no usable build") {
+		t.Fatalf("stderr=%q", stderr)
+	}
+	var result struct {
+		Tests []execution.WorkflowTestResult `json:"tests"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil || len(result.Tests) != 1 || result.Tests[0].AutoGitBranchEnabled == nil || *result.Tests[0].AutoGitBranchEnabled || result.Tests[0].GitBranchName != "" {
+		t.Fatalf("result=%+v err=%v stdout=%s", result, err, stdout)
+	}
+}

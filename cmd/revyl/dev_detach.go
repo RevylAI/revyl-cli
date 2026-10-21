@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -41,9 +42,15 @@ func isDetachedDevChild() bool {
 func devDetachEnvironment(invocation projectDevInvocation) []string {
 	environment := make([]string, 0, len(os.Environ())+2)
 	for _, entry := range os.Environ() {
+		if invocation.AutomaticBranchSelection && strings.HasPrefix(entry, devloop.GitBranchEnvironment+"=") {
+			continue
+		}
 		if !strings.HasPrefix(entry, devDetachedEnv+"=") && !strings.HasPrefix(entry, devDetachedAppDefaultEnv+"=") {
 			environment = append(environment, entry)
 		}
+	}
+	if invocation.AutomaticBranchSelection {
+		environment = append(environment, devloop.GitBranchEnvironment+"="+invocation.GitBranchName)
 	}
 	appDefault := ""
 	if invocation.BranchID != "" && devSelectionIsAppDefault(invocation) {
@@ -162,12 +169,12 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 		}
 		result = append(result, arg)
 	}
-	if invocation.BranchID != "" {
+	if invocation.BranchID != "" && !invocation.AutomaticBranchSelection {
 		result = append(result, "--branch-id", invocation.BranchID)
 		if !namedBranch && !explicitBuildSelection && invocation.GitBranchName == "" {
 			result = append(result, "--build-selection", "latest")
 		}
-	} else if invocation.BranchName != "" {
+	} else if invocation.BranchName != "" && !invocation.AutomaticBranchSelection {
 		result = append(result, "--branch", invocation.BranchName)
 	}
 	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)

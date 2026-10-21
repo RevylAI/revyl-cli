@@ -2436,7 +2436,7 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 			m.err = err
 			return m, nil
 		}
-		picker := newBuildPicker(m.client, "", "Dev loop branch (blank uses your Git branch, else the app's default branch)")
+		picker := newBuildPicker(m.client, "", "Dev loop branch (blank follows each app's automatic Git branch setting)")
 		picker.workflow, picker.branchOnly, picker.loading, picker.step = true, true, false, buildPickerName
 		picker.nameInput.Focus()
 		m.buildPicker, m.buildPickerTarget = &picker, "dev-loop"

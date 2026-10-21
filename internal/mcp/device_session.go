@@ -90,14 +90,15 @@ func resolveIdleTimeout(d time.Duration) time.Duration {
 }
 
 type DeviceSession struct {
-	AppName       string           `json:"-"`
-	BranchSource  api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName string           `json:"git_branch_name,omitempty"`
-	BuildID       string           `json:"build_id,omitempty"`
-	BuildVersion  string           `json:"build_version,omitempty"`
-	CommitSHA     string           `json:"commit_sha,omitempty"`
-	BranchID      string           `json:"branch_id,omitempty"`
-	BranchName    string           `json:"branch_name,omitempty"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
+	AppName              string           `json:"-"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string           `json:"git_branch_name,omitempty"`
+	BuildID              string           `json:"build_id,omitempty"`
+	BuildVersion         string           `json:"build_version,omitempty"`
+	CommitSHA            string           `json:"commit_sha,omitempty"`
+	BranchID             string           `json:"branch_id,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
 	// Index is the local session index (tmux-style numbering, 0-based).
 	Index int `json:"index"`
 
@@ -634,9 +635,13 @@ func (m *DeviceSessionManager) StartSession(
 	if opts.OnStartAccepted != nil {
 		opts.OnStartAccepted(sessionID)
 	}
+	autoGitBranchEnabled := resolvedArtifact.AutoGitBranchEnabled
+	if autoGitBranchEnabled == nil {
+		autoGitBranchEnabled = resp.AutoGitBranchEnabled
+	}
 	if platform == "web" {
 		now := time.Now()
-		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName, BranchSource: resolvedArtifact.BranchSource, GitBranchName: resolvedArtifact.GitBranchName, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
+		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName, BranchSource: resolvedArtifact.BranchSource, GitBranchName: resolvedArtifact.GitBranchName, AutoGitBranchEnabled: autoGitBranchEnabled, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
 		frame, screenToken, err := m.waitForRuntimeReadyLocked(ctx, session, deviceWorkerReadyTimeout, opts.OnPhase)
 		if err != nil {
 			return -1, nil, m.requestRuntimeStartCleanup(sessionID, err)
@@ -701,7 +706,8 @@ func (m *DeviceSessionManager) StartSession(
 	now := time.Now()
 	session := &DeviceSession{
 		BranchSource: branchSource, GitBranchName: gitBranchName,
-		BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName,
+		AutoGitBranchEnabled: autoGitBranchEnabled,
+		BuildID:              resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName,
 		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,
 		TraceID:       traceID,

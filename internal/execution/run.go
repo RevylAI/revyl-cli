@@ -67,6 +67,7 @@ type RunTestParams struct {
 	// OnDefaultBranchFallback is called with the app's default branch when it
 	// replaced GitBranchName because that Git branch had no usable build.
 	OnDefaultBranchFallback func(branchName string)
+	OnBranchSelection       func(gitBranchName, branchName string, source api.BranchSource, enabled *bool)
 	// NoWait dispatches the run and returns as soon as the task is queued,
 	// skipping the completion monitor. The result carries the TaskID +
 	// ReportURL with Status "queued".
@@ -118,19 +119,20 @@ type RunTestParams struct {
 //   - ReportURL: URL to the test report
 //   - ErrorMessage: Error message if failed
 type RunTestResult struct {
-	BranchSource  api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName string           `json:"git_branch_name,omitempty"`
-	BranchName    string           `json:"branch_name,omitempty"`
-	Success       bool             `json:"success"`
-	TaskID        string           `json:"task_id"`
-	TestID        string           `json:"test_id"`
-	TestName      string           `json:"test_name"`
-	Status        string           `json:"status"`
-	Duration      string           `json:"duration"`
-	ReportURL     string           `json:"report_url"`
-	ErrorMessage  string           `json:"error_message,omitempty"`
-	BuildID       string           `json:"build_id,omitempty"`
-	BuildVersion  string           `json:"build_version,omitempty"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string           `json:"git_branch_name,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	Success              bool             `json:"success"`
+	TaskID               string           `json:"task_id"`
+	TestID               string           `json:"test_id"`
+	TestName             string           `json:"test_name"`
+	Status               string           `json:"status"`
+	Duration             string           `json:"duration"`
+	ReportURL            string           `json:"report_url"`
+	ErrorMessage         string           `json:"error_message,omitempty"`
+	BuildID              string           `json:"build_id,omitempty"`
+	BuildVersion         string           `json:"build_version,omitempty"`
 }
 
 // RunTest executes a test and returns structured results.
@@ -239,7 +241,10 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		}, nil
 	}
 
-	if resp.BranchSource.FellBackFromGitBranch(req.GitBranchName) && params.OnDefaultBranchFallback != nil {
+	if params.OnBranchSelection != nil {
+		params.OnBranchSelection(resp.GitBranchName, resp.BranchName, resp.BranchSource, resp.AutoGitBranchEnabled)
+	}
+	if resp.BranchSource.FellBackFromGitBranch(resp.GitBranchName) && params.OnDefaultBranchFallback != nil {
 		params.OnDefaultBranchFallback(resp.BranchName)
 	}
 
@@ -252,13 +257,14 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 	if params.NoWait {
 		reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 		return &RunTestResult{
-			TaskID:        resp.TaskID,
-			BranchSource:  resp.BranchSource,
-			GitBranchName: resp.GitBranchName,
-			BranchName:    resp.BranchName,
-			TestID:        testID,
-			Status:        "queued",
-			ReportURL:     reportURL,
+			TaskID:               resp.TaskID,
+			BranchSource:         resp.BranchSource,
+			AutoGitBranchEnabled: resp.AutoGitBranchEnabled,
+			GitBranchName:        resp.GitBranchName,
+			BranchName:           resp.BranchName,
+			TestID:               testID,
+			Status:               "queued",
+			ReportURL:            reportURL,
 		}, nil
 	}
 
@@ -271,46 +277,49 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
 			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 			result := &RunTestResult{
-				Success:       status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
-				TaskID:        resp.TaskID,
-				BranchSource:  resp.BranchSource,
-				GitBranchName: resp.GitBranchName,
-				BranchName:    resp.BranchName,
-				TestID:        testID,
-				TestName:      finalStatus.TestName,
-				Status:        finalStatus.Status,
-				Duration:      finalStatus.Duration,
-				ReportURL:     reportURL,
-				ErrorMessage:  finalStatus.ErrorMessage,
+				Success:              status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
+				TaskID:               resp.TaskID,
+				BranchSource:         resp.BranchSource,
+				AutoGitBranchEnabled: resp.AutoGitBranchEnabled,
+				GitBranchName:        resp.GitBranchName,
+				BranchName:           resp.BranchName,
+				TestID:               testID,
+				TestName:             finalStatus.TestName,
+				Status:               finalStatus.Status,
+				Duration:             finalStatus.Duration,
+				ReportURL:            reportURL,
+				ErrorMessage:         finalStatus.ErrorMessage,
 			}
 			attachTestRunBuild(ctx, client, result)
 			return result, nil
 		}
 		return &RunTestResult{
-			Success:       false,
-			TaskID:        resp.TaskID,
-			BranchSource:  resp.BranchSource,
-			GitBranchName: resp.GitBranchName,
-			BranchName:    resp.BranchName,
-			Status:        "cancelled",
-			ErrorMessage:  err.Error(),
+			Success:              false,
+			TaskID:               resp.TaskID,
+			BranchSource:         resp.BranchSource,
+			AutoGitBranchEnabled: resp.AutoGitBranchEnabled,
+			GitBranchName:        resp.GitBranchName,
+			BranchName:           resp.BranchName,
+			Status:               "cancelled",
+			ErrorMessage:         err.Error(),
 		}, nil
 	}
 
 	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
 	result := &RunTestResult{
-		Success:       status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
-		TaskID:        resp.TaskID,
-		BranchSource:  resp.BranchSource,
-		GitBranchName: resp.GitBranchName,
-		BranchName:    resp.BranchName,
-		TestID:        testID,
-		TestName:      finalStatus.TestName,
-		Status:        finalStatus.Status,
-		Duration:      finalStatus.Duration,
-		ReportURL:     reportURL,
-		ErrorMessage:  finalStatus.ErrorMessage,
+		Success:              status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
+		TaskID:               resp.TaskID,
+		BranchSource:         resp.BranchSource,
+		AutoGitBranchEnabled: resp.AutoGitBranchEnabled,
+		GitBranchName:        resp.GitBranchName,
+		BranchName:           resp.BranchName,
+		TestID:               testID,
+		TestName:             finalStatus.TestName,
+		Status:               finalStatus.Status,
+		Duration:             finalStatus.Duration,
+		ReportURL:            reportURL,
+		ErrorMessage:         finalStatus.ErrorMessage,
 	}
 	attachTestRunBuild(ctx, client, result)
 	return result, nil
@@ -403,21 +412,22 @@ type RunWorkflowParams struct {
 //   - Duration: Execution duration as a human-readable string
 //   - ErrorMessage: Error message if the test failed
 type WorkflowTestResult struct {
-	TaskID        string           `json:"task_id,omitempty"`
-	AppID         string           `json:"app_id,omitempty"`
-	AppName       string           `json:"app_name,omitempty"`
-	BranchSource  api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName string           `json:"git_branch_name,omitempty"`
-	BuildID       string           `json:"build_id,omitempty"`
-	BuildVersion  string           `json:"build_version,omitempty"`
-	BranchID      string           `json:"branch_id,omitempty"`
-	BranchName    string           `json:"branch_name,omitempty"`
-	TestName      string           `json:"test_name"`
-	Platform      string           `json:"platform"`
-	Status        string           `json:"status"`
-	Success       bool             `json:"success"`
-	Duration      string           `json:"duration"`
-	ErrorMessage  string           `json:"error_message,omitempty"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
+	TaskID               string           `json:"task_id,omitempty"`
+	AppID                string           `json:"app_id,omitempty"`
+	AppName              string           `json:"app_name,omitempty"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string           `json:"git_branch_name,omitempty"`
+	BuildID              string           `json:"build_id,omitempty"`
+	BuildVersion         string           `json:"build_version,omitempty"`
+	BranchID             string           `json:"branch_id,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	TestName             string           `json:"test_name"`
+	Platform             string           `json:"platform"`
+	Status               string           `json:"status"`
+	Success              bool             `json:"success"`
+	Duration             string           `json:"duration"`
+	ErrorMessage         string           `json:"error_message,omitempty"`
 }
 
 // RunWorkflowResult contains the result of a workflow run.
@@ -677,7 +687,8 @@ func workflowStatusTests(ws *sse.WorkflowStatus) []WorkflowTestResult {
 		test := WorkflowTestResult{
 			TaskID: child.ID, AppID: child.AppID, AppName: child.AppName,
 			BranchSource: child.BranchSource, GitBranchName: child.GitBranchName,
-			BuildID: child.BuildID, BuildVersion: child.BuildVersion, BranchID: child.BranchID, BranchName: child.BranchName,
+			AutoGitBranchEnabled: child.AutoGitBranchEnabled,
+			BuildID:              child.BuildID, BuildVersion: child.BuildVersion, BranchID: child.BranchID, BranchName: child.BranchName,
 			Status: child.Status, ErrorMessage: child.ErrorMessage,
 		}
 		if child.Success != nil {
@@ -726,12 +737,16 @@ func enrichWithTestResults(ctx context.Context, client *api.Client, result *RunW
 		tr := WorkflowTestResult{
 			TaskID: child.TaskID, AppID: child.AppID, AppName: child.AppName,
 			BranchSource: child.BranchSource, GitBranchName: child.GitBranchName,
-			BuildID: child.BuildID, BuildVersion: child.BuildVersion, BranchID: child.BranchID, BranchName: child.BranchName,
+			AutoGitBranchEnabled: child.AutoGitBranchEnabled,
+			BuildID:              child.BuildID, BuildVersion: child.BuildVersion, BranchID: child.BranchID, BranchName: child.BranchName,
 			TestName: child.TestName,
 			Platform: child.Platform,
 			Status:   child.Status,
 		}
 		if previous, ok := observed[child.TaskID]; ok && previous.BranchSource != "" {
+			if tr.AutoGitBranchEnabled == nil {
+				tr.AutoGitBranchEnabled = previous.AutoGitBranchEnabled
+			}
 			if tr.BranchSource == "" {
 				tr.BranchSource, tr.GitBranchName = previous.BranchSource, previous.GitBranchName
 			}

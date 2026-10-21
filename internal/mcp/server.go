@@ -441,7 +441,7 @@ func (s *Server) registerTools() {
 	// run_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_workflow",
-		Description: "Run a Revyl workflow (collection of tests) by name or ID and wait for results. Returns pass/fail counts and per-child tests with resolved app and branch identity; branch_source says where each child's branch came from (git_branch, default_branch, or explicit_branch), and git_branch_name names the Git branch it consulted; default_branch with a git_branch_name means that Git branch had no usable build. Queued launches have no resolved branch yet.",
+		Description: "Run a Revyl workflow (collection of tests) by name or ID and wait for results. Returns pass/fail counts and per-child tests with resolved app and branch identity; branch_source says where each child's branch came from (git_branch, default_branch, or explicit_branch). auto_git_branch_enabled=false means automatic Git branch detection was disabled; default_branch with a git_branch_name means that Git branch had no usable build. Queued launches have no resolved branch yet.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Run Workflow",
 			OpenWorldHint: boolPtr(true),
@@ -1008,7 +1008,7 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 
 // RunTestInput defines the input parameters for the run_test tool.
 type RunTestInput struct {
-	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
+	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	TestName                   string   `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
 	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
@@ -1027,24 +1027,25 @@ type RunTestInput struct {
 
 // RunTestOutput defines the output for the run_test tool.
 type RunTestOutput struct {
-	Success        bool             `json:"success"`
-	TaskID         string           `json:"task_id"`
-	TestID         string           `json:"test_id"`
-	TestName       string           `json:"test_name"`
-	Status         string           `json:"status"`
-	Duration       string           `json:"duration"`
-	ReportURL      string           `json:"report_url"`
-	ViewerURL      string           `json:"viewer_url,omitempty"`
-	CompletedSteps int              `json:"completed_steps,omitempty"`
-	TotalSteps     int              `json:"total_steps,omitempty"`
-	LastStep       string           `json:"last_step,omitempty"`
-	ErrorMessage   string           `json:"error_message,omitempty"`
-	BuildID        string           `json:"build_id,omitempty"`
-	BuildVersion   string           `json:"build_version,omitempty"`
-	BranchName     string           `json:"branch_name,omitempty"`
-	BranchSource   api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName  string           `json:"git_branch_name,omitempty"`
-	NextSteps      []NextStep       `json:"next_steps,omitempty"`
+	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
+	Success              bool             `json:"success"`
+	TaskID               string           `json:"task_id"`
+	TestID               string           `json:"test_id"`
+	TestName             string           `json:"test_name"`
+	Status               string           `json:"status"`
+	Duration             string           `json:"duration"`
+	ReportURL            string           `json:"report_url"`
+	ViewerURL            string           `json:"viewer_url,omitempty"`
+	CompletedSteps       int              `json:"completed_steps,omitempty"`
+	TotalSteps           int              `json:"total_steps,omitempty"`
+	LastStep             string           `json:"last_step,omitempty"`
+	ErrorMessage         string           `json:"error_message,omitempty"`
+	BuildID              string           `json:"build_id,omitempty"`
+	BuildVersion         string           `json:"build_version,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string           `json:"git_branch_name,omitempty"`
+	NextSteps            []NextStep       `json:"next_steps,omitempty"`
 }
 
 // handleRunTest handles the run_test tool call.
@@ -1168,6 +1169,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		BuildVersion: result.BuildVersion,
 		BranchName:   result.BranchName,
 		BranchSource: result.BranchSource, GitBranchName: result.GitBranchName,
+		AutoGitBranchEnabled: result.AutoGitBranchEnabled,
 	}
 	if lastStatus != nil {
 		out.CompletedSteps = lastStatus.CompletedSteps
@@ -1199,7 +1201,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 
 // RunWorkflowInput defines the input parameters for the run_workflow tool.
 type RunWorkflowInput struct {
-	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
+	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	WorkflowName               string   `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
 	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 	IOSAppID                   string   `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
@@ -1277,7 +1279,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 				msg += fmt.Sprintf(" (%s)", status.Duration)
 			}
 			for _, child := range status.ChildTasks {
-				if notice := fallbackNotices.Notice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, child.BranchSource.FellBackFromGitBranch(child.GitBranchName)); notice != "" {
+				if notice := fallbackNotices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 					msg += "\n" + notice
 				}
 			}
@@ -1511,7 +1513,7 @@ type CreateTestInput struct {
 	Platform         string   `json:"platform" jsonschema:"Target platform (ios or android)"`
 	YAMLContent      string   `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition to create with real blocks"`
 	AppID            string   `json:"app_id,omitempty" jsonschema:"Optional explicit app ID to associate with the test"`
-	BranchID         string   `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omit for Default branch, the app default branch (runs try the bound project's Git branch first)"`
+	BranchID         string   `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omit for Default branch (runs try the bound project's Git branch first only when automatic Git branch detection is enabled in the app's Build branches settings)"`
 	BranchName       string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name to resolve and save as a stable ID"`
 	BuildSelection   string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch), or pinned"`
 	PinnedBuildID    string   `json:"pinned_build_id,omitempty" jsonschema:"Exact build ID to save; never falls back when unavailable"`
@@ -4067,11 +4069,11 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 
 // UploadBuildInput defines input for upload_build tool.
 type UploadBuildInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory whose Git branch is used when no branch is chosen; omitted uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	FilePath   string `json:"file_path" jsonschema:"Absolute path to the build file (.apk, .ipa, or .zip)"`
 	AppID      string `json:"app_id" jsonschema:"App ID to upload the build to"`
 	Version    string `json:"version,omitempty" jsonschema:"Version string (auto-generated from timestamp if not provided)"`
-	BranchID   string `json:"branch_id,omitempty" jsonschema:"Existing Revyl destination branch ID; omitted uses the project's Git branch, otherwise the app default branch"`
+	BranchID   string `json:"branch_id,omitempty" jsonschema:"Existing Revyl destination branch ID; omitted uses the project's Git branch when automatic Git branch detection is enabled in the app's Build branches settings, otherwise the app default branch"`
 	BranchName string `json:"branch_name,omitempty" jsonschema:"Exact Revyl destination branch name; creates it if needed and freezes it for this upload"`
 }
 

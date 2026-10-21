@@ -164,15 +164,18 @@ func TestProjectDetachPreservesBuildSelectionPolicy(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/api/v1/apps/" + appID:
-					if childStarted.Load() {
+					if childStarted.Load() && test.gitBranch == "" {
 						t.Error("child reselected the changed app default")
 						_, _ = fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, appID, buildID)
 						return
 					}
 					_, _ = fmt.Fprintf(w, `{"id":%q,"default_branch_id":%q}`, appID, branchID)
 				case "/api/v1/apps/" + appID + "/branches":
-					if childStarted.Load() {
+					if childStarted.Load() && test.gitBranch == "" {
 						t.Error("child reselected a branch by name")
+					}
+					if test.gitBranch != "" && r.URL.Query().Get("name") != test.gitBranch {
+						t.Errorf("detached child changed automatic Git context: %s", r.URL)
 					}
 					_, _ = fmt.Fprintf(w, `{"branches":[{"id":%q,"app_id":%q,"name":%q}],"total":1}`, branchID, appID, r.URL.Query().Get("name"))
 				case "/api/v1/apps/" + appID + "/branches/" + branchID:
@@ -183,10 +186,10 @@ func TestProjectDetachPreservesBuildSelectionPolicy(t *testing.T) {
 						t.Error(err)
 					}
 					if request["git_branch_name"] != "" {
-						if childStarted.Load() || request["git_branch_name"] != test.gitBranch {
+						if request["git_branch_name"] != test.gitBranch || request["branch_id"] != "" || request["build_selection"] != test.wantMode {
 							t.Errorf("unexpected inferred context: %#v", request)
 						}
-						_, _ = fmt.Fprintf(w, `{"branch_id":%q,"branch_name":"base","branch_source":"default_branch"}`, branchID)
+						_, _ = fmt.Fprintf(w, `{"branch_id":%q,"branch_name":"base","branch_source":"default_branch","git_branch_name":%q,"resolution_status":"no_compatible_build"}`, branchID, test.gitBranch)
 						return
 					}
 					if childStarted.Load() || !test.exactBuild {
@@ -290,7 +293,11 @@ func TestProjectDetachPreservesBuildSelectionPolicy(t *testing.T) {
 				}
 				return
 			}
-			if result.BranchID != branchID || result.UploadBranchID != branchID || result.AppDefault != test.appDefault ||
+			wantUploadBranchID := branchID
+			if test.gitBranch != "" {
+				wantUploadBranchID = ""
+			}
+			if result.BranchID != branchID || result.UploadBranchID != wantUploadBranchID || result.AppDefault != test.appDefault ||
 				result.NativeNeedsBuild != test.needsBuild || result.HotReloadNeedsBuild != test.needsBuild {
 				t.Fatalf("child changed the foreground policy or destination: %+v", result)
 			}

@@ -36,10 +36,12 @@ Use --local to run the same recipe on this machine and upload the generated arti
 Local execution requires the recipe's toolchain and is not supported on Windows.
 --remote remains supported; --remote=false also selects local execution.
 
-The build lands on --branch, otherwise the detected Git branch (created if
-needed), otherwise the app's default branch. A branch that follows Latest build
-runs it because it is the newest; a pinned branch keeps its pin. Pass --pin to
-pin the branch to the new build.
+The build lands on --branch when supplied. Otherwise it uses the detected Git
+branch (created if needed) when automatic Git branch detection is enabled in
+the app's Build branches settings; when disabled or unavailable, it uses the
+app's default branch. A branch that follows Latest build runs it because it is
+the newest; a pinned branch keeps its pin. Pass --pin to pin the branch to the
+new build.
 
 Use --profile and --platform to resolve ambiguous choices in CI or --json mode.
 Cloud failures are reported without falling back to local execution.`,
@@ -56,10 +58,12 @@ var buildUploadCmd = &cobra.Command{
 
 This command does not run a build. Use ` + "`revyl build`" + ` to build from source.
 
-The upload lands on --branch, otherwise the detected Git branch (created if
-needed), otherwise the app's default branch. A branch that follows Latest build
-runs it because it is the newest; a pinned branch keeps its pin. Pass --pin to
-pin the branch to the new build.
+The upload lands on --branch when supplied. Otherwise it uses the detected Git
+branch (created if needed) when automatic Git branch detection is enabled in
+the app's Build branches settings; when disabled or unavailable, it uses the
+app's default branch. A branch that follows Latest build runs it because it is
+the newest; a pinned branch keeps its pin. Pass --pin to pin the branch to the
+new build.
 
 To match a GitHub PR or GitLab MR from any CI runner, pass --repo namespace/name
 and --commit with the full built commit SHA. Add --pr to select a review explicitly.
@@ -198,8 +202,8 @@ var (
 var buildHostGOOS = runtime.GOOS
 
 func init() {
-	buildCmd.Flags().String("branch", "", "Revyl destination branch (default: your Git branch, else the app's default branch)")
-	buildUploadCmd.Flags().String("branch", "", "Revyl destination branch (default: your Git branch, else the app's default branch; Web URLs: the app's default branch)")
+	buildCmd.Flags().String("branch", "", "Revyl destination branch (default: Git branch when enabled in app settings, else app default)")
+	buildUploadCmd.Flags().String("branch", "", "Revyl destination branch (default: Git branch when enabled in app settings, else app default; Web URLs: app default)")
 	buildListCmd.Flags().Bool("all-branches", false, "List builds across all branches (the default)")
 	buildListCmd.Flags().IntVar(&buildListPage, "page", 1, "Build version page (requires --app)")
 	buildListCmd.Flags().Int("page-size", 20, "Builds per page (maximum 100)")

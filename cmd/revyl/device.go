@@ -1063,8 +1063,8 @@ your Git branch or a branch's pin.`,
 			return err
 		}
 		rememberBeforeSessionBootValues(mgr.WorkDir(), session.SessionID)
-		if session.BranchSource.FellBackFromGitBranch(gitBranchName) {
-			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, session.BranchName))
+		if notice := ui.BranchSelectionNotice(session.GitBranchName, session.BranchName, string(session.BranchSource), session.AutoGitBranchEnabled); notice != "" {
+			ui.PrintWarning("%s", notice)
 		}
 
 		var postLaunchErr error
@@ -1966,8 +1966,8 @@ or --app-url.
 			return err
 		}
 		appURL = resolved.AppURL
-		if resolved.BranchSource.FellBackFromGitBranch(gitBranchName) {
-			ui.PrintWarning("%s", ui.BranchFallbackNotice(gitBranchName, resolved.BranchName))
+		if notice := ui.BranchSelectionNotice(resolved.GitBranchName, resolved.BranchName, string(resolved.BranchSource), resolved.AutoGitBranchEnabled); notice != "" {
+			ui.PrintWarning("%s", notice)
 		}
 		if bundleID == "" && resolved.AppPackage != "" {
 			bundleID = resolved.AppPackage
@@ -1993,6 +1993,9 @@ or --app-url.
 		}
 
 		payload := map[string]interface{}{"app_url": appURL, "status": "installed", "build_id": resolved.BuildID, "branch_id": resolved.BranchID, "branch_name": resolved.BranchName}
+		if resolved.AutoGitBranchEnabled != nil {
+			payload["auto_git_branch_enabled"] = *resolved.AutoGitBranchEnabled
+		}
 		if resolved.BranchSource != "" {
 			payload["branch_source"] = resolved.BranchSource
 		}
@@ -3640,7 +3643,7 @@ func init() {
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
-	deviceStartCmd.Flags().String("branch", "", "Revyl branch (default: Git branch, then app default)")
+	deviceStartCmd.Flags().String("branch", "", "Revyl branch (default: Git branch when enabled in app settings, else app default)")
 	deviceStartCmd.Flags().String("build-selection", "", "inherit (Automatic), latest (ignore the branch pin), or pinned with --build-version-id")
 	deviceStartCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
@@ -3761,7 +3764,7 @@ func init() {
 
 	// Install
 	deviceInstallCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
-	deviceInstallCmd.Flags().String("branch", "", "Revyl branch (default: Git branch, then app default)")
+	deviceInstallCmd.Flags().String("branch", "", "Revyl branch (default: Git branch when enabled in app settings, else app default)")
 	deviceInstallCmd.Flags().String("build-selection", "", "inherit (Automatic), latest (ignore the branch pin), or pinned with --build-version-id")
 	deviceInstallCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceInstallCmd.Flags().String("build-version-id", "", "Build version ID from a previous upload; download URL is resolved automatically")

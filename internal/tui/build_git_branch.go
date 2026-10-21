@@ -52,11 +52,8 @@ func prepareTestRunBuildSelection(ctx context.Context, client *api.Client, choic
 		if err != nil {
 			return selection, "", fmt.Errorf("resolve run branch override: %w", err)
 		}
-		gitBranchName := selection.GitBranchName
 		selection.BranchID, selection.GitBranchName = branch.ID, ""
-		if branch.BranchSource.FellBackFromGitBranch(gitBranchName) {
-			return selection, ui.BranchFallbackNotice(gitBranchName, branch.Name), nil
-		}
+		return selection, ui.BranchSelectionNotice(branch.GitBranchName, branch.Name, string(branch.BranchSource), branch.AutoGitBranchEnabled), nil
 	}
 	return selection, "", nil
 }

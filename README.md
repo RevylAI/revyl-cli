@@ -203,9 +203,11 @@ Otherwise it prompts interactively or fails non-interactively with the valid
 choices. No profile is stored as active or default.
 
 See [Build with Revyl](docs/builds.md) for prerequisites, source uploads,
-billing, and migration guidance for existing scripts. Builds land on the Revyl
-branch named after your Git branch, or the app's default branch when there is
-none; see [Build branches from the CLI](docs/build-branches.md).
+billing, and migration guidance for existing scripts. Builds land on `--branch`
+when supplied. Otherwise they use your Git branch when automatic Git branch
+detection is enabled in the app's Build branches settings, or the app's default
+branch when detection is disabled or no Git branch is available. See
+[Build branches from the CLI](docs/build-branches.md).
 
 When you're ready to run outside the dev loop:
 

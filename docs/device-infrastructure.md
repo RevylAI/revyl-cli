@@ -22,7 +22,8 @@ revyl build --remote --platform android
 ```
 
 The build runs on Revyl's cloud infrastructure and uploads the artifact to the
-Revyl branch named after your Git branch, which the upload creates if needed
+Revyl branch named after your Git branch when automatic detection is on, which
+the upload creates if needed; with detection off it uses the app's default branch
 ([Build branches](https://docs.revyl.com/builds/branches)). No local Xcode or Android SDK is needed.
 If more than one build profile matches, select one when prompted;
 for unattended CI, follow the [remote build configuration guide](https://docs.revyl.com/remote-builds/configuration).
@@ -46,7 +47,8 @@ revyl device start --platform android --app-id YOUR_ANDROID_APP_ID
 ```
 
 Revyl selects a default device and installs the default build of
-[your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection) when it has a usable build,
+[your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection)
+when automatic detection is on and it has a usable build,
 otherwise of the app's default branch. If your build is on another branch, add
 `--branch <name>`. For the other build choices, see
 [Build branches from the CLI](build-branches.md#run-options). The command prints the session ID and a

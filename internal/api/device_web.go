@@ -37,15 +37,16 @@ type ExternalURLBuildRequest struct {
 }
 
 type WebBuild struct {
-	ID            string       `json:"id"`
-	AppID         string       `json:"app_id"`
-	ArtifactKind  string       `json:"artifact_kind"`
-	Version       string       `json:"version,omitempty"`
-	WasReused     bool         `json:"was_reused,omitempty"`
-	BranchID      string       `json:"branch_id,omitempty"`
-	BranchName    string       `json:"branch_name,omitempty"`
-	BranchSource  BranchSource `json:"branch_source,omitempty"`
-	GitBranchName string       `json:"git_branch_name,omitempty"`
+	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
+	ID                   string       `json:"id"`
+	AppID                string       `json:"app_id"`
+	ArtifactKind         string       `json:"artifact_kind"`
+	Version              string       `json:"version,omitempty"`
+	WasReused            bool         `json:"was_reused,omitempty"`
+	BranchID             string       `json:"branch_id,omitempty"`
+	BranchName           string       `json:"branch_name,omitempty"`
+	BranchSource         BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string       `json:"git_branch_name,omitempty"`
 }
 
 type ExternalURLBuild = WebBuild
@@ -114,6 +115,7 @@ func (c *Client) GetLatestWebBuild(ctx context.Context, appID string, selection 
 		return nil, fmt.Errorf("latest Web build response did not contain a URL or bundle build on the selected app")
 	}
 	build := &WebBuild{ID: result.VersionId.String(), AppID: appID, ArtifactKind: *result.ArtifactKind}
+	build.AutoGitBranchEnabled = result.AutoGitBranchEnabled
 	if result.BranchId != nil {
 		build.BranchID = result.BranchId.String()
 	}

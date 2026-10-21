@@ -37,3 +37,19 @@ func TestWorkflowExecutionFallbackVisibleWhileRunningAndAfterFailure(t *testing.
 		}
 	}
 }
+
+func TestWorkflowExecutionShowsDisabledPolicyPerApp(t *testing.T) {
+	disabled := false
+	model := hubModel{width: 80, height: 32, wfExecStartTime: time.Now(), wfExecStatus: &api.CLIWorkflowStatusResponse{
+		Status: "running", TotalTests: 4, ChildTasks: []api.CLIWorkflowChildExecution{
+			{AppID: "ios", AppName: "iOS App", BranchID: "base", BranchName: "base", BranchSource: api.BranchSourceDefaultBranch, AutoGitBranchEnabled: &disabled},
+			{AppID: "ios", AppName: "iOS App", BranchID: "base", BranchName: "base", BranchSource: api.BranchSourceDefaultBranch, AutoGitBranchEnabled: &disabled},
+			{AppID: "android", AppName: "Android App", BranchID: "main", BranchName: "main", BranchSource: api.BranchSourceDefaultBranch, GitBranchName: "feat"},
+			{AppID: "explicit", AppName: "Explicit App", BranchID: "saved", BranchName: "saved", BranchSource: api.BranchSourceExplicitBranch, AutoGitBranchEnabled: &disabled},
+		},
+	}}
+	rendered := strings.Join(strings.Fields(renderWorkflowExecution(model)), " ")
+	if strings.Count(rendered, "automatic Git branch detection is off") != 1 || strings.Count(rendered, "has no usable build") != 1 || strings.Contains(rendered, "Explicit App") {
+		t.Fatalf("workflow merged automatic policy with fallback or explicit choices: %s", rendered)
+	}
+}

@@ -561,7 +561,9 @@ func TestRemoteDevBuildNamesANewBranchUntilItExists(t *testing.T) {
 		{name: "new Git branch", invocation: projectDevInvocation{GitBranchName: "main"}, wantGitName: "main"},
 		{name: "new explicit branch", invocation: projectDevInvocation{BranchName: "release"}, wantName: "release"},
 		{name: "existing branch", invocation: projectDevInvocation{BranchID: branchID, BranchName: "main", GitBranchName: "main"}, wantBranchID: branchID},
-		{name: "created by the first build", invocation: projectDevInvocation{GitBranchName: "main"}.withUploadedBranch(branchID, ""), wantBranchID: branchID},
+		{name: "automatic existing branch before trigger", invocation: projectDevInvocation{BranchID: branchID, BranchName: "base", GitBranchName: "main", AutomaticBranchSelection: true}, wantGitName: "main"},
+		{name: "automatic existing branch accepted", invocation: projectDevInvocation{BranchID: branchID, BranchName: "base", GitBranchName: "main", AutomaticBranchSelection: true}.withResolvedBranch(branchID, ""), wantBranchID: branchID},
+		{name: "created by the first build", invocation: projectDevInvocation{GitBranchName: "main"}.withResolvedBranch(branchID, ""), wantBranchID: branchID},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			invocation := scenario.invocation

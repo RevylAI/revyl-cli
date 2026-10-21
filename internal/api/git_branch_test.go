@@ -33,6 +33,10 @@ func TestGitBranchLookupPrecedence(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/api/v1/apps/app" {
+					_ = json.NewEncoder(w).Encode(App{ID: "app"})
+					return
+				}
 				if r.URL.Path == "/api/v1/apps/resolve" {
 					var body buildResolutionRequest
 					_ = json.NewDecoder(r.Body).Decode(&body)
@@ -79,7 +83,7 @@ func TestGitBranchLookupPrecedence(t *testing.T) {
 			if tc.name == "missing explicit" && (!errors.Is(err, ErrBranchNotFound) || err.Error() != `branch "feature" doesn't exist`) {
 				t.Errorf("wrong missing error %v", err)
 			}
-			if tc.name == "invalid upload" && (calls != 0 || !strings.Contains(err.Error(), "--branch")) {
+			if tc.name == "invalid upload" && (calls != 1 || !strings.Contains(err.Error(), "--branch")) {
 				t.Errorf("invalid upload reached API: calls=%d, err=%v", calls, err)
 			}
 			if branch != nil && (branch.Name != tc.expected || branch.BranchSource.FellBackFromGitBranch(branch.GitBranchName) != tc.fallback) {

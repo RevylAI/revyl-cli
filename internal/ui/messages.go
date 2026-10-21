@@ -999,9 +999,50 @@ func AppBranchFallbackNotice(appName, gitBranchName, defaultBranchName string) s
 	return fmt.Sprintf("%s has no usable build%s; using %s.", gitBranch, onApp, defaultBranch)
 }
 
+func BranchSelectionNotice(gitBranchName, defaultBranchName string, source string, enabled *bool) string {
+	return AppBranchSelectionNotice("", gitBranchName, defaultBranchName, source, enabled)
+}
+
+func AppBranchSelectionNotice(appName, gitBranchName, defaultBranchName string, source string, enabled *bool) string {
+	if source == "default_branch" && enabled != nil && !*enabled {
+		branch := "app default branch"
+		if defaultBranchName != "" {
+			branch += fmt.Sprintf(" %q", defaultBranchName)
+		}
+		if appName != "" {
+			branch += fmt.Sprintf(" on %q", appName)
+		}
+		return fmt.Sprintf("Using %s because automatic Git branch detection is off.", branch)
+	}
+	if source == "default_branch" && gitBranchName != "" {
+		return AppBranchFallbackNotice(appName, gitBranchName, defaultBranchName)
+	}
+	return ""
+}
+
 // BranchFallbackNotices suppresses repeated notices for the same resolved app and branch.
 type BranchFallbackNotices struct {
-	seen map[[2]string]struct{}
+	seen          map[[2]string]struct{}
+	selectionSeen map[[3]string]struct{}
+}
+
+func (notices *BranchFallbackNotices) SelectionNotice(appID, appName, branchID, branchName, gitBranchName string, source string, enabled *bool) string {
+	if appName == "" {
+		appName = appID
+	}
+	notice := AppBranchSelectionNotice(appName, gitBranchName, branchName, source, enabled)
+	if notice == "" {
+		return ""
+	}
+	key := [3]string{appID, branchID, notice}
+	if _, exists := notices.selectionSeen[key]; exists {
+		return ""
+	}
+	if notices.selectionSeen == nil {
+		notices.selectionSeen = make(map[[3]string]struct{})
+	}
+	notices.selectionSeen[key] = struct{}{}
+	return notice
 }
 
 // Notice says once per app and branch that the app's default branch replaced

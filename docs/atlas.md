@@ -23,7 +23,8 @@ one branch, including a branch with no usable build.
 `--build latest` selects the newest usable build on one branch, even when the
 branch is pinned: `--branch` when given, otherwise
 [your Git branch](https://docs.revyl.com/builds/branches#git-branch-detection)
-when it has a usable build, otherwise the app's default branch. An exact
+when automatic detection is on and it has a usable build, otherwise the app's
+default branch. An exact
 `--build <id>` keeps that build's scope.
 
 A version string passed to `--build <version>` selects the newest upload whose

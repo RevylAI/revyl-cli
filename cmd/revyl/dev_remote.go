@@ -244,13 +244,8 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	statusPath := devCtxStatusPath(cwd, ctxName)
 	writeDevStatusRemoteBuildRunning(statusPath, session, viewerURL, devicePlatform, platformKey, "", buildCaches, "", false)
 	setDevStatusSelection(statusPath, invocation)
-	// A branch named for the first time exists once a build is accepted;
-	// later rebuilds upload to it by ID.
 	adoptTriggeredBranch := func(job remoteDevBuildJob) {
-		if !invocation.branchAwaitsFirstUpload() {
-			return
-		}
-		invocation = invocation.withUploadedBranch(job.branchID, "")
+		invocation = invocation.withResolvedBranch(job.branchID, "")
 		devCtx.BranchID, devCtx.BranchName = invocation.BranchID, invocation.BranchName
 		_ = saveDevContext(cwd, devCtx)
 		setDevStatusSelection(statusPath, invocation)

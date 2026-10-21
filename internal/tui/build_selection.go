@@ -30,13 +30,13 @@ const (
 )
 
 type buildPickerModel struct {
-	// gitBranchFellBack is true when the app's default branch replaced gitBranch.
-	gitBranchFellBack bool
-	id, appID, title  string
-	client            *api.Client
-	step              buildPickerStep
-	branches          []api.BuildBranch
-	builds            []api.BuildVersion
+	branchSelectionNotice string
+	autoGitBranchEnabled  *bool
+	id, appID, title      string
+	client                *api.Client
+	step                  buildPickerStep
+	branches              []api.BuildBranch
+	builds                []api.BuildVersion
 	// defaultBranch is the app's default branch read by ID, which carries no
 	// latest_build; its listed copy in branches does.
 	defaultBranch *api.BuildBranch
@@ -49,29 +49,28 @@ type buildPickerModel struct {
 	loading, done, cancelled            bool
 	branchOnly, allowAll, allowCreate   bool
 	workflow, offerAllBranches, runtime bool
-	// gitBranch is the detected Git branch a run or upload picker's first
-	// choice uses.
-	gitBranch                 string
-	err                       error
-	nameInput                 textinput.Model
-	searchInput               textinput.Model
-	searching                 bool
-	branchSearch, buildSearch string
-	branchPage, buildPage     int
-	moreBranches, moreBuilds  bool
+	gitBranch                           string
+	err                                 error
+	nameInput                           textinput.Model
+	searchInput                         textinput.Model
+	searching                           bool
+	branchSearch, buildSearch           string
+	branchPage, buildPage               int
+	moreBranches, moreBuilds            bool
 }
 
 type buildPickerDataMsg struct {
-	gitBranchFellBack    bool
-	id                   string
-	page                 int
-	hasNext, reloaded    bool
-	branches             []api.BuildBranch
-	builds               []api.BuildVersion
-	defaultBranch        *api.BuildBranch
-	branchID, branchName string
-	gitBranch            string
-	err                  error
+	branchSelectionNotice string
+	autoGitBranchEnabled  *bool
+	id                    string
+	page                  int
+	hasNext, reloaded     bool
+	branches              []api.BuildBranch
+	builds                []api.BuildVersion
+	defaultBranch         *api.BuildBranch
+	branchID, branchName  string
+	gitBranch             string
+	err                   error
 }
 
 func newBuildPicker(client *api.Client, appID, title string) buildPickerModel {
@@ -104,6 +103,7 @@ func (m buildPickerModel) reloadBranches(through int) tea.Cmd {
 			}
 			if page == 1 {
 				reload.defaultBranch, reload.gitBranch = data.defaultBranch, data.gitBranch
+				reload.autoGitBranchEnabled = data.autoGitBranchEnabled
 			}
 			reload.branches = append(reload.branches, data.branches...)
 			reload.page, reload.hasNext = page, data.hasNext
@@ -119,7 +119,13 @@ func (m buildPickerModel) readBranchPage(page int) buildPickerDataMsg {
 	defer cancel()
 	msg := buildPickerDataMsg{id: m.id, page: page, defaultBranch: m.defaultBranch}
 	if page == 1 && !m.allowAll {
-		branch, err := m.client.ResolveBranch(ctx, m.appID, "", "")
+		app, err := m.client.GetApp(ctx, m.appID)
+		if err != nil {
+			msg.err = err
+			return msg
+		}
+		msg.autoGitBranchEnabled = app.AutoGitBranchEnabled
+		branch, err := m.client.ResolveBranch(ctx, m.appID, app.DefaultBranchID, "")
 		if err != nil {
 			msg.err = err
 			return msg
@@ -168,7 +174,7 @@ func (m buildPickerModel) fetchBuildPage(page int) tea.Cmd {
 				return msg
 			}
 			msg.branchID, msg.branchName = branch.ID, branch.Name
-			msg.gitBranchFellBack = branch.BranchSource.FellBackFromGitBranch(selection.GitBranchName)
+			msg.branchSelectionNotice = ui.BranchSelectionNotice(branch.GitBranchName, branch.Name, string(branch.BranchSource), branch.AutoGitBranchEnabled)
 		}
 		result, err := m.client.ListBuildVersionsWithOptions(ctx, m.appID, api.BuildListOptions{BranchID: msg.branchID, Page: page, PageSize: 100, Search: m.buildSearch})
 		if err != nil {
@@ -266,12 +272,8 @@ func (m buildPickerModel) defaultBranchOption() string {
 	return defaultBranchLabel
 }
 
-// showsGitBranch reports whether a run or upload picker's first choice is the
-// detected Git branch rather than the app's default branch. The choice reads
-// Git again when it is used, so it is named for Git even when the branch is
-// the app's default.
 func (m buildPickerModel) showsGitBranch() bool {
-	return m.runtime && m.gitBranch != ""
+	return m.runtime && m.gitBranch != "" && (m.autoGitBranchEnabled == nil || *m.autoGitBranchEnabled)
 }
 
 // gitBranchOption names the detected Git branch. A run uses the app's default
@@ -333,7 +335,7 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		}
 		if m.step == buildPickerExact {
 			if data.page <= 1 {
-				m.gitBranchFellBack = data.gitBranchFellBack
+				m.branchSelectionNotice = data.branchSelectionNotice
 				m.builds, m.cursor = nil, 0
 			}
 			m.builds = append(m.builds, data.builds...)
@@ -359,6 +361,7 @@ func (m buildPickerModel) Update(msg tea.Msg) (buildPickerModel, tea.Cmd) {
 		m.branches, m.defaultBranch = merged, data.defaultBranch
 		if data.page <= 1 || data.reloaded {
 			m.gitBranch = data.gitBranch
+			m.autoGitBranchEnabled = data.autoGitBranchEnabled
 		}
 		m.branchPage, m.moreBranches = max(1, data.page), data.hasNext
 		if data.reloaded {
@@ -562,8 +565,11 @@ func (m buildPickerModel) View() string {
 		b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n\n")
 	}
 	query := m.branchSearch
-	if m.step == buildPickerExact && m.gitBranchFellBack {
-		b.WriteString("  " + warningStyle.Render(ui.BranchFallbackNotice(m.gitBranch, m.label)) + "\n\n")
+	if m.step == buildPickerExact && m.branchSelectionNotice != "" {
+		b.WriteString("  " + warningStyle.Render(m.branchSelectionNotice) + "\n\n")
+	}
+	if m.step == buildPickerBranch && m.runtime && m.autoGitBranchEnabled != nil && !*m.autoGitBranchEnabled {
+		b.WriteString("  " + dimStyle.Render("Automatic Git branch detection is off; automatic choices use the app default.") + "\n\n")
 	}
 	if m.step == buildPickerExact {
 		query = m.buildSearch

@@ -203,6 +203,7 @@ func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts
 			buildID = latest.ID
 			artifact.BranchID, artifact.BranchName = latest.BranchID, latest.BranchName
 			artifact.BranchSource, artifact.GitBranchName = latest.BranchSource, latest.GitBranchName
+			artifact.AutoGitBranchEnabled = latest.AutoGitBranchEnabled
 		}
 		build, err = m.apiClient.GetWebBuild(ctx, buildID)
 	}

@@ -3810,6 +3810,7 @@ type AppPlatformCounts struct {
 type AppResponse struct {
 	AttachedTests              *int                                      `json:"attached_tests,omitempty"`
 	AttributionReady           *bool                                     `json:"attribution_ready,omitempty"`
+	AutoGitBranchEnabled       *bool                                     `json:"auto_git_branch_enabled,omitempty"`
 	BuildsCount                *int                                      `json:"builds_count,omitempty"`
 	CloudAgentConversation     *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
 	CreatedAt                  *time.Time                                `json:"created_at,omitempty"`
@@ -5321,11 +5322,14 @@ type BuildResolutionRequest struct {
 // BuildResolutionResponse Response with resolved build information.
 type BuildResolutionResponse struct {
 	// AppName The app's name, for messages that name it
-	AppName      *string             `json:"app_name,omitempty"`
-	ArtifactKind *string             `json:"artifact_kind,omitempty"`
-	ArtifactUrl  *string             `json:"artifact_url,omitempty"`
-	BranchId     *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName   *string             `json:"branch_name,omitempty"`
+	AppName      *string `json:"app_name,omitempty"`
+	ArtifactKind *string `json:"artifact_kind,omitempty"`
+	ArtifactUrl  *string `json:"artifact_url,omitempty"`
+
+	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled for this resolution
+	AutoGitBranchEnabled *bool               `json:"auto_git_branch_enabled,omitempty"`
+	BranchId             *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName           *string             `json:"branch_name,omitempty"`
 
 	// BranchSource Where the branch a run, session, or resolution used came from.
 	//
@@ -5336,7 +5340,7 @@ type BuildResolutionResponse struct {
 	DeployUrl    *string            `json:"deploy_url,omitempty"`
 	DownloadUrl  *string            `json:"download_url,omitempty"`
 
-	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
 	GitBranchName    *string                                  `json:"git_branch_name,omitempty"`
 	Platform         string                                   `json:"platform"`
 	ResolutionStatus *BuildResolutionResponseResolutionStatus `json:"resolution_status,omitempty"`
@@ -5561,10 +5565,13 @@ type CheckVariableExistsResponse struct {
 
 // ChildTaskReportInfo defines model for ChildTaskReportInfo.
 type ChildTaskReportInfo struct {
-	AppId      *string `json:"app_id,omitempty"`
-	AppName    *string `json:"app_name,omitempty"`
-	BranchId   *string `json:"branch_id,omitempty"`
-	BranchName *string `json:"branch_name,omitempty"`
+	AppId   *string `json:"app_id,omitempty"`
+	AppName *string `json:"app_name,omitempty"`
+
+	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
+	AutoGitBranchEnabled *bool   `json:"auto_git_branch_enabled,omitempty"`
+	BranchId             *string `json:"branch_id,omitempty"`
+	BranchName           *string `json:"branch_name,omitempty"`
 
 	// BranchSource Where the branch a run, session, or resolution used came from.
 	//
@@ -5579,7 +5586,7 @@ type ChildTaskReportInfo struct {
 	ErrorMessage         *string       `json:"error_message,omitempty"`
 	ExecutionTimeSeconds *float32      `json:"execution_time_seconds,omitempty"`
 
-	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
 	GitBranchName  *string  `json:"git_branch_name,omitempty"`
 	IsShared       *bool    `json:"is_shared,omitempty"`
 	Platform       *string  `json:"platform,omitempty"`
@@ -6921,6 +6928,9 @@ type EntitlementItem struct {
 
 // ExecuteTestAsyncAPIResponse Response for async test execution start.
 type ExecuteTestAsyncAPIResponse struct {
+	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
+	AutoGitBranchEnabled *bool `json:"auto_git_branch_enabled,omitempty"`
+
 	// BranchName Branch of the build the run uses
 	BranchName *string `json:"branch_name,omitempty"`
 
@@ -6930,7 +6940,7 @@ type ExecuteTestAsyncAPIResponse struct {
 	// Latest build chose the build, because then no branch was chosen.
 	BranchSource *BranchSource `json:"branch_source,omitempty"`
 
-	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
 	GitBranchName *string `json:"git_branch_name,omitempty"`
 
 	// Id Execution ID
@@ -8910,10 +8920,13 @@ type RepositoryProjectCatalogResponse struct {
 
 // ResolvedBuild Normalized representation of a resolved build artifact.
 type ResolvedBuild struct {
-	ArtifactKind *string             `json:"artifact_kind,omitempty"`
-	ArtifactUrl  *string             `json:"artifact_url,omitempty"`
-	BranchId     *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName   *string             `json:"branch_name,omitempty"`
+	ArtifactKind *string `json:"artifact_kind,omitempty"`
+	ArtifactUrl  *string `json:"artifact_url,omitempty"`
+
+	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
+	AutoGitBranchEnabled *bool               `json:"auto_git_branch_enabled,omitempty"`
+	BranchId             *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName           *string             `json:"branch_name,omitempty"`
 
 	// BranchSource Where the branch a run, session, or resolution used came from.
 	//
@@ -8926,7 +8939,7 @@ type ResolvedBuild struct {
 	Description  *string            `json:"description,omitempty"`
 	DownloadUrl  *string            `json:"download_url,omitempty"`
 
-	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
 	GitBranchName *string                 `json:"git_branch_name,omitempty"`
 	Metadata      *map[string]interface{} `json:"metadata,omitempty"`
 	PackageName   *string                 `json:"package_name,omitempty"`
@@ -9140,6 +9153,9 @@ type StartDeviceInfo struct {
 
 // StartDeviceResponse Structured response for the `start_device` endpoint.
 type StartDeviceResponse struct {
+	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
+	AutoGitBranchEnabled *bool `json:"auto_git_branch_enabled,omitempty"`
+
 	// BranchSource Where the branch a run, session, or resolution used came from.
 	//
 	// Results leave it absent or null when an exact build or All branches ·
@@ -9150,7 +9166,7 @@ type StartDeviceResponse struct {
 	// ErrorDetail Safe, actionable context for a launch-variable resolution failure.
 	ErrorDetail *LaunchEnvVarErrorDetail `json:"error_detail,omitempty"`
 
-	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
 	GitBranchName *string             `json:"git_branch_name,omitempty"`
 	IframeUrl     *string             `json:"iframe_url,omitempty"`
 	Message       *string             `json:"message,omitempty"`
@@ -10136,10 +10152,13 @@ type WorkflowCancelResponse struct {
 
 // WorkflowChildExecutionResponse defines model for WorkflowChildExecutionResponse.
 type WorkflowChildExecutionResponse struct {
-	AppId      *openapi_types.UUID `json:"app_id,omitempty"`
-	AppName    *string             `json:"app_name,omitempty"`
-	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName *string             `json:"branch_name,omitempty"`
+	AppId   *openapi_types.UUID `json:"app_id,omitempty"`
+	AppName *string             `json:"app_name,omitempty"`
+
+	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
+	AutoGitBranchEnabled *bool               `json:"auto_git_branch_enabled,omitempty"`
+	BranchId             *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName           *string             `json:"branch_name,omitempty"`
 
 	// BranchSource Where the branch a run, session, or resolution used came from.
 	//
@@ -10151,7 +10170,7 @@ type WorkflowChildExecutionResponse struct {
 	ErrorMessage         *string             `json:"error_message,omitempty"`
 	ExecutionTimeSeconds *float32            `json:"execution_time_seconds,omitempty"`
 
-	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, and All branches · Latest build
+	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
 	GitBranchName *string             `json:"git_branch_name,omitempty"`
 	Id            openapi_types.UUID  `json:"id"`
 	SessionId     *openapi_types.UUID `json:"session_id,omitempty"`

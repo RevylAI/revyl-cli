@@ -57,7 +57,7 @@ type StartDevLoopInput struct {
 	Profile                    string   `json:"profile,omitempty" jsonschema:"Optional named build profile. When omitted, Revyl applies deterministic development-profile selection."`
 	Platform                   string   `json:"platform,omitempty" jsonschema:"Optional target platform for the cloud device (ios or android). Revyl infers it when only one eligible recipe remains."`
 	PlatformKey                string   `json:"platform_key,omitempty" jsonschema:"Deprecated and rejected. Use profile to select a named build profile."`
-	AppID                      string   `json:"app_id,omitempty" jsonschema:"Optional app ID override. Without a branch or build, the newest build from the current Git branch is used, otherwise the newest build on the app default branch."`
+	AppID                      string   `json:"app_id,omitempty" jsonschema:"Optional app ID override. Without a branch or build, uses the current Git branch only when automatic Git branch detection is enabled in the app's Build branches settings and that branch has a usable build; otherwise uses the app default branch."`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Optional explicit build version ID. Preserves that exact uploaded artifact."`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs."`
 	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs."`
