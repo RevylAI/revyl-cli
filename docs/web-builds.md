@@ -1,5 +1,7 @@
 # Web builds
 
+Web is in Alpha. To add it to your organization, email support@revyl.ai.
+
 A Web build is either a bundle built by Revyl or a registered deployment URL.
 Managed builds run the configured recipe locally or on Revyl's build runners,
 then upload a verified bundle. URL builds open an existing preview deployment.
@@ -8,6 +10,25 @@ CI workflow.
 
 Coding agents: start with the [manual Web setup guide](../skills/revyl-cli-auth-bypass/references/web.md)
 for Next.js and static Vite examples, signed test login, and dynamic preparation.
+
+## Framework support
+
+Web recipes use the generic `web` platform, not a framework-specific adapter.
+`revyl init` does not detect Next.js, Vite, their package managers, or preview
+hosts; configure the commands and output explicitly.
+
+| App | Managed output | Alternative |
+| --- | --- | --- |
+| Next.js | A self-contained standalone server, its runtime dependencies, and static assets, with `run.start` | Register an existing HTTPS preview |
+| Static Vite | A static output directory with a root `index.html`; no `run` block | Register an existing HTTPS preview |
+| Other frameworks | A static directory or self-contained Node server that meets the bundle contract below | Register an existing HTTPS preview from any framework |
+
+Remote Web recipes build on Linux ARM64; bundled servers run on Linux x86-64.
+Native Node dependencies must include binaries for the session runtime, not
+only for the build machine. Use a hosted preview if the app cannot be packaged
+for that runtime. There is no Web hot-reload
+provider in `revyl dev`: rebuild the bundle or update the hosted preview, then
+open that build in a new Web session.
 
 ## Build a Web bundle
 
