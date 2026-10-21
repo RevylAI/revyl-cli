@@ -63,7 +63,7 @@ first (`--limit 1..100`, default 25). `get` prints the computer's state and
 its steps as a table; `--json` prints the full detail instead.
 
 There is no active-computer setting, provider/image/TTL/cwd selector,
-interactive SSH/TTY, recursive sync, snapshot or desktop driver in this family. Existing `revyl device` commands still target native session IDs
+interactive SSH/TTY, recursive sync or snapshot in this family. Existing `revyl device` commands still target native session IDs
 independently.
 
 ## Control the screen
@@ -79,15 +79,25 @@ physical Mac.
 revyl computer screenshot C1 --out shot.png
 revyl computer screenshot C1 --zoom 100,100,900,600 --out detail.png
 revyl computer click C1 --x 640 --y 360
+revyl computer move C1 --x 640 --y 360
 revyl computer drag C1 --start-x 100 --start-y 100 --end-x 600 --end-y 400
 revyl computer scroll C1 --x 640 --y 360 --direction down --amount 5
 revyl computer type C1 --text-env PASSWORD
 revyl computer key C1 --key cmd+space
 ```
 
+`click` accepts `--button left|right|middle` (default `left`), `--count 1..3`
+(default 1), and comma-separated `--mods shift,ctrl,alt,cmd`. `scroll` accepts
+`--direction up|down|left|right`, `--amount 1..20` (default 3), and `--mods`.
+`key --hold 0..5` holds a single chord for that many seconds.
+
 `--text` and `--text-env` are mutually exclusive. The latter reads a local
-environment variable and never prints its value. Use `--json` for a stable
-machine-readable result; PNG data uses URL-safe base64 in JSON output.
+environment variable and never prints its value. Text is limited to 500 printable
+ASCII characters, newlines or tabs. Use `--json` for a stable machine-readable
+result: screenshots return `width`, `height`, `observed_at`, `png` and `cursor`;
+actions return `screenshot` (null unless `--out` is set) and `cursor`. The cursor
+is an `{ "x": ..., "y": ... }` point or null. PNG data uses padded URL-safe
+base64 in CLI JSON output.
 
 The unreleased `computer` MCP tool requires `revyl mcp serve
 --experimental-computer`. It remains absent from every profile unless that
@@ -100,8 +110,10 @@ revyl device start --platform ios --app "$APP" --computer "$C1" --json
 ```
 
 `--computer` requires computer runs to be enabled for your organization. It
-starts an iOS simulator or Web app session inside running computer C1 when the computer's hosting capability lists that platform. It needs an
-uploaded build (`--app`, optionally `--build-version-id`); the computer chooses
+starts an iOS simulator or Web app session inside running computer C1 when the computer's hosting capability lists that platform. Hosted Web needs
+no separate Web enablement and uses a registered deployment URL build, not a
+managed Web bundle. Select an app and one of its builds (`--app`, optionally
+`--build-version-id`); the computer chooses
 the device and the app launches with its defaults, so `--app-url`, device
 selectors, launch variables, arguments and environment, run options and
 test-backed starts are refused.
