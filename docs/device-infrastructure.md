@@ -229,8 +229,9 @@ reported as applied or uncertain.
 
 For private text, use `revyl device type --session-id YOUR_SESSION_ID --target
 "password field" --text-env PASSWORD_ENV_NAME`. The value stays out of command
-arguments and CLI output; on Web, the target must be a password field. Web does
-not support phone-only actions such as app installation, Home, or pinch.
+arguments and CLI output; on Web, this option only types into a focused password
+field. Web does not support phone-only actions such as app installation, Home, or
+pinch.
 
 #### Keyboard, scrolling, and native selects
 

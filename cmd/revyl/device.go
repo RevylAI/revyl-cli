@@ -3703,7 +3703,7 @@ func init() {
 	deviceTypeCmd.Flags().Int("x", 0, "X coordinate in device units: iOS points, Android and Web pixels")
 	deviceTypeCmd.Flags().Int("y", 0, "Y coordinate in device units: iOS points, Android and Web pixels")
 	deviceTypeCmd.Flags().String("text", "", "Text to type (mutually exclusive with --text-env)")
-	deviceTypeCmd.Flags().String("text-env", "", "Local environment variable name containing text to type; never pass its value")
+	deviceTypeCmd.Flags().String("text-env", "", "Local environment variable name containing text to type; never pass its value. On web sessions, only types into a focused password field")
 	deviceTypeCmd.Flags().Bool("clear-first", true, "Clear field before typing")
 	deviceTypeCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceTypeCmd)
