@@ -257,7 +257,7 @@ main() {
     printf '  Next steps:\n'
     printf '    • Restart your shell or run: export PATH="%s:$PATH"\n' "$INSTALL_DIR"
     printf '    • Run: revyl --help\n'
-    printf '    • Docs: https://docs.revyl.ai\n'
+    printf '    • Docs: https://docs.revyl.com\n'
     printf '\n'
 }
 

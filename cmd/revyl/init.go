@@ -44,7 +44,7 @@ walks you through authentication, app creation, agent skills, and first build.
 You can exit at any point — the config is saved after each step.
 
 Web projects require manual configuration; no framework or preview host is guessed.
-See https://docs.revyl.ai/remote-builds/configuration#web-recipes.
+See https://docs.revyl.com/remote-builds/configuration#web-recipes.
 
 Use -y to skip all prompts and just create the config file.
 
@@ -1169,7 +1169,7 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 	} else {
 		ui.PrintWarning("Could not detect build system")
 		ui.PrintInfo("You can configure this manually in .revyl/config.yaml")
-		ui.PrintInfo("Web setup: https://docs.revyl.ai/remote-builds/configuration#web-recipes")
+		ui.PrintInfo("Web setup: https://docs.revyl.com/remote-builds/configuration#web-recipes")
 		printNestedMobileAppHints(cwd)
 	}
 
@@ -4472,9 +4472,9 @@ func hasOnlyPlaceholderInitBuildPlatforms(cfg *initConfigDraft) bool {
 
 // printAndroidBuildRequirements points users at the canonical artifact
 // requirements doc rather than restating the rules inline. The full ruleset
-// (x86_64 ABI, debuggable, release-build trade-offs) lives at docs.revyl.ai.
+// (x86_64 ABI, debuggable, release-build trade-offs) lives at docs.revyl.com.
 func printAndroidBuildRequirements() {
-	ui.PrintDim("Android: APK must include x86_64 and be debuggable. https://docs.revyl.ai/builds/artifact-requirements")
+	ui.PrintDim("Android: APK must include x86_64 and be debuggable. https://docs.revyl.com/builds/artifact-requirements")
 	ui.Println()
 }
 

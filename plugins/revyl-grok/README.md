@@ -30,7 +30,7 @@ organization's device time, so the skill starts one only when you ask.
 | `stop_device_session`  | Stops one device session                                       |
 
 For other editors and the Revyl CLI, see
-[Revyl's IDE and MCP setup guide](https://docs.revyl.ai/cli/mcp-setup).
+[Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp).
 
 ## License
 

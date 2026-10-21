@@ -73,7 +73,7 @@ Exclude the code/query from access logs, analytics and screenshots. Store the
 same secret as an encrypted Revyl organization launch variable; YAML contains
 its name only. Verify the intended test account after launch, not merely that a
 redirect happened. Never add a production bypass. See the full
-[Web sign-in contract](https://docs.revyl.ai/cli/device/auth-and-session-prep#web-sign-in-links).
+[Web sign-in contract](https://docs.revyl.com/devices/session-prep#web-sign-in-links).
 
 ## Example: static Vite site
 

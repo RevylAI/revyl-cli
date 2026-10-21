@@ -23,5 +23,5 @@ export REVYL_API_KEY="rev_..."
 
 ## Documentation
 
-- [CLI Command Reference](https://docs.revyl.ai/cli)
-- [CI/CD Pipeline Guide](https://docs.revyl.ai/ci-cd/pipeline-guide)
+- [CLI Command Reference](https://docs.revyl.com/reference/cli)
+- [CI/CD Pipeline Guide](https://docs.revyl.com/tests/ci)

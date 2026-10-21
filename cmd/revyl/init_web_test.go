@@ -46,7 +46,7 @@ func TestRunInitNonInteractiveWebProjectRequiresManualSetup(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("init -y stdout = %q, want human output on stderr only", stdout)
 	}
-	if !strings.Contains(stderr, "https://docs.revyl.ai/remote-builds/configuration#web-recipes") {
+	if !strings.Contains(stderr, "https://docs.revyl.com/remote-builds/configuration#web-recipes") {
 		t.Fatalf("init output lacks manual setup link:\n%s", stderr)
 	}
 	for _, unwanted := range []string{"Next.js", "Preview host", "versions upload", "netlify", "deployment_status"} {

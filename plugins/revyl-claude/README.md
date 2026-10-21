@@ -41,7 +41,7 @@ your apps, device sessions and screenshots under its privacy policy:
 <https://revyl.com/privacy>. Questions go to support@revyl.ai.
 
 For other editors and the Revyl CLI, see
-[Revyl's IDE and MCP setup guide](https://docs.revyl.ai/cli/mcp-setup).
+[Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp).
 
 ## License
 

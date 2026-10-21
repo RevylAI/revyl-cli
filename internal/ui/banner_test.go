@@ -10,8 +10,8 @@ func TestGetCondensedHelpUsesCanonicalDocsURL(t *testing.T) {
 	if !strings.Contains(help, DocsURL) {
 		t.Fatalf("expected condensed help to contain docs URL %q", DocsURL)
 	}
-	if strings.Contains(help, "docs.revyl.com") {
-		t.Fatal("expected condensed help to avoid legacy docs.revyl.com URL")
+	if strings.Contains(help, "docs.revyl.ai") {
+		t.Fatal("expected condensed help to avoid legacy docs.revyl.ai URL")
 	}
 }
 
@@ -20,8 +20,8 @@ func TestGetHelpTextUsesCanonicalDocsURL(t *testing.T) {
 	if !strings.Contains(help, DocsURL) {
 		t.Fatalf("expected help text to contain docs URL %q", DocsURL)
 	}
-	if strings.Contains(help, "docs.revyl.com") {
-		t.Fatal("expected help text to avoid legacy docs.revyl.com URL")
+	if strings.Contains(help, "docs.revyl.ai") {
+		t.Fatal("expected help text to avoid legacy docs.revyl.ai URL")
 	}
 }
 

@@ -14,7 +14,7 @@ below; do not duplicate its instructions into published docs.
 
 This section is the source of truth for plugin version selection, release
 states, Marketplace submission, and recovery. The
-[plugin guide](https://docs.revyl.ai/integrations/cursor/plugin) remains the
+[plugin guide](https://docs.revyl.com/integrations/cursor) remains the
 user-facing installation source.
 
 ### Release states
@@ -178,7 +178,7 @@ ones. For a security incident, use Cursor's official
 and [publisher terms](https://cursor.com/marketplace-publisher-terms)
 procedures instead of relying on a corrective release alone.
 
-[Revyl docs](https://docs.revyl.ai) •
-[Plugin setup](https://docs.revyl.ai/integrations/cursor/plugin) •
-[MCP setup](https://docs.revyl.ai/cli/mcp-setup) •
+[Revyl docs](https://docs.revyl.com) •
+[Plugin setup](https://docs.revyl.com/integrations/cursor) •
+[MCP setup](https://docs.revyl.com/agents/mcp) •
 [Cursor plugin docs](https://cursor.com/docs/plugins)

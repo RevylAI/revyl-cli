@@ -11,7 +11,7 @@ CLI-only marketplace installation depend on MCP.
 
 The canonical user setup, including adding this exported `revyl-cli/` folder as
 a local Codex marketplace and installing the `revyl` plugin, is
-[Revyl's IDE and MCP setup guide](https://docs.revyl.ai/cli/mcp-setup). This
+[Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp). This
 repository has not been published as a public Codex marketplace listing.
 
 ## Maintainers

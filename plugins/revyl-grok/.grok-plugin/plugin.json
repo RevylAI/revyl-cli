@@ -1,7 +1,7 @@
 {
   "name": "revyl",
   "displayName": "Revyl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Open your mobile app's Revyl Atlas map and live cloud iOS and Android device sessions inside Grok through Revyl's hosted MCP server. Sign in with your Revyl account on first connection; no API key or local install needed.",
   "author": {
     "name": "Revyl",
