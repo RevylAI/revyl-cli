@@ -25,7 +25,7 @@ func TestExperimentalWorkspaceDocsDiscovery(t *testing.T) {
 }
 
 func TestPublishedWorkspaceCommandReference(t *testing.T) {
-	path := filepath.Join("..", "..", "cognisim-docs", "cli", "command-reference.mdx")
+	path := filepath.Join("..", "..", "cognisim-docs", "reference", "cli", "index.mdx")
 	content, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		t.Skip("published command reference is not present in the exported CLI package")

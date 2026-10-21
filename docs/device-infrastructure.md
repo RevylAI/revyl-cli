@@ -283,26 +283,17 @@ not stop every session in a shared organization.
 
 ## Appium and Maestro
 
-This quickstart uses Revyl's native device commands. Connecting an unchanged
-Appium or Maestro suite still needs a framework connection layer; a viewer URL
-is not an automation endpoint. The [Appium driver](https://docs.revyl.com/infrastructure/appium)
-and [Maestro runner](https://docs.revyl.com/infrastructure/maestro)
-implement attach-only native subsets over existing APIs and are available as
-private source repositories. Synthetic-app checks verified native lookup and
-gestures for Appium, and native actions, focused deletion, appearance, and deep
-links for Maestro on staging Android emulators and iOS simulators. Maestro's
-input/paste uses the existing viewer control channel, with the
-[input limitations](https://docs.revyl.com/infrastructure/maestro#text-input-through-the-viewer-channel)
-documented separately; that integration has loopback coverage, not live-device
-verification. Duration-preserving swipe/scroll still requires undeployed worker
-capabilities and fails closed on current staging. Broader compatibility is not
-established.
-Get the [Appium driver](https://github.com/RevylAI/appium-revyl-driver) or
-[Maestro driver](https://github.com/RevylAI/maestro-revyl-driver) for setup and
-runnable samples; repository access is required. The Maestro runner embeds
-the genuine Maestro runtime; it is not a plugin for stock `maestro test`.
-Neither integration enables standard UiAutomator2/XCUITest or full Maestro
-compatibility. See [the remaining requirements](https://docs.revyl.com/infrastructure#what-needs-to-be-added-for-appium-and-maestro).
+This quickstart uses Revyl's native device commands. An unchanged Appium or
+Maestro suite needs a framework connection layer; a viewer URL is not an
+automation endpoint. The [Appium driver](https://docs.revyl.com/infrastructure/appium)
+and [Maestro runner](https://docs.revyl.com/infrastructure/maestro) are
+source-installed integrations that run a native command subset against existing
+device sessions. Get them from
+[RevylAI/appium-revyl-driver](https://github.com/RevylAI/appium-revyl-driver)
+and [RevylAI/maestro-revyl-driver](https://github.com/RevylAI/maestro-revyl-driver).
+The Maestro runner embeds the Maestro runtime; it is not a plugin for stock
+`maestro test`. Neither provides standard UiAutomator2/XCUITest or full Maestro
+compatibility; each page lists the commands it supports.
 
 ## Optional: a complete script for CI
 

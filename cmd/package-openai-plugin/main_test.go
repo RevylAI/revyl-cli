@@ -385,7 +385,7 @@ func TestWorkspaceBridgeMakeAndCIContract(t *testing.T) {
 		}
 		if strings.HasPrefix(step.Uses, "actions/checkout@") {
 			paths := strings.Fields(step.With["sparse-checkout"])
-			checksDocs = slices.Contains(paths, "cognisim-docs/cli") && slices.Contains(paths, ".github/workflows")
+			checksDocs = slices.Contains(paths, "cognisim-docs/reference/cli") && slices.Contains(paths, ".github/workflows")
 		}
 		if step.Run == "make test" && step.WorkingDirectory == "revyl-cli" {
 			runsTests = nodeReady

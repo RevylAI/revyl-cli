@@ -23,5 +23,4 @@ See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the
 - [Local runtime files](local-runtime-files.md)
 - [Update the CLI](upgrade.md)
 - [Send feedback to the Revyl team](feedback.md)
-- [Access your organization's machine with Revyl Computer](computer.md)
 - [Try the experimental embedded workspace](experimental-workspace.md)
