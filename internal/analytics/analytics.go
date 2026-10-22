@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultBackendAnalyticsPath = "/api/v1/telemetry/cli-analytics"
-	backgroundFlushWait         = 250 * time.Millisecond
+	backgroundFlushWait         = time.Second
 )
 
 type Config struct {
