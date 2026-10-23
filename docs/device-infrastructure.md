@@ -151,6 +151,11 @@ A pull request comment's Open preview link signs its Web preview in with
 the project's published `sign_in`, as mobile previews apply
 `auth_bypass`; the pull request's own config cannot change it.
 
+A Web session started without a sign-in of its own, such as one started from
+the dashboard, signs in with the `sign_in` its app's project configuration
+authors, as Atlas explorations and Web test runs do. A start that passes
+environment overrides never falls back to it.
+
 `path` must begin with a single `/` and cannot contain a query, fragment,
 backslash, or whitespace. It is limited to 512 characters. Every code expires
 after 120 seconds. The app's sign-in handler chooses the destination after exchanging
