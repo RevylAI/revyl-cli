@@ -3153,6 +3153,7 @@ const (
 	StepTypeScrape          StepType = "scrape"
 	StepTypeSelect          StepType = "select"
 	StepTypeSetAppearance   StepType = "set_appearance"
+	StepTypeSetFoldState    StepType = "set_fold_state"
 	StepTypeSetFontSize     StepType = "set_font_size"
 	StepTypeSetLocation     StepType = "set_location"
 	StepTypeSetOrientation  StepType = "set_orientation"
@@ -3214,6 +3215,8 @@ func (e StepType) Valid() bool {
 	case StepTypeSelect:
 		return true
 	case StepTypeSetAppearance:
+		return true
+	case StepTypeSetFoldState:
 		return true
 	case StepTypeSetFontSize:
 		return true
@@ -5927,7 +5930,7 @@ type CompiledIntentStep struct {
 	// Confidence Model confidence 0-1 if available
 	Confidence *float32 `json:"confidence,omitempty"`
 
-	// ManualSubtype For manual steps: go_home, open_app, kill_app, back, set_location, set_orientation, set_appearance, set_font_size, wait, navigate
+	// ManualSubtype For manual steps: go_home, open_app, kill_app, back, set_location, set_orientation, set_appearance, set_fold_state, set_font_size, wait, navigate
 	ManualSubtype *string `json:"manual_subtype,omitempty"`
 
 	// SourceActionRanges Which raw actions this step covers
@@ -8887,6 +8890,7 @@ type ReplaceTestLaunchEnvVarRefsRequest struct {
 type ReportContextActionResponse struct {
 	ActionIndex              int                     `json:"action_index"`
 	ActionType               *string                 `json:"action_type,omitempty"`
+	ActiveScreenId           *int                    `json:"active_screen_id,omitempty"`
 	AgentDescription         *string                 `json:"agent_description,omitempty"`
 	CompletedAt              *time.Time              `json:"completed_at,omitempty"`
 	CreatedAt                *string                 `json:"created_at,omitempty"`

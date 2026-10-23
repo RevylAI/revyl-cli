@@ -91,16 +91,16 @@ test:
 
 ## Block types
 
-| Type             | Purpose                                                                                                                                               | Required fields                                                      |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `instructions`   | Perform an action                                                                                                                                     | `step_description`                                                   |
-| `validation`     | Assert something is true                                                                                                                              | `step_description`                                                   |
-| `extraction`     | Extract data into a variable                                                                                                                          | `step_description`, `variable_name`                                  |
-| `manual`         | Built-in actions (`wait`, `navigate`, `set_location`, `set_orientation`, `set_appearance`, `download_file`, `open_app`, `kill_app`, `go_home`, `end`) | `step_type`; parameter in `step_description` or `file` when required |
-| `if`             | Conditional branch                                                                                                                                    | `condition`, `then` (blocks)                                         |
-| `while`          | Loop                                                                                                                                                  | `condition`, `body` (blocks)                                         |
-| `code_execution` | Run a script                                                                                                                                          | `script`                                                             |
-| `module_import`  | Reuse a shared module                                                                                                                                 | `module`                                                             |
+| Type             | Purpose                                                                                                                                                                 | Required fields                                                      |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `instructions`   | Perform an action                                                                                                                                                       | `step_description`                                                   |
+| `validation`     | Assert something is true                                                                                                                                                | `step_description`                                                   |
+| `extraction`     | Extract data into a variable                                                                                                                                            | `step_description`, `variable_name`                                  |
+| `manual`         | Built-in actions (`wait`, `navigate`, `set_location`, `set_orientation`, `set_appearance`, `set_fold_state`, `download_file`, `open_app`, `kill_app`, `go_home`, `end`) | `step_type`; parameter in `step_description` or `file` when required |
+| `if`             | Conditional branch                                                                                                                                                      | `condition`, `then` (blocks)                                         |
+| `while`          | Loop                                                                                                                                                                    | `condition`, `body` (blocks)                                         |
+| `code_execution` | Run a script                                                                                                                                                            | `script`                                                             |
+| `module_import`  | Reuse a shared module                                                                                                                                                   | `module`                                                             |
 
 Legacy YAML using `code_execution.step_description` as a script UUID or `module_import.module_id` as a module UUID is still accepted for compatibility. New YAML should use `script` and `module`.
 

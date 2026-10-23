@@ -121,6 +121,11 @@ Execute a system-level action.
   step_type: set_orientation
   step_description: "landscape"  # portrait or landscape
 
+# Fold or unfold a multi-display iOS device
+- type: manual
+  step_type: set_fold_state
+  step_description: "unfolded"  # folded or unfolded
+
 # Download a file onto the device (URL)
 - type: manual
   step_type: download_file
@@ -217,8 +222,9 @@ manual step types:
 ` + "```" + `
 
 Device steps (open_app, kill_app, go_home, set_location, set_appearance,
-set_orientation, set_font_size, pinch, download_file, play_audio) are mobile-only,
-and a Web test that uses them is rejected.
+set_orientation, set_fold_state, set_font_size, pinch, download_file, play_audio)
+are mobile-only, and a Web test that uses them is rejected. set_fold_state runs
+only on a multi-display iOS device; any other device fails the step.
 
 ## Variable System
 
@@ -371,7 +377,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			"autoAppOpen":        true,
 			"supportedPlatforms": []string{"ios", "android", "web"},
 			"webManualStepTypes": []string{"wait", "navigate", "back", "end"},
-			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "set_orientation", "set_appearance", "download_file", "end"},
+			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "set_orientation", "set_appearance", "set_fold_state", "download_file", "end"},
 		},
 		"buildSelection": map[string]interface{}{
 			"fields":         []string{"branch_id", "build_selection", "pinned_build_id"},
@@ -412,7 +418,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 					"step_type":        "enum (required)",
 					"step_description": "string (optional, depends on step_type)",
 				},
-				"stepTypes": []string{"wait", "open_app", "kill_app", "go_home", "navigate", "set_location", "set_orientation", "set_appearance", "download_file", "end"},
+				"stepTypes": []string{"wait", "open_app", "kill_app", "go_home", "navigate", "set_location", "set_orientation", "set_appearance", "set_fold_state", "download_file", "end"},
 				"stepDescriptionFormats": map[string]string{
 					"wait":            "Number of seconds (e.g., '3')",
 					"open_app":        "Bundle ID for system apps, or omit for installed app",
@@ -422,6 +428,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 					"set_location":    "Latitude,Longitude (e.g., '37.7749,-122.4194')",
 					"set_orientation": "portrait or landscape",
 					"set_appearance":  "light or dark",
+					"set_fold_state":  "folded or unfolded (multi-display iOS devices only)",
 					"download_file":   "URL or revyl-file:// URI, or use 'file' field with org file name",
 					"end":             "Not used",
 				},
