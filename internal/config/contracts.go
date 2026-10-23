@@ -212,7 +212,7 @@ type AuthoredProofOfChanges struct {
 	AlwaysVerify []string              `json:"always_verify,omitempty" yaml:"always_verify,omitempty"`
 }
 
-// AuthoredProofHarness selects the Revyl, Cursor, or Capy proof executor.
+// AuthoredProofHarness selects the Revyl, Cursor, Capy, or Devin proof executor.
 type AuthoredProofHarness struct {
 	Kind          string  `json:"kind" yaml:"kind"`
 	ModelID       *string `json:"model_id,omitempty" yaml:"model_id,omitempty"`
@@ -362,7 +362,7 @@ func (c AuthoredConfig) ValidateContract() error {
 	if c.PRReview.ProofOfChanges != nil && c.PRReview.ProofOfChanges.Harness != nil {
 		harness := c.PRReview.ProofOfChanges.Harness
 		switch harness.Kind {
-		case "revyl":
+		case "revyl", "devin":
 			if harness.ModelID != nil {
 				return authoredContractError(
 					[]string{"pr_review", "proof_of_changes", "harness", "model_id"},

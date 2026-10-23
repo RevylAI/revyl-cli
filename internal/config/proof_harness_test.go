@@ -8,7 +8,7 @@ import (
 )
 
 func TestProofHarnessKindsRoundTrip(t *testing.T) {
-	for _, kind := range []string{"revyl", "cursor", "capy"} {
+	for _, kind := range []string{"revyl", "cursor", "capy", "devin"} {
 		t.Run(kind, func(t *testing.T) {
 			data := []byte("project: {id: 11111111-1111-4111-8111-111111111111}\npr_review:\n  build: {kind: ci_upload_to_revyl, app_ids: {ios: 22222222-2222-4222-8222-222222222222}}\n  proof_of_changes:\n    enabled: true\n    harness: {kind: " + kind + "}\n")
 			authored, err := ParseAuthoredConfig(data)
@@ -49,6 +49,8 @@ func TestProofHarnessRejectsUnknownKindAndInvalidModels(t *testing.T) {
 		{name: "unknown", harness: AuthoredProofHarness{Kind: "unknown"}, field: "kind"},
 		{name: "revyl model", harness: AuthoredProofHarness{Kind: "revyl", ModelID: &modelID}, field: "model_id"},
 		{name: "capy model", harness: AuthoredProofHarness{Kind: "capy", ModelID: &modelID}, field: "model_id"},
+		{name: "devin model", harness: AuthoredProofHarness{Kind: "devin", ModelID: &modelID}, field: "model_id"},
+		{name: "devin capy project", harness: AuthoredProofHarness{Kind: "devin", CapyProjectID: &capyProjectID}, field: "capy_project_id"},
 		{name: "revyl capy project", harness: AuthoredProofHarness{Kind: "revyl", CapyProjectID: &capyProjectID}, field: "capy_project_id"},
 		{name: "cursor capy project", harness: AuthoredProofHarness{Kind: "cursor", CapyProjectID: &capyProjectID}, field: "capy_project_id"},
 		{name: "blank capy project", harness: AuthoredProofHarness{Kind: "capy", CapyProjectID: &blank}, field: "capy_project_id"},

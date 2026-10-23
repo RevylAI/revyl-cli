@@ -11,7 +11,7 @@ import (
 )
 
 func TestConfigPushRoundTripsProofHarnessKinds(t *testing.T) {
-	for _, kind := range []string{"revyl", "cursor", "capy"} {
+	for _, kind := range []string{"revyl", "cursor", "capy", "devin"} {
 		t.Run(kind, func(t *testing.T) {
 			local := prReviewConfigContext(t, true)
 			local.Authored.PRReview.ProofOfChanges.Harness.Kind = kind
@@ -51,6 +51,11 @@ func TestConfigPushRoundTripsProofHarnessKinds(t *testing.T) {
 			if kind == "capy" {
 				if _, ok := value.(api.CapyProofHarness); !ok {
 					t.Fatalf("remote harness type = %T, want CapyProofHarness", value)
+				}
+			}
+			if kind == "devin" {
+				if _, ok := value.(api.DevinProofHarness); !ok {
+					t.Fatalf("remote harness type = %T, want DevinProofHarness", value)
 				}
 			}
 			roundTrip, err := authoredConfigFromAPI(remote)

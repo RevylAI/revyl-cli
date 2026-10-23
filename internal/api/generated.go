@@ -150,6 +150,7 @@ const (
 	AtlasAnnotationAgentKindClaudeCode AtlasAnnotationAgentKind = "claude_code"
 	AtlasAnnotationAgentKindCodex      AtlasAnnotationAgentKind = "codex"
 	AtlasAnnotationAgentKindCursor     AtlasAnnotationAgentKind = "cursor"
+	AtlasAnnotationAgentKindDevin      AtlasAnnotationAgentKind = "devin"
 	AtlasAnnotationAgentKindOther      AtlasAnnotationAgentKind = "other"
 	AtlasAnnotationAgentKindRevyl      AtlasAnnotationAgentKind = "revyl"
 )
@@ -165,6 +166,8 @@ func (e AtlasAnnotationAgentKind) Valid() bool {
 		return true
 	case AtlasAnnotationAgentKindCursor:
 		return true
+	case AtlasAnnotationAgentKindDevin:
+		return true
 	case AtlasAnnotationAgentKindOther:
 		return true
 	case AtlasAnnotationAgentKindRevyl:
@@ -178,6 +181,7 @@ func (e AtlasAnnotationAgentKind) Valid() bool {
 const (
 	AtlasAnnotationAgentToolMentionMetadataAgentKindCapy   AtlasAnnotationAgentToolMentionMetadataAgentKind = "capy"
 	AtlasAnnotationAgentToolMentionMetadataAgentKindCursor AtlasAnnotationAgentToolMentionMetadataAgentKind = "cursor"
+	AtlasAnnotationAgentToolMentionMetadataAgentKindDevin  AtlasAnnotationAgentToolMentionMetadataAgentKind = "devin"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationAgentToolMentionMetadataAgentKind enum.
@@ -186,6 +190,8 @@ func (e AtlasAnnotationAgentToolMentionMetadataAgentKind) Valid() bool {
 	case AtlasAnnotationAgentToolMentionMetadataAgentKindCapy:
 		return true
 	case AtlasAnnotationAgentToolMentionMetadataAgentKindCursor:
+		return true
+	case AtlasAnnotationAgentToolMentionMetadataAgentKindDevin:
 		return true
 	default:
 		return false
@@ -238,6 +244,7 @@ func (e AtlasAnnotationCapyCloudAgentLaunchSettingsModelId) Valid() bool {
 const (
 	AtlasAnnotationCursorCloudAgentSummaryAgentKindCapy   AtlasAnnotationCursorCloudAgentSummaryAgentKind = "capy"
 	AtlasAnnotationCursorCloudAgentSummaryAgentKindCursor AtlasAnnotationCursorCloudAgentSummaryAgentKind = "cursor"
+	AtlasAnnotationCursorCloudAgentSummaryAgentKindDevin  AtlasAnnotationCursorCloudAgentSummaryAgentKind = "devin"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationCursorCloudAgentSummaryAgentKind enum.
@@ -246,6 +253,8 @@ func (e AtlasAnnotationCursorCloudAgentSummaryAgentKind) Valid() bool {
 	case AtlasAnnotationCursorCloudAgentSummaryAgentKindCapy:
 		return true
 	case AtlasAnnotationCursorCloudAgentSummaryAgentKindCursor:
+		return true
+	case AtlasAnnotationCursorCloudAgentSummaryAgentKindDevin:
 		return true
 	default:
 		return false
@@ -871,6 +880,7 @@ func (e CloudAgentConversationRelatedResourceMatchType) Valid() bool {
 const (
 	CloudAgentProviderKeyCapy        CloudAgentProviderKey = "capy"
 	CloudAgentProviderKeyCursorCloud CloudAgentProviderKey = "cursor_cloud"
+	CloudAgentProviderKeyDevin       CloudAgentProviderKey = "devin"
 )
 
 // Valid indicates whether the value is a known member of the CloudAgentProviderKey enum.
@@ -879,6 +889,8 @@ func (e CloudAgentProviderKey) Valid() bool {
 	case CloudAgentProviderKeyCapy:
 		return true
 	case CloudAgentProviderKeyCursorCloud:
+		return true
+	case CloudAgentProviderKeyDevin:
 		return true
 	default:
 		return false
@@ -2289,6 +2301,24 @@ func (e DeviceSessionHistoryItemComputerRelease) Valid() bool {
 	case DeviceSessionHistoryItemComputerReleasePending:
 		return true
 	case DeviceSessionHistoryItemComputerReleaseUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DevinConnectionType.
+const (
+	DevinConnectionTypeOrganizationDefault DevinConnectionType = "organization_default"
+	DevinConnectionTypePersonal            DevinConnectionType = "personal"
+)
+
+// Valid indicates whether the value is a known member of the DevinConnectionType enum.
+func (e DevinConnectionType) Valid() bool {
+	switch e {
+	case DevinConnectionTypeOrganizationDefault:
+		return true
+	case DevinConnectionTypePersonal:
 		return true
 	default:
 		return false
@@ -4190,6 +4220,98 @@ type AtlasAnnotationCursorLaunchMentionInput struct {
 type AtlasAnnotationCursorRetryAction struct {
 	RecoveryKind     string `json:"recovery_kind"`
 	RecoveryRevision string `json:"recovery_revision"`
+}
+
+// AtlasAnnotationDevinAdjustSettingsAction defines model for AtlasAnnotationDevinAdjustSettingsAction.
+type AtlasAnnotationDevinAdjustSettingsAction struct {
+	RecoveryKind     string                                       `json:"recovery_kind"`
+	RecoveryRevision string                                       `json:"recovery_revision"`
+	Settings         AtlasAnnotationDevinCloudAgentLaunchSettings `json:"settings"`
+}
+
+// AtlasAnnotationDevinCloudAgentLaunchSettings defines model for AtlasAnnotationDevinCloudAgentLaunchSettings.
+type AtlasAnnotationDevinCloudAgentLaunchSettings struct {
+	ConnectionId       openapi_types.UUID  `json:"connection_id"`
+	ConnectionType     DevinConnectionType `json:"connection_type"`
+	CredentialRevision int                 `json:"credential_revision"`
+
+	// DeviceTarget A device model + runtime combination.
+	DeviceTarget    *DevicePair           `json:"device_target,omitempty"`
+	DevinRepository *string               `json:"devin_repository,omitempty"`
+	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
+}
+
+// AtlasAnnotationDevinConnectAction defines model for AtlasAnnotationDevinConnectAction.
+type AtlasAnnotationDevinConnectAction struct {
+	RecoveryKind string `json:"recovery_kind"`
+}
+
+// AtlasAnnotationDevinFollowupDelivery defines model for AtlasAnnotationDevinFollowupDelivery.
+type AtlasAnnotationDevinFollowupDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus  CloudAgentConversationLaunchSubmissionStatus                `json:"delivery_status"`
+	RecoveryActions []AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item defines model for AtlasAnnotationDevinFollowupDelivery.recovery_actions.Item.
+type AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationDevinFollowupMention defines model for AtlasAnnotationDevinFollowupMention.
+type AtlasAnnotationDevinFollowupMention struct {
+	AgentKind    string                               `json:"agent_kind"`
+	Delivery     AtlasAnnotationDevinFollowupDelivery `json:"delivery"`
+	DispatchKind string                               `json:"dispatch_kind"`
+	DisplayName  string                               `json:"display_name"`
+	EndUtf16     int                                  `json:"end_utf16"`
+	StartUtf16   int                                  `json:"start_utf16"`
+}
+
+// AtlasAnnotationDevinFollowupMentionInput defines model for AtlasAnnotationDevinFollowupMentionInput.
+type AtlasAnnotationDevinFollowupMentionInput struct {
+	AgentKind    string `json:"agent_kind"`
+	DispatchKind string `json:"dispatch_kind"`
+	EndUtf16     int    `json:"end_utf16"`
+	StartUtf16   int    `json:"start_utf16"`
+	UserPrompt   string `json:"user_prompt"`
+}
+
+// AtlasAnnotationDevinLaunchDelivery defines model for AtlasAnnotationDevinLaunchDelivery.
+type AtlasAnnotationDevinLaunchDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus        CloudAgentConversationLaunchSubmissionStatus              `json:"delivery_status"`
+	LaunchSettingsSummary string                                                    `json:"launch_settings_summary"`
+	RecoveryActions       []AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item defines model for AtlasAnnotationDevinLaunchDelivery.recovery_actions.Item.
+type AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationDevinLaunchMention defines model for AtlasAnnotationDevinLaunchMention.
+type AtlasAnnotationDevinLaunchMention struct {
+	AgentKind    string                             `json:"agent_kind"`
+	Delivery     AtlasAnnotationDevinLaunchDelivery `json:"delivery"`
+	DispatchKind string                             `json:"dispatch_kind"`
+	DisplayName  string                             `json:"display_name"`
+	EndUtf16     int                                `json:"end_utf16"`
+	StartUtf16   int                                `json:"start_utf16"`
+}
+
+// AtlasAnnotationDevinLaunchMentionInput defines model for AtlasAnnotationDevinLaunchMentionInput.
+type AtlasAnnotationDevinLaunchMentionInput struct {
+	AgentKind    string                                       `json:"agent_kind"`
+	DispatchKind string                                       `json:"dispatch_kind"`
+	EndUtf16     int                                          `json:"end_utf16"`
+	Settings     AtlasAnnotationDevinCloudAgentLaunchSettings `json:"settings"`
+	StartUtf16   int                                          `json:"start_utf16"`
+	UserPrompt   string                                       `json:"user_prompt"`
 }
 
 // AtlasAnnotationFeedbackItem defines model for AtlasAnnotationFeedbackItem.
@@ -6844,6 +6966,21 @@ type DeviceSessionStopResponse struct {
 	Status        SessionStatus `json:"status"`
 	Success       bool          `json:"success"`
 	WorkflowRunId *string       `json:"workflow_run_id,omitempty"`
+}
+
+// DevinConnectionType defines model for DevinConnectionType.
+type DevinConnectionType string
+
+// DevinProofHarness A Devin session started against the pull request.
+//
+// The session runs on the organization's default Devin connection, whose
+// Devin organization must list the repository.
+//
+// Attributes:
+//
+//	kind: Discriminator selecting this harness.
+type DevinProofHarness struct {
+	Kind string `json:"kind"`
 }
 
 // DiscountItem defines model for DiscountItem.
@@ -13370,6 +13507,58 @@ func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationCapy
 	return err
 }
 
+// AsAtlasAnnotationDevinLaunchMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationDevinLaunchMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationDevinLaunchMention() (AtlasAnnotationDevinLaunchMention, error) {
+	var body AtlasAnnotationDevinLaunchMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinLaunchMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationDevinLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationDevinLaunchMention(v AtlasAnnotationDevinLaunchMention) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinLaunchMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationDevinLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationDevinLaunchMention(v AtlasAnnotationDevinLaunchMention) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationDevinFollowupMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationDevinFollowupMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationDevinFollowupMention() (AtlasAnnotationDevinFollowupMention, error) {
+	var body AtlasAnnotationDevinFollowupMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinFollowupMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationDevinFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationDevinFollowupMention(v AtlasAnnotationDevinFollowupMention) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinFollowupMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationDevinFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationDevinFollowupMention(v AtlasAnnotationDevinFollowupMention) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t AtlasAnnotationComment_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -13618,6 +13807,214 @@ func (t *AtlasAnnotationCursorLaunchDelivery_RecoveryActions_Item) UnmarshalJSON
 	return err
 }
 
+// AsAtlasAnnotationDevinConnectAction returns the union data inside the AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationDevinConnectAction
+func (t AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationDevinConnectAction() (AtlasAnnotationDevinConnectAction, error) {
+	var body AtlasAnnotationDevinConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinConnectAction overwrites any union data inside the AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationDevinConnectAction
+func (t *AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationDevinConnectAction(v AtlasAnnotationDevinConnectAction) error {
+	v.RecoveryKind = "connect_devin"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinConnectAction performs a merge with any union data inside the AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationDevinConnectAction
+func (t *AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationDevinConnectAction(v AtlasAnnotationDevinConnectAction) error {
+	v.RecoveryKind = "connect_devin"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "connect_devin":
+		return t.AsAtlasAnnotationDevinConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationDevinFollowupDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationDevinConnectAction returns the union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationDevinConnectAction
+func (t AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationDevinConnectAction() (AtlasAnnotationDevinConnectAction, error) {
+	var body AtlasAnnotationDevinConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinConnectAction overwrites any union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationDevinConnectAction
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationDevinConnectAction(v AtlasAnnotationDevinConnectAction) error {
+	v.RecoveryKind = "connect_devin"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinConnectAction performs a merge with any union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationDevinConnectAction
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationDevinConnectAction(v AtlasAnnotationDevinConnectAction) error {
+	v.RecoveryKind = "connect_devin"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationDevinAdjustSettingsAction returns the union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationDevinAdjustSettingsAction
+func (t AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationDevinAdjustSettingsAction() (AtlasAnnotationDevinAdjustSettingsAction, error) {
+	var body AtlasAnnotationDevinAdjustSettingsAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinAdjustSettingsAction overwrites any union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationDevinAdjustSettingsAction
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationDevinAdjustSettingsAction(v AtlasAnnotationDevinAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinAdjustSettingsAction performs a merge with any union data inside the AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationDevinAdjustSettingsAction
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationDevinAdjustSettingsAction(v AtlasAnnotationDevinAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "adjust_settings":
+		return t.AsAtlasAnnotationDevinAdjustSettingsAction()
+	case "connect_devin":
+		return t.AsAtlasAnnotationDevinConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationDevinLaunchDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsAtlasAnnotationCursorLaunchMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationCursorLaunchMentionInput
 func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationCursorLaunchMentionInput() (AtlasAnnotationCursorLaunchMentionInput, error) {
 	var body AtlasAnnotationCursorLaunchMentionInput
@@ -13712,6 +14109,58 @@ func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotation
 
 // MergeAtlasAnnotationCapyFollowupMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationCapyFollowupMentionInput
 func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationCapyFollowupMentionInput(v AtlasAnnotationCapyFollowupMentionInput) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationDevinLaunchMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationDevinLaunchMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationDevinLaunchMentionInput() (AtlasAnnotationDevinLaunchMentionInput, error) {
+	var body AtlasAnnotationDevinLaunchMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinLaunchMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationDevinLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationDevinLaunchMentionInput(v AtlasAnnotationDevinLaunchMentionInput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinLaunchMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationDevinLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationDevinLaunchMentionInput(v AtlasAnnotationDevinLaunchMentionInput) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationDevinFollowupMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationDevinFollowupMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationDevinFollowupMentionInput() (AtlasAnnotationDevinFollowupMentionInput, error) {
+	var body AtlasAnnotationDevinFollowupMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationDevinFollowupMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationDevinFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationDevinFollowupMentionInput(v AtlasAnnotationDevinFollowupMentionInput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationDevinFollowupMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationDevinFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationDevinFollowupMentionInput(v AtlasAnnotationDevinFollowupMentionInput) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -14029,6 +14478,34 @@ func (t *AuthoredProofOfChanges_Harness) MergeCapyProofHarness(v CapyProofHarnes
 	return err
 }
 
+// AsDevinProofHarness returns the union data inside the AuthoredProofOfChanges_Harness as a DevinProofHarness
+func (t AuthoredProofOfChanges_Harness) AsDevinProofHarness() (DevinProofHarness, error) {
+	var body DevinProofHarness
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDevinProofHarness overwrites any union data inside the AuthoredProofOfChanges_Harness as the provided DevinProofHarness
+func (t *AuthoredProofOfChanges_Harness) FromDevinProofHarness(v DevinProofHarness) error {
+	v.Kind = "devin"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDevinProofHarness performs a merge with any union data inside the AuthoredProofOfChanges_Harness, using the provided DevinProofHarness
+func (t *AuthoredProofOfChanges_Harness) MergeDevinProofHarness(v DevinProofHarness) error {
+	v.Kind = "devin"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t AuthoredProofOfChanges_Harness) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"kind"`
@@ -14047,6 +14524,8 @@ func (t AuthoredProofOfChanges_Harness) ValueByDiscriminator() (interface{}, err
 		return t.AsCapyProofHarness()
 	case "cursor":
 		return t.AsCursorProofHarness()
+	case "devin":
+		return t.AsDevinProofHarness()
 	case "revyl":
 		return t.AsRevylProofHarness()
 	default:

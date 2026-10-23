@@ -129,6 +129,27 @@
           }
         }
       }
+    },
+    {
+      "name": "devin_proof",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000005"
+        },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000005"
+            }
+          },
+          "proof_of_changes": {
+            "harness": {
+              "kind": "devin"
+            }
+          }
+        }
+      }
     }
   ],
   "effective_recipes": [
@@ -697,6 +718,33 @@
           "harness",
           "cursor",
           "capy_project_id"
+        ]
+      }
+    },
+    {
+      "name": "model_id_on_devin_harness",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": { "ios": "20000000-0000-4000-8000-000000000001" }
+          },
+          "proof_of_changes": {
+            "harness": { "kind": "devin", "model_id": "test-model" }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "extra_forbidden",
+        "path": [
+          "pr_review",
+          "proof_of_changes",
+          "harness",
+          "devin",
+          "model_id"
         ]
       }
     },

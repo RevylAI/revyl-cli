@@ -11,7 +11,7 @@ pr_review:
       kind: revyl
 ```
 
-`harness.kind` accepts `revyl`, `cursor`, or `capy`:
+`harness.kind` accepts `revyl`, `cursor`, `capy`, or `devin`:
 
 - `revyl` runs Revyl's device proof agent.
 - `cursor` launches a Cursor Cloud Agent proof thread. `model_id` is optional
@@ -25,7 +25,14 @@ pr_review:
   Capy project that checks out the repository. A pinned project that is no
   longer enabled on the connection, or that does not check out the repository,
   fails the proof instead of falling back to another project.
+- `devin` (alpha) starts a Devin session through the organization's
+  team-default Devin connection. It takes no other fields. Devin is in alpha,
+  and Revyl accepts it only for organizations it has enabled; to add yours,
+  email [support@revyl.ai](mailto:support@revyl.ai). As with `capy`, the
+  connection is the authorization: set the harness and each run checks that
+  the Devin organization can see the repository. CLI 0.1.187 is the first
+  release that accepts `devin`; older releases reject it.
 
-The CLI rejects unknown model IDs, rejects `model_id` for `revyl`, and rejects
-`capy_project_id` for any harness other than `capy` instead of silently
-dropping them.
+The CLI rejects unknown model IDs, rejects `model_id` for `revyl` and `devin`,
+and rejects `capy_project_id` for any harness other than `capy` instead of
+silently dropping them.
