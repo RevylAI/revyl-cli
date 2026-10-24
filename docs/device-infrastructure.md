@@ -267,12 +267,18 @@ their existing aliases.
 
 `scroll` accepts `up`, `down`, `left`, or `right`, either positionally or through
 `--direction`. `--amount` is 1–16384 pixels (default 600). Down and right move
-the viewport toward later content, unlike the finger-motion direction of
-`swipe`. With no target it scrolls at the viewport center. To scroll a nested
-region, supply either `--target` or both `--x` and `--y`; never combine them.
+the viewport toward later content. Web `swipe` uses the same page directions;
+native iOS and Android swipes use finger-motion directions instead. With no
+target, `scroll` acts at the viewport center. To scroll a nested region, supply
+either `--target` or both `--x` and `--y`; never combine them.
 
 `select` chooses one enabled, visible option by its exact label in a native
 HTML `<select>`, not by its value attribute. Supply `--target` or both coordinates.
+On desktop Web, opening a native single-choice dropdown temporarily uses the
+browser's in-page picker so option taps reach the dropdown instead of the page
+behind it. The original appearance returns when the picker closes. This also
+applies to native month and year dropdowns within a page's date picker, not
+operating-system date dialogs.
 Custom dropdowns need normal taps or keys. Scroll and select are Web-only and
 fail before dispatch on phones. All three commands accept `-s`/`--session-id`
 and `--json`; successful output does not echo the key, option label, or target.
