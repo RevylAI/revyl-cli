@@ -6099,6 +6099,22 @@ type RuntimeSummaryPage struct {
 }
 
 func (c *Client) ProxyWorkerRequestWithScreenToken(ctx context.Context, workflowRunID, action string, body interface{}, noRetry bool) ([]byte, int, string, error) {
+	resp, err := c.ProxyWorkerRequestDetailed(ctx, workflowRunID, action, body, noRetry)
+	return resp.Body, resp.StatusCode, resp.ScreenToken, err
+}
+
+// ProxyWorkerResponse is a device-proxy response with the headers callers act on.
+type ProxyWorkerResponse struct {
+	Body        []byte
+	StatusCode  int
+	ScreenToken string
+	// RetryAfter is the response's Retry-After delay, or zero when absent or unusable.
+	RetryAfter time.Duration
+}
+
+// ProxyWorkerRequestDetailed sends one device-proxy action and returns the
+// response body, status, screenshot token, and Retry-After delay.
+func (c *Client) ProxyWorkerRequestDetailed(ctx context.Context, workflowRunID, action string, body interface{}, noRetry bool) (ProxyWorkerResponse, error) {
 	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
 
 	method := proxyWorkerMethodForAction(action)
@@ -6116,7 +6132,7 @@ func (c *Client) ProxyWorkerRequestWithScreenToken(ctx context.Context, workflow
 		resp, err = c.doRequest(ctx, method, path, body)
 	}
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("proxy request failed for %s: %w", action, err)
+		return ProxyWorkerResponse{}, fmt.Errorf("proxy request failed for %s: %w", action, err)
 	}
 	defer resp.Body.Close()
 
@@ -6126,10 +6142,10 @@ func (c *Client) ProxyWorkerRequestWithScreenToken(ctx context.Context, workflow
 	}
 	data, err := io.ReadAll(responseReader)
 	if err != nil {
-		return nil, resp.StatusCode, "", fmt.Errorf("failed to read proxy response: %w", err)
+		return ProxyWorkerResponse{StatusCode: resp.StatusCode}, fmt.Errorf("failed to read proxy response: %w", err)
 	}
 	if noRetry && len(data) > 16*1024*1024 {
-		return nil, resp.StatusCode, "", fmt.Errorf("proxy response exceeded the size limit")
+		return ProxyWorkerResponse{StatusCode: resp.StatusCode}, fmt.Errorf("proxy response exceeded the size limit")
 	}
 	screenToken := ""
 	if action == "screenshot" && resp.StatusCode == http.StatusOK {
@@ -6138,7 +6154,12 @@ func (c *Client) ProxyWorkerRequestWithScreenToken(ctx context.Context, workflow
 			screenToken = values[0]
 		}
 	}
-	return data, resp.StatusCode, screenToken, nil
+	return ProxyWorkerResponse{
+		Body:        data,
+		StatusCode:  resp.StatusCode,
+		ScreenToken: screenToken,
+		RetryAfter:  ParseRetryAfter(resp.Header.Get("Retry-After")),
+	}, nil
 }
 
 func proxyWorkerMethodForAction(action string) string {

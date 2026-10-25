@@ -1945,3 +1945,26 @@ func TestProxyWorkerMethodForAction(t *testing.T) {
 		}
 	}
 }
+
+func TestProxyWorkerRequestDetailed_ReturnsRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "4")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	resp, err := client.ProxyWorkerRequestDetailed(context.Background(), "wf-1", "step_status/step-1", nil, true)
+	if err != nil {
+		t.Fatalf("ProxyWorkerRequestDetailed() error = %v, want nil", err)
+	}
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
+	}
+	if resp.RetryAfter != 4*time.Second {
+		t.Fatalf("RetryAfter = %v, want 4s", resp.RetryAfter)
+	}
+}

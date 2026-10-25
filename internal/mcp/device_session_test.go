@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2651,4 +2653,372 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func TestNextStepPollDelay_DoublesUntilCap(t *testing.T) {
+	t.Parallel()
+
+	delay := stepPollBaseDelay
+	got := []time.Duration{delay}
+	for range 4 {
+		delay = nextStepPollDelay(delay)
+		got = append(got, delay)
+	}
+
+	want := []time.Duration{500 * time.Millisecond, time.Second, time.Second, time.Second, time.Second}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("delay sequence = %v, want %v", got, want)
+		}
+	}
+}
+
+func newStepPollTestManager(handler http.Handler) *DeviceSessionManager {
+	client := api.NewClientWithBaseURL("test-api-key", "https://api.example.test")
+	client.SetHTTPClient(&http.Client{Transport: cancelStepTestTransport{handler: handler}})
+	return &DeviceSessionManager{
+		apiClient: client,
+		sessions: map[int]*DeviceSession{
+			0: {Index: 0, SessionID: "sess-poll", WorkflowRunID: "wf-poll", Platform: "android"},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_NoticesCompletionWithinOnePollInterval(t *testing.T) {
+	t.Parallel()
+
+	for _, workerFinish := range []time.Duration{12 * time.Second, 15 * time.Second, 18 * time.Second, 21 * time.Second, 24 * time.Second, 27 * time.Second, 33 * time.Second} {
+		t.Run(workerFinish.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const (
+					stepID    = "step-poll-001"
+					roundTrip = 470 * time.Millisecond
+				)
+				stepStatusPath := "/api/v1/execution/device-proxy/wf-poll/step_status/" + stepID
+
+				start := time.Now()
+				var reads []time.Duration
+				mgr := newStepPollTestManager(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != stepStatusPath {
+						t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+					}
+					time.Sleep(roundTrip / 2)
+					defer time.Sleep(roundTrip / 2)
+					readAt := time.Since(start)
+					reads = append(reads, readAt)
+					w.Header().Set("Content-Type", "application/json")
+					if readAt < workerFinish {
+						_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"completed","result":{"success":true,"step_type":"instruction","step_id":"` + stepID + `"}}`))
+				}))
+
+				resp, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, stepPollTimeout)
+				if err != nil {
+					t.Fatalf("pollStepUntilDone: %v", err)
+				}
+				if !resp.Success {
+					t.Fatalf("Success = false, want true")
+				}
+
+				wantDelay := stepPollBaseDelay
+				if reads[0] != wantDelay+roundTrip/2 {
+					t.Fatalf("first poll read at %v, want %v", reads[0], wantDelay+roundTrip/2)
+				}
+				for i := 1; i < len(reads); i++ {
+					wantDelay = nextStepPollDelay(wantDelay)
+					if gap := reads[i] - reads[i-1] - roundTrip; gap != wantDelay {
+						t.Fatalf("poll %d: sleep before poll = %v, want %v (reads %v)", i, gap, wantDelay, reads)
+					}
+				}
+
+				maxLag := time.Second + roundTrip*3/2
+				if lag := time.Since(start) - workerFinish; lag > maxLag {
+					t.Fatalf("returned %v after the step finished, want at most %v", lag, maxLag)
+				}
+			})
+		})
+	}
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_TimesOutWhileStepKeepsRunning(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const (
+			stepID  = "step-poll-timeout"
+			timeout = 3 * time.Second
+		)
+		stepStatusPath := "/api/v1/execution/device-proxy/wf-poll/step_status/" + stepID
+
+		var polls int
+		mgr := newStepPollTestManager(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != stepStatusPath {
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+			polls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
+		}))
+
+		start := time.Now()
+		resp, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, timeout)
+		if err == nil || !strings.Contains(err.Error(), "did not complete within 3s") {
+			t.Fatalf("err = %v, resp = %+v, want a 3s timeout error", err, resp)
+		}
+
+		elapsed := time.Since(start)
+		if elapsed < timeout || elapsed > timeout+stepPollMaxDelay {
+			t.Fatalf("gave up after %v, want between %v and %v", elapsed, timeout, timeout+stepPollMaxDelay)
+		}
+		if polls != 4 {
+			t.Fatalf("polls = %d, want 4 (at 0.5s, 1.5s, 2.5s, 3.5s)", polls)
+		}
+	})
+}
+
+type stepPollRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn stepPollRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+type stepPollReply func(stepID string) (*http.Response, error)
+
+func stepPollRunning(stepID string) (*http.Response, error) {
+	return stepPollJSON(http.StatusOK, nil, `{"step_id":"`+stepID+`","status":"running"}`), nil
+}
+
+func stepPollCompleted(stepID string) (*http.Response, error) {
+	return stepPollJSON(http.StatusOK, nil, `{"step_id":"`+stepID+`","status":"completed","result":{"success":true,"step_type":"instruction","step_id":"`+stepID+`"}}`), nil
+}
+
+func stepPollStatus(status int) stepPollReply {
+	return func(string) (*http.Response, error) {
+		return stepPollJSON(status, nil, `{"detail":"proxy"}`), nil
+	}
+}
+
+func stepPollNetworkError(string) (*http.Response, error) {
+	return nil, &url.Error{Op: "Get", URL: "https://api.example.test", Err: io.ErrUnexpectedEOF}
+}
+
+func stepPollJSON(status int, header http.Header, body string) *http.Response {
+	if header == nil {
+		header = http.Header{}
+	}
+	header.Set("Content-Type", "application/json")
+	return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}
+}
+
+// newScriptedStepPollManager serves the replies in order and then repeats the
+// last one. The session is a web session, whose proxy requests are not retried
+// by the API client, so every scripted reply is one poll.
+func newScriptedStepPollManager(stepID string, replies []stepPollReply, polledAt *[]time.Duration) *DeviceSessionManager {
+	start := time.Now()
+	client := api.NewClientWithBaseURL("test-api-key", "https://api.example.test")
+	client.SetHTTPClient(&http.Client{Transport: stepPollRoundTripper(func(request *http.Request) (*http.Response, error) {
+		*polledAt = append(*polledAt, time.Since(start))
+		reply := replies[min(len(*polledAt), len(replies))-1]
+		return reply(stepID)
+	})})
+	return &DeviceSessionManager{
+		apiClient: client,
+		sessions: map[int]*DeviceSession{
+			0: {Index: 0, SessionID: "sess-poll", WorkflowRunID: "wf-poll", Platform: "web"},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_ToleratesTransientFailures(t *testing.T) {
+	t.Parallel()
+
+	const stepID = "step-poll-blip"
+	tests := []struct {
+		name      string
+		replies   []stepPollReply
+		wantPolls int
+	}{
+		{
+			name:      "network error and 502 mid-step",
+			replies:   []stepPollReply{stepPollRunning, stepPollNetworkError, stepPollStatus(http.StatusBadGateway), stepPollRunning, stepPollCompleted},
+			wantPolls: 5,
+		},
+		{
+			name:      "503 and 504 and 408",
+			replies:   []stepPollReply{stepPollStatus(http.StatusServiceUnavailable), stepPollStatus(http.StatusGatewayTimeout), stepPollStatus(http.StatusRequestTimeout), stepPollCompleted},
+			wantPolls: 4,
+		},
+		{
+			name: "count resets after a good response",
+			replies: []stepPollReply{
+				stepPollStatus(http.StatusBadGateway), stepPollStatus(http.StatusBadGateway), stepPollStatus(http.StatusBadGateway), stepPollStatus(http.StatusBadGateway),
+				stepPollRunning,
+				stepPollNetworkError, stepPollNetworkError, stepPollNetworkError, stepPollNetworkError,
+				stepPollCompleted,
+			},
+			wantPolls: 10,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var polledAt []time.Duration
+				mgr := newScriptedStepPollManager(stepID, tt.replies, &polledAt)
+
+				resp, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, stepPollTimeout)
+				if err != nil {
+					t.Fatalf("pollStepUntilDone: %v", err)
+				}
+				if !resp.Success {
+					t.Fatalf("Success = false, want true")
+				}
+				if len(polledAt) != tt.wantPolls {
+					t.Fatalf("polls = %d, want %d", len(polledAt), tt.wantPolls)
+				}
+			})
+		})
+	}
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_FailsAfterSustainedFailures(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const stepID = "step-poll-sustained"
+		var polledAt []time.Duration
+		mgr := newScriptedStepPollManager(stepID, []stepPollReply{stepPollStatus(http.StatusBadGateway)}, &polledAt)
+
+		_, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, stepPollTimeout)
+		if err == nil || !strings.Contains(err.Error(), "after failing for 15s") {
+			t.Fatalf("err = %v, want failure after the 15s tolerance", err)
+		}
+		var workerErr *WorkerHTTPError
+		if !errors.As(err, &workerErr) || workerErr.StatusCode != http.StatusBadGateway {
+			t.Fatalf("err = %v, want the underlying 502 worker error", err)
+		}
+		if got, want := polledAt[len(polledAt)-1], polledAt[0]+stepPollFailureTolerance; got < want {
+			t.Fatalf("gave up at %v, want no earlier than %v (tolerance after the first failure)", got, want)
+		}
+	})
+}
+
+func TestStepPollFailureTolerance_IsNotStricterThanThePreviousGiveUp(t *testing.T) {
+	t.Parallel()
+
+	const (
+		webGaveUpAfterFirstFailure = time.Duration(0)
+		nonWebTransportRetryWindow = 500*time.Millisecond + time.Second + 2*time.Second
+	)
+	if stepPollFailureTolerance < webGaveUpAfterFirstFailure || stepPollFailureTolerance < nonWebTransportRetryWindow {
+		t.Fatalf("tolerance %v is stricter than the previous give-up (web %v, non-web %v)", stepPollFailureTolerance, webGaveUpAfterFirstFailure, nonWebTransportRetryWindow)
+	}
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_GoodResponseRestartsTheToleranceClock(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const stepID = "step-poll-clock-reset"
+		replies := make([]stepPollReply, 0, 40)
+		for range 10 {
+			replies = append(replies, stepPollStatus(http.StatusBadGateway))
+		}
+		replies = append(replies, stepPollRunning)
+		for range 10 {
+			replies = append(replies, stepPollStatus(http.StatusBadGateway))
+		}
+		replies = append(replies, stepPollCompleted)
+		var polledAt []time.Duration
+		mgr := newScriptedStepPollManager(stepID, replies, &polledAt)
+
+		if _, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, stepPollTimeout); err != nil {
+			t.Fatalf("pollStepUntilDone: %v", err)
+		}
+		if len(polledAt) != len(replies) {
+			t.Fatalf("polls = %d, want %d", len(polledAt), len(replies))
+		}
+		if total := polledAt[len(polledAt)-1]; total <= stepPollFailureTolerance {
+			t.Fatalf("finished in %v, want a total longer than one tolerance window", total)
+		}
+	})
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_FailsFastOnClientErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const stepID = "step-poll-4xx"
+				var polledAt []time.Duration
+				mgr := newScriptedStepPollManager(stepID, []stepPollReply{stepPollRunning, stepPollStatus(status)}, &polledAt)
+
+				_, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, stepPollTimeout)
+				var workerErr *WorkerHTTPError
+				if !errors.As(err, &workerErr) || workerErr.StatusCode != status {
+					t.Fatalf("err = %v, want the %d worker error", err, status)
+				}
+				if strings.Contains(err.Error(), "consecutive failures") {
+					t.Fatalf("err = %v, want an immediate failure", err)
+				}
+				if len(polledAt) != 2 {
+					t.Fatalf("polls = %d, want 2 (one running, one failing)", len(polledAt))
+				}
+			})
+		})
+	}
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_HonorsRetryAfterOn429(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const stepID = "step-poll-429"
+		var polledAt []time.Duration
+		throttled := func(string) (*http.Response, error) {
+			return stepPollJSON(http.StatusTooManyRequests, http.Header{"Retry-After": []string{"7"}}, `{"detail":"slow down"}`), nil
+		}
+		mgr := newScriptedStepPollManager(stepID, []stepPollReply{throttled, stepPollCompleted}, &polledAt)
+
+		if _, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, stepPollTimeout); err != nil {
+			t.Fatalf("pollStepUntilDone: %v", err)
+		}
+		if len(polledAt) != 2 {
+			t.Fatalf("polls = %d, want 2", len(polledAt))
+		}
+		if gap := polledAt[1] - polledAt[0]; gap != 7*time.Second {
+			t.Fatalf("gap after 429 = %v, want the 7s Retry-After", gap)
+		}
+	})
+}
+
+func TestDeviceSessionManager_PollStepUntilDone_CapsRetryAfterAtDeadline(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const (
+			stepID  = "step-poll-429-deadline"
+			timeout = 3 * time.Second
+		)
+		var polledAt []time.Duration
+		throttled := func(string) (*http.Response, error) {
+			return stepPollJSON(http.StatusTooManyRequests, http.Header{"Retry-After": []string{"3600"}}, `{"detail":"slow down"}`), nil
+		}
+		mgr := newScriptedStepPollManager(stepID, []stepPollReply{throttled}, &polledAt)
+
+		start := time.Now()
+		_, err := mgr.pollStepUntilDone(context.Background(), mgr.sessions[0], stepID, timeout)
+		if err == nil || !strings.Contains(err.Error(), "did not complete within 3s") {
+			t.Fatalf("err = %v, want a 3s timeout error", err)
+		}
+		if elapsed := time.Since(start); elapsed > timeout+stepPollMaxDelay {
+			t.Fatalf("slept %v past a %v deadline", elapsed, timeout)
+		}
+	})
 }

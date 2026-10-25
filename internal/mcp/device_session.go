@@ -2445,6 +2445,7 @@ type WorkerHTTPError struct {
 	ActionApplied      *bool
 	Recorded           *bool
 	InputDispatched    *bool
+	RetryAfter         time.Duration
 	cause              error
 	sessionTraceID     string
 	failureStage       string
@@ -2981,9 +2982,52 @@ type stepStatusResponse struct {
 
 const (
 	stepPollBaseDelay = 500 * time.Millisecond
-	stepPollMaxDelay  = 5 * time.Second
+	stepPollMaxDelay  = time.Second
 	stepPollTimeout   = 10 * time.Minute
+
+	// stepPollFailureTolerance is how long transient step_status failures may
+	// persist, without a single good response, before the poll gives up. The
+	// step keeps running on the worker regardless, and abandoning it leaves
+	// the next live step to 409. It is longer than the 3.5 s of transport
+	// retries a non-Web poll got before, and than the zero a Web poll got.
+	stepPollFailureTolerance = 15 * time.Second
 )
+
+// nextStepPollDelay doubles the sleep between step_status polls, capped at
+// stepPollMaxDelay. Each poll already costs a backend round trip, so the cap
+// bounds how long a finished step waits to be noticed.
+func nextStepPollDelay(delay time.Duration) time.Duration {
+	return min(delay*2, stepPollMaxDelay)
+}
+
+// classifyStepPollError reports whether a failed step_status request is worth
+// retrying: a network error, a timeout, or a 408, 429, 502, 503, or 504. Every
+// other failure, including other 4xx and 5xx statuses, ends the poll. The
+// returned delay is the server's Retry-After on a 429 or 503.
+func classifyStepPollError(err error) (retryAfter time.Duration, transient bool) {
+	var workerErr *WorkerHTTPError
+	if errors.As(err, &workerErr) && workerErr.StatusCode == 0 {
+		switch workerErr.Code {
+		case "connection_closed", "request_timeout":
+			return 0, true
+		}
+	}
+	if errors.As(err, &workerErr) && workerErr.StatusCode != 0 {
+		switch workerErr.StatusCode {
+		case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+			return workerErr.RetryAfter, true
+		case http.StatusRequestTimeout, http.StatusBadGateway, http.StatusGatewayTimeout:
+			return 0, true
+		}
+		return 0, false
+	}
+	var netErr net.Error
+	transient = errors.As(err, &netErr) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, context.DeadlineExceeded)
+	return 0, transient
+}
 
 // ExecuteLiveStepForSession executes one high-level step through the worker's
 // canonical execute_step route and returns the shared JSON contract used by
@@ -3043,7 +3087,7 @@ func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
 	// "accepted" status field that only stepAcceptedResponse carries.
 	var accepted stepAcceptedResponse
 	if err := json.Unmarshal(respBody, &accepted); err == nil && accepted.Status == "accepted" && accepted.StepID != "" {
-		result, pollErr := m.pollStepUntilDone(ctx, session, accepted.StepID)
+		result, pollErr := m.pollStepUntilDone(ctx, session, accepted.StepID, stepPollTimeout)
 		if pollErr != nil {
 			return nil, m.explainWorkerSessionState(session, pollErr)
 		}
@@ -3058,21 +3102,30 @@ func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
 	return &result, nil
 }
 
-// pollStepUntilDone polls GET /step_status/{step_id} with exponential backoff
-// until the step reaches a terminal status or the timeout is exceeded.
+// pollStepUntilDone polls GET /step_status/{step_id} with capped exponential
+// backoff (see nextStepPollDelay) until the step reaches a terminal status or
+// the timeout is exceeded. Transient failures (see classifyStepPollError) are
+// retried on the normal cadence, or after the server's Retry-After when that
+// is longer, until they have lasted stepPollFailureTolerance without a good
+// response in between; any good response resets the clock.
 func (m *DeviceSessionManager) pollStepUntilDone(
 	ctx context.Context,
 	session *DeviceSession,
 	stepID string,
+	timeout time.Duration,
 ) (*LiveStepResponse, error) {
-	deadline := time.Now().Add(stepPollTimeout)
+	deadline := time.Now().Add(timeout)
 	delay := stepPollBaseDelay
+	var retryAfter time.Duration
+	var failingSince time.Time
 	path := "/step_status/" + stepID
 
 	for {
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("step %s did not complete within %v", stepID, stepPollTimeout)
+			return nil, fmt.Errorf("step %s did not complete within %v", stepID, timeout)
 		}
+		pause := max(delay, min(retryAfter, time.Until(deadline)))
+		retryAfter = 0
 
 		select {
 		case <-ctx.Done():
@@ -3082,7 +3135,7 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 			// live-step command won't 409.
 			m.cancelStepBestEffort(session, stepID)
 			return nil, ctx.Err()
-		case <-time.After(delay):
+		case <-time.After(pause):
 		}
 
 		respBody, err := m.workerRequestForSession(ctx, session, path, nil)
@@ -3094,8 +3147,21 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 				m.cancelStepBestEffort(session, stepID)
 				return nil, ctxErr
 			}
-			return nil, fmt.Errorf("failed to poll step status for %s: %w", stepID, err)
+			serverDelay, transient := classifyStepPollError(err)
+			if !transient {
+				return nil, fmt.Errorf("failed to poll step status for %s: %w", stepID, err)
+			}
+			if failingSince.IsZero() {
+				failingSince = time.Now()
+			}
+			if failingFor := time.Since(failingSince); failingFor >= stepPollFailureTolerance {
+				return nil, fmt.Errorf("failed to poll step status for %s after failing for %v: %w", stepID, failingFor.Round(time.Second), err)
+			}
+			retryAfter = serverDelay
+			delay = nextStepPollDelay(delay)
+			continue
 		}
+		failingSince = time.Time{}
 
 		var status stepStatusResponse
 		if err := json.Unmarshal(respBody, &status); err != nil {
@@ -3103,11 +3169,7 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 		}
 
 		if status.Status == "running" {
-			// Exponential backoff capped at stepPollMaxDelay.
-			delay = delay * 2
-			if delay > stepPollMaxDelay {
-				delay = stepPollMaxDelay
-			}
+			delay = nextStepPollDelay(delay)
 			continue
 		}
 
@@ -3262,7 +3324,8 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 	if err != nil {
 		return nil, err
 	}
-	respBody, statusCode, screenToken, err := m.apiClient.ProxyWorkerRequestWithScreenToken(ctx, session.WorkflowRunID, action, body, session.Platform == "web")
+	proxied, err := m.apiClient.ProxyWorkerRequestDetailed(ctx, session.WorkflowRunID, action, body, session.Platform == "web")
+	respBody, statusCode, screenToken := proxied.Body, proxied.StatusCode, proxied.ScreenToken
 	if err != nil {
 		if session.Platform == "web" {
 			var networkErr net.Error
@@ -3314,6 +3377,7 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 			ExecutionUncertain: failure.ExecutionUncertain,
 			ActionApplied:      failure.ActionApplied,
 			Recorded:           failure.Recorded,
+			RetryAfter:         proxied.RetryAfter,
 		}
 		if session.Platform == "web" {
 			workerErr.cause = &api.APIError{StatusCode: statusCode}
