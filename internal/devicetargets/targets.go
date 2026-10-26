@@ -142,11 +142,7 @@ func (c *Catalog) GetAvailableTargetPairs(platform string) ([]DevicePair, error)
 
 	var pairs []DevicePair
 	for _, model := range cfg.AvailableModels {
-		runtimes := cfg.CompatibleRuntimes[model]
-		if len(runtimes) == 0 {
-			runtimes = cfg.AvailableRuntimes
-		}
-		for _, rt := range runtimes {
+		for _, rt := range cfg.runtimesFor(model) {
 			pairs = append(pairs, DevicePair{Model: model, Runtime: rt})
 		}
 	}
@@ -190,10 +186,7 @@ func (c *Catalog) ValidateDevicePair(platform, model, runtime string) error {
 		return fmt.Errorf("unsupported %s runtime %q; available: %v", platform, runtime, cfg.AvailableRuntimes)
 	}
 
-	compatible := cfg.CompatibleRuntimes[model]
-	if len(compatible) == 0 {
-		compatible = cfg.AvailableRuntimes
-	}
+	compatible := cfg.runtimesFor(model)
 	if !contains(compatible, runtime) {
 		return fmt.Errorf("incompatible %s target %q / %q; compatible runtimes for %s: %v",
 			platform, model, runtime, model, compatible)
@@ -212,12 +205,8 @@ func (c *Catalog) NewestRuntime(platform, model string) (string, error) {
 	if !contains(cfg.AvailableModels, model) {
 		return "", fmt.Errorf("unsupported %s device model %q; available: %v", platform, model, cfg.AvailableModels)
 	}
-	runtimes := cfg.CompatibleRuntimes[model]
-	if len(runtimes) == 0 {
-		runtimes = cfg.AvailableRuntimes
-	}
 	newest := ""
-	for _, runtime := range runtimes {
+	for _, runtime := range cfg.runtimesFor(model) {
 		if newest == "" || compareRuntimeVersions(runtime, newest) > 0 {
 			newest = runtime
 		}
@@ -370,6 +359,16 @@ func clonePlatformTargets(
 		cloned[platform] = clonePlatformTargetConfig(cfg)
 	}
 	return cloned
+}
+
+// runtimesFor returns the runtimes a model can boot. A model absent from
+// CompatibleRuntimes boots every available runtime; one listed with an empty
+// set boots none.
+func (cfg *PlatformTargetConfig) runtimesFor(model string) []string {
+	if runtimes, listed := cfg.CompatibleRuntimes[model]; listed {
+		return runtimes
+	}
+	return cfg.AvailableRuntimes
 }
 
 func clonePlatformTargetConfig(cfg *PlatformTargetConfig) *PlatformTargetConfig {
