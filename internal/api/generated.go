@@ -2157,6 +2157,60 @@ func (e ComputerRunSummaryState) Valid() bool {
 	}
 }
 
+// Defines values for ComputerScreenChannelFailureReason.
+const (
+	ComputerScreenChannelFailureReasonCreateFailed           ComputerScreenChannelFailureReason = "create_failed"
+	ComputerScreenChannelFailureReasonInvalid                ComputerScreenChannelFailureReason = "invalid"
+	ComputerScreenChannelFailureReasonLocalDescriptionFailed ComputerScreenChannelFailureReason = "local_description_failed"
+	ComputerScreenChannelFailureReasonNoCandidates           ComputerScreenChannelFailureReason = "no_candidates"
+	ComputerScreenChannelFailureReasonTimeout                ComputerScreenChannelFailureReason = "timeout"
+	ComputerScreenChannelFailureReasonUnavailable            ComputerScreenChannelFailureReason = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ComputerScreenChannelFailureReason enum.
+func (e ComputerScreenChannelFailureReason) Valid() bool {
+	switch e {
+	case ComputerScreenChannelFailureReasonCreateFailed:
+		return true
+	case ComputerScreenChannelFailureReasonInvalid:
+		return true
+	case ComputerScreenChannelFailureReasonLocalDescriptionFailed:
+		return true
+	case ComputerScreenChannelFailureReasonNoCandidates:
+		return true
+	case ComputerScreenChannelFailureReasonTimeout:
+		return true
+	case ComputerScreenChannelFailureReasonUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerScreenChannelFailureStage.
+const (
+	ComputerScreenChannelFailureStageAnswer    ComputerScreenChannelFailureStage = "answer"
+	ComputerScreenChannelFailureStageGather    ComputerScreenChannelFailureStage = "gather"
+	ComputerScreenChannelFailureStageOffer     ComputerScreenChannelFailureStage = "offer"
+	ComputerScreenChannelFailureStageTransport ComputerScreenChannelFailureStage = "transport"
+)
+
+// Valid indicates whether the value is a known member of the ComputerScreenChannelFailureStage enum.
+func (e ComputerScreenChannelFailureStage) Valid() bool {
+	switch e {
+	case ComputerScreenChannelFailureStageAnswer:
+		return true
+	case ComputerScreenChannelFailureStageGather:
+		return true
+	case ComputerScreenChannelFailureStageOffer:
+		return true
+	case ComputerScreenChannelFailureStageTransport:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerTimedOutTermination.
 const (
 	ComputerTimedOutTerminationConfirmed ComputerTimedOutTermination = "confirmed"
@@ -5996,7 +6050,8 @@ type CompiledIntentStep struct {
 
 // ComputerAPIError defines model for ComputerAPIError.
 type ComputerAPIError struct {
-	Detail ComputerAPIError_Detail `json:"detail"`
+	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
+	Detail         ComputerAPIError_Detail       `json:"detail"`
 }
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.
@@ -6636,6 +6691,18 @@ type ComputerRunSummaryRelease string
 
 // ComputerRunSummaryState defines model for ComputerRunSummary.State.
 type ComputerRunSummaryState string
+
+// ComputerScreenChannelFailure defines model for ComputerScreenChannelFailure.
+type ComputerScreenChannelFailure struct {
+	Reason ComputerScreenChannelFailureReason `json:"reason"`
+	Stage  ComputerScreenChannelFailureStage  `json:"stage"`
+}
+
+// ComputerScreenChannelFailureReason defines model for ComputerScreenChannelFailure.Reason.
+type ComputerScreenChannelFailureReason string
+
+// ComputerScreenChannelFailureStage defines model for ComputerScreenChannelFailure.Stage.
+type ComputerScreenChannelFailureStage string
 
 // ComputerSucceeded defines model for ComputerSucceeded.
 type ComputerSucceeded struct {
