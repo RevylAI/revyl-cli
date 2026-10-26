@@ -424,17 +424,23 @@ func (e *APIError) DetailBool(key string) bool {
 // authHintForStatus returns a user-facing hint for authentication errors.
 // For 401 responses that indicate an expired or invalid token, it suggests
 // re-authenticating so the user doesn't see a confusing "Invalid API key" message.
+// A 402 that carries the server's reason, such as a reached usage cap, only
+// points to billing; without one the hint explains what to review.
 //
 // Parameters:
 //   - statusCode: The HTTP status code
+//   - serverReason: The response's message and detail text, empty when it had none
 //
 // Returns:
 //   - string: A hint message, or empty string if no hint is applicable
-func authHintForStatus(statusCode int) string {
+func authHintForStatus(statusCode int, serverReason string) string {
 	if statusCode == 401 {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
 	if statusCode == 402 {
+		if strings.TrimSpace(serverReason) != "" {
+			return "Manage billing:\n  → revyl auth billing"
+		}
 		return "Billing action is required. Review your plan, available credits, and unpaid invoices:\n  → revyl auth billing"
 	}
 	return ""
@@ -520,6 +526,7 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		}
 	}
 
+	serverReason := message + detail
 	if message == "" && detail == "" {
 		bodyStr := string(body)
 		if strings.Contains(bodyStr, "<html") || strings.Contains(bodyStr, "<!DOCTYPE") {
@@ -565,7 +572,7 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		Detail:           detail,
 		ValidationIssues: validationIssues,
 		DetailObject:     detailObject,
-		Hint:             authHintForStatus(statusCode),
+		Hint:             authHintForStatus(statusCode, serverReason),
 	}
 	if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusConflict) &&
 		(isConcurrencyLimitMessage(message+" "+detail) || isConcurrencyLimitCode(apiError.Code) ||

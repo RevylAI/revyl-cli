@@ -56,7 +56,7 @@ func TestConcurrencyHintStatusAndCarrierMatrix(t *testing.T) {
 		{429, ConcurrencyUpgradeHint},
 		{400, ""},
 		{401, "Session may have expired. Run 'revyl auth login' to re-authenticate."},
-		{402, "Billing action is required. Review your plan, available credits, and unpaid invoices:\n  → revyl auth billing"},
+		{402, "Manage billing:\n  → revyl auth billing"},
 		{403, ""},
 		{422, ""},
 		{500, ""},
