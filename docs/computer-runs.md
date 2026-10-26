@@ -22,8 +22,10 @@ also needs the organization's compute credits and fails with a billing error
 create, run operations on or stop a computer (`forbidden`). A computer keeps that slot until its cleanup is confirmed, so a
 computer that reads `failed`, `owner_lost` or `stopped` with release `unknown`
 still holds it. `revyl computer stop` on that computer frees the slot once its
-cleanup can be confirmed. `linux` is a supported contract value, not a working Linux
-provider.
+cleanup can be confirmed. Linux computers are available only to explicitly
+allowlisted organizations with a configured Linux host; other organizations
+receive `computer_not_enabled` for `--os linux`. Linux app hosting is not yet
+available. macOS availability is unchanged.
 
 ## Commands
 
