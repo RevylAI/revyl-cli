@@ -81,9 +81,6 @@ func runGitlabConnect(cmd *cobra.Command) error {
 	if err != nil {
 		return gitlabRequestError(err, "revyl gitlab connect")
 	}
-	if err := requireGitlabEnabled(connection); err != nil {
-		return err
-	}
 	instance, _ := cmd.Flags().GetString("instance")
 	if instance == "" {
 		instance = gitlabInstanceForCheckout(connection)
@@ -161,17 +158,10 @@ func gitlabInstanceForCheckout(connection *api.GitlabConnectionSummary) string {
 			}
 		}
 	}
-	if connection.InstanceUrl != nil && connection.Configured {
+	if connection.InstanceUrl != nil {
 		return *connection.InstanceUrl
 	}
 	return "https://gitlab.com"
-}
-
-func requireGitlabEnabled(connection *api.GitlabConnectionSummary) error {
-	if connection == nil || connection.Enabled == nil || !*connection.Enabled {
-		return fmt.Errorf("GitLab integration is not enabled for the active Revyl organization")
-	}
-	return nil
 }
 
 func gitlabConnected(connection *api.GitlabConnectionSummary) bool {
@@ -206,7 +196,7 @@ func gitlabRequestError(err error, command string) error {
 	case 401:
 		return fmt.Errorf("Revyl authentication is no longer valid; run revyl auth login")
 	case 403:
-		return fmt.Errorf("access denied; check GitLab availability, Revyl organization permissions, and GitLab token permissions")
+		return fmt.Errorf("access denied; check Revyl organization permissions and GitLab token permissions")
 	case 422:
 		return fmt.Errorf("GitLab connection input was rejected; check the instance origin and token requirements")
 	default:
@@ -238,7 +228,6 @@ func runGitlabStatus(cmd *cobra.Command) error {
 	if projectConfigurationJSON(cmd) {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
 	}
-	ui.PrintKeyValue("GitLab enabled:", fmt.Sprint(report.Enabled))
 	ui.PrintKeyValue("API connected:", fmt.Sprint(report.Connected))
 	if report.InstanceURL != nil {
 		ui.PrintKeyValue("Instance:", *report.InstanceURL)
@@ -269,11 +258,7 @@ func collectGitlabStatus(cmd *cobra.Command, client *api.Client) (gitlabStatusRe
 	if err != nil {
 		return gitlabStatusReport{}, gitlabRequestError(err, "revyl gitlab status")
 	}
-	report := gitlabStatusReport{Enabled: connection.Enabled != nil && *connection.Enabled, Connected: gitlabConnected(connection), InstanceURL: connection.InstanceUrl, TokenExpiresAt: connection.TokenExpiresAt}
-	if !report.Enabled {
-		report.NextAction = "GitLab integration is not enabled for this organization"
-		return report, nil
-	}
+	report := gitlabStatusReport{Enabled: true, Connected: gitlabConnected(connection), InstanceURL: connection.InstanceUrl, TokenExpiresAt: connection.TokenExpiresAt}
 	if !report.Connected {
 		report.NextAction = "revyl gitlab connect"
 		return report, nil
@@ -389,9 +374,6 @@ func runGitlabSetupForProject(cmd *cobra.Command, client *api.Client, local *con
 	connection, err := client.GetGitlabConnection(cmd.Context())
 	if err != nil {
 		return gitlabRequestError(err, "revyl gitlab setup")
-	}
-	if err := requireGitlabEnabled(connection); err != nil {
-		return err
 	}
 	if !gitlabConnected(connection) {
 		if resolved.locator.InstanceUrl == nil {

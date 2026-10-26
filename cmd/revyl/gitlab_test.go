@@ -113,19 +113,20 @@ func TestGitlabConnectSubmitsTokenOnceAndKeepsItOutOfOutput(t *testing.T) {
 	}
 }
 
-func TestGitlabConnectRejectsUnavailableOrganizationBeforeTokenEntry(t *testing.T) {
+func TestGitlabConnectRejectsUnauthorizedOrganizationBeforeTokenEntry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			t.Fatal("disabled organization attempted a write")
+			t.Error("unauthorized organization attempted a write")
 		}
-		fmt.Fprint(w, `{"enabled":false,"configured":false,"connected":false}`)
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"detail":"GitLab integration access is unavailable"}`)
 	}))
 	defer server.Close()
 	t.Setenv("REVYL_API_KEY", "fixture-revyl-key")
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
 	cmd := gitlabTestCommand(t)
 	cmd.SetIn(strings.NewReader("fixture-token"))
-	if err := runGitlabConnect(cmd); err == nil || !strings.Contains(err.Error(), "not enabled") {
+	if err := runGitlabConnect(cmd); err == nil || !strings.Contains(err.Error(), "access denied") {
 		t.Fatalf("error=%v", err)
 	}
 }
