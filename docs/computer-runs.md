@@ -24,8 +24,9 @@ computer that reads `failed`, `owner_lost` or `stopped` with release `unknown`
 still holds it. `revyl computer stop` on that computer frees the slot once its
 cleanup can be confirmed. Linux computers are available only to explicitly
 allowlisted organizations with a configured Linux host; other organizations
-receive `computer_not_enabled` for `--os linux`. Linux app hosting is not yet
-available. macOS availability is unchanged.
+receive `computer_not_enabled` for `--os linux`. Linux computers can host Android
+app sessions when their hosting capability includes Android. macOS computers
+continue to host iOS and Web app sessions.
 
 ## Commands
 
@@ -140,10 +141,14 @@ flag is enabled.
 
 ```sh
 revyl device start --platform ios --app "$APP" --computer "$C1" --json
+revyl device start --platform android --app "$ANDROID_APP" --computer "$LINUX_COMPUTER" --json
 ```
 
 `--computer` requires computer runs to be enabled for your organization. It
-starts an iOS simulator or Web app session inside running computer C1 when the computer's hosting capability lists that platform. Hosted Web needs
+starts an app session when the running computer's hosting capability lists that
+platform: iOS simulators and Web on macOS, or Android 14 on Linux. Android needs
+an APK build and supports arm64 apps, without Google Play services or snapshots.
+Hosted Web needs
 no separate Web enablement and uses a registered deployment URL build, not a
 managed Web bundle. Select an app and one of its builds (`--app`, optionally
 `--build-version-id`); the computer chooses
@@ -153,7 +158,7 @@ test-backed starts are refused.
 The app session has its own session ID, stream, report and `revyl device stop`.
 Stopping it leaves C1 running; stopping C1 ends it. Its report attributes only
 the actions Revyl's driver took, and commands run in C1 can also change the
-simulator.
+app.
 
 ## Bounds and output
 

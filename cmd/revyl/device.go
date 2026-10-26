@@ -3661,7 +3661,7 @@ func init() {
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
-	deviceStartCmd.Flags().String("computer", "", "Run the app session inside this running computer (computer session ID); iOS simulator or Web")
+	deviceStartCmd.Flags().String("computer", "", "Run the app session inside this running computer (computer session ID); iOS simulator, Android APK, or Web")
 	_ = deviceStartCmd.Flags().MarkHidden("computer")
 
 	// Stop

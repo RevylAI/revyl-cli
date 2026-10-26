@@ -459,9 +459,6 @@ func (m *DeviceSessionManager) StartSession(
 		if _, err := uuid.Parse(computerSessionID); err != nil {
 			return -1, nil, fmt.Errorf("computer session ID must be a UUID")
 		}
-		if platform == "android" {
-			return -1, nil, fmt.Errorf("only iOS and Web app sessions can run inside a computer")
-		}
 		if opts.DeviceModel != "" || opts.OsVersion != "" || opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
 			return -1, nil, fmt.Errorf("a session inside a computer uses the computer's device and an uploaded build; omit the device, app URL and test")
 		}
