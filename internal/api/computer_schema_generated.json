@@ -425,6 +425,22 @@
       "title": "ComputerATIFTrajectory",
       "type": "object"
     },
+    "ComputerCPUSample": {
+      "properties": {
+        "app_percent": {
+          "description": "Whole-computer CPU busy percent, under the name the iOS and Web performance chart reads.",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "App Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "app_percent"
+      ],
+      "title": "ComputerCPUSample",
+      "type": "object"
+    },
     "ComputerChildReportReference": {
       "properties": {
         "platform": {
@@ -510,6 +526,26 @@
         "evidence"
       ],
       "title": "ComputerCommandResponse",
+      "type": "object"
+    },
+    "ComputerDiskSample": {
+      "properties": {
+        "read_kb_per_s": {
+          "minimum": 0.0,
+          "title": "Read Kb Per S",
+          "type": "number"
+        },
+        "write_kb_per_s": {
+          "minimum": 0.0,
+          "title": "Write Kb Per S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "read_kb_per_s",
+        "write_kb_per_s"
+      ],
+      "title": "ComputerDiskSample",
       "type": "object"
     },
     "ComputerExecResult": {
@@ -764,6 +800,86 @@
         "byte_count"
       ],
       "title": "ComputerFileWriteSummary",
+      "type": "object"
+    },
+    "ComputerMemorySample": {
+      "properties": {
+        "available_kb": {
+          "minimum": 0.0,
+          "title": "Available Kb",
+          "type": "integer"
+        },
+        "total_kb": {
+          "minimum": 0.0,
+          "title": "Total Kb",
+          "type": "integer"
+        },
+        "used_percent": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Used Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "total_kb",
+        "available_kb",
+        "used_percent"
+      ],
+      "title": "ComputerMemorySample",
+      "type": "object"
+    },
+    "ComputerMetricSummary": {
+      "description": "One measure across the samples taken so far.",
+      "properties": {
+        "average": {
+          "minimum": 0.0,
+          "title": "Average",
+          "type": "number"
+        },
+        "latest": {
+          "minimum": 0.0,
+          "title": "Latest",
+          "type": "number"
+        },
+        "maximum": {
+          "minimum": 0.0,
+          "title": "Maximum",
+          "type": "number"
+        },
+        "minimum": {
+          "minimum": 0.0,
+          "title": "Minimum",
+          "type": "number"
+        }
+      },
+      "required": [
+        "latest",
+        "minimum",
+        "average",
+        "maximum"
+      ],
+      "title": "ComputerMetricSummary",
+      "type": "object"
+    },
+    "ComputerNetworkSample": {
+      "properties": {
+        "received_kb_per_s": {
+          "minimum": 0.0,
+          "title": "Received Kb Per S",
+          "type": "number"
+        },
+        "sent_kb_per_s": {
+          "minimum": 0.0,
+          "title": "Sent Kb Per S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "received_kb_per_s",
+        "sent_kb_per_s"
+      ],
+      "title": "ComputerNetworkSample",
       "type": "object"
     },
     "ComputerOperationDetail": {
@@ -1100,6 +1216,243 @@
         "started_at"
       ],
       "title": "ComputerOperationEvidence",
+      "type": "object"
+    },
+    "ComputerPerformanceReport": {
+      "description": "A computer's performance report: whole-computer samples read live from its\nhost while it runs and from its saved artifact once it ends. Numbers only:\nnever a process, command, path, window, title, URL or org id.\n\n`items` are the samples after the requested cursor; `latest` and `summary`\ncover every sample, so a reader polls with `next_cursor` and appends.",
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "capture_running": {
+          "title": "Capture Running",
+          "type": "boolean"
+        },
+        "computer_session_id": {
+          "format": "uuid",
+          "title": "Computer Session Id",
+          "type": "string"
+        },
+        "items": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ComputerPerformanceSample"
+          },
+          "maxItems": 2048,
+          "title": "Items",
+          "type": "array"
+        },
+        "kind": {
+          "const": "performance",
+          "default": "performance",
+          "title": "Kind",
+          "type": "string"
+        },
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerPerformanceSample"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_cursor": {
+          "pattern": "^[0-9]{1,6}$",
+          "title": "Next Cursor",
+          "type": "string"
+        },
+        "source": {
+          "description": "live: the running host's samples; saved: the ended computer's saved samples; none: no samples to read.",
+          "enum": [
+            "live",
+            "saved",
+            "none"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "active",
+            "closing",
+            "stopped",
+            "failed",
+            "owner_lost"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/$defs/ComputerPerformanceSummary"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "computer_session_id",
+        "state",
+        "as_of",
+        "source",
+        "capture_running",
+        "next_cursor",
+        "latest",
+        "summary"
+      ],
+      "title": "ComputerPerformanceReport",
+      "type": "object"
+    },
+    "ComputerPerformanceSample": {
+      "description": "Whole-computer counters over one interval. No process, file, window or URL.",
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/ComputerCPUSample"
+        },
+        "disk": {
+          "$ref": "#/$defs/ComputerDiskSample"
+        },
+        "fps": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Desktop stream frames per second; null while no screen is captured.",
+          "title": "Fps"
+        },
+        "memory_system": {
+          "$ref": "#/$defs/ComputerMemorySample"
+        },
+        "network": {
+          "$ref": "#/$defs/ComputerNetworkSample"
+        },
+        "timestamp": {
+          "description": "Unix seconds.",
+          "exclusiveMinimum": 0.0,
+          "title": "Timestamp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "timestamp",
+        "cpu",
+        "memory_system",
+        "disk",
+        "network"
+      ],
+      "title": "ComputerPerformanceSample",
+      "type": "object"
+    },
+    "ComputerPerformanceSummary": {
+      "description": "Each measure across every sample of the run so far; null with no samples.",
+      "properties": {
+        "cpu_percent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disk_read_kb_per_s": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disk_write_kb_per_s": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration_s": {
+          "description": "Seconds from the first sample to the last.",
+          "minimum": 0.0,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "fps": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_used_percent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network_received_kb_per_s": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network_sent_kb_per_s": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerMetricSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_count": {
+          "maximum": 2048.0,
+          "minimum": 0.0,
+          "title": "Sample Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sample_count",
+        "duration_s",
+        "cpu_percent",
+        "memory_used_percent",
+        "disk_read_kb_per_s",
+        "disk_write_kb_per_s",
+        "network_received_kb_per_s",
+        "network_sent_kb_per_s",
+        "fps"
+      ],
+      "title": "ComputerPerformanceSummary",
       "type": "object"
     },
     "ComputerProcessHandle": {

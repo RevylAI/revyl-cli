@@ -3,6 +3,18 @@ from __future__ import annotations
 from typing import Any
 
 
+PERFORMANCE_SCHEMA_NAMES: tuple[str, ...] = (
+    "ComputerPerformanceReport",
+    "ComputerPerformanceSample",
+    "ComputerPerformanceSummary",
+    "ComputerCPUSample",
+    "ComputerMemorySample",
+    "ComputerDiskSample",
+    "ComputerNetworkSample",
+    "ComputerMetricSummary",
+)
+
+
 def computer_validation_schema(spec: dict[str, Any]) -> dict[str, Any]:
     """Copy the original computer response contract into a local-only JSON Schema document.
 
@@ -15,6 +27,7 @@ def computer_validation_schema(spec: dict[str, Any]) -> dict[str, Any]:
         "ComputerReportDetail",
         "ComputerCommandResponse",
         "ComputerRunListResponse",
+        "ComputerPerformanceReport",
         "ComputerATIFTrajectory",
     ]
     definitions: dict[str, Any] = {}
@@ -47,6 +60,32 @@ def computer_validation_schema(spec: dict[str, Any]) -> dict[str, Any]:
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": definitions,
     }
+
+
+def prepare_performance_fields(spec: dict[str, Any]) -> None:
+    schemas = spec.get("components", {}).get("schemas", {})
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            if value.get("type") == "number":
+                value["format"] = "double"
+            members = value.get("anyOf", [])
+            if any(member.get("type") == "null" for member in members):
+                references = [member["$ref"] for member in members if "$ref" in member]
+                if len(references) == 1:
+                    del value["anyOf"]
+                    value["allOf"] = [{"$ref": references[0]}]
+                    value["nullable"] = True
+                    value["x-go-type"] = "*" + references[0].rsplit("/", 1)[1]
+            for child in value.values():
+                visit(child)
+
+    for name in PERFORMANCE_SCHEMA_NAMES:
+        if name in schemas:
+            visit(schemas[name])
 
 
 def prepare_discriminator_fields(spec: dict[str, Any]) -> None:

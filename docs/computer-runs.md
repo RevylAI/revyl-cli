@@ -50,6 +50,10 @@ revyl computer process terminate "$C1" "$HANDLE" --json
 revyl computer operation get "$C1" "$O1" --json
 revyl computer report "$C1" --format json
 revyl computer report "$C1" --format atif
+revyl computer report "$C1" --format performance
+revyl computer report "$C1" --format performance --json
+revyl computer report "$C1" --format performance --watch --interval 5s --timeout 10m
+revyl computer report "$C1" --format performance --watch --json
 revyl computer export "$C1" --format harbor
 revyl computer export "$C1" --format harbor --out ./computer.zip
 revyl computer stop "$C1" --json
@@ -67,6 +71,33 @@ its steps as a table; `--json` prints the full detail instead.
 There is no active-computer setting, provider/image/TTL/cwd selector,
 interactive SSH/TTY, recursive sync or snapshot in this family. Existing `revyl device` commands still target native session IDs
 independently.
+
+## Performance reports
+
+`report --format performance` reads one page from cursor 0, up to 2,048 samples.
+Human output shows the state, source, sample count and duration, followed by
+latest/minimum/average/maximum CPU %, system memory %, disk read/write KB/s,
+network in/out KB/s and desktop FPS. A measure without samples is shown as `—`.
+`--json` prints the API report, including nullable measures, without rounding.
+Live samples require host release r3.36 or later.
+
+`--watch` follows new samples using the returned cursor, including the final
+saved report after the computer ends. Human output prints one line per new
+sample; `--json` prints one API page per line (JSON Lines), including empty pages.
+State changes and other notices go to stderr. Samples arrive about every 5s.
+`--interval` defaults to `5s` and accepts `2s..60s`; `--timeout` defaults to `10m`
+and accepts `1s..2h`. Both flags require `--watch`, and all three flags require
+`--format performance`.
+
+The source is `live` while reading the running host, `saved` when reading its
+retained samples, or `none` while no samples are available. An empty live report
+says it is waiting for the first sample; an empty ended report says no performance
+was saved. Watching exits 0 after a terminal state (`stopped`, `failed` or
+`owner_lost`) and a saved read. If an ended computer has no saved samples, it
+allows a 10s grace period before exiting 0. Reaching `--timeout` exits 124 with
+`performance watch timed out`; Ctrl-C or context cancellation exits 130 with
+`performance watch canceled`. Neither stops the computer. An API or output
+failure exits 1.
 
 ## Control the screen
 
@@ -139,12 +170,13 @@ symlinks and special files are rejected. Local input acquisition and reads honor
 the selected `--timeout` and command cancellation. Oversize inputs fail rather
 than silently truncate.
 
-`--json` writes one JSON value. Operation responses preserve typed results,
+`--json` writes one JSON value (one per poll with performance `--watch`). Operation responses preserve typed results,
 including padded URL-safe base64 binary fields. Without JSON, exec writes exact
 stdout/stderr bytes to their corresponding streams; file read writes exact bytes
 to stdout. Identity/outcome notices go to stderr, including a note when exec output
-reached the 1 MiB limit. Reports always emit JSON,
+reached the 1 MiB limit. JSON and ATIF reports always emit JSON,
 including the server's ATIF projection; the CLI has no separate ATIF exporter.
+Performance reports use a human-readable table unless `--json` is set.
 
 `export` saves C1 as a Harbor trial bundle. `--format` defaults to `harbor`, the
 only supported format. The default path is `./revyl-computer-<C1>.zip`; use
@@ -204,6 +236,8 @@ Execution outcome (`succeeded`, `failed`, `timed_out`, `unknown`), evidence heal
 | 74 | Execution succeeded but evidence is not recorded. |
 | 75 | Operation result or release remains pending. |
 | 124 | Execution timed out (`Command timed out`); JSON retains termination certainty. |
+| 124 | Performance watch reached its timeout; the computer is not stopped. |
+| 130 | Performance watch was canceled; the computer is not stopped. |
 | 125 | Execution/release is unknown, or creation returned failed/lost-owner state. |
 
 A report read succeeds even when describing a failed historical operation. Stop

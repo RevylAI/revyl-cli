@@ -28,6 +28,12 @@ type computerInvocation struct {
 	Error             string `json:"error,omitempty"`
 }
 
+type computerPerformanceResult struct {
+	Page      *api.ComputerPerformancePage
+	Watch     bool
+	EndReason string
+}
+
 func newComputerCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use: "computer", Short: "Start, use and stop cloud computers",
@@ -39,6 +45,7 @@ func newComputerCommand() *cobra.Command {
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
   revyl computer export ID               save a Harbor trial bundle
+  revyl computer report ID --format performance
   revyl computer stop ID                 stop it
 
 Add --json to any command for machine-readable output.`,
@@ -99,11 +106,24 @@ Add --json to any command for machine-readable output.`,
 		})
 	}
 	command.AddCommand(listComputers)
-	leafShorts := map[string]string{"get": "Show a computer's state and steps", "stop": "Stop a computer", "report": "Print a computer's full report (JSON or ATIF)"}
+	leafShorts := map[string]string{"get": "Show a computer's state and steps", "stop": "Stop a computer", "report": "Print a computer report (JSON, ATIF or performance)"}
 	for _, action := range []string{"get", "stop", "report"} {
 		leaf := &cobra.Command{Use: action + " C1", Short: leafShorts[action]}
 		if action == "report" {
-			leaf.Flags().String("format", "json", "Server projection: json or atif")
+			leaf.Long = `Read a computer report as JSON, ATIF or performance statistics.
+
+Performance prints whole-run latest/min/average/max statistics. Add --watch to
+poll new samples; --json prints one API page per line while watching.
+Live samples require host release r3.36 or later.
+
+Watch exits 0 after reading the ended computer's saved report, or after a 10s
+grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
+--watch, --interval and --timeout require --format performance; --interval and
+--timeout also require --watch.`
+			leaf.Flags().String("format", "json", "Report format: json, atif or performance")
+			leaf.Flags().Bool("watch", false, "Poll performance samples until the computer ends")
+			leaf.Flags().Duration("interval", 5*time.Second, "Performance poll interval (2s-60s)")
+			leaf.Flags().Duration("timeout", 10*time.Minute, "Performance watch timeout (1s-2h)")
 		}
 		leaf.RunE = func(cmd *cobra.Command, args []string) error {
 			return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
@@ -115,6 +135,11 @@ Add --json to any command for machine-readable output.`,
 					return nil, err
 				}
 				invocation.ComputerSessionID = id.String()
+				if action == "report" {
+					if err := validateComputerReportFlags(cmd); err != nil {
+						return nil, err
+					}
+				}
 				client, err := computerClient(cmd)
 				if err != nil {
 					return nil, err
@@ -126,11 +151,14 @@ Add --json to any command for machine-readable output.`,
 					return client.StopComputerRun(cmd.Context(), id)
 				default:
 					format, _ := cmd.Flags().GetString("format")
+					watch, _ := cmd.Flags().GetBool("watch")
+					interval, _ := cmd.Flags().GetDuration("interval")
+					timeout, _ := cmd.Flags().GetDuration("timeout")
+					if format == "performance" {
+						return readComputerPerformance(cmd, client, id, watch, interval, timeout)
+					}
 					if format == "atif" {
 						return client.GetComputerATIF(cmd.Context(), id)
-					}
-					if format != "json" {
-						return nil, errors.New("report format must be json or atif")
 					}
 					return client.GetComputerReport(cmd.Context(), id)
 				}
@@ -361,8 +389,12 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 	invocation := &computerInvocation{}
 	value, err := run(invocation)
 	completion := analytics.CommandCompletion{Domain: "computer", Properties: map[string]any{}}
+	performance, isPerformance := value.(*computerPerformanceResult)
 	if invocation.ComputerSessionID != "" {
 		completion.Properties["entity_id"] = invocation.ComputerSessionID
+	}
+	if isPerformance && performance.Page != nil {
+		completion.DomainStatus = string(performance.Page.State)
 	}
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if err != nil {
@@ -372,7 +404,7 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			completion.DomainStatus = "unconfirmed"
 		}
 		analytics.SetCommandCompletion(cmd.Context(), completion)
-		if jsonOutput {
+		if jsonOutput && !(isPerformance && performance.Watch) {
 			if outputErr := writeComputerJSON(cmd.OutOrStdout(), invocation, api.ComputerMaxResponseJSON); outputErr != nil {
 				return outputErr
 			}
@@ -497,6 +529,22 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		analytics.SetCommandCompletion(cmd.Context(), completion)
 		if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
 			return err
+		}
+	case *computerPerformanceResult:
+		analytics.SetCommandCompletion(cmd.Context(), completion)
+		if !result.Watch {
+			if jsonOutput {
+				return writeComputerJSON(cmd.OutOrStdout(), result.Page, api.ComputerMaxResponseJSON)
+			}
+			return writeComputerPerformance(cmd.OutOrStdout(), result.Page)
+		}
+		if result.EndReason == "timeout" {
+			completion.ExitCode = 124
+			return &computerExitError{code: 124, err: analytics.CompletedWithExitCode(errors.New("performance watch timed out"), completion)}
+		}
+		if result.EndReason == "cancelled" {
+			completion.ExitCode = 130
+			return &computerExitError{code: 130, err: analytics.CompletedWithExitCode(errors.New("performance watch canceled"), completion)}
 		}
 	case *computerExportResult:
 		completion.DomainStatus = "exported"

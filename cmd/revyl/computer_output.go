@@ -182,6 +182,55 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 	return writeComputerTable(writer, rows)
 }
 
+func writeComputerPerformance(writer io.Writer, page *api.ComputerPerformancePage) error {
+	if err := writeComputerTable(writer, [][]string{
+		{"Computer", page.ComputerSessionId.String()},
+		{"State", string(page.State)},
+		{"Source", string(page.Source)},
+		{"Samples", fmt.Sprint(page.Summary.SampleCount)},
+		{"Duration", fmt.Sprintf("%.1fs", page.Summary.DurationS)},
+	}); err != nil {
+		return err
+	}
+	if page.Summary.SampleCount == 0 {
+		if _, err := fmt.Fprintln(writer, computerPerformanceEmptyMessage(page.State)); err != nil {
+			return err
+		}
+	}
+	rows := [][]string{{"MEASURE", "LATEST", "MIN", "AVG", "MAX"}}
+	for _, metric := range []struct {
+		name  string
+		stats *api.ComputerMetricSummary
+	}{
+		{"CPU %", page.Summary.CpuPercent},
+		{"Memory %", page.Summary.MemoryUsedPercent},
+		{"Disk read KB/s", page.Summary.DiskReadKbPerS},
+		{"Disk write KB/s", page.Summary.DiskWriteKbPerS},
+		{"Network in KB/s", page.Summary.NetworkReceivedKbPerS},
+		{"Network out KB/s", page.Summary.NetworkSentKbPerS},
+		{"Desktop FPS", page.Summary.Fps},
+	} {
+		row := []string{metric.name, "—", "—", "—", "—"}
+		if metric.stats != nil {
+			row = []string{metric.name, fmt.Sprintf("%.1f", metric.stats.Latest), fmt.Sprintf("%.1f", metric.stats.Minimum), fmt.Sprintf("%.1f", metric.stats.Average), fmt.Sprintf("%.1f", metric.stats.Maximum)}
+		}
+		rows = append(rows, row)
+	}
+	return writeComputerTable(writer, rows)
+}
+
+func writeComputerPerformanceSample(writer io.Writer, sample api.ComputerPerformanceSample) error {
+	fps := "—"
+	if sample.Fps != nil {
+		fps = fmt.Sprintf("%.1f", *sample.Fps)
+	}
+	_, err := fmt.Fprintf(writer, "%s CPU %.1f%% Memory %.1f%% Disk read/write %.1f/%.1f KB/s Network in/out %.1f/%.1f KB/s Desktop FPS %s\n",
+		time.UnixMicro(int64(sample.Timestamp*1e6)).UTC().Format("2006-01-02T15:04:05.000Z"),
+		sample.Cpu.AppPercent, sample.MemorySystem.UsedPercent, sample.Disk.ReadKbPerS, sample.Disk.WriteKbPerS,
+		sample.Network.ReceivedKbPerS, sample.Network.SentKbPerS, fps)
+	return err
+}
+
 func computerStepResult(step api.ComputerOperationDetail) string {
 	if step.Outcome == nil || *step.Outcome == "started" {
 		return "running"

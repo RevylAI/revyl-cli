@@ -190,6 +190,7 @@ POST /api/v1/computer-runs/{computer_session_id}/operations
 GET /api/v1/computer-runs/{computer_session_id}/operations/{operation_id}
 GET /api/v1/computer-runs/{computer_session_id}/report
 GET /api/v1/computer-runs/{computer_session_id}/report/atif
+GET /api/v1/computer-runs/{computer_session_id}/report/performance
 GET /api/v1/computer-runs/{computer_session_id}/export/harbor
 POST /api/v1/computer-runs/{computer_session_id}/stop
 

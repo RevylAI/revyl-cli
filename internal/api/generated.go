@@ -1728,6 +1728,57 @@ func (e ComputerOperationEvidenceTermination) Valid() bool {
 	}
 }
 
+// Defines values for ComputerPerformanceReportSource.
+const (
+	ComputerPerformanceReportSourceLive  ComputerPerformanceReportSource = "live"
+	ComputerPerformanceReportSourceNone  ComputerPerformanceReportSource = "none"
+	ComputerPerformanceReportSourceSaved ComputerPerformanceReportSource = "saved"
+)
+
+// Valid indicates whether the value is a known member of the ComputerPerformanceReportSource enum.
+func (e ComputerPerformanceReportSource) Valid() bool {
+	switch e {
+	case ComputerPerformanceReportSourceLive:
+		return true
+	case ComputerPerformanceReportSourceNone:
+		return true
+	case ComputerPerformanceReportSourceSaved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerPerformanceReportState.
+const (
+	ComputerPerformanceReportStateActive    ComputerPerformanceReportState = "active"
+	ComputerPerformanceReportStateClosing   ComputerPerformanceReportState = "closing"
+	ComputerPerformanceReportStateFailed    ComputerPerformanceReportState = "failed"
+	ComputerPerformanceReportStateOwnerLost ComputerPerformanceReportState = "owner_lost"
+	ComputerPerformanceReportStateStarting  ComputerPerformanceReportState = "starting"
+	ComputerPerformanceReportStateStopped   ComputerPerformanceReportState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerPerformanceReportState enum.
+func (e ComputerPerformanceReportState) Valid() bool {
+	switch e {
+	case ComputerPerformanceReportStateActive:
+		return true
+	case ComputerPerformanceReportStateClosing:
+		return true
+	case ComputerPerformanceReportStateFailed:
+		return true
+	case ComputerPerformanceReportStateOwnerLost:
+		return true
+	case ComputerPerformanceReportStateStarting:
+		return true
+	case ComputerPerformanceReportStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerProcessInfoState.
 const (
 	ComputerProcessInfoStateExited  ComputerProcessInfoState = "exited"
@@ -6077,6 +6128,12 @@ type ComputerATIFTrajectory struct {
 	TrajectoryId  openapi_types.UUID `json:"trajectory_id"`
 }
 
+// ComputerCPUSample defines model for ComputerCPUSample.
+type ComputerCPUSample struct {
+	// AppPercent Whole-computer CPU busy percent, under the name the iOS and Web performance chart reads.
+	AppPercent float64 `json:"app_percent"`
+}
+
 // ComputerChildReportReference defines model for ComputerChildReportReference.
 type ComputerChildReportReference struct {
 	Platform  ComputerChildReportReferencePlatform `json:"platform"`
@@ -6113,6 +6170,12 @@ type ComputerCommandResponseEvidence string
 // ComputerCommandResponse_Execution defines model for ComputerCommandResponse.Execution.
 type ComputerCommandResponse_Execution struct {
 	union json.RawMessage
+}
+
+// ComputerDiskSample defines model for ComputerDiskSample.
+type ComputerDiskSample struct {
+	ReadKbPerS  float64 `json:"read_kb_per_s"`
+	WriteKbPerS float64 `json:"write_kb_per_s"`
 }
 
 // ComputerExec defines model for ComputerExec.
@@ -6224,6 +6287,27 @@ type ComputerFileWriteSummary struct {
 	Kind      string `json:"kind,omitempty"`
 }
 
+// ComputerMemorySample defines model for ComputerMemorySample.
+type ComputerMemorySample struct {
+	AvailableKb int     `json:"available_kb"`
+	TotalKb     int     `json:"total_kb"`
+	UsedPercent float64 `json:"used_percent"`
+}
+
+// ComputerMetricSummary One measure across the samples taken so far.
+type ComputerMetricSummary struct {
+	Average float64 `json:"average"`
+	Latest  float64 `json:"latest"`
+	Maximum float64 `json:"maximum"`
+	Minimum float64 `json:"minimum"`
+}
+
+// ComputerNetworkSample defines model for ComputerNetworkSample.
+type ComputerNetworkSample struct {
+	ReceivedKbPerS float64 `json:"received_kb_per_s"`
+	SentKbPerS     float64 `json:"sent_kb_per_s"`
+}
+
 // ComputerOperationDetail defines model for ComputerOperationDetail.
 type ComputerOperationDetail struct {
 	// CommandDisplay Redacted exec command line, truncated with a trailing ellipsis. Never the output.
@@ -6287,6 +6371,65 @@ type ComputerOperationEvidence_Summary struct {
 
 // ComputerOperationEvidenceTermination defines model for ComputerOperationEvidence.Termination.
 type ComputerOperationEvidenceTermination string
+
+// ComputerPerformanceReport A computer's performance report: whole-computer samples read live from its
+// host while it runs and from its saved artifact once it ends. Numbers only:
+// never a process, command, path, window, title, URL or org id.
+//
+// `items` are the samples after the requested cursor; `latest` and `summary`
+// cover every sample, so a reader polls with `next_cursor` and appends.
+type ComputerPerformanceReport struct {
+	AsOf              time.Time                    `json:"as_of"`
+	CaptureRunning    bool                         `json:"capture_running"`
+	ComputerSessionId openapi_types.UUID           `json:"computer_session_id"`
+	Items             *[]ComputerPerformanceSample `json:"items,omitempty"`
+	Kind              *string                      `json:"kind,omitempty"`
+	Latest            *ComputerPerformanceSample   `json:"latest"`
+	NextCursor        string                       `json:"next_cursor"`
+
+	// Source live: the running host's samples; saved: the ended computer's saved samples; none: no samples to read.
+	Source ComputerPerformanceReportSource `json:"source"`
+	State  ComputerPerformanceReportState  `json:"state"`
+
+	// Summary Each measure across every sample of the run so far; null with no samples.
+	Summary ComputerPerformanceSummary `json:"summary"`
+	Version *int                       `json:"version,omitempty"`
+}
+
+// ComputerPerformanceReportSource live: the running host's samples; saved: the ended computer's saved samples; none: no samples to read.
+type ComputerPerformanceReportSource string
+
+// ComputerPerformanceReportState defines model for ComputerPerformanceReport.State.
+type ComputerPerformanceReportState string
+
+// ComputerPerformanceSample Whole-computer counters over one interval. No process, file, window or URL.
+type ComputerPerformanceSample struct {
+	Cpu  ComputerCPUSample  `json:"cpu"`
+	Disk ComputerDiskSample `json:"disk"`
+
+	// Fps Desktop stream frames per second; null while no screen is captured.
+	Fps          *float64              `json:"fps,omitempty"`
+	MemorySystem ComputerMemorySample  `json:"memory_system"`
+	Network      ComputerNetworkSample `json:"network"`
+
+	// Timestamp Unix seconds.
+	Timestamp float64 `json:"timestamp"`
+}
+
+// ComputerPerformanceSummary Each measure across every sample of the run so far; null with no samples.
+type ComputerPerformanceSummary struct {
+	CpuPercent      *ComputerMetricSummary `json:"cpu_percent"`
+	DiskReadKbPerS  *ComputerMetricSummary `json:"disk_read_kb_per_s"`
+	DiskWriteKbPerS *ComputerMetricSummary `json:"disk_write_kb_per_s"`
+
+	// DurationS Seconds from the first sample to the last.
+	DurationS             float64                `json:"duration_s"`
+	Fps                   *ComputerMetricSummary `json:"fps"`
+	MemoryUsedPercent     *ComputerMetricSummary `json:"memory_used_percent"`
+	NetworkReceivedKbPerS *ComputerMetricSummary `json:"network_received_kb_per_s"`
+	NetworkSentKbPerS     *ComputerMetricSummary `json:"network_sent_kb_per_s"`
+	SampleCount           int                    `json:"sample_count"`
+}
 
 // ComputerProcessHandle defines model for ComputerProcessHandle.
 type ComputerProcessHandle struct {
@@ -11034,6 +11177,12 @@ type ListComputerRunsApiV1ComputerRunsGetParams struct {
 // SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostParams defines parameters for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost.
 type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostParams struct {
 	Prefer *string `json:"prefer,omitempty"`
+}
+
+// GetComputerPerformanceReportApiV1ComputerRunsComputerSessionIdReportPerformanceGetParams defines parameters for GetComputerPerformanceReportApiV1ComputerRunsComputerSessionIdReportPerformanceGet.
+type GetComputerPerformanceReportApiV1ComputerRunsComputerSessionIdReportPerformanceGetParams struct {
+	Cursor *int `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListOrganizationMembersApiV1EntityOrgsMembersGetParams defines parameters for ListOrganizationMembersApiV1EntityOrgsMembersGet.

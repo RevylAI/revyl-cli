@@ -128,7 +128,7 @@ PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 << 'PYTHON_SCRIPT'
 import json
 import sys
 
-from openapi_compatibility import computer_validation_schema, prepare_discriminator_fields, process_schema
+from openapi_compatibility import computer_validation_schema, prepare_discriminator_fields, prepare_performance_fields, process_schema
 
 # Load the spec
 with open('openapi.json', 'r') as f:
@@ -147,6 +147,7 @@ with open('internal/api/computer_schema_generated.json', 'w') as f:
 # Downgrade version
 spec['openapi'] = '3.0.3'
 prepare_discriminator_fields(spec)
+prepare_performance_fields(spec)
 
 # Process all schemas in components
 if 'components' in spec and 'schemas' in spec['components']:

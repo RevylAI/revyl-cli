@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,6 +96,42 @@ func (c *Client) GetComputerReport(ctx context.Context, id uuid.UUID) (*Computer
 func (c *Client) GetComputerATIF(ctx context.Context, id uuid.UUID) (*ComputerATIFTrajectory, error) {
 	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/report/atif", id))
 	return readComputerATIF(response, err, id)
+}
+
+const ComputerPerformanceMaxSamples = 2048
+
+type ComputerPerformancePage struct {
+	ComputerPerformanceReport
+	json json.RawMessage
+}
+
+func (p ComputerPerformancePage) MarshalJSON() ([]byte, error) {
+	return p.json, nil
+}
+
+func (c *Client) GetComputerPerformanceReport(ctx context.Context, id uuid.UUID, cursor int) (*ComputerPerformancePage, error) {
+	if id == uuid.Nil || cursor < 0 || cursor > ComputerPerformanceMaxSamples {
+		return nil, errors.New("computer performance requires a nonzero UUID and cursor from 0 to 2048")
+	}
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/report/performance?cursor=%d&limit=%d", id, cursor, ComputerPerformanceMaxSamples))
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, err
+	}
+	var page ComputerPerformancePage
+	if response.StatusCode != http.StatusOK || validateComputerResponseSchema(body, "ComputerPerformanceReport") != nil || decodeComputerJSON(body, &page.ComputerPerformanceReport) != nil || page.ComputerSessionId != id {
+		return nil, errComputerResponse
+	}
+	next, err := strconv.Atoi(page.NextCursor)
+	itemCount := 0
+	if page.Items != nil {
+		itemCount = len(*page.Items)
+	}
+	if err != nil || next < cursor || next > ComputerPerformanceMaxSamples || itemCount != next-cursor || page.Source != "none" && next > page.Summary.SampleCount {
+		return nil, errComputerResponse
+	}
+	page.json = body
+	return &page, nil
 }
 
 func (c *Client) StopComputerRun(ctx context.Context, id uuid.UUID) (*ComputerReport, error) {
