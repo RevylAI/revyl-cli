@@ -185,11 +185,25 @@ type Manager struct {
 	configDir string
 }
 
+// AuthDirectoryEnvironmentVariableName is the name of the environment variable
+// whose directory replaces ~/.revyl for sign-in state: credentials, client
+// identity, and imported Cloud context. It lets one machine keep a separate
+// login per checkout.
+const AuthDirectoryEnvironmentVariableName = "REVYL_AUTH_DIRECTORY"
+
 // NewManager creates a new credential manager.
 //
 // Returns:
-//   - *Manager: A new manager instance using ~/.revyl as the config directory
+//   - *Manager: A new manager instance using REVYL_AUTH_DIRECTORY when set,
+//     otherwise ~/.revyl, as the config directory
 func NewManager() *Manager {
+	if authDirectory := strings.TrimSpace(os.Getenv(AuthDirectoryEnvironmentVariableName)); authDirectory != "" {
+		if absoluteAuthDirectory, err := filepath.Abs(authDirectory); err == nil {
+			authDirectory = absoluteAuthDirectory
+		}
+		return NewManagerWithDir(authDirectory)
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = "."
@@ -216,6 +230,19 @@ func NewManagerWithDir(configDir string) *Manager {
 // credentialsPath returns the path to the credentials file.
 func (m *Manager) credentialsPath() string {
 	return filepath.Join(m.configDir, "credentials.json")
+}
+
+// CredentialsDisplayPath returns where this manager stores the credentials file,
+// for messages shown to the user.
+//
+// Returns:
+//   - string: "~/.revyl/credentials.json" for the default home directory,
+//     otherwise the full path inside REVYL_AUTH_DIRECTORY.
+func (m *Manager) CredentialsDisplayPath() string {
+	if homeDir, err := os.UserHomeDir(); err == nil && m.configDir == filepath.Join(homeDir, ".revyl") {
+		return "~/.revyl/credentials.json"
+	}
+	return m.credentialsPath()
 }
 
 // clientIdentityPath returns the path to the stable client identity file.

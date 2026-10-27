@@ -734,3 +734,47 @@ func TestResolveCredentialsEnvironmentWinsMalformedCloudContext(t *testing.T) {
 		t.Fatalf("resolution = %+v, want environment auth in headless Cloud", resolution)
 	}
 }
+
+func TestNewManagerKeepsSignInStateInAuthDirectoryWhenSet(t *testing.T) {
+	homeDirectory := t.TempDir()
+	authDirectory := t.TempDir()
+	t.Setenv("HOME", homeDirectory)
+	// Windows resolves the home directory from USERPROFILE, not HOME.
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", homeDirectory)
+	}
+	t.Setenv(AuthDirectoryEnvironmentVariableName, authDirectory)
+
+	mgr := NewManager()
+	if err := mgr.SaveAPIKeyCredentials("worktree-key", "dev@example.com", "org-1", "user-1"); err != nil {
+		t.Fatalf("SaveAPIKeyCredentials() error = %v, want nil", err)
+	}
+
+	if got, want := mgr.CredentialsDisplayPath(), filepath.Join(authDirectory, "credentials.json"); got != want {
+		t.Fatalf("CredentialsDisplayPath() = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(authDirectory, "credentials.json")); err != nil {
+		t.Fatalf("credentials in REVYL_AUTH_DIRECTORY: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(homeDirectory, ".revyl", "credentials.json")); !os.IsNotExist(err) {
+		t.Fatalf("home credentials stat error = %v, want not exist", err)
+	}
+}
+
+func TestNewManagerDefaultsToHomeRevylDirectory(t *testing.T) {
+	homeDirectory := t.TempDir()
+	t.Setenv("HOME", homeDirectory)
+	// Windows resolves the home directory from USERPROFILE, not HOME.
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", homeDirectory)
+	}
+	t.Setenv(AuthDirectoryEnvironmentVariableName, "")
+
+	mgr := NewManager()
+	if got, want := mgr.credentialsPath(), filepath.Join(homeDirectory, ".revyl", "credentials.json"); got != want {
+		t.Fatalf("credentialsPath() = %q, want %q", got, want)
+	}
+	if got, want := mgr.CredentialsDisplayPath(), "~/.revyl/credentials.json"; got != want {
+		t.Fatalf("CredentialsDisplayPath() = %q, want %q", got, want)
+	}
+}

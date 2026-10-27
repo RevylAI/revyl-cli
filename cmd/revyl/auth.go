@@ -91,7 +91,8 @@ AUTHENTICATION METHODS:
     nobody is present to approve
 
 CREDENTIALS:
-  Credentials are stored in ~/.revyl/credentials.json`,
+  Credentials are stored in ~/.revyl/credentials.json, or in the directory
+  named by REVYL_AUTH_DIRECTORY when it is set`,
 }
 
 // authLoginCmd handles user authentication.
@@ -113,7 +114,7 @@ DEVICE APPROVAL (default):
 API KEY AUTHENTICATION (--api-key):
   1. Get your API key from https://app.revyl.ai/settings/api-keys
   2. Enter the API key when prompted
-  3. Credentials are saved to ~/.revyl/credentials.json
+  3. Credentials are saved to ~/.revyl/credentials.json (or REVYL_AUTH_DIRECTORY)
 
 LOOPBACK BROWSER (--browser):
   The previous flow, which opens a browser on this machine and listens on a
@@ -499,7 +500,7 @@ func completeInteractiveLogin(
 	if os.Getenv("REVYL_API_KEY") != "" {
 		ui.PrintDim("  Browser login is now active (overriding REVYL_API_KEY for local commands)")
 	}
-	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
+	ui.PrintInfo("Credentials saved to %s", mgr.CredentialsDisplayPath())
 	warnIfOrgMismatchAfterLogin(cmd)
 
 	printAuthNextSteps(cmd)
@@ -573,7 +574,7 @@ func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool, provid
 	if userInfo.OrgID != "" {
 		ui.PrintInfo("Organization: %s", userInfo.OrgID)
 	}
-	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
+	ui.PrintInfo("Credentials saved to %s", mgr.CredentialsDisplayPath())
 	warnIfOrgMismatchAfterLogin(cmd)
 
 	printAuthNextSteps(cmd)
@@ -585,7 +586,7 @@ func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool, provid
 var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored credentials",
-	Long:  `Remove stored credentials from ~/.revyl/credentials.json`,
+	Long:  `Remove stored credentials from ~/.revyl/credentials.json (or REVYL_AUTH_DIRECTORY)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr := auth.NewManager()
 		creds, _ := mgr.GetFileCredentials()
