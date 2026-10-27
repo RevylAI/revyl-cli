@@ -534,7 +534,7 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	}{
 		{"text", false, "computer_limit", http.StatusTooManyRequests, "Every device slot a computer can use is busy. Stop a session, then try again."},
 		{"json", true, "computer_limit", http.StatusTooManyRequests, ""},
-		{"not_enabled_text", false, "computer_not_enabled", http.StatusForbidden, "Computers aren't enabled for this organization. Contact Revyl to turn them on."},
+		{"not_enabled_text", false, "computer_not_enabled", http.StatusForbidden, "Computers aren't enabled for this organization. Mac computers are experimental: an owner or admin can request access in Settings > Experiments."},
 		{"not_enabled_json", true, "computer_not_enabled", http.StatusForbidden, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

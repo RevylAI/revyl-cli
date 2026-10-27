@@ -1,23 +1,19 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
-func TestComputerSurfacesAreHiddenUntilEnabled(t *testing.T) {
+func TestComputerSurfacesAreListed(t *testing.T) {
 	computer, _, err := rootCmd.Find([]string{"computer"})
 	if err != nil || computer.Name() != "computer" {
 		t.Fatalf("revyl computer must stay registered: %v", err)
 	}
-	if computer.IsAvailableCommand() {
-		t.Fatal("revyl computer must stay out of revyl --help until computers are enabled in production")
+	if !computer.IsAvailableCommand() {
+		t.Fatal("revyl computer must be listed in revyl --help")
 	}
-	if flag := deviceStartCmd.Flags().Lookup("computer"); flag == nil || !flag.Hidden {
-		t.Fatal("device start --computer must stay registered and out of its help until computers are enabled in production")
-	}
-	if strings.Contains(deviceStartCmd.Example, "--computer") {
-		t.Fatal("device start examples must not show --computer until computers are enabled in production")
+	if flag := deviceStartCmd.Flags().Lookup("computer"); flag == nil || flag.Hidden {
+		t.Fatal("device start --computer must be listed in its help")
 	}
 }
 

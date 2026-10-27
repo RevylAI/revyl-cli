@@ -281,7 +281,9 @@ def test_computer_cli_non_allowlisted_organization_fails_closed(
     from cognisim_schemas.schemas.session_schema import ExecutionSource
 
     monkeypatch.setattr(
-        hosted_computer_runtime, "is_computer_enabled_for_org", lambda _: False
+        hosted_computer_runtime,
+        "computer_os_enabled_for_org",
+        AsyncMock(return_value=False),
     )
     runtime = HostedComputerRuntime(
         origin=ComputerRunOrigin(source=ExecutionSource.CLI, user_id="synthetic-user")

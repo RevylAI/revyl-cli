@@ -64,7 +64,7 @@ var computerFailureReasons = map[string]string{
 }
 
 const computerLimitMessage = "Every device slot a computer can use is busy. Stop a session, then try again."
-const computerNotEnabledMessage = "Computers aren't enabled for this organization. Contact Revyl to turn them on."
+const computerNotEnabledMessage = "Computers aren't enabled for this organization. Mac computers are experimental: an owner or admin can request access in Settings > Experiments."
 
 func computerStateText(state, release string) string {
 	if (state == "stopped" || state == "failed" || state == "owner_lost") && release != "confirmed" {

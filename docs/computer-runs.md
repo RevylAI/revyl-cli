@@ -1,8 +1,9 @@
 # Computer runs
 
-Computers must be enabled for your organization. `revyl computer` and
-`revyl device start --computer` are not listed in `revyl --help` or
-`revyl device start --help`, and until computers are enabled
+`revyl computer` and `revyl device start --computer` are experimental and
+require organization opt-in. For Mac computers, an organization owner or admin
+requests access in **Settings → Experiments** using **Request access**. This
+opens a support request; Revyl enables the organization. Until access is enabled,
 `revyl computer create` returns `computer_not_enabled` (HTTP 403) without
 creating anything.
 
@@ -102,7 +103,7 @@ failure exits 1.
 
 ## Control the screen
 
-The hidden `revyl computer` command group can capture and control a computer
+The experimental `revyl computer` command group can capture and control a computer
 run. Coordinates are pixels in the returned screenshot, not framebuffer
 pixels: a 1920x1080 console is returned as 1280x720, so use `(640, 360)` for
 its center. Actions return a fresh screenshot only when `--out` is supplied.

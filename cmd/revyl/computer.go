@@ -36,9 +36,11 @@ type computerPerformanceResult struct {
 
 func newComputerCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use: "computer", Short: "Start, use and stop cloud computers",
-		Hidden: true,
+		Use: "computer", Short: "Start, use and stop cloud computers (experimental, opt-in)",
 		Long: `A computer is a cloud machine you start, run commands on, and stop.
+
+Mac computers are experimental and opt-in: an organization owner or admin
+requests access in Settings > Experiments, and Revyl enables the organization.
 
   revyl computer create --os macos       start a computer
   revyl computer list                    show your organization's computers
