@@ -65,6 +65,7 @@ Revyl ships embedded skills:
 - revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
 - auth-bypass references: platform recipes loaded only after stack detection
 - revyl-cli-optimize-tests for merging granular button-press steps in an existing test into intent-driven instructions when installed by name.
+- revyl-cli-import-tests for converting an existing test suite (Playwright, Maestro, Appium, Gherkin, test-case exports, and more) into Revyl tests when installed by name.
 
 Additional optional and compatibility skills remain available by exact name.
 

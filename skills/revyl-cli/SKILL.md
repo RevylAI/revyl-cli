@@ -25,6 +25,7 @@ Use this as the default Revyl skill when workflows should be expressed as `revyl
 - Use `revyl-cli-atlas` for media-grounded questions about an app's screens, graph relationships, journeys, or coverage, including reconciling unexpected evidence through clips, extracted frames, and originating reports.
 - Use `revyl-cli-atlas-review` only when the user explicitly requests an Atlas feedback mutation.
 - Use `revyl-cli-create` for authoring robust YAML tests.
+- Use `revyl-cli-import-tests` to convert an existing test suite (Playwright, Cypress, Maestro, Appium, Gherkin, test-case exports) into Revyl tests.
 - Use `revyl-cli-auth-bypass` for test-only authenticated app state setup.
 - Use `revyl-cli-analyze` for failed run triage.
 

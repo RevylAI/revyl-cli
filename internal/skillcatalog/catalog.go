@@ -41,6 +41,11 @@ var catalog = []Skill{
 		Content:     skills.RevylCLIOptimizeContent,
 	},
 	{
+		Name:        skills.RevylCLIImportTestsName,
+		Description: "Import an existing test suite in any format into Revyl tests, then validate, push, run, and iterate.",
+		Content:     skills.RevylCLIImportTestsContent,
+	},
+	{
 		Name:        skills.RevylCLIDevLoopName,
 		Description: "CLI-first dev loop and manual Web setup for starting sessions, exploring flows, and converting successful paths into tests.",
 		Content:     skills.RevylCLIDevLoopContent,

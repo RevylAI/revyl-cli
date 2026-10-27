@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Test Import"
+  short_description: "Convert an existing test suite into Revyl tests"
+policy:
+  allow_implicit_invocation: true

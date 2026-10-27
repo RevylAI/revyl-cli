@@ -19,6 +19,7 @@ var shippedContents = map[string]string{
 	RevylCLICreateName:              RevylCLICreateContent,
 	RevylCLIAnalyzeName:             RevylCLIAnalyzeContent,
 	RevylCLIOptimizeName:            RevylCLIOptimizeContent,
+	RevylCLIImportTestsName:         RevylCLIImportTestsContent,
 	RevylCLIDevLoopName:             RevylCLIDevLoopContent,
 	RevylCLIAtlasName:               RevylCLIAtlasContent,
 	RevylCLIAtlasReviewName:         RevylCLIAtlasReviewContent,

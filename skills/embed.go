@@ -15,6 +15,7 @@ const (
 	RevylCLICreateName              = "revyl-cli-create"
 	RevylCLIAnalyzeName             = "revyl-cli-analyze"
 	RevylCLIOptimizeName            = "revyl-cli-optimize-tests"
+	RevylCLIImportTestsName         = "revyl-cli-import-tests"
 	RevylCLIDevLoopName             = "revyl-cli-dev-loop"
 	RevylCLIAtlasName               = "revyl-cli-atlas"
 	RevylCLIAtlasReviewName         = "revyl-cli-atlas-review"
@@ -38,7 +39,7 @@ var packages embed.FS
 
 func Files(name string) ([]File, error) {
 	switch name {
-	case RevylCLIName, RevylCLICreateName, RevylCLIAnalyzeName, RevylCLIOptimizeName,
+	case RevylCLIName, RevylCLICreateName, RevylCLIAnalyzeName, RevylCLIOptimizeName, RevylCLIImportTestsName,
 		RevylCLIDevLoopName, RevylCLIAtlasName, RevylCLIAtlasReviewName, RevylCLIAuthBypassName,
 		RevylCLIFigmaReviewName, RevylCLICrossPlatformReviewName,
 		RevylMCPName, RevylMCPCreateName, RevylMCPAnalyzeName, RevylMCPDevLoopName:
@@ -87,6 +88,9 @@ var RevylCLIAnalyzeContent string
 
 //go:embed revyl-cli-optimize-tests/SKILL.md
 var RevylCLIOptimizeContent string
+
+//go:embed revyl-cli-import-tests/SKILL.md
+var RevylCLIImportTestsContent string
 
 //go:embed revyl-cli-dev-loop/SKILL.md
 var RevylCLIDevLoopContent string
