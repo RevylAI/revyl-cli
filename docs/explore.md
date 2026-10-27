@@ -49,7 +49,9 @@ Keep values out of prompts, flags, logs and committed workflow files.
 ## Web exploration
 
 Web sessions and the separate Web exploration feature flag must be enabled for
-your organization before you can launch a Web exploration.
+your organization before you can launch a Web exploration. An organization
+Owner or Admin can enable Web in **Settings → Experiments** on any plan; see
+[Web access](web-builds.md). The separate exploration flag is still required.
 
 ```bash
 revyl explore run "My Web App" --platform web --max-duration 20m

@@ -1,6 +1,12 @@
 # Web builds
 
-Web is in Alpha. To add it to your organization, email support@revyl.ai.
+Web is in Alpha. An organization Owner or Admin can enable it in
+**Settings → Experiments** on any plan, with no paid-plan restriction.
+Organizations already enabled by Revyl keep access without opting in. If Revyl
+has disabled Web for your organization, email support@revyl.ai.
+
+Opting out hides Web but keeps your apps and builds. Sessions already in progress
+finish normally.
 
 A Web build is either a bundle built by Revyl or a registered deployment URL.
 Managed builds run the configured recipe locally or on Revyl's build runners,
