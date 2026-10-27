@@ -25,7 +25,7 @@ still holds it. `revyl computer stop` on that computer frees the slot once its
 cleanup can be confirmed. Linux computers are available only to explicitly
 allowlisted organizations with a configured Linux host; other organizations
 receive `computer_not_enabled` for `--os linux`. Linux computers can host Android
-app sessions when their hosting capability includes Android. macOS computers
+and Web app sessions when their hosting capability includes those platforms. macOS computers
 continue to host iOS and Web app sessions.
 
 ## Commands
@@ -142,11 +142,12 @@ flag is enabled.
 ```sh
 revyl device start --platform ios --app "$APP" --computer "$C1" --json
 revyl device start --platform android --app "$ANDROID_APP" --computer "$LINUX_COMPUTER" --json
+revyl device start --platform web --app "$WEB_APP" --computer "$LINUX_COMPUTER" --json
 ```
 
 `--computer` requires computer runs to be enabled for your organization. It
 starts an app session when the running computer's hosting capability lists that
-platform: iOS simulators and Web on macOS, or Android 14 on Linux. Android needs
+platform: iOS simulators and Web on macOS, or Android 14 and Web on Linux. Android needs
 an APK build and supports arm64 apps, without Google Play services or snapshots.
 Hosted Web needs
 no separate Web enablement and uses a registered deployment URL build, not a

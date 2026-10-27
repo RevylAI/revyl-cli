@@ -75,6 +75,57 @@ func TestStartSessionInsideComputerSendsComputerSessionID(t *testing.T) {
 	}
 }
 
+func TestStartWebSessionInsideComputerPreservesAppBuildAndSession(t *testing.T) {
+	const computerSessionID = "cccccccc-cccc-4ccc-8ccc-cccccccccc01"
+	var sessionID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if serveWebFixtureBuild(w, r) {
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1/telemetry/cli-traces":
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/v1/execution/start_device":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			sessionID, _ = body["session_id"].(string)
+			if body["computer_session_id"] != computerSessionID || body["app_id"] != webFixtureAppID || body["build_id"] != webFixtureBuildID || body["platform"] != "web" || sessionID == "" {
+				t.Fatalf("hosted Web request lost its canonical identity: %#v", body)
+			}
+			for _, key := range []string{"url", "app_url", "parent_session_id", "device_model", "launch_env_var_ids"} {
+				if _, ok := body[key]; ok {
+					t.Errorf("hosted Web request included %s", key)
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"session_id": sessionID, "workflow_run_id": startIDWorkflowRunID})
+		case "/api/v1/execution/device-sessions/" + sessionID:
+			_ = json.NewEncoder(w).Encode(runtimeProjectedSessionDetail(sessionID, "running"))
+		case "/api/v1/execution/device-proxy/" + startIDWorkflowRunID + "/screenshot":
+			w.Header().Set("X-Revyl-Screen-Token", "fixture-token")
+			_, _ = w.Write(runtimeReadyFixturePNG(t))
+		default:
+			t.Errorf("unexpected API call %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	manager := NewDeviceSessionManager(api.NewClientWithBaseURL("fixture-key", server.URL), t.TempDir())
+	index, session, err := manager.StartSession(context.Background(), StartSessionOptions{
+		Platform: "web", AppID: webFixtureAppID, BuildVersionID: webFixtureBuildID,
+		ComputerSessionID: computerSessionID,
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	t.Cleanup(func() { manager.StopIdleTimer(index) })
+	if session.SessionID != sessionID {
+		t.Fatalf("session ID = %q, want %q", session.SessionID, sessionID)
+	}
+}
+
 func TestStartSessionInsideComputerRefusesBeforeAPIWork(t *testing.T) {
 	const computerSessionID = "cccccccc-cccc-4ccc-8ccc-cccccccccc02"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
