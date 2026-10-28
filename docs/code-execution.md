@@ -13,7 +13,30 @@ Code-execution blocks accept optional `timeout_seconds` (an integer from 1 to
 Only successful stdout is captured into the variable. The report displays stdout
 followed by stderr in one output block, without preserving interleaving. Failed
 or timed-out scripts never replace the variable with partial output. Empty stdout
-leaves the existing variable unchanged. With `fail_fast` enabled, any failed code
+leaves the existing variable unchanged.
+
+### JSON output
+
+Set `variable_name: team` and print one JSON value:
+
+```python
+import json
+print(json.dumps({"name": "Bulls", "id": 42}))
+```
+
+```javascript
+console.log(JSON.stringify({ name: "Bulls", id: 42 }));
+```
+
+Use `{{team.name}}` in later steps, or `{{global.team.name}}` for a global.
+Nested fields and array indexes work too: `{{team.players.0.id}}`.
+`{{team}}` inserts the whole value. Missing fields or invalid JSON fail the step.
+Send debug logs to stderr so stdout stays valid JSON.
+
+**Secrets do not support JSON field references.** Never print secrets to stdout
+or stderr; both appear in execution reports.
+
+With `fail_fast` enabled, any failed code
 step stops the test before the next step. With it disabled, execution continues
 but the test still fails. Variables keep their existing persistence semantics.
 
@@ -49,4 +72,3 @@ variant. The value is an integer in seconds; missing or null means no limit was
 recorded, not that execution was unlimited. This is the code-step deadline, not
 the overall test-run timeout. Report inspection can read the same value using
 the step field pointer `/type_data/timeout_seconds`.
-
