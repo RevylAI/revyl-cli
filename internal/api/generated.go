@@ -3189,6 +3189,30 @@ func (e SessionHistoryStatus) Valid() bool {
 	}
 }
 
+// Defines values for SessionRecordingStatus.
+const (
+	SessionRecordingStatusPending     SessionRecordingStatus = "pending"
+	SessionRecordingStatusReady       SessionRecordingStatus = "ready"
+	SessionRecordingStatusUnavailable SessionRecordingStatus = "unavailable"
+	SessionRecordingStatusUnknown     SessionRecordingStatus = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the SessionRecordingStatus enum.
+func (e SessionRecordingStatus) Valid() bool {
+	switch e {
+	case SessionRecordingStatusPending:
+		return true
+	case SessionRecordingStatusReady:
+		return true
+	case SessionRecordingStatusUnavailable:
+		return true
+	case SessionRecordingStatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCancelled  SessionStatus = "cancelled"
@@ -7081,6 +7105,7 @@ type DeviceSessionDetailResponse struct {
 	OrgId                     string                                    `json:"org_id"`
 	OsVersion                 *string                                   `json:"os_version,omitempty"`
 	Platform                  *string                                   `json:"platform,omitempty"`
+	RecordingStatus           *SessionRecordingStatus                   `json:"recording_status,omitempty"`
 	ReportId                  *string                                   `json:"report_id,omitempty"`
 	ScreenHeight              *int                                      `json:"screen_height,omitempty"`
 	ScreenWidth               *int                                      `json:"screen_width,omitempty"`
@@ -7130,6 +7155,7 @@ type DeviceSessionHistoryItem struct {
 	OrgId                           string                                          `json:"org_id"`
 	OsVersion                       *string                                         `json:"os_version,omitempty"`
 	Platform                        *string                                         `json:"platform,omitempty"`
+	RecordingStatus                 *SessionRecordingStatus                         `json:"recording_status,omitempty"`
 	ReportId                        *string                                         `json:"report_id,omitempty"`
 	Source                          *string                                         `json:"source,omitempty"`
 	SourceMetadata                  *map[string]interface{}                         `json:"source_metadata,omitempty"`
@@ -9373,6 +9399,9 @@ type SessionHistorySource string
 
 // SessionHistoryStatus defines model for SessionHistoryStatus.
 type SessionHistoryStatus string
+
+// SessionRecordingStatus defines model for SessionRecordingStatus.
+type SessionRecordingStatus string
 
 // SessionStatus Device session status - the single source of truth for test execution state.
 //

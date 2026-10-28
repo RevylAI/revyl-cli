@@ -4598,39 +4598,40 @@ func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*Ac
 
 // DeviceSessionDetail is the response shape for GET /device-sessions/{session_id}.
 type DeviceSessionDetail struct {
-	AppID           string                 `json:"app_id,omitempty"`
-	BuildID         string                 `json:"build_id,omitempty"`
-	BranchID        string                 `json:"branch_id,omitempty"`
-	BranchName      string                 `json:"branch_name,omitempty"`
-	BuildVersion    *string                `json:"build_version,omitempty"`
-	CommitSHA       *string                `json:"commit_sha,omitempty"`
-	ViewerKind      *string                `json:"viewer_kind,omitempty"`
-	ID              string                 `json:"id"`
-	OrgID           string                 `json:"org_id"`
-	Source          *string                `json:"source"`
-	SourceMetadata  map[string]interface{} `json:"source_metadata,omitempty"`
-	Platform        *string                `json:"platform"`
-	DeviceModel     *string                `json:"device_model"`
-	OsVersion       *string                `json:"os_version"`
-	Status          string                 `json:"status"`
-	WhepURL         *string                `json:"whep_url"`
-	WorkflowRunID   *string                `json:"workflow_run_id"`
-	CreatedAt       *string                `json:"created_at"`
-	StartedAt       *string                `json:"started_at"`
-	EndedAt         *string                `json:"ended_at"`
-	ErrorMessage    *string                `json:"error_message"`
-	TraceID         *string                `json:"trace_id"`
-	ScreenWidth     *int                   `json:"screen_width"`
-	ScreenHeight    *int                   `json:"screen_height"`
-	ReportID        *string                `json:"report_id"`
-	HasVideo        bool                   `json:"has_video"`
-	StepCount       int                    `json:"step_count"`
-	ActionCount     int                    `json:"action_count"`
-	DurationSeconds *float64               `json:"duration_seconds"`
-	TestID          *string                `json:"test_id"`
-	TestName        *string                `json:"test_name"`
-	UserEmail       *string                `json:"user_email"`
-	CanCancel       bool                   `json:"can_cancel"`
+	AppID           string                  `json:"app_id,omitempty"`
+	BuildID         string                  `json:"build_id,omitempty"`
+	BranchID        string                  `json:"branch_id,omitempty"`
+	BranchName      string                  `json:"branch_name,omitempty"`
+	BuildVersion    *string                 `json:"build_version,omitempty"`
+	CommitSHA       *string                 `json:"commit_sha,omitempty"`
+	ViewerKind      *string                 `json:"viewer_kind,omitempty"`
+	ID              string                  `json:"id"`
+	OrgID           string                  `json:"org_id"`
+	Source          *string                 `json:"source"`
+	SourceMetadata  map[string]interface{}  `json:"source_metadata,omitempty"`
+	Platform        *string                 `json:"platform"`
+	DeviceModel     *string                 `json:"device_model"`
+	OsVersion       *string                 `json:"os_version"`
+	Status          string                  `json:"status"`
+	WhepURL         *string                 `json:"whep_url"`
+	WorkflowRunID   *string                 `json:"workflow_run_id"`
+	CreatedAt       *string                 `json:"created_at"`
+	StartedAt       *string                 `json:"started_at"`
+	EndedAt         *string                 `json:"ended_at"`
+	ErrorMessage    *string                 `json:"error_message"`
+	TraceID         *string                 `json:"trace_id"`
+	ScreenWidth     *int                    `json:"screen_width"`
+	ScreenHeight    *int                    `json:"screen_height"`
+	ReportID        *string                 `json:"report_id"`
+	HasVideo        bool                    `json:"has_video"`
+	RecordingStatus *SessionRecordingStatus `json:"recording_status,omitempty"`
+	StepCount       int                     `json:"step_count"`
+	ActionCount     int                     `json:"action_count"`
+	DurationSeconds *float64                `json:"duration_seconds"`
+	TestID          *string                 `json:"test_id"`
+	TestName        *string                 `json:"test_name"`
+	UserEmail       *string                 `json:"user_email"`
+	CanCancel       bool                    `json:"can_cancel"`
 }
 
 var webAppFailurePattern = regexp.MustCompile(`; app_failure=([a-z_]{1,64}); (.+)$`)
@@ -5925,24 +5926,25 @@ type CLIDeviceSessionHistoryResponse struct {
 
 // CLIDeviceSessionHistoryItem represents a single device session in the history list.
 type CLIDeviceSessionHistoryItem struct {
-	ID              string  `json:"id"`
-	AppID           *string `json:"app_id"`
-	BuildID         *string `json:"build_id"`
-	AppName         *string `json:"app_name"`
-	BuildVersion    *string `json:"build_version"`
-	Source          *string `json:"source"`
-	ReportID        *string `json:"report_id"`
-	TestExecutionID *string `json:"test_execution_id"`
-	TestName        *string `json:"test_name"`
-	StartedAt       *string `json:"started_at"`
-	EndedAt         *string `json:"ended_at"`
-	StepCount       int     `json:"step_count"`
-	Platform        string  `json:"platform"`
-	Status          string  `json:"status"`
-	CreatedAt       string  `json:"created_at"`
-	Duration        float64 `json:"duration_seconds,omitempty"`
-	BranchID        string  `json:"branch_id,omitempty"`
-	BranchName      string  `json:"branch_name,omitempty"`
+	ID              string                  `json:"id"`
+	AppID           *string                 `json:"app_id"`
+	BuildID         *string                 `json:"build_id"`
+	AppName         *string                 `json:"app_name"`
+	BuildVersion    *string                 `json:"build_version"`
+	Source          *string                 `json:"source"`
+	ReportID        *string                 `json:"report_id"`
+	RecordingStatus *SessionRecordingStatus `json:"recording_status,omitempty"`
+	TestExecutionID *string                 `json:"test_execution_id"`
+	TestName        *string                 `json:"test_name"`
+	StartedAt       *string                 `json:"started_at"`
+	EndedAt         *string                 `json:"ended_at"`
+	StepCount       int                     `json:"step_count"`
+	Platform        string                  `json:"platform"`
+	Status          string                  `json:"status"`
+	CreatedAt       string                  `json:"created_at"`
+	Duration        float64                 `json:"duration_seconds,omitempty"`
+	BranchID        string                  `json:"branch_id,omitempty"`
+	BranchName      string                  `json:"branch_name,omitempty"`
 }
 
 // GetDeviceSessionHistory retrieves paginated device session history.
