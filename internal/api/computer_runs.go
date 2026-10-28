@@ -143,10 +143,14 @@ func (c *Client) SubmitComputerOperation(ctx context.Context, request ComputerCo
 	if err := ValidateComputerCommand(request); err != nil {
 		return nil, err
 	}
+	wireRequest, err := encodeComputerOperationRequest(request)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, computerOperationWait)
 	defer cancel()
 	operationID := ComputerOperationID(request.ComputerSessionId, request.RequestId)
-	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/operations", request.ComputerSessionId), request, request.RequestId.String(), computerOperationWait, map[string]string{"Prefer": "respond-async"})
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/operations", request.ComputerSessionId), wireRequest, request.RequestId.String(), computerOperationWait, map[string]string{"Prefer": "respond-async"})
 	result, err := readComputerOperation(response, err, request.ComputerSessionId, operationID, true)
 	if err == nil && result == nil {
 		result, err = c.awaitComputerOperation(ctx, request.ComputerSessionId, operationID)

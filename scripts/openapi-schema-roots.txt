@@ -3,3 +3,5 @@
 # every exception must include a justification.
 
 WorkflowCancelResponse
+# Local command validation retains decoded types; the public operation body is encoded.
+ComputerCommandRequest

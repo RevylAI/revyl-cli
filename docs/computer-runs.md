@@ -32,6 +32,21 @@ Use the existing `revyl auth login` or `REVYL_API_KEY` authentication. The serve
 derives organization access from authentication, not possession of a UUID.
 C1, request IDs, operation IDs and process handles are canonical nonzero UUIDs.
 
+The CLI sends command arguments and file paths as padded URL-safe base64 UTF-8
+fields (`argv_b64` and `path_b64`). File contents and stdin already use base64.
+The API accepts only this encoded request shape and applies the same decoded
+argument, path and byte limits; an older client sending `argv` or `path` receives
+HTTP 422 with an upgrade message. Update the CLI before running operations.
+Process commands carry only run-owned handles, limits and timeouts, not command
+text. There are no per-command cwd or environment fields.
+
+An HTTP 403 response with `text/html`, a nonempty `cf-ray` header, and a body
+that is not valid JSON is reported as `edge_blocked`, not an authentication
+failure. Contact Revyl support to review the edge security
+rule; signing in again does not resolve that block. The CLI does not retry the
+operation automatically. Structured API refusals such as `forbidden` keep their
+existing meaning.
+
 ```sh
 revyl computer create --os macos --json
 revyl computer create --os macos --id "$C1" --json

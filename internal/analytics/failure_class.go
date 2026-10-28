@@ -99,6 +99,8 @@ func classifyFailure(err error, completion CommandCompletion) FailureClass {
 	var apiErr *api.APIError
 	if errors.As(err, &apiErr) {
 		switch status := apiErr.StatusCode; {
+		case apiErr.Code == "edge_blocked":
+			return FailureClassNetwork
 		case status == http.StatusUnauthorized || status == http.StatusForbidden:
 			return FailureClassAuth
 		case status == http.StatusPaymentRequired || status == http.StatusTooManyRequests:

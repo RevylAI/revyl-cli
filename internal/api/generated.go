@@ -3900,8 +3900,9 @@ type ActiveDeviceSessionItem struct {
 // “concurrency_mode“ says how the org's device budget is partitioned:
 // “shared“ is one pool of “concurrency_limit“ slots across platforms;
 // “platform“ means iOS and Android each have their own lane and queue,
-// with “concurrency_limit“ equal to the lane sum. Web, when enabled, has
-// its own independent lane in either mode.
+// with “concurrency_limit“ equal to the lane sum. Web shares the shared
+// pool when “web_uses_shared_concurrency“ is true, otherwise it has its
+// own independent lane.
 type ActiveDeviceSessionsResponse struct {
 	AndroidConcurrencyLimit *int `json:"android_concurrency_limit,omitempty"`
 
@@ -3913,9 +3914,10 @@ type ActiveDeviceSessionsResponse struct {
 	OrgId               string                                       `json:"org_id"`
 
 	// ProofRunId The proof run this listing is confined to, set only when the caller is a proof agent; every listed session belongs to it
-	ProofRunId          *string                   `json:"proof_run_id,omitempty"`
-	Sessions            []ActiveDeviceSessionItem `json:"sessions"`
-	WebConcurrencyLimit *int                      `json:"web_concurrency_limit,omitempty"`
+	ProofRunId               *string                   `json:"proof_run_id,omitempty"`
+	Sessions                 []ActiveDeviceSessionItem `json:"sessions"`
+	WebConcurrencyLimit      *int                      `json:"web_concurrency_limit,omitempty"`
+	WebUsesSharedConcurrency *bool                     `json:"web_uses_shared_concurrency,omitempty"`
 }
 
 // ActiveDeviceSessionsResponseConcurrencyMode defines model for ActiveDeviceSessionsResponse.ConcurrencyMode.
@@ -6076,6 +6078,7 @@ type CompiledIntentStep struct {
 type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 	Detail         ComputerAPIError_Detail       `json:"detail"`
+	Message        *string                       `json:"message,omitempty"`
 }
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.
@@ -6267,6 +6270,17 @@ type ComputerExec struct {
 	TimeoutMs *int    `json:"timeout_ms,omitempty"`
 }
 
+// ComputerExecRequest defines model for ComputerExecRequest.
+type ComputerExecRequest struct {
+	// ArgvB64 Each argument is padded URL-safe base64 of UTF-8 text; standard base64 is also accepted. Decoded argv plus stdin is bounded to 16,384 bytes.
+	ArgvB64 []string `json:"argv_b64"`
+	Kind    string   `json:"kind,omitempty"`
+
+	// Stdin Padded URL-safe base64 bytes; standard base64 input is also accepted. Argv plus decoded stdin is bounded to 16,384 bytes.
+	Stdin     *string `json:"stdin,omitempty"`
+	TimeoutMs *int    `json:"timeout_ms,omitempty"`
+}
+
 // ComputerExecResult defines model for ComputerExecResult.
 type ComputerExecResult struct {
 	ExitCode int    `json:"exit_code"`
@@ -6305,6 +6319,16 @@ type ComputerFileRead struct {
 	TimeoutMs *int   `json:"timeout_ms,omitempty"`
 }
 
+// ComputerFileReadRequest defines model for ComputerFileReadRequest.
+type ComputerFileReadRequest struct {
+	Kind     string `json:"kind,omitempty"`
+	MaxBytes *int   `json:"max_bytes,omitempty"`
+
+	// PathB64 Padded URL-safe base64 of a UTF-8 guest-relative path, bounded to 1,024 decoded bytes; standard base64 is also accepted.
+	PathB64   string `json:"path_b64"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
 // ComputerFileReadResult defines model for ComputerFileReadResult.
 type ComputerFileReadResult struct {
 	// Data Padded URL-safe base64 bytes, bounded to 1,048,576 decoded bytes; standard base64 input is also accepted.
@@ -6322,6 +6346,15 @@ type ComputerFileReadSummary struct {
 type ComputerFileStat struct {
 	Kind      string `json:"kind,omitempty"`
 	Path      string `json:"path"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
+// ComputerFileStatRequest defines model for ComputerFileStatRequest.
+type ComputerFileStatRequest struct {
+	Kind string `json:"kind,omitempty"`
+
+	// PathB64 Padded URL-safe base64 of a UTF-8 guest-relative path, bounded to 1,024 decoded bytes; standard base64 is also accepted.
+	PathB64   string `json:"path_b64"`
 	TimeoutMs *int   `json:"timeout_ms,omitempty"`
 }
 
@@ -6351,6 +6384,17 @@ type ComputerFileWrite struct {
 	Data      string `json:"data"`
 	Kind      string `json:"kind,omitempty"`
 	Path      string `json:"path"`
+	TimeoutMs *int   `json:"timeout_ms,omitempty"`
+}
+
+// ComputerFileWriteRequest defines model for ComputerFileWriteRequest.
+type ComputerFileWriteRequest struct {
+	// Data Padded URL-safe base64 bytes, bounded to 65,536 decoded bytes; standard base64 input is also accepted.
+	Data string `json:"data"`
+	Kind string `json:"kind,omitempty"`
+
+	// PathB64 Padded URL-safe base64 of a UTF-8 guest-relative path, bounded to 1,024 decoded bytes; standard base64 is also accepted.
+	PathB64   string `json:"path_b64"`
 	TimeoutMs *int   `json:"timeout_ms,omitempty"`
 }
 
@@ -6450,6 +6494,18 @@ type ComputerOperationEvidence_Summary struct {
 
 // ComputerOperationEvidenceTermination defines model for ComputerOperationEvidence.Termination.
 type ComputerOperationEvidenceTermination string
+
+// ComputerOperationRequest defines model for ComputerOperationRequest.
+type ComputerOperationRequest struct {
+	Command           ComputerOperationRequest_Command `json:"command"`
+	ComputerSessionId openapi_types.UUID               `json:"computer_session_id"`
+	RequestId         openapi_types.UUID               `json:"request_id"`
+}
+
+// ComputerOperationRequest_Command defines model for ComputerOperationRequest.Command.
+type ComputerOperationRequest_Command struct {
+	union json.RawMessage
+}
 
 // ComputerPerformanceReport A computer's performance report: whole-computer samples read live from its
 // host while it runs and from its saved artifact once it ends. Numbers only:
@@ -11775,7 +11831,7 @@ type CreateSessionGroundedAnnotationThreadJSONRequestBody = AtlasSessionGrounded
 type CreateComputerRunApiV1ComputerRunsPostJSONRequestBody = ComputerRunCreate
 
 // SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody defines body for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost for application/json ContentType.
-type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody = ComputerCommandRequest
+type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody = ComputerOperationRequest
 
 // CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody defines body for CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPost for application/json ContentType.
 type CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody = CreateCLIDeviceAuthorizationRequest
@@ -16130,6 +16186,245 @@ func (t ComputerOperationEvidence_Summary) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ComputerOperationEvidence_Summary) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsComputerExecRequest returns the union data inside the ComputerOperationRequest_Command as a ComputerExecRequest
+func (t ComputerOperationRequest_Command) AsComputerExecRequest() (ComputerExecRequest, error) {
+	var body ComputerExecRequest
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerExecRequest overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerExecRequest
+func (t *ComputerOperationRequest_Command) FromComputerExecRequest(v ComputerExecRequest) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerExecRequest performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerExecRequest
+func (t *ComputerOperationRequest_Command) MergeComputerExecRequest(v ComputerExecRequest) error {
+	v.Kind = "exec"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileReadRequest returns the union data inside the ComputerOperationRequest_Command as a ComputerFileReadRequest
+func (t ComputerOperationRequest_Command) AsComputerFileReadRequest() (ComputerFileReadRequest, error) {
+	var body ComputerFileReadRequest
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileReadRequest overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerFileReadRequest
+func (t *ComputerOperationRequest_Command) FromComputerFileReadRequest(v ComputerFileReadRequest) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileReadRequest performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerFileReadRequest
+func (t *ComputerOperationRequest_Command) MergeComputerFileReadRequest(v ComputerFileReadRequest) error {
+	v.Kind = "file_read"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileWriteRequest returns the union data inside the ComputerOperationRequest_Command as a ComputerFileWriteRequest
+func (t ComputerOperationRequest_Command) AsComputerFileWriteRequest() (ComputerFileWriteRequest, error) {
+	var body ComputerFileWriteRequest
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileWriteRequest overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerFileWriteRequest
+func (t *ComputerOperationRequest_Command) FromComputerFileWriteRequest(v ComputerFileWriteRequest) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileWriteRequest performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerFileWriteRequest
+func (t *ComputerOperationRequest_Command) MergeComputerFileWriteRequest(v ComputerFileWriteRequest) error {
+	v.Kind = "file_write"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerFileStatRequest returns the union data inside the ComputerOperationRequest_Command as a ComputerFileStatRequest
+func (t ComputerOperationRequest_Command) AsComputerFileStatRequest() (ComputerFileStatRequest, error) {
+	var body ComputerFileStatRequest
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerFileStatRequest overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerFileStatRequest
+func (t *ComputerOperationRequest_Command) FromComputerFileStatRequest(v ComputerFileStatRequest) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerFileStatRequest performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerFileStatRequest
+func (t *ComputerOperationRequest_Command) MergeComputerFileStatRequest(v ComputerFileStatRequest) error {
+	v.Kind = "file_stat"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessList returns the union data inside the ComputerOperationRequest_Command as a ComputerProcessList
+func (t ComputerOperationRequest_Command) AsComputerProcessList() (ComputerProcessList, error) {
+	var body ComputerProcessList
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessList overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerProcessList
+func (t *ComputerOperationRequest_Command) FromComputerProcessList(v ComputerProcessList) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessList performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerProcessList
+func (t *ComputerOperationRequest_Command) MergeComputerProcessList(v ComputerProcessList) error {
+	v.Kind = "process_list"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessInspect returns the union data inside the ComputerOperationRequest_Command as a ComputerProcessInspect
+func (t ComputerOperationRequest_Command) AsComputerProcessInspect() (ComputerProcessInspect, error) {
+	var body ComputerProcessInspect
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessInspect overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerProcessInspect
+func (t *ComputerOperationRequest_Command) FromComputerProcessInspect(v ComputerProcessInspect) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessInspect performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerProcessInspect
+func (t *ComputerOperationRequest_Command) MergeComputerProcessInspect(v ComputerProcessInspect) error {
+	v.Kind = "process_inspect"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsComputerProcessTerminate returns the union data inside the ComputerOperationRequest_Command as a ComputerProcessTerminate
+func (t ComputerOperationRequest_Command) AsComputerProcessTerminate() (ComputerProcessTerminate, error) {
+	var body ComputerProcessTerminate
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromComputerProcessTerminate overwrites any union data inside the ComputerOperationRequest_Command as the provided ComputerProcessTerminate
+func (t *ComputerOperationRequest_Command) FromComputerProcessTerminate(v ComputerProcessTerminate) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeComputerProcessTerminate performs a merge with any union data inside the ComputerOperationRequest_Command, using the provided ComputerProcessTerminate
+func (t *ComputerOperationRequest_Command) MergeComputerProcessTerminate(v ComputerProcessTerminate) error {
+	v.Kind = "process_terminate"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComputerOperationRequest_Command) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ComputerOperationRequest_Command) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "exec":
+		return t.AsComputerExecRequest()
+	case "file_read":
+		return t.AsComputerFileReadRequest()
+	case "file_stat":
+		return t.AsComputerFileStatRequest()
+	case "file_write":
+		return t.AsComputerFileWriteRequest()
+	case "process_inspect":
+		return t.AsComputerProcessInspect()
+	case "process_list":
+		return t.AsComputerProcessList()
+	case "process_terminate":
+		return t.AsComputerProcessTerminate()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ComputerOperationRequest_Command) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ComputerOperationRequest_Command) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

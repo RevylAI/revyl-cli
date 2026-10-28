@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -176,6 +177,15 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 		return nil, errComputerResponse
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted {
+		contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+		if response.StatusCode == http.StatusForbidden && strings.EqualFold(contentType, "text/html") && strings.TrimSpace(response.Header.Get("cf-ray")) != "" && !json.Valid(body) {
+			return nil, &APIError{
+				StatusCode: response.StatusCode,
+				Code:       "edge_blocked",
+				Message:    "Cloudflare blocked the computer request before it reached the API",
+				Hint:       "Contact Revyl support to review the edge security rule; signing in again will not resolve this block.",
+			}
+		}
 		refusal := &APIError{StatusCode: response.StatusCode, Message: "computer request was refused"}
 		var safe ComputerAPIError
 		if decodeComputerJSON(body, &safe, "detail") == nil {
