@@ -11,9 +11,11 @@ var androidTargets = PlatformTargetConfig{
 	},
 	AvailableModels: []string{
 		"Pixel 7",
+		"Pixel Tablet",
 	},
 	CompatibleRuntimes: map[string][]string{
-		"Pixel 7": {"Android 14"},
+		"Pixel 7":      {"Android 14"},
+		"Pixel Tablet": {"Android 14"},
 	},
 }
 
