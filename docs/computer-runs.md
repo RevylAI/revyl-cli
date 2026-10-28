@@ -40,9 +40,9 @@ revyl computer get "$C1"
 revyl computer get "$C1" --json
 revyl computer exec "$C1" --timeout 30s --request-id "$R1" -- git status
 revyl computer exec "$C1" --stdin input.bin --json -- tool arg
-revyl computer files write "$C1" workspace/file --from local.bin --json
-revyl computer files read "$C1" workspace/file > downloaded.bin
-revyl computer files stat "$C1" workspace/file --json
+revyl computer files write "$C1" notes.txt --from local.bin --json
+revyl computer files read "$C1" notes.txt > downloaded.bin
+revyl computer files stat "$C1" notes.txt --json
 revyl computer process list "$C1" --json
 revyl computer process inspect "$C1" "$HANDLE" --json
 revyl computer process terminate "$C1" "$HANDLE" --json
@@ -70,6 +70,21 @@ its steps as a table; `--json` prints the full detail instead.
 There is no active-computer setting, provider/image/TTL/cwd selector,
 interactive SSH/TTY, recursive sync or snapshot in this family. Existing `revyl device` commands still target native session IDs
 independently.
+
+### Command user and home directory
+
+On macOS, commands run as the non-admin `computer` account, not root. Each
+`exec` starts in `/Users/computer/workspace` with `HOME` set to that same
+directory. Relative file-operation paths also start there: `notes.txt` means
+`/Users/computer/workspace/notes.txt`, not `/Users/computer/notes.txt`.
+
+A Terminal opened on the desktop uses the same account but its login home is
+`/Users/computer`. It does not inherit an `exec` process's environment or working
+directory. To use the same files from that Terminal, run
+`cd /Users/computer/workspace`. Tools that store configuration under `$HOME`
+can still use different state; when needed, run that tool in Terminal with
+`HOME=/Users/computer/workspace`. Changing directory alone does not change
+`HOME`, and changing either value in one `exec` does not persist into the next.
 
 ## Performance reports
 
