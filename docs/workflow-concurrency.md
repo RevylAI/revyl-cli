@@ -19,7 +19,7 @@ value replaces that default for this run; `0` removes the workflow cap for this
 run. Both waiting runs and `--no-wait` support the override. The execution API
 accepts the same choice as `concurrency_limit_override` (omitted or `null` inherits).
 
-The cap is shared across iOS and Android tests in one run. Overlapping runs each
+The cap is shared across iOS, Android, and Web tests in one run. Overlapping runs each
 have their own cap, and all runs still share the organization's device capacity.
 Tests wait in the queue until capacity is available; device setup, execution,
 and teardown consume a slot. Existing scheduling deadlines still apply.
