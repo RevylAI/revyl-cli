@@ -23,11 +23,8 @@ also needs the organization's compute credits and fails with a billing error
 create, run operations on or stop a computer (`forbidden`). A computer keeps that slot until its cleanup is confirmed, so a
 computer that reads `failed`, `owner_lost` or `stopped` with release `unknown`
 still holds it. `revyl computer stop` on that computer frees the slot once its
-cleanup can be confirmed. Linux computers are available only to explicitly
-allowlisted organizations with a configured Linux host; other organizations
-receive `computer_not_enabled` for `--os linux`. Linux computers can host Android
-and Web app sessions when their hosting capability includes those platforms. macOS computers
-continue to host iOS and Web app sessions.
+cleanup can be confirmed. macOS computers can host iOS and Web app sessions
+when their hosting capability includes those platforms.
 
 ## Commands
 
@@ -61,7 +58,7 @@ revyl computer export "$C1" --format harbor --out ./computer.zip
 revyl computer stop "$C1" --json
 ```
 
-Create accepts `--os macos|linux` and an optional proposed `--id`; otherwise it
+Create uses `--os macos` and an optional proposed `--id`; otherwise it
 generates C1 once. Other commands require C1 explicitly. `exec` requires `--`
 before structured argv and never invokes a local shell. `--stdin -` and
 `files write --from -` read bounded stdin. Process handles are run-owned, not PIDs.
@@ -142,15 +139,12 @@ flag is enabled.
 
 ```sh
 revyl device start --platform ios --app "$APP" --computer "$C1" --json
-revyl device start --platform android --app "$ANDROID_APP" --computer "$LINUX_COMPUTER" --json
-revyl device start --platform web --app "$WEB_APP" --computer "$LINUX_COMPUTER" --json
+revyl device start --platform web --app "$WEB_APP" --computer "$C1" --json
 ```
 
 `--computer` requires computer runs to be enabled for your organization. It
 starts an app session when the running computer's hosting capability lists that
-platform: iOS simulators and Web on macOS, or Android 14 and Web on Linux. Android needs
-an APK build and supports arm64 apps, without Google Play services or snapshots.
-Hosted Web needs
+platform: iOS simulators and Web on macOS. Hosted Web needs
 no separate Web enablement and uses a registered deployment URL build, not a
 managed Web bundle. Select an app and one of its builds (`--app`, optionally
 `--build-version-id`); the computer chooses

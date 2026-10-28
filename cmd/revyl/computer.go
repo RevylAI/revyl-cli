@@ -56,7 +56,7 @@ Add --json to any command for machine-readable output.`,
 	command.PersistentFlags().Bool("json", false, "Output JSON; binary fields use URL-safe base64")
 	command.SetFlagErrorFunc(func(*cobra.Command, error) error { return errors.New("invalid computer flags; use --help") })
 	create := &cobra.Command{Use: "create", Short: "Start a computer"}
-	create.Flags().String("os", "", "Computer OS: macos or linux")
+	create.Flags().String("os", "", "Computer OS: macos")
 	create.Flags().String("id", "", "Proposed computer UUID (generated once when omitted)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
@@ -65,7 +65,7 @@ Add --json to any command for machine-readable output.`,
 			}
 			osName, _ := cmd.Flags().GetString("os")
 			if osName != "macos" && osName != "linux" {
-				return nil, errors.New("--os must be macos or linux")
+				return nil, errors.New("specify --os macos")
 			}
 			idText, _ := cmd.Flags().GetString("id")
 			id, err := computerUUIDOrNew(idText)

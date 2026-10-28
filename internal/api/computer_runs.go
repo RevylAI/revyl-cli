@@ -21,7 +21,7 @@ var computerOperationPollInterval = 2 * time.Second
 
 func (c *Client) CreateComputerRun(ctx context.Context, request ComputerRunCreate) (*ComputerReport, error) {
 	if request.ComputerSessionId == uuid.Nil || request.Os != "macos" && request.Os != "linux" {
-		return nil, fmt.Errorf("computer creation requires a nonzero UUID and macos or linux")
+		return nil, fmt.Errorf("computer creation requires a nonzero UUID and a supported OS")
 	}
 	response, err := c.doComputerMutationOnce(ctx, "/api/v1/computer-runs", request, request.ComputerSessionId.String(), DefaultTimeout)
 	return readComputerReport(response, err, request.ComputerSessionId)
