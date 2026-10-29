@@ -432,6 +432,7 @@ func (s *Server) registerDeviceTools() {
 	}, s.handleDeviceOpenApp)
 
 	s.registerDeviceNavigateTool()
+	s.registerDeviceSetFoldStateTool()
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_set_location",

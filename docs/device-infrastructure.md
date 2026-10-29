@@ -299,6 +299,8 @@ the screen. Your harness owns the assertions; a saved screenshot alone does
 not prove a test passed. See the [device command reference](https://docs.revyl.com/cli/command-reference)
 for taps, typing, app lifecycle, and other actions.
 
+For supported foldable devices, see [live fold-state control](https://docs.revyl.com/reference/cli#live-fold-state).
+
 ## 4. Stop the device
 
 ```bash

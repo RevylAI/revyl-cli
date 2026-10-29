@@ -6052,6 +6052,7 @@ type DeviceOpenURLRequest struct {
 // proxyNoRetryActions lists worker actions that are not idempotent.
 // Retrying these creates duplicate side-effects (e.g. duplicate agent steps).
 var proxyNoRetryActions = map[string]bool{
+	"set_fold_state":    true,
 	"input":             true,
 	"execute_step":      true,
 	"install_async":     true,
