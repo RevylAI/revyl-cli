@@ -15,9 +15,10 @@ A configured computer runtime is required; a server without one returns
 computer was recorded but could not be started returns `start_failed`, and that computer reads as `failed`. Reading and
 stopping an existing computer still work. Tests inject a synthetic runtime
 explicitly. A hosted server admits only organizations enabled for computers,
-and only while a device slot the computer can use is free (`computer_limit`): a
-computer takes one slot of the budget its iOS sessions use, and the sessions
-hosted inside it take none. A computer runs for up to an hour. Like a device start, create
+and only while its device lane has headroom (`computer_limit`): queued work
+counts against that lane, a computer takes one slot of the budget its iOS
+sessions use, and the sessions hosted inside it take none. A computer runs for
+up to an hour. Like a device start, create
 also needs the organization's compute credits and fails with a billing error
 (HTTP 402) when they are exhausted or unpaid. Organization Viewers cannot
 create, run operations on or stop a computer (`forbidden`). A computer keeps that slot until its cleanup is confirmed, so a
