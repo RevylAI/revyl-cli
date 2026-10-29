@@ -18,7 +18,7 @@ explicitly. A hosted server admits only organizations enabled for computers,
 and only while its device lane has headroom (`computer_limit`): queued work
 counts against that lane, a computer takes one slot of the budget its iOS
 sessions use, and the sessions hosted inside it take none. A computer runs for
-up to an hour. Like a device start, create
+up to two hours from creation. Like a device start, create
 also needs the payer's compute credits and fails with a billing error
 (HTTP 402) when they are exhausted or unpaid. Organization Viewers cannot
 create, run operations on or stop a computer (`forbidden`). A computer keeps that slot until its cleanup is confirmed, so a
@@ -223,7 +223,9 @@ app.
 
 ## Bounds and output
 
-The server fixes each run's lifetime at 60 minutes. Operations accept
+The server fixes each new run's lifetime at 120 minutes from creation. Runs
+created before the upgrade keep their original deadline; the returned
+`expires_at` is authoritative and cannot be extended. Operations accept
 `--timeout 1ms..5m` (default 30s), additionally bounded by run lifetime. Exec accepts
 at most 64 arguments and 16,384 total UTF-8 argv plus stdin bytes. Exec keeps the
 first 1,048,576 bytes (1 MiB) of combined stdout/stderr; the command still runs to
