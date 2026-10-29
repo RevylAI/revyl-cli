@@ -576,6 +576,10 @@ func validateReviewPathFilter(value string) error {
 	if value == "" || strings.TrimSpace(value) != value || utf8.RuneCountInString(value) > maxReviewPathRunes {
 		return fmt.Errorf("review path filters must contain 1-%d trimmed characters", maxReviewPathRunes)
 	}
+	value = strings.TrimPrefix(value, "!")
+	if value == "" || strings.TrimSpace(value) != value {
+		return fmt.Errorf("review path filters must contain a non-empty, trimmed glob after !")
+	}
 	if strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") || strings.Contains(value, "//") || strings.ContainsAny(value, "\\\x00") {
 		return fmt.Errorf("review path filters must be valid repository-relative globs")
 	}

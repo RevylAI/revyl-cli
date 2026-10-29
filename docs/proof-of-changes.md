@@ -36,3 +36,23 @@ pr_review:
 The CLI rejects unknown model IDs, rejects `model_id` for `revyl` and `devin`,
 and rejects `capy_project_id` for any harness other than `capy` instead of
 silently dropping them.
+
+## Filter changed paths
+
+`pr_review.review_triggers.paths` limits which changed files trigger the
+project's PR builds and proofs. Paths are repository-root-relative globs; prefix
+a quoted glob with `!` to exclude matching files:
+
+```yaml
+pr_review:
+  review_triggers:
+    paths:
+      - "frontend/**"
+      - "!frontend/generated/**"
+      - "!frontend/README.md"
+```
+
+A pull request triggers when any changed file matches an inclusion and no
+exclusion, regardless of order. Inclusions replace the default scope:
+`<project-root>/**` for a nested project, or every path for a repository-root
+project.

@@ -58,6 +58,12 @@ func TestAuthoredContractFixturesRoundTrip(t *testing.T) {
 func TestAuthoredReviewPathFiltersAreCanonicalRepositoryGlobs(t *testing.T) {
 	valid := []string{"apps/mobile/**", "packages/shared/**", "README.md", "**"}
 	invalid := []string{"", " apps/mobile/**", "apps/mobile/** ", "/apps/mobile/**", `apps\mobile\**`, "apps//mobile/**", "./apps/mobile/**", "apps/../mobile/**", "apps/mobile/", "bad\x00path"}
+	for _, pathFilter := range valid {
+		valid = append(valid, "!"+pathFilter)
+	}
+	for _, pathFilter := range invalid {
+		invalid = append(invalid, "!"+pathFilter)
+	}
 
 	for _, pathFilter := range valid {
 		if err := authoredConfigWithReviewPaths(pathFilter).ValidateContract(); err != nil {
