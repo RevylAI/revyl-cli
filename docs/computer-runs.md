@@ -176,9 +176,36 @@ flag is enabled.
 ## App sessions inside a computer
 
 ```sh
+revyl build --platform ios
+revyl device start --platform ios
+./run-tests.sh
+revyl device stop
+
+# Explicit escapes:
+revyl build --remote --platform ios
+revyl device start --platform ios --build-version-id "$BUILD_VERSION_ID"
+revyl device start --platform ios --computer=none
+
 revyl device start --platform ios --app "$APP" --computer "$C1" --json
 revyl device start --platform web --app "$WEB_APP" --computer "$C1" --json
 ```
+
+Inside a running computer, `REVYL_COMPUTER_ID` makes `revyl build` run the
+configured recipe locally and makes `device start` target that computer. The
+bare start selects the newest build on the checkout's detected Git branch when
+that branch follows Latest; concurrent uploads to the same branch can still
+race, so use `--build-version-id` when exact build identity matters. Unset the
+variable to disable both defaults. Explicit `--remote`, `--app-id`,
+`--build-version-id`, and `--computer=none` override the defaults.
+
+A bare mobile start infers the platform and app when the project has one
+eligible build recipe. Managed Web bundles keep running as standalone Web
+sessions when only `REVYL_COMPUTER_ID` supplies the target; explicit
+`--computer` still requires a registered deployment URL build.
+
+Implicit mobile starts use the app's defaults instead of running the project's
+`session.before_script` or applying `session.auth_bypass`. Use `--computer=none`
+when those standalone session settings are required.
 
 `--computer` requires computer runs to be enabled for your organization. It
 starts an app session when the running computer's hosting capability lists that

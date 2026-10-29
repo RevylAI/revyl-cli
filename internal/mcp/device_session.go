@@ -419,7 +419,8 @@ type StartSessionOptions struct {
 
 	// ComputerSessionID runs the session inside this running computer, which
 	// chooses its own device.
-	ComputerSessionID string
+	ComputerSessionID        string
+	DefaultComputerSessionID string
 
 	// OnStartAccepted, when set, is called once the backend has accepted the
 	// start and named its session, before StartSession waits for the device.
@@ -455,6 +456,20 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, err
 	}
 	computerSessionID := strings.TrimSpace(opts.ComputerSessionID)
+	if computerSessionID == "" {
+		computerSessionID = strings.TrimSpace(opts.DefaultComputerSessionID)
+	}
+	var resolvedArtifact startdevice.ResolvedStartArtifact
+	if platform == "web" && opts.WebURL == "" {
+		var err error
+		resolvedArtifact, err = m.resolveWebStartArtifact(ctx, opts)
+		if err != nil {
+			return -1, nil, err
+		}
+		if resolvedArtifact.ArtifactKind == "web_bundle" && opts.ComputerSessionID == "" {
+			computerSessionID = ""
+		}
+	}
 	if computerSessionID != "" {
 		if _, err := uuid.Parse(computerSessionID); err != nil {
 			return -1, nil, fmt.Errorf("computer session ID must be a UUID")
@@ -462,8 +477,15 @@ func (m *DeviceSessionManager) StartSession(
 		if opts.DeviceModel != "" || opts.OsVersion != "" || opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
 			return -1, nil, fmt.Errorf("a session inside a computer uses the computer's device and an uploaded build; omit the device, app URL and test")
 		}
-		if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
+		if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
 			return -1, nil, fmt.Errorf("a session inside a computer launches the app with its defaults; omit launch variables, arguments, environment and run options")
+		}
+	}
+	if platform == "web" && opts.WebURL != "" {
+		var err error
+		resolvedArtifact, err = m.resolveWebStartArtifact(ctx, opts)
+		if err != nil {
+			return -1, nil, err
 		}
 	}
 	launchVars := opts.LaunchVars
@@ -489,12 +511,9 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	testSelectsBuild := opts.TestID != "" && opts.AppID == "" && opts.BuildVersionID == "" && opts.AppURL == ""
-	var resolvedArtifact startdevice.ResolvedStartArtifact
 	var resolvedLaunchConfigurationIDs []string
 	var err error
-	if platform == "web" {
-		resolvedArtifact, err = m.resolveWebStartArtifact(ctx, opts)
-	} else {
+	if platform != "web" {
 		artifactOptions := startdevice.StartArtifactOptions{
 			AppID: opts.AppID, BuildVersionID: opts.BuildVersionID, AppURL: opts.AppURL, AppPackage: opts.AppPackage,
 			BranchID: opts.BranchID, BranchName: opts.BranchName, BuildSelection: opts.BuildSelection,

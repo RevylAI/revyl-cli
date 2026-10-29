@@ -29,12 +29,14 @@ var buildCmd = &cobra.Command{
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
 By default, this uploads source from the current Git worktree and runs the selected
-.revyl/config.yaml recipe on Revyl cloud build runners. Cloud builds require a
+.revyl/config.yaml recipe on Revyl cloud build runners. When REVYL_COMPUTER_ID is
+set, it runs the recipe locally on that computer instead. Cloud builds require a
 configured app_id and authenticated access; cloud build usage and plan limits apply.
 
 Use --local to run the same recipe on this machine and upload the generated artifact.
 Local execution requires the recipe's toolchain and is not supported on Windows.
---remote remains supported; --remote=false also selects local execution.
+--remote explicitly keeps the cloud build, even when REVYL_COMPUTER_ID is set;
+--remote=false also selects local execution.
 
 The build lands on --branch when supplied. Otherwise it uses the detected Git
 branch (created if needed) when automatic Git branch detection is enabled in
@@ -220,7 +222,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildCommandProfile, "profile", "", "Named build profile from .revyl/config.yaml")
 	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform (ios, android, or web)")
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
-	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", true, "Run on Revyl cloud build runners (default; --remote=false selects local execution)")
+	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", true, "Run on Revyl cloud build runners (default unless REVYL_COMPUTER_ID is set; --remote overrides it; --remote=false selects local execution)")
 	buildCmd.Flags().BoolVar(&buildCommandLocal, "local", false, "Run the build on this machine and upload the artifact instead of building in the cloud")
 	buildCmd.Flags().StringArrayVar(&buildEnvFlags, "env", nil, "Remote build environment override (repeatable: --env KEY=VALUE)")
 	buildCmd.Flags().StringArrayVar(&buildSecretRefFlags, "secret", nil, "Build secret name (repeatable; local builds read the process environment)")

@@ -55,6 +55,13 @@ otherwise of the app's default branch. If your build is on another branch, add
 live viewer link. Keep the session ID for the next steps; use the viewer to
 watch the device.
 
+When `REVYL_COMPUTER_ID` is set, mobile `device start` uses that computer and
+the configured app's detected branch build. Pass `--app-id` or
+`--build-version-id` to choose explicitly, `--computer=none` to start a
+standalone device, or unset `REVYL_COMPUTER_ID` to disable the default.
+Implicit computer starts skip `session.before_script` and `session.auth_bypass`
+and use the app's defaults; standalone starts keep those session settings.
+
 The start waits until the device is ready, which takes longer when devices are
 queued. As soon as Revyl accepts it, the command names the session on stderr,
 and `revyl device list` shows that session as `queued` or `starting`, with no

@@ -79,6 +79,9 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 	}
 
 	remoteExecution := buildCommandRemote && !buildCommandLocal
+	if !cmd.Flags().Changed("remote") && !cmd.Flags().Changed("local") && strings.TrimSpace(os.Getenv("REVYL_COMPUTER_ID")) != "" {
+		remoteExecution = false
+	}
 	mode := "local"
 	if remoteExecution {
 		mode = "remote"

@@ -86,6 +86,18 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	return sessionMgr, nil
 }
 
+func computerSessionIDForStart(cmd *cobra.Command) string {
+	computerID := strings.TrimSpace(os.Getenv("REVYL_COMPUTER_ID"))
+	if cmd.Flags().Changed("computer") {
+		computerID, _ = cmd.Flags().GetString("computer")
+		computerID = strings.TrimSpace(computerID)
+		if computerID == "none" {
+			return ""
+		}
+	}
+	return computerID
+}
+
 // resolveTargetOrCoords checks whether --target was provided or --x/--y were
 // explicitly set. Uses cobra's Changed() to distinguish "not provided" from 0.
 func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager, session *mcppkg.DeviceSession) (int, int, string, error) {
@@ -794,11 +806,16 @@ var deviceStartCmd = &cobra.Command{
 	Long: `Start a device session. Select an app with --app-id or an exact build
 with --build-version-id; otherwise use the project's configured app.
 
+Inside a computer, REVYL_COMPUTER_ID supplies --computer. Use --computer=none
+for a standalone device, or unset REVYL_COMPUTER_ID to disable computer defaults.
+Explicit --app-id and --build-version-id override the configured app selection.
+
 ` + runtimeBuildSelectionHelp + `
 
 Web sessions (--platform web) without --build-version-id or --url open the
 newest Web build on --branch, or on the app's default branch. They don't read
-your Git branch or a branch's pin.`,
+your Git branch or a branch's pin. Managed Web bundles keep running standalone
+when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 	Example: `  revyl device start --platform ios
   revyl device start --platform android --branch staging
   revyl device start --platform ios --all-branches
@@ -823,7 +840,7 @@ your Git branch or a branch's pin.`,
 				return err
 			}
 		}
-		computerSessionID, _ := cmd.Flags().GetString("computer")
+		computerSessionID := computerSessionIDForStart(cmd)
 		platformExplicit := cmd.Flags().Changed("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser, _ := cmd.Flags().GetBool("open")
@@ -879,6 +896,10 @@ your Git branch or a branch's pin.`,
 		if !cmd.Flags().Changed("timeout") && sessionConfig.IdleTimeoutSeconds != nil {
 			timeout = *sessionConfig.IdleTimeoutSeconds
 		}
+		if computerSessionID != "" && !cmd.Flags().Changed("computer") {
+			sessionConfig.AuthBypass = nil
+			sessionConfig.BeforeScript = nil
+		}
 		initDevSession(project.ProjectRoot, sessionConfig)
 
 		mgr, err := getDeviceSessionMgr(cmd)
@@ -909,7 +930,15 @@ your Git branch or a branch's pin.`,
 				}
 			}
 		}
-
+		if computerSessionID != "" && appID == "" && buildVersionID == "" && appURL == "" {
+			platform, appID, err = resolveComputerConfiguredMobileStart(project, platform)
+			if err != nil {
+				return fmt.Errorf("resolve configured app for device start; pass --app-id to select an app: %w", err)
+			}
+			if appID == "" {
+				return fmt.Errorf("no %s app is configured; pass --app-id or set the recipe's app_id in .revyl/config.yaml", platform)
+			}
+		}
 		platform, err = normalizeDeviceStartPlatform(platform)
 		if err != nil {
 			return err
@@ -1107,6 +1136,49 @@ your Git branch or a branch's pin.`,
 		}
 		return nil
 	},
+}
+
+func resolveComputerConfiguredMobileStart(project config.DeviceConfigContext, platform string) (string, string, error) {
+	if project.ConfigPath == "" {
+		platform, err := normalizeDeviceStartPlatform(platform)
+		return platform, "", err
+	}
+	aggregate, err := project.Compile()
+	if err != nil {
+		return "", "", err
+	}
+	platforms := map[string]struct{}{}
+	for _, profile := range aggregate.Profiles {
+		for _, configuration := range profile.Configurations {
+			if (configuration.Platform == "ios" || configuration.Platform == "android") && configuration.AppID != nil && strings.TrimSpace(*configuration.AppID) != "" {
+				platforms[configuration.Platform] = struct{}{}
+			}
+		}
+	}
+	if platform == "" && len(platforms) == 1 {
+		for candidate := range platforms {
+			platform = candidate
+		}
+	}
+	platform, err = normalizeDeviceStartPlatform(platform)
+	if err != nil {
+		return "", "", err
+	}
+	configured := map[string]struct{}{}
+	for _, profile := range aggregate.Profiles {
+		for _, configuration := range profile.Configurations {
+			if configuration.Platform == platform && configuration.AppID != nil && strings.TrimSpace(*configuration.AppID) != "" {
+				configured[strings.TrimSpace(*configuration.AppID)] = struct{}{}
+			}
+		}
+	}
+	if len(configured) > 1 {
+		return "", "", fmt.Errorf("multiple app IDs are configured for %s build profiles; pass --app <name-or-id>", platform)
+	}
+	for configuredAppID := range configured {
+		return platform, configuredAppID, nil
+	}
+	return platform, "", nil
 }
 
 // getExactStringArrayFlag bypasses pflag's CSV round trip, which collapses a
@@ -3661,7 +3733,7 @@ func init() {
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
-	deviceStartCmd.Flags().String("computer", "", "Run the app session inside this running computer (computer session ID); iOS simulator or Web. Experimental, opt-in")
+	deviceStartCmd.Flags().String("computer", "", "Run inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device. Experimental")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")

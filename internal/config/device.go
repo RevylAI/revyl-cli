@@ -87,6 +87,20 @@ func (c DeviceConfigContext) ReadSession() (AuthoredSession, error) {
 	return normalizeSession(session, c.repositoryRelativeProjectRoot)
 }
 
+func (c DeviceConfigContext) Compile() (*NormalizedProjectAggregate, error) {
+	if c.ConfigPath == "" {
+		return &NormalizedProjectAggregate{}, nil
+	}
+	data, err := ReadConfigFile(c.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	return CompileConfigBytes(data, CompilationContext{
+		RepositoryRelativeProjectRoot: c.repositoryRelativeProjectRoot,
+		ExecutionDirectory:            c.repositoryRelativeProjectRoot,
+	})
+}
+
 func legacyDeviceSession(document map[string]any) (map[string]any, error) {
 	session := map[string]any{}
 	defaults, err := legacyMapping(document, "defaults", []string{"defaults"})

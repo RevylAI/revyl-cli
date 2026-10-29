@@ -74,12 +74,16 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	computerSessionID, _ := cmd.Flags().GetString("computer")
+	computerSessionID := computerSessionIDForStart(cmd)
 	launchEnv, secretLaunchEnv, err := parseWebLaunchEnv(getExactStringArrayFlag(cmd, "launch-env"))
 	if err != nil {
 		return err
 	}
 	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport}, ComputerSessionID: computerSessionID}
+	if !cmd.Flags().Changed("computer") {
+		opts.DefaultComputerSessionID = opts.ComputerSessionID
+		opts.ComputerSessionID = ""
+	}
 	if err := mcppkg.ValidateWebSessionStartOptions(opts); err != nil {
 		return err
 	}

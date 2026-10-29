@@ -218,6 +218,7 @@ func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts
 		return startdevice.ResolvedStartArtifact{}, fmt.Errorf("Web build response omitted a valid build ID")
 	}
 	artifact.BuildID = build.ID
+	artifact.ArtifactKind = build.ArtifactKind
 	return artifact, nil
 }
 

@@ -28,6 +28,11 @@ to find an app, or `revyl app create` to create one. Cloud builds consume
 metered compute credits and require available capacity; failures never fall
 back to local execution.
 
+Inside a running computer, `REVYL_COMPUTER_ID` changes the default to a local
+build and upload so the checkout's toolchain runs on that computer. Pass
+`--remote` to keep the cloud build, or unset `REVYL_COMPUTER_ID` to restore the
+ordinary cloud default.
+
 Cloud builds upload tracked files with your edits and nonignored untracked
 files. Never track secrets: `.gitignore` does not exclude already-tracked
 files. Store credentials with `revyl build secret set NAME` and reference

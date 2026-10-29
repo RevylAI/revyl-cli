@@ -40,6 +40,7 @@ type StartArtifactOptions struct {
 // ResolvedStartArtifact is the concrete app artifact payload sent to start_device.
 type ResolvedStartArtifact struct {
 	AutoGitBranchEnabled *bool
+	ArtifactKind         string
 	BranchSource         api.BranchSource
 	GitBranchName        string
 	AppID                string
