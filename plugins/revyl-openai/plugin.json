@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "revyl-workspace",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Create, remotely build, test, verify, and explore mobile apps from a cloud coding workspace using the full Revyl CLI, with connected Atlas and device views.",
   "author": {
     "name": "Revyl",

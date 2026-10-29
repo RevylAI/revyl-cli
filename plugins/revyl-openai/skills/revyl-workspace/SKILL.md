@@ -62,6 +62,14 @@ is ambiguous. Supply one artifact selector to `start_device_session`: a known
 app's latest build. Use `no_open=true` so the client owns viewer navigation and
 set a bounded `idle_timeout`, normally 900 seconds.
 
+The hosted Revyl workspace connection takes `platform` `ios`, `android`,
+`web`, or `macos` and the arguments its tool declares. `web` opens a cloud
+browser on a Web app and requires that app's `app_id`. `macos` starts a bare
+cloud Mac computer with no app; its screen does not show in the embedded view,
+so give the user the returned `computer_url` to watch and control it in Revyl.
+If the result says computers are not enabled for the organization, pass that
+on rather than retrying.
+
 Record the returned session ID and index. Open that same session's workspace
 when needed; do not invoke startup again to retry UI rendering. If startup
 times out, inspect `list_device_sessions` before considering another start.

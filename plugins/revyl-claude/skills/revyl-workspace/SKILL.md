@@ -1,6 +1,6 @@
 ---
 name: revyl-workspace
-description: Open a mobile app's Revyl Atlas map or a live cloud device session from Claude, or start and stop a device session the user explicitly asked for, through the connected Revyl workspace tools.
+description: Open an app's Revyl Atlas map or a live cloud session from Claude, or start and stop a device, browser, or Mac computer session the user explicitly asked for, through the connected Revyl workspace tools.
 ---
 
 # Revyl Workspace
@@ -30,15 +30,24 @@ The tool returns `workspace_url`. Claude may not show the embedded Atlas or
 device view, so always give the user `workspace_url` as a link to open the
 view in their browser, and do not claim you can see it.
 
-## Start a device only when asked
+## Start a session only when asked
 
-A device session uses the user's device time. Call `start_device_session` only
-when the user asks for a device, with an explicit `platform`, and with either
-the app's `app_id` (installs its default build) or, for an exact build, the
-`latest_build_id` that `list_apps` returned, passed as `build_id`. Record the
-returned session ID and reuse it. Claude may not show the embedded live view,
-so give the user the returned `viewer_url` as a link to watch and control the
-device in their browser; do not start another session to retry rendering. If
+A session uses the user's device time. Call `start_device_session` only when
+the user asks for one, with an explicit `platform`:
+
+- `ios` or `android` for a cloud device. Pass the app's `app_id` (installs its
+  default build) or, for an exact build, the `latest_build_id` that
+  `list_apps` returned, passed as `build_id`.
+- `web` for a cloud browser on a Web app. `app_id` is required; `build_id`
+  picks an exact build.
+- `macos` for a bare cloud Mac computer, with no app. Its screen does not show
+  in the embedded view: give the user the returned `computer_url` to watch and
+  control it in Revyl. Computers must be enabled for the organization; if the
+  result says they are not, pass that on rather than retrying.
+
+Record the returned session ID and reuse it. Claude may not show the embedded
+live view, so give the user the returned `viewer_url` as a link to watch and
+control the device or browser in their browser; do not start another session to retry rendering. If
 startup is ambiguous, check `list_device_sessions` before considering another
 start.
 

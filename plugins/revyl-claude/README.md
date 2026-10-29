@@ -26,7 +26,7 @@ organization's device time, so the skill starts one only when you ask.
 | `list_apps`            | Lists the organization's apps with their IDs and latest builds |
 | `open_revyl_workspace` | Opens the Atlas map or a device session                        |
 | `list_device_sessions` | Lists queued, starting, and running device sessions            |
-| `start_device_session` | Starts one cloud iOS or Android device session                 |
+| `start_device_session` | Starts one cloud iOS, Android, Web, or macOS session           |
 | `screenshot`           | Captures the current screen of a running session               |
 | `stop_device_session`  | Stops one device session                                       |
 

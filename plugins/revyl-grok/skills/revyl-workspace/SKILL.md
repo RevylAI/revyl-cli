@@ -1,6 +1,6 @@
 ---
 name: revyl-workspace
-description: Open a mobile app's Revyl Atlas map or a live cloud device session inside Grok, or start and stop a device session the user explicitly asked for, through the connected Revyl workspace tools.
+description: Open an app's Revyl Atlas map or a live cloud session inside Grok, or start and stop a device, browser, or Mac computer session the user explicitly asked for, through the connected Revyl workspace tools.
 ---
 
 # Revyl Workspace
@@ -29,12 +29,22 @@ The tool returns `workspace_url` and links an embedded view. A successful call
 is not proof that the view loaded. Say the view is ready, and offer
 `workspace_url` as the browser fallback; do not claim you can see it.
 
-## Start a device only when asked
+## Start a session only when asked
 
-A device session uses the user's device time. Call `start_device_session` only
-when the user asks for a device, with an explicit `platform`, and with either
-the app's `app_id` (installs its default build) or, for an exact build, the
-`latest_build_id` that `list_apps` returned, passed as `build_id`. Record the returned session ID and reuse it; do not start another
+A session uses the user's device time. Call `start_device_session` only when
+the user asks for one, with an explicit `platform`:
+
+- `ios` or `android` for a cloud device. Pass the app's `app_id` (installs its
+  default build) or, for an exact build, the `latest_build_id` that
+  `list_apps` returned, passed as `build_id`.
+- `web` for a cloud browser on a Web app. `app_id` is required; `build_id`
+  picks an exact build.
+- `macos` for a bare cloud Mac computer, with no app. Its screen does not show
+  in the embedded view: give the user the returned `computer_url` to watch and
+  control it in Revyl. Computers must be enabled for the organization; if the
+  result says they are not, pass that on rather than retrying.
+
+Record the returned session ID and reuse it; do not start another
 session to retry rendering. If startup is ambiguous, check
 `list_device_sessions` before considering another start.
 
