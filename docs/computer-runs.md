@@ -19,13 +19,20 @@ and only while its device lane has headroom (`computer_limit`): queued work
 counts against that lane, a computer takes one slot of the budget its iOS
 sessions use, and the sessions hosted inside it take none. A computer runs for
 up to an hour. Like a device start, create
-also needs the organization's compute credits and fails with a billing error
+also needs the payer's compute credits and fails with a billing error
 (HTTP 402) when they are exhausted or unpaid. Organization Viewers cannot
 create, run operations on or stop a computer (`forbidden`). A computer keeps that slot until its cleanup is confirmed, so a
 computer that reads `failed`, `owner_lost` or `stopped` with release `unknown`
 still holds it. `revyl computer stop` on that computer frees the slot once its
 cleanup can be confirmed. macOS computers can host iOS and Web app sessions
 when their hosting capability includes those platforms.
+
+Partner connection credentials can create, read, stop and run operations on
+enabled computers, including screenshots and hosted app sessions. Their outer
+computer bills to the partner's Mac or Linux computer meter; hosted sessions
+add no compute charge or shared device slot. Disconnecting the connection stops
+its computers through the same owner cleanup path. Interactive screen input and
+live viewer leases still require a person.
 
 ## Commands
 
