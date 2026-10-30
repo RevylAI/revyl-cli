@@ -346,9 +346,9 @@ func TestCursorGlobalInstallDoesNotWriteCompanionRule(t *testing.T) {
 	}
 }
 
-func TestDefaultInstalledSkillContentIncludesNativeAgentBehavior(t *testing.T) {
+func TestBrowserOrientedSkillContentIncludesNativeAgentBehavior(t *testing.T) {
 	withSkillFamilyFlags(false, false, func() {
-		selected, err := resolveInstallSkills(defaultInstalledSkillNamesForTest())
+		selected, err := resolveInstallSkills([]string{"revyl-cli-atlas", "revyl-cli-create", "revyl-cli-auth-bypass"})
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
