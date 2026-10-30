@@ -964,6 +964,11 @@ func resolveModuleForCreate(cmd *cobra.Command, client *api.Client, nameOrID str
 	return "", "", fmt.Errorf("module %q not found; use an exact module name or UUID", nameOrID)
 }
 
+func announceInteractiveDeviceReadiness(session *interactive.Session) {
+	ui.PrintInfo("Connected to the worker; waiting for the device to initialize...")
+	session.WhenDeviceReady(func() { ui.PrintSuccess("Device ready!") })
+}
+
 // runHeadlessSession starts a device session without the interactive REPL.
 // It outputs the frontend URL and waits for Ctrl+C to stop.
 //
@@ -985,7 +990,7 @@ func runHeadlessSession(ctx context.Context, session *interactive.Session) error
 		return fmt.Errorf("failed to start session: %w", err)
 	}
 
-	ui.PrintSuccess("Device ready!")
+	announceInteractiveDeviceReadiness(session)
 	ui.Println()
 
 	// Display frontend URL

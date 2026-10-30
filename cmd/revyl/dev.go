@@ -915,7 +915,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			return err
 		}
 		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
-		ui.PrintSuccess("Device session ready")
+		reportDeviceReadiness(cmd, session, "Device session ready")
 	}
 
 	if sessionOwned {

@@ -1116,7 +1116,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 				config.GetAppURL(devMode),
 				session.SessionID,
 			)
-			ui.PrintSuccess("Device ready! Session %d (%s)", session.Index, platform)
+			reportDeviceReadiness(cmd, session, fmt.Sprintf("Device ready! Session %d (%s)", session.Index, platform))
 			if label := buildFromBranchLabel(session.BuildID, session.BranchName); label != "" {
 				ui.PrintInfo("Build: %s", label)
 			}
@@ -3138,7 +3138,10 @@ Examples:
 		}
 		ui.PrintInfo("Session:   %s", session.SessionID)
 		ui.PrintDim("")
-		ui.PrintDim("Device ready. Run commands against this %s session:", deviceLabel)
+		if session.DeviceReady != nil && !*session.DeviceReady {
+			ui.PrintWarning("This session's device was not confirmed connected when it started; commands can fail until it attaches.")
+		}
+		ui.PrintDim("Run commands against this %s session:", deviceLabel)
 		ui.PrintDim("  revyl device screenshot")
 		ui.PrintDim("  revyl device tap --x 200 --y 400")
 		ui.PrintDim("  revyl device instruction \"tap the login button\"")
@@ -4037,4 +4040,16 @@ func defaultOSVersionForModel(cmd *cobra.Command, catalog *devicetargets.Catalog
 	ui.PrintInfo("Using %s for --device-model %q (the newest runtime it supports). Pass --os-version to choose another.", runtime, model)
 	recordAppliedDefault(cmd, appliedDefault{Flag: "os-version", Value: runtime, Reason: "newest_runtime_for_model"})
 	return runtime, nil
+}
+
+func reportDeviceReadiness(cmd *cobra.Command, session *mcppkg.DeviceSession, readyMessage string) {
+	if session.DeviceConnectionConfirmed() {
+		ui.PrintSuccess("%s", readyMessage)
+		return
+	}
+	cmdPrefix := deviceCommandPrefix(cmd)
+	ui.PrintWarning(
+		"Session %s was accepted, but its device is not confirmed connected yet; commands can fail until it attaches. Check with '%s device list' or stop it with '%s device stop -s %d'.",
+		session.SessionID, cmdPrefix, cmdPrefix, session.Index,
+	)
 }

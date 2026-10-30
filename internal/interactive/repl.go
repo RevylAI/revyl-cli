@@ -218,7 +218,21 @@ func (r *REPL) Run(ctx context.Context) error {
 	if err := r.session.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start session: %w", err)
 	}
-	fmt.Println(r.styles.Success.Render("Device ready!"))
+	if r.session.IsDeviceReady() {
+		fmt.Println(r.styles.Success.Render("Device ready!"))
+	} else {
+		fmt.Println(r.styles.Info.Render("Connected to the worker; waiting for the device to initialize..."))
+		r.session.WhenDeviceReady(func() {
+			shown := readyPromptShown.Load()
+			if shown {
+				fmt.Println()
+			}
+			fmt.Println(r.styles.Success.Render("Device ready!"))
+			if shown {
+				fmt.Print(r.styles.Prompt.Render("revyl> "))
+			}
+		})
+	}
 	fmt.Println()
 
 	// Print welcome message after device is ready
@@ -524,7 +538,11 @@ func (r *REPL) printWelcome() {
 // printReadyBanner prints a clear visual indicator that the REPL is ready for input.
 func (r *REPL) printReadyBanner() {
 	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-	fmt.Println(r.styles.Success.Render("  Ready! Enter your first instruction below."))
+	if r.session.IsDeviceReady() {
+		fmt.Println(r.styles.Success.Render("  Ready! Enter your first instruction below."))
+	} else {
+		fmt.Println(r.styles.Success.Render("  Connected. Enter your first instruction once the device reports ready."))
+	}
 	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 	fmt.Println()
 }

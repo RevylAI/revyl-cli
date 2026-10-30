@@ -79,6 +79,14 @@ const (
 	deviceWorkerReadyTimeout = 35 * time.Minute
 )
 
+var deviceHealthPollDelay = 2 * time.Second
+
+func boolPointer(value bool) *bool { return &value }
+
+func (s *DeviceSession) DeviceConnectionConfirmed() bool {
+	return s != nil && s.DeviceReady != nil && *s.DeviceReady
+}
+
 // DeviceSession represents an active device session with its connection info.
 
 // resolveIdleTimeout applies the default idle timeout when none is set.
@@ -130,6 +138,9 @@ type DeviceSession struct {
 
 	// ScreenHeight is the device screen height in device units (0 when unknown).
 	ScreenHeight int `json:"screen_height,omitempty"`
+
+	// DeviceReady is nil when the start never evaluated connected health; nil is not connected.
+	DeviceReady *bool `json:"device_ready,omitempty"`
 
 	// StartedAt is when the session was created.
 	StartedAt time.Time `json:"started_at"`
@@ -662,6 +673,7 @@ func (m *DeviceSessionManager) StartSession(
 		if err != nil {
 			return -1, nil, m.requestRuntimeStartCleanup(sessionID, err)
 		}
+		session.DeviceReady = boolPointer(true)
 		index, err := m.registerStartedSession(session)
 		if err != nil {
 			return -1, nil, m.requestRuntimeStartCleanup(sessionID, fmt.Errorf("web session registration failed: %w", err))
@@ -683,7 +695,7 @@ func (m *DeviceSessionManager) StartSession(
 	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 	deviceReady := false
 	var lastHealth workerHealthResponse
-	for i := 0; i < 15; i++ { // 15 * 2s = 30s max
+	for i := 0; i < 15; i++ {
 		if health, err := m.healthCheckSession(tmpSession); err == nil {
 			lastHealth = health
 			deviceReady = true
@@ -693,7 +705,7 @@ func (m *DeviceSessionManager) StartSession(
 		case <-ctx.Done():
 			_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
 			return -1, nil, fmt.Errorf("cancelled while waiting for device to connect: %w", ctx.Err())
-		case <-time.After(2 * time.Second):
+		case <-time.After(deviceHealthPollDelay):
 		}
 	}
 	// A device that never reported ready is not an error: the worker exists, the
@@ -735,6 +747,7 @@ func (m *DeviceSessionManager) StartSession(
 		IdleTimeout:   idleTimeout,
 	}
 
+	session.DeviceReady = boolPointer(deviceReady)
 	if deviceReady {
 		session.ScreenWidth = lastHealth.ScreenWidth
 		session.ScreenHeight = lastHealth.ScreenHeight
@@ -2333,7 +2346,7 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (worke
 
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
-		return workerHealthResponse{}, nil
+		return workerHealthResponse{}, fmt.Errorf("reading worker health response: %w", readErr)
 	}
 	return parseWorkerHealth(body)
 }
@@ -2385,11 +2398,11 @@ func (m *DeviceSessionManager) RequireCoordsOnScreen(ctx context.Context, sessio
 //
 // Returns:
 //   - workerHealthResponse with all parsed fields (including ScreenWidth/ScreenHeight).
-//   - error if the device is not connected; nil otherwise.
+//   - error if the body is not valid JSON or the device is not connected; nil otherwise.
 func parseWorkerHealth(body []byte) (workerHealthResponse, error) {
 	var health workerHealthResponse
 	if jsonErr := json.Unmarshal(body, &health); jsonErr != nil {
-		return workerHealthResponse{}, nil
+		return workerHealthResponse{}, fmt.Errorf("worker health response is not valid JSON: %w", jsonErr)
 	}
 	if !health.DeviceConnected {
 		return health, fmt.Errorf("worker healthy but device not connected")

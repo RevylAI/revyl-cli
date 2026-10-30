@@ -641,6 +641,7 @@ type StartDeviceSessionOutput struct {
 	Success              bool             `json:"success"`
 	SessionID            string           `json:"session_id,omitempty"`
 	SessionIndex         int              `json:"session_index"`
+	DeviceReady          *bool            `json:"device_ready,omitempty" jsonschema:"True only after the worker reported a connected device; false means the session was accepted but its device is not confirmed connected yet, so actions can fail"`
 	Platform             string           `json:"platform,omitempty"`
 	ViewerURL            string           `json:"viewer_url,omitempty"`
 	WhepURL              string           `json:"whep_url,omitempty"`
@@ -738,6 +739,9 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	if platform == "web" {
 		nextSteps = nextSteps[:1]
 	}
+	if !session.DeviceConnectionConfirmed() {
+		nextSteps[0].Reason = "Check that the device is connected before other actions"
+	}
 
 	return nil, StartDeviceSessionOutput{
 		BranchSource: session.BranchSource, GitBranchName: session.GitBranchName,
@@ -746,6 +750,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		Success:            true,
 		SessionID:          session.SessionID,
 		SessionIndex:       idx,
+		DeviceReady:        boolPointer(session.DeviceConnectionConfirmed()),
 		Platform:           session.Platform,
 		ViewerURL:          session.ViewerURL,
 		WhepURL:            stringValue(session.WhepURL),

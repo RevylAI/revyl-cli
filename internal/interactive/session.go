@@ -170,6 +170,9 @@ type Session struct {
 	// deviceReady is true when DEVICE_INIT_STATUS with status "initialized" has been received.
 	// Step commands (device actions) should be rejected until this is true.
 	deviceReady atomic.Bool
+
+	// guarded by mu
+	deviceReadyWaiters []func()
 }
 
 // NewSession creates a new interactive session.
@@ -267,6 +270,18 @@ func (s *Session) State() SessionState {
 //   - bool: True if DEVICE_INIT_STATUS with status "initialized" has been received
 func (s *Session) IsDeviceReady() bool {
 	return s.deviceReady.Load()
+}
+
+// WhenDeviceReady runs callback once the device reports initialized; callback must not block.
+func (s *Session) WhenDeviceReady(callback func()) {
+	s.mu.Lock()
+	if !s.deviceReady.Load() {
+		s.deviceReadyWaiters = append(s.deviceReadyWaiters, callback)
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	callback()
 }
 
 // Steps returns a copy of the recorded steps.
@@ -437,9 +452,16 @@ func (s *Session) handleMessages() {
 					Status string `json:"status"`
 				}
 				if err := json.Unmarshal(msg.Raw, &initStatus); err == nil && initStatus.Status == "initialized" {
+					s.mu.Lock()
 					s.deviceReady.Store(true)
+					waiters := s.deviceReadyWaiters
+					s.deviceReadyWaiters = nil
+					s.mu.Unlock()
 					if s.onLog != nil {
 						s.onLog("Device initialized and ready")
+					}
+					for _, waiter := range waiters {
+						waiter()
 					}
 				}
 

@@ -68,6 +68,9 @@ and `revyl device list` shows that session as `queued` or `starting`, with no
 local index, until its device is ready; target it by session ID in the
 meantime.
 
+If the device is not confirmed connected by the end of the start wait, the
+session is still returned. Human output warns; `--json` reports `"device_ready": false`.
+
 `revyl device list` shows sessions whose owner email matches the authenticated
 CLI identity, sessions started in this directory, and the session last selected
 with `revyl device attach` or `revyl device use`. Other sessions, including those

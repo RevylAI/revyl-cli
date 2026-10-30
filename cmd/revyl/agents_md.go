@@ -56,7 +56,7 @@ Use its Web build/upload/start flow rather than the mobile dev loop below.
 Mobile dev loop (run from the app directory containing .revyl/config.yaml):
 
 ` + "```bash" + `
-# Start in the background. Returns JSON as soon as the simulator is watchable;
+# Start in the background. Returns JSON as soon as the device session is published;
 # the build keeps running behind it. Share viewer_url with the user right away.
 revyl dev --remote --detach --json
 

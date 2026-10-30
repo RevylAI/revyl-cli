@@ -251,8 +251,8 @@ window.addEventListener("message",(event)=>{
     statusNode.hidden=false;
     if(viewerURL){
       statusNode.className="";
-      statusTitleNode.textContent="Live device ready";
-      statusDetailNode.textContent="Open the viewer to watch the session. A screenshot will appear after the app is installed.";
+      statusTitleNode.textContent="Live viewer available";
+      statusDetailNode.textContent="Open the viewer to watch the session. A screenshot will appear once the device is connected and the app is installed.";
     }else{
       statusNode.className="error";
       statusTitleNode.textContent="Screenshot unavailable";

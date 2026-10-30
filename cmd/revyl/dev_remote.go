@@ -154,6 +154,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 		triggerCh <- remoteDevBuildTrigger{job: job, err: triggerErr}
 	}()
 
+	startedHere := session == nil
 	if session == nil {
 		ui.PrintInfo("Starting cloud device session (build continues in background)...")
 		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
@@ -270,7 +271,11 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	}
 
 	ui.Println()
-	ui.PrintSuccess("Device ready — remote build in progress")
+	if startedHere {
+		reportDeviceReadiness(cmd, session, "Device ready — remote build in progress")
+	} else {
+		ui.PrintSuccess("Reusing the existing device session — remote build in progress")
+	}
 	printDevBrowserLinks(cockpitURL, viewerURL)
 	ui.PrintDim("Watch the build: revyl dev logs --build --follow")
 	ui.Println()

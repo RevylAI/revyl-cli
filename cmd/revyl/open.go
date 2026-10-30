@@ -210,7 +210,7 @@ func runOpenHeadlessSession(ctx context.Context, session *interactive.Session) e
 		return fmt.Errorf("failed to start session: %w", err)
 	}
 
-	ui.PrintSuccess("Device ready!")
+	announceInteractiveDeviceReadiness(session)
 	ui.Println()
 
 	// Display frontend URL
