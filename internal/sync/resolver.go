@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
@@ -144,9 +145,12 @@ func NewResolver(client *api.Client, _ *config.ProjectConfig, localTests map[str
 	}
 }
 
+// remoteStatusBatchSize bounds the test IDs sent per batch status lookup.
+const remoteStatusBatchSize = 100
+
 // GetAllStatuses returns sync status for all known tests.
-// Fetches are parallelised with bounded concurrency to avoid sequential
-// round-trips that dominated TUI startup time.
+// Tests linked by UUID are looked up in batches so a project costs a few
+// requests instead of one per test; other links use the per-test lookup.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -155,14 +159,85 @@ func NewResolver(client *api.Client, _ *config.ProjectConfig, localTests map[str
 //   - []TestSyncStatus: List of test sync statuses
 //   - error: Any error that occurred
 func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error) {
-	names := make([]string, 0, len(r.localTests))
-	for name := range r.localTests {
-		names = append(names, name)
-	}
-	if len(names) == 0 {
+	if len(r.localTests) == 0 {
 		return nil, nil
 	}
 
+	var batchedNames, individualNames []string
+	for name, localTest := range r.localTests {
+		remoteID := localTest.Meta.RemoteID
+		if parsed, err := uuid.Parse(remoteID); err == nil && parsed.String() == strings.ToLower(remoteID) {
+			batchedNames = append(batchedNames, name)
+		} else {
+			individualNames = append(individualNames, name)
+		}
+	}
+	sort.Strings(batchedNames)
+
+	statuses := r.getIndividualStatuses(ctx, individualNames)
+	for start := 0; start < len(batchedNames); start += remoteStatusBatchSize {
+		end := min(start+remoteStatusBatchSize, len(batchedNames))
+		statuses = append(statuses, r.getBatchedStatuses(ctx, batchedNames[start:end])...)
+	}
+
+	return statuses, nil
+}
+
+// getBatchedStatuses resolves statuses for tests linked by UUID with one
+// request, falling back to per-test lookups when the backend rejects the batch.
+func (r *Resolver) getBatchedStatuses(ctx context.Context, names []string) []TestSyncStatus {
+	remoteIDs := make([]string, 0, len(names))
+	for _, name := range names {
+		remoteIDs = append(remoteIDs, r.localTests[name].Meta.RemoteID)
+	}
+
+	remoteTests, err := r.client.GetExistingTestsByIDs(ctx, remoteIDs)
+	if err != nil {
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == 400 || apiErr.StatusCode == 404) {
+			return r.getIndividualStatuses(ctx, names)
+		}
+		statuses := make([]TestSyncStatus, 0, len(names))
+		for _, name := range names {
+			status := r.newLinkedStatus(name)
+			if apiErr == nil || !applyRemoteLookupError(status, apiErr) {
+				status = &TestSyncStatus{Name: name, Status: StatusLocalOnly, ErrorMessage: err.Error()}
+			}
+			statuses = append(statuses, *status)
+		}
+		return statuses
+	}
+
+	remoteVersionByID := make(map[string]int, len(remoteTests))
+	for _, remoteTest := range remoteTests {
+		if remoteTest.Id == nil {
+			continue
+		}
+		remoteVersion := 0
+		if remoteTest.Version != nil {
+			remoteVersion = *remoteTest.Version
+		}
+		remoteVersionByID[remoteTest.Id.String()] = remoteVersion
+	}
+
+	statuses := make([]TestSyncStatus, 0, len(names))
+	for _, name := range names {
+		status := r.newLinkedStatus(name)
+		if remoteVersion, ok := remoteVersionByID[strings.ToLower(status.RemoteID)]; ok {
+			r.applyRemoteVersion(status, remoteVersion)
+		} else {
+			status.Status = StatusOrphaned
+			status.LinkIssue = RemoteLinkIssueMissing
+			status.LinkIssueMessage = "remote test not found"
+		}
+		statuses = append(statuses, *status)
+	}
+	return statuses
+}
+
+// getIndividualStatuses resolves statuses with one lookup per test and
+// bounded concurrency.
+func (r *Resolver) getIndividualStatuses(ctx context.Context, names []string) []TestSyncStatus {
 	const maxConcurrency = 10
 	sem := make(chan struct{}, maxConcurrency)
 	results := make(chan TestSyncStatus, len(names))
@@ -188,93 +263,96 @@ func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error)
 	for range names {
 		statuses = append(statuses, <-results)
 	}
+	return statuses
+}
 
-	return statuses, nil
+// newLinkedStatus returns the local half of a test's status: local-only when
+// it has no remote link, otherwise its link and local sync metadata.
+func (r *Resolver) newLinkedStatus(name string) *TestSyncStatus {
+	status := &TestSyncStatus{Name: name}
+
+	localTest, hasLocal := r.localTests[name]
+	if !hasLocal || localTest.Meta.RemoteID == "" {
+		status.Status = StatusLocalOnly
+		return status
+	}
+
+	status.RemoteID = localTest.Meta.RemoteID
+	status.LocalVersion = localTest.Meta.LocalVersion
+	if localTest.Meta.LastSyncedAt != "" {
+		status.LastSync = formatTimeAgo(localTest.Meta.LastSyncedAt)
+	} else {
+		status.LastSync = "never"
+	}
+	return status
 }
 
 // getTestStatus gets the sync status for a single test.
 func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncStatus, error) {
-	status := &TestSyncStatus{Name: name}
-
-	// Check if we have a local test
-	localTest, hasLocal := r.localTests[name]
-
-	// Determine remote ID from local YAML _meta.remote_id
-	var remoteID string
-	if hasLocal && localTest.Meta.RemoteID != "" {
-		remoteID = localTest.Meta.RemoteID
-	}
-
-	if remoteID == "" {
-		status.RemoteID = ""
-		status.Status = StatusLocalOnly
+	status := r.newLinkedStatus(name)
+	if status.RemoteID == "" {
 		return status, nil
 	}
 
-	status.RemoteID = remoteID
-
-	if hasLocal {
-		status.LocalVersion = localTest.Meta.LocalVersion
-		if localTest.Meta.LastSyncedAt != "" {
-			status.LastSync = formatTimeAgo(localTest.Meta.LastSyncedAt)
-		} else {
-			status.LastSync = "never"
-		}
-	}
-
-	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	remoteTest, err := r.client.GetTest(ctx, status.RemoteID)
 	if err != nil {
 		var apiErr *api.APIError
-		if errors.As(err, &apiErr) {
-			switch apiErr.StatusCode {
-			case 404:
-				status.Status = StatusOrphaned
-				status.LinkIssue = RemoteLinkIssueMissing
-				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "remote test not found")
-				return status, nil
-			case 400:
-				status.Status = StatusOrphaned
-				status.LinkIssue = RemoteLinkIssueInvalidID
-				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "invalid remote test ID")
-				return status, nil
-			case 401:
-				status.Status = StatusOrphaned
-				status.LinkIssue = RemoteLinkIssueUnauthorized
-				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "not authorized to access this test")
-				return status, nil
-			case 403:
-				status.Status = StatusOrphaned
-				status.LinkIssue = RemoteLinkIssueForbidden
-				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "access denied for this test")
-				return status, nil
-			}
+		if errors.As(err, &apiErr) && applyRemoteLookupError(status, apiErr) {
+			return status, nil
 		}
 		return nil, err
 	}
 
-	status.RemoteVersion = remoteTest.Version
+	r.applyRemoteVersion(status, remoteTest.Version)
+	return status, nil
+}
 
-	// Check for local modifications using checksum-based detection
+// applyRemoteLookupError marks the status orphaned when the remote lookup
+// failed because the link is missing, invalid, or not accessible.
+func applyRemoteLookupError(status *TestSyncStatus, apiErr *api.APIError) bool {
+	switch apiErr.StatusCode {
+	case 404:
+		status.LinkIssue = RemoteLinkIssueMissing
+		status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "remote test not found")
+	case 400:
+		status.LinkIssue = RemoteLinkIssueInvalidID
+		status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "invalid remote test ID")
+	case 401:
+		status.LinkIssue = RemoteLinkIssueUnauthorized
+		status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "not authorized to access this test")
+	case 403:
+		status.LinkIssue = RemoteLinkIssueForbidden
+		status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "access denied for this test")
+	default:
+		return false
+	}
+	status.Status = StatusOrphaned
+	return true
+}
+
+// applyRemoteVersion classifies a linked test by comparing local content and
+// the last synced version with the current remote version.
+func (r *Resolver) applyRemoteVersion(status *TestSyncStatus, remoteVersion int) {
+	status.RemoteVersion = remoteVersion
+
+	localTest, hasLocal := r.localTests[status.Name]
 	hasLocalChanges := hasLocal && localTest.HasLocalChanges()
 
-	// Determine sync status
 	if !hasLocal {
 		status.Status = StatusRemoteOnly
-	} else if hasLocalChanges && remoteTest.Version > localTest.Meta.RemoteVersion {
+	} else if hasLocalChanges && remoteVersion > localTest.Meta.RemoteVersion {
 		// Both local content changed AND remote has newer version = conflict
 		status.Status = StatusConflict
 	} else if hasLocalChanges {
 		// Local content changed (detected via checksum mismatch)
 		status.Status = StatusModified
-	} else if remoteTest.Version > localTest.Meta.RemoteVersion {
+	} else if remoteVersion > localTest.Meta.RemoteVersion {
 		// Remote has newer version, no local changes
 		status.Status = StatusOutdated
 	} else {
 		// Checksums match and versions are in sync
 		status.Status = StatusSynced
 	}
-
-	return status, nil
 }
 
 func bestLinkIssueMessage(apiErr *api.APIError, fallback string) string {

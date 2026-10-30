@@ -1774,6 +1774,16 @@
           "title": "Report Id",
           "type": "string"
         },
+        "source_metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerSourceMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "state": {
           "default": "active",
           "enum": [
@@ -1958,6 +1968,16 @@
           "format": "uuid",
           "title": "Report Id",
           "type": "string"
+        },
+        "source_metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerSourceMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "state": {
           "default": "active",
@@ -2163,6 +2183,61 @@
         "evidence_completeness"
       ],
       "title": "ComputerRunSummary",
+      "type": "object"
+    },
+    "ComputerSourceMetadata": {
+      "description": "Bounded launch metadata exposed with a computer session report.",
+      "properties": {
+        "ci_system": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ci System"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Repository"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Run Id"
+        },
+        "run_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Run Url"
+        }
+      },
+      "title": "ComputerSourceMetadata",
       "type": "object"
     },
     "ComputerSucceeded": {

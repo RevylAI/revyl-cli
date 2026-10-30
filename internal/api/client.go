@@ -2582,6 +2582,24 @@ func (c *Client) GetTest(ctx context.Context, testID string) (*TestSummary, erro
 	return &result, nil
 }
 
+// GetExistingTestsByIDs retrieves many tests in one request, omitting tests
+// that are missing or belong to another organization.
+func (c *Client) GetExistingTestsByIDs(ctx context.Context, testIDs []string) ([]Test, error) {
+	omitMissing := true
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/get_test_info_batch",
+		BatchTestInfoRequest{TestIds: testIDs, OmitMissing: &omitMissing})
+	if err != nil {
+		return nil, err
+	}
+
+	var result []Test
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // MobileTargetEntry represents a saved device target from test_mobile_targets.
 type MobileTargetEntry struct {
 	DeviceModel string `json:"device_model"`

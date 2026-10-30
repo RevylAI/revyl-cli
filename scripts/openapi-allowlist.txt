@@ -150,6 +150,7 @@ POST /api/v1/report/async-run/generate_shareable_report_link_by_session
 POST /api/v1/report/async-run/generate_shareable_report_link_by_task
 POST /api/v1/tests/create
 POST /api/v1/tests/duplicate
+POST /api/v1/tests/get_test_info_batch
 POST /api/v1/tests/scripts
 POST /api/v1/tests/tags
 POST /api/v1/tests/tags/tests/bulk-sync

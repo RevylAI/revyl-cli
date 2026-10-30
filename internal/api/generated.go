@@ -576,6 +576,39 @@ func (e BuildConfigPlatform) Valid() bool {
 	}
 }
 
+// Defines values for BuildPromoEligibilityReason.
+const (
+	BuildPromoEligibilityReasonBillingExempt  BuildPromoEligibilityReason = "billing_exempt"
+	BuildPromoEligibilityReasonCustomRateCard BuildPromoEligibilityReason = "custom_rate_card"
+	BuildPromoEligibilityReasonEnterprise     BuildPromoEligibilityReason = "enterprise"
+	BuildPromoEligibilityReasonFreePlan       BuildPromoEligibilityReason = "free_plan"
+	BuildPromoEligibilityReasonNoPlan         BuildPromoEligibilityReason = "no_plan"
+	BuildPromoEligibilityReasonPartner        BuildPromoEligibilityReason = "partner"
+	BuildPromoEligibilityReasonPlan           BuildPromoEligibilityReason = "plan"
+)
+
+// Valid indicates whether the value is a known member of the BuildPromoEligibilityReason enum.
+func (e BuildPromoEligibilityReason) Valid() bool {
+	switch e {
+	case BuildPromoEligibilityReasonBillingExempt:
+		return true
+	case BuildPromoEligibilityReasonCustomRateCard:
+		return true
+	case BuildPromoEligibilityReasonEnterprise:
+		return true
+	case BuildPromoEligibilityReasonFreePlan:
+		return true
+	case BuildPromoEligibilityReasonNoPlan:
+		return true
+	case BuildPromoEligibilityReasonPartner:
+		return true
+	case BuildPromoEligibilityReasonPlan:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildRecipePlatform.
 const (
 	BuildRecipePlatformAndroid BuildRecipePlatform = "android"
@@ -5139,6 +5172,15 @@ type AuthoredWebRun struct {
 	StartTimeoutSeconds *int      `json:"start_timeout_seconds,omitempty"`
 }
 
+// BatchTestInfoRequest Batch request for test metadata lookups.
+type BatchTestInfoRequest struct {
+	// OmitMissing Return only the tests that exist and are accessible instead of failing with 404 when any requested test is missing.
+	OmitMissing *bool               `json:"omit_missing,omitempty"`
+	OrgId       *openapi_types.UUID `json:"org_id,omitempty"`
+	TestIds     []string            `json:"test_ids"`
+	UserId      *string             `json:"user_id,omitempty"`
+}
+
 // BillingPlanTerms defines model for BillingPlanTerms.
 type BillingPlanTerms struct {
 	AutumnPlanId            string                        `json:"autumn_plan_id"`
@@ -5549,6 +5591,27 @@ type BuildMultipartUploadStartResponse struct {
 	// UploadId Staging upload session id, passed to POST /{app_id}/builds
 	UploadId openapi_types.UUID `json:"upload_id"`
 }
+
+// BuildPromo An active promo code that discounts cloud build credits.
+type BuildPromo struct {
+	Code string `json:"code"`
+
+	// ExpiresAt When the promotion ends, in Unix milliseconds.
+	ExpiresAt *int `json:"expires_at,omitempty"`
+
+	// RateFactor Multiplier on the list credit rate of every cloud build meter.
+	RateFactor float32 `json:"rate_factor"`
+}
+
+// BuildPromoEligibility defines model for BuildPromoEligibility.
+type BuildPromoEligibility struct {
+	Eligible bool                         `json:"eligible"`
+	Message  *string                      `json:"message,omitempty"`
+	Reason   *BuildPromoEligibilityReason `json:"reason,omitempty"`
+}
+
+// BuildPromoEligibilityReason defines model for BuildPromoEligibility.Reason.
+type BuildPromoEligibilityReason string
 
 // BuildRecipe One platform recipe as the customer wrote it, with setup and build steps kept apart.
 //
@@ -6679,9 +6742,12 @@ type ComputerReport struct {
 	Release              *ComputerReportRelease              `json:"release,omitempty"`
 	ReleasedAt           *time.Time                          `json:"released_at,omitempty"`
 	ReportId             openapi_types.UUID                  `json:"report_id"`
-	State                *ComputerReportState                `json:"state,omitempty"`
-	Steps                *[]ComputerOperationEvidence        `json:"steps,omitempty"`
-	Version              *int                                `json:"version,omitempty"`
+
+	// SourceMetadata Bounded launch metadata exposed with a computer session report.
+	SourceMetadata *ComputerSourceMetadata      `json:"source_metadata,omitempty"`
+	State          *ComputerReportState         `json:"state,omitempty"`
+	Steps          *[]ComputerOperationEvidence `json:"steps,omitempty"`
+	Version        *int                         `json:"version,omitempty"`
 
 	// WaitingForHostSince While a starting computer's owner run waits for a host with a free slot, when it first found none.
 	WaitingForHostSince *time.Time `json:"waiting_for_host_since,omitempty"`
@@ -6720,9 +6786,12 @@ type ComputerReportDetail struct {
 	Release              *ComputerReportDetailRelease              `json:"release,omitempty"`
 	ReleasedAt           *time.Time                                `json:"released_at,omitempty"`
 	ReportId             openapi_types.UUID                        `json:"report_id"`
-	State                *ComputerReportDetailState                `json:"state,omitempty"`
-	Steps                *[]ComputerOperationDetail                `json:"steps,omitempty"`
-	Version              *int                                      `json:"version,omitempty"`
+
+	// SourceMetadata Bounded launch metadata exposed with a computer session report.
+	SourceMetadata *ComputerSourceMetadata    `json:"source_metadata,omitempty"`
+	State          *ComputerReportDetailState `json:"state,omitempty"`
+	Steps          *[]ComputerOperationDetail `json:"steps,omitempty"`
+	Version        *int                       `json:"version,omitempty"`
 
 	// WaitingForHostSince While a starting computer's owner run waits for a host with a free slot, when it first found none.
 	WaitingForHostSince *time.Time `json:"waiting_for_host_since,omitempty"`
@@ -6801,6 +6870,14 @@ type ComputerScreenChannelFailureReason string
 
 // ComputerScreenChannelFailureStage defines model for ComputerScreenChannelFailure.Stage.
 type ComputerScreenChannelFailureStage string
+
+// ComputerSourceMetadata Bounded launch metadata exposed with a computer session report.
+type ComputerSourceMetadata struct {
+	CiSystem   *string `json:"ci_system,omitempty"`
+	Repository *string `json:"repository,omitempty"`
+	RunId      *string `json:"run_id,omitempty"`
+	RunUrl     *string `json:"run_url,omitempty"`
+}
 
 // ComputerSucceeded defines model for ComputerSucceeded.
 type ComputerSucceeded struct {
@@ -8642,19 +8719,23 @@ type PaginatedBuildsWithJobsResponse_Items_Item struct {
 
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {
-	AvailablePlans      *[]BillingPlanTerms          `json:"available_plans,omitempty"`
-	BillingPeriod       *PlanInfoBillingPeriod       `json:"billing_period,omitempty"`
-	CanEnablePayg       *bool                        `json:"can_enable_payg,omitempty"`
-	CancelsAt           *int                         `json:"cancels_at,omitempty"`
-	CurrentTerms        *BillingPlanTerms            `json:"current_terms,omitempty"`
-	Discounts           *[]DiscountItem              `json:"discounts,omitempty"`
-	DisplayName         string                       `json:"display_name"`
-	Entitlements        *[]EntitlementItem           `json:"entitlements,omitempty"`
-	FreeCreditLabel     string                       `json:"free_credit_label"`
-	MonthlyBase         float32                      `json:"monthly_base"`
-	OverageAllowed      *bool                        `json:"overage_allowed,omitempty"`
-	PaygEnrolled        *bool                        `json:"payg_enrolled,omitempty"`
-	PaymentMethodStatus *PlanInfoPaymentMethodStatus `json:"payment_method_status,omitempty"`
+	AvailablePlans *[]BillingPlanTerms    `json:"available_plans,omitempty"`
+	BillingPeriod  *PlanInfoBillingPeriod `json:"billing_period,omitempty"`
+
+	// BuildPromo An active promo code that discounts cloud build credits.
+	BuildPromo            *BuildPromo                  `json:"build_promo,omitempty"`
+	BuildPromoEligibility *BuildPromoEligibility       `json:"build_promo_eligibility,omitempty"`
+	CanEnablePayg         *bool                        `json:"can_enable_payg,omitempty"`
+	CancelsAt             *int                         `json:"cancels_at,omitempty"`
+	CurrentTerms          *BillingPlanTerms            `json:"current_terms,omitempty"`
+	Discounts             *[]DiscountItem              `json:"discounts,omitempty"`
+	DisplayName           string                       `json:"display_name"`
+	Entitlements          *[]EntitlementItem           `json:"entitlements,omitempty"`
+	FreeCreditLabel       string                       `json:"free_credit_label"`
+	MonthlyBase           float32                      `json:"monthly_base"`
+	OverageAllowed        *bool                        `json:"overage_allowed,omitempty"`
+	PaygEnrolled          *bool                        `json:"payg_enrolled,omitempty"`
+	PaymentMethodStatus   *PlanInfoPaymentMethodStatus `json:"payment_method_status,omitempty"`
 
 	// PeriodEnd Current subscription billing-period end in Unix milliseconds.
 	PeriodEnd *int `json:"period_end,omitempty"`
@@ -11938,6 +12019,9 @@ type CreateTestEndpointApiV1TestsCreatePostJSONRequestBody = Test
 
 // DuplicateTestEndpointApiV1TestsDuplicatePostJSONRequestBody defines body for DuplicateTestEndpointApiV1TestsDuplicatePost for application/json ContentType.
 type DuplicateTestEndpointApiV1TestsDuplicatePostJSONRequestBody = DuplicateTestRequest
+
+// GetTestInfoBatchEndpointApiV1TestsGetTestInfoBatchPostJSONRequestBody defines body for GetTestInfoBatchEndpointApiV1TestsGetTestInfoBatchPost for application/json ContentType.
+type GetTestInfoBatchEndpointApiV1TestsGetTestInfoBatchPostJSONRequestBody = BatchTestInfoRequest
 
 // CreateScriptApiV1TestsScriptsPostJSONRequestBody defines body for CreateScriptApiV1TestsScriptsPost for application/json ContentType.
 type CreateScriptApiV1TestsScriptsPostJSONRequestBody = CodeExecutionScriptCreate
