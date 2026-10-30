@@ -2447,6 +2447,10 @@ func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType
 }
 
 func (c *Client) uploadFileWithHeadersAndRetry(ctx context.Context, uploadURL string, headers map[string]string, filePath string, fileSize int64) error {
+	return c.uploadFileWithClientAndRetry(ctx, c.uploadClient, uploadURL, headers, filePath, fileSize)
+}
+
+func (c *Client) uploadFileWithClientAndRetry(ctx context.Context, uploadClient *http.Client, uploadURL string, headers map[string]string, filePath string, fileSize int64) error {
 	return c.retryUploadAttempts(ctx, "upload", func(int) (bool, error) {
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -2470,7 +2474,7 @@ func (c *Client) uploadFileWithHeadersAndRetry(ctx context.Context, uploadURL st
 		}
 		uploadReq.ContentLength = fileSize
 
-		uploadResp, err := c.uploadClient.Do(uploadReq)
+		uploadResp, err := uploadClient.Do(uploadReq)
 		if err != nil {
 			return false, fmt.Errorf("upload failed: %w", err)
 		}

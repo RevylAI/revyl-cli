@@ -64,7 +64,7 @@ commit and record the original HEAD even when the source includes local edits.
 `output_path` must be one dedicated project-relative output directory, without
 globs. Only its contents enter the `.tar.zst` bundle, not the source checkout.
 Symlinks, special files, `.git`, `.revyl`, `.env*`, and credential files are
-rejected. Both compressed and unpacked data are limited to 200 MiB, with at
+rejected. Both compressed and unpacked data are limited to 1 GiB, with at
 most 20,000 archive entries and 1,024-byte paths. Static output requires an
 `index.html` at its root.
 

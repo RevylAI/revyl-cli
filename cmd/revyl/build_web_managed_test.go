@@ -149,15 +149,29 @@ func TestPackWebOutputLimitsAndCancellation(t *testing.T) {
 	root := t.TempDir()
 	writeWebOutput(t, root, "dist/index.html", strings.Repeat("large", 100))
 	writeWebOutput(t, root, "dist/app.js", "app")
-	for _, limits := range [][2]int{{100, 20}, {10000, 1}} {
-		if _, _, err := packWebBuildOutputWithLimits(context.Background(), root, "dist", int64(limits[0]), limits[1]); err == nil {
-			t.Fatal("archive limit ignored")
+	for _, test := range []struct {
+		maxBytes   int64
+		maxEntries int
+		message    string
+	}{
+		{100, 20, "web bundle exceeds its unpacked size limit of 100 bytes"},
+		{10000, 1, "exceeds the 1-entry archive limit"},
+	} {
+		if _, _, err := packWebBuildOutputWithLimits(context.Background(), root, "dist", test.maxBytes, test.maxEntries); err == nil || !strings.Contains(err.Error(), test.message) {
+			t.Fatalf("archive limit error = %v, want %q", err, test.message)
 		}
 	}
-	small := t.TempDir()
-	writeWebOutput(t, small, "dist/index.html", "x")
-	if _, _, err := packWebBuildOutputWithLimits(context.Background(), small, "dist", 20, 10); err == nil || !strings.Contains(err.Error(), "compressed") {
+	compressed := &webBundleLimitedWriter{writer: io.Discard, measure: "compressed", limit: 20, remaining: 20}
+	if _, err := compressed.Write(make([]byte, 21)); err == nil || err.Error() != "web bundle exceeds its compressed size limit of 20 bytes" {
 		t.Fatalf("compressed limit not enforced: %v", err)
+	}
+	headers := t.TempDir()
+	writeWebOutput(t, headers, "dist/index.html", strings.Repeat("x", 100))
+	if _, _, err := packWebBuildOutputWithLimits(context.Background(), headers, "dist", 600, 10); err == nil || !strings.Contains(err.Error(), "web bundle exceeds its unpacked size limit of 600 bytes") {
+		t.Fatalf("tar header bytes not counted toward the unpacked limit: %v", err)
+	}
+	if maxWebBundleBytes != 1<<30 || formatWebBundleLimit(maxWebBundleBytes) != "1 GiB" || formatWebBundleLimit(200<<20) != "200 MiB" {
+		t.Fatalf("web bundle limit = %d (%s)", maxWebBundleBytes, formatWebBundleLimit(maxWebBundleBytes))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -22,7 +22,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-const maxWebBundleBytes int64 = 200 * 1024 * 1024
+const maxWebBundleBytes int64 = 1024 * 1024 * 1024
 const maxWebBundleEntries = 20000
 
 var webBuildCommitSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -141,13 +141,13 @@ func packWebBuildOutputWithLimits(ctx context.Context, projectRoot, output strin
 		}
 	}()
 	hash := sha256.New()
-	compressed := &webBundleLimitedWriter{writer: io.MultiWriter(archive, hash), remaining: maxBytes}
+	compressed := &webBundleLimitedWriter{writer: io.MultiWriter(archive, hash), measure: "compressed", limit: maxBytes, remaining: maxBytes}
 	encoder, err := zstd.NewWriter(compressed, zstd.WithEncoderConcurrency(1), zstd.WithWindowSize(64*1024))
 	if err != nil {
 		return "", metadata, err
 	}
 	defer encoder.Close()
-	tarWriter := tar.NewWriter(encoder)
+	tarWriter := tar.NewWriter(&webBundleLimitedWriter{writer: encoder, measure: "unpacked", limit: maxBytes, remaining: maxBytes})
 	defer tarWriter.Close()
 	var totalBytes int64
 	entries, files := 0, 0
@@ -179,8 +179,11 @@ func packWebBuildOutputWithLimits(ctx context.Context, projectRoot, output strin
 			return fmt.Errorf("web output must not contain symlinks or special files: %q", filepath.ToSlash(name))
 		}
 		entries++
-		if entries > maxEntries || info.Size() > maxBytes-totalBytes && !info.IsDir() {
-			return fmt.Errorf("web output exceeds the archive size or entry limit")
+		if entries > maxEntries {
+			return fmt.Errorf("web output exceeds the %d-entry archive limit", maxEntries)
+		}
+		if !info.IsDir() && info.Size() > maxBytes-totalBytes {
+			return fmt.Errorf("web bundle exceeds its unpacked size limit of %s", formatWebBundleLimit(maxBytes))
 		}
 		header := &tar.Header{Name: filepath.ToSlash(name), Mode: int64(info.Mode().Perm()), ModTime: time.Unix(0, 0), Typeflag: tar.TypeDir}
 		if info.IsDir() {
@@ -223,6 +226,17 @@ func packWebBuildOutputWithLimits(ctx context.Context, projectRoot, output strin
 	return archivePath, metadata, nil
 }
 
+func formatWebBundleLimit(limitBytes int64) string {
+	switch {
+	case limitBytes%(1024*1024*1024) == 0:
+		return fmt.Sprintf("%d GiB", limitBytes/(1024*1024*1024))
+	case limitBytes%(1024*1024) == 0:
+		return fmt.Sprintf("%d MiB", limitBytes/(1024*1024))
+	default:
+		return fmt.Sprintf("%d bytes", limitBytes)
+	}
+}
+
 func webBundleSensitivePath(name string) bool {
 	name = strings.ToLower(name)
 	switch name {
@@ -235,12 +249,14 @@ func webBundleSensitivePath(name string) bool {
 
 type webBundleLimitedWriter struct {
 	writer    io.Writer
+	measure   string
+	limit     int64
 	remaining int64
 }
 
 func (w *webBundleLimitedWriter) Write(data []byte) (int, error) {
 	if int64(len(data)) > w.remaining {
-		return 0, fmt.Errorf("compressed web bundle exceeds the archive size limit")
+		return 0, fmt.Errorf("web bundle exceeds its %s size limit of %s", w.measure, formatWebBundleLimit(w.limit))
 	}
 	written, err := w.writer.Write(data)
 	w.remaining -= int64(written)

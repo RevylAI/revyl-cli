@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -32,6 +33,10 @@ func generatedWebRun(run ManagedWebRun) *WebBuildRun {
 		EnvKeys:             &run.EnvKeys, SecretNames: &run.SecretNames,
 	}
 }
+
+// managedWebUploadURLLifetime matches the backend's single-PUT presign
+// lifetime (UPLOAD_EXPIRATION_TIME); every retry reuses the same URL.
+const managedWebUploadURLLifetime = 2 * time.Hour
 
 type managedWebUploadURLResponse struct {
 	VersionID   string `json:"version_id"`
@@ -80,7 +85,11 @@ func (c *Client) UploadManagedWebBuild(ctx context.Context, request *UploadBuild
 	if err != nil {
 		return nil, fmt.Errorf("invalid web upload version id: %w", err)
 	}
-	if err := c.uploadFileWithRetry(ctx, upload.UploadURL, upload.ContentType, request.FilePath, web.SizeBytes); err != nil {
+	uploadCtx, cancelUpload := context.WithTimeout(ctx, managedWebUploadURLLifetime)
+	defer cancelUpload()
+	uploadClient := *c.uploadClient
+	uploadClient.Timeout = min(partUploadAttemptTimeout(web.SizeBytes), managedWebUploadURLLifetime)
+	if err := c.uploadFileWithClientAndRetry(uploadCtx, &uploadClient, upload.UploadURL, map[string]string{"Content-Type": upload.ContentType}, request.FilePath, web.SizeBytes); err != nil {
 		c.bestEffortDeleteBuildVersion(upload.VersionID)
 		return nil, err
 	}
