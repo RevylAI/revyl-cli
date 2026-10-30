@@ -3111,6 +3111,24 @@ func (e RepositoryProjectCatalogRepositoryReportMode) Valid() bool {
 	}
 }
 
+// Defines values for RevylProofHarnessModelId.
+const (
+	RevylProofHarnessModelIdMorphDsv41flashAbliterated RevylProofHarnessModelId = "morph-dsv41flash-abliterated"
+	RevylProofHarnessModelIdOpenaigpt61Terra           RevylProofHarnessModelId = "openai/gpt-6.1-terra"
+)
+
+// Valid indicates whether the value is a known member of the RevylProofHarnessModelId enum.
+func (e RevylProofHarnessModelId) Valid() bool {
+	switch e {
+	case RevylProofHarnessModelIdMorphDsv41flashAbliterated:
+		return true
+	case RevylProofHarnessModelIdOpenaigpt61Terra:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionHistorySource.
 const (
 	SessionHistorySourceAdaptiveReport SessionHistorySource = "adaptive_report"
@@ -9401,8 +9419,12 @@ type RevokeCLIApiKeyResponse struct {
 
 // RevylProofHarness Revyl's own step agent driving a device session (the default).
 type RevylProofHarness struct {
-	Kind string `json:"kind"`
+	Kind    string                    `json:"kind"`
+	ModelId *RevylProofHarnessModelId `json:"model_id,omitempty"`
 }
+
+// RevylProofHarnessModelId defines model for RevylProofHarness.ModelId.
+type RevylProofHarnessModelId string
 
 // ScriptUsageModuleItem A module that uses a specific script as a step, and is itself used by
 // at least one test

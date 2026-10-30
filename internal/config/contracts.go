@@ -362,11 +362,18 @@ func (c AuthoredConfig) ValidateContract() error {
 	if c.PRReview.ProofOfChanges != nil && c.PRReview.ProofOfChanges.Harness != nil {
 		harness := c.PRReview.ProofOfChanges.Harness
 		switch harness.Kind {
-		case "revyl", "devin":
+		case "revyl":
+			if harness.ModelID != nil && *harness.ModelID != "morph-dsv41flash-abliterated" && *harness.ModelID != "openai/gpt-6.1-terra" {
+				return authoredContractError(
+					[]string{"pr_review", "proof_of_changes", "harness", "model_id"},
+					"pr_review.proof_of_changes.harness.model_id is not an allowlisted Revyl Proof model",
+				)
+			}
+		case "devin":
 			if harness.ModelID != nil {
 				return authoredContractError(
 					[]string{"pr_review", "proof_of_changes", "harness", "model_id"},
-					"pr_review.proof_of_changes.harness.model_id is cursor- or capy-only",
+					"pr_review.proof_of_changes.harness.model_id is not supported by Devin",
 				)
 			}
 		case "capy":
