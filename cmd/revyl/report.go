@@ -703,11 +703,11 @@ func sanitizeUserFacingReportJSON(value interface{}) {
 	}
 }
 
-func stringValue(value *string) string {
+func stringValue[Text ~string](value *Text) string {
 	if value == nil {
 		return ""
 	}
-	return *value
+	return string(*value)
 }
 
 func intValue(value *int) int {

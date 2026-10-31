@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -67,6 +69,7 @@ CHECKS PERFORMED:
   - API connectivity (can reach backend.revyl.ai?)
   - Project configuration (.revyl/config.yaml exists and valid?)
   - Build system detection (if in project directory)
+  - ffmpeg availability (required for session action clips)
 
 OUTPUT:
   Human-readable by default, JSON with --json flag.
@@ -166,6 +169,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	result.Checks = append(result.Checks, buildCheck)
 	// Build system is informational only
 
+	ffmpegCheck := checkFFmpeg()
+	result.Checks = append(result.Checks, ffmpegCheck)
+	if ffmpegCheck.Status == "warning" {
+		result.Issues++
+	}
+
 	// Check 6: linked local tests against the remote state when authenticated.
 	if project != nil {
 		var syncClient *api.Client
@@ -203,6 +212,32 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func checkFFmpeg() DoctorCheck {
+	check := DoctorCheck{Name: "FFmpeg", Status: "ok"}
+	path, err := exec.LookPath("ffmpeg")
+	if err == nil {
+		check.Message = "Available"
+		check.Details = path + "; required for per-action session clips"
+		return check
+	}
+
+	check.Status = "warning"
+	check.Message = "Not found"
+	check.Details = fmt.Sprintf("Install ffmpeg for session clips (%s), or use 'revyl session download --no-clips' for timeline/full-video-only downloads", ffmpegInstallCommand())
+	return check
+}
+
+func ffmpegInstallCommand() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "macOS: brew install ffmpeg"
+	case "windows":
+		return "Windows: winget install ffmpeg"
+	default:
+		return "Debian/Ubuntu: sudo apt-get install ffmpeg (other Linux: https://ffmpeg.org/download.html)"
+	}
 }
 
 func countDoctorChecks(checks []DoctorCheck, status string) int {

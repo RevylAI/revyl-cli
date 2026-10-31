@@ -6985,6 +6985,13 @@ func (c *Client) ReplaceOrgFileContent(ctx context.Context, fileID, filePath, di
 // DownloadFileFromURL downloads a file from a URL to a local path.
 // It uses atomic writes (temp file + rename) and cleans up on failure.
 func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath string) error {
+	return c.DownloadFileFromURLWithProgress(ctx, fileURL, destPath, nil)
+}
+
+// DownloadFileFromURLWithProgress downloads a file to a local path and reports
+// bytes copied when progress is non-nil. totalBytes is -1 when the server does
+// not provide a Content-Length header.
+func (c *Client) DownloadFileFromURLWithProgress(ctx context.Context, fileURL, destPath string, progress func(downloadedBytes, totalBytes int64)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create download request: %w", err)
@@ -7009,7 +7016,18 @@ func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath stri
 	}
 	tmpPath := tmp.Name()
 
-	_, copyErr := io.Copy(tmp, resp.Body)
+	copyWriter := io.Writer(tmp)
+	if progress != nil {
+		copyWriter = io.MultiWriter(tmp, &downloadProgressWriter{
+			totalBytes: resp.ContentLength,
+			report:     progress,
+		})
+		progress(0, resp.ContentLength)
+	}
+	copiedBytes, copyErr := io.Copy(copyWriter, resp.Body)
+	if progress != nil {
+		progress(copiedBytes, resp.ContentLength)
+	}
 	closeErr := tmp.Close()
 	if copyErr != nil {
 		os.Remove(tmpPath)
@@ -7026,6 +7044,18 @@ func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath stri
 	}
 
 	return nil
+}
+
+type downloadProgressWriter struct {
+	totalBytes int64
+	report     func(downloadedBytes, totalBytes int64)
+	downloaded int64
+}
+
+func (w *downloadProgressWriter) Write(p []byte) (int, error) {
+	w.downloaded += int64(len(p))
+	w.report(w.downloaded, w.totalBytes)
+	return len(p), nil
 }
 
 // --- Global Variable API methods ---

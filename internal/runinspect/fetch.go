@@ -281,11 +281,11 @@ func DefaultCacheDir() string {
 	return filepath.Join(home, ".revyl", "run-cache")
 }
 
-func strDeref(s *string) string {
+func strDeref[Text ~string](s *Text) string {
 	if s == nil {
 		return ""
 	}
-	return *s
+	return string(*s)
 }
 
 // timeToRFC3339 renders an optional timestamp as an RFC3339 string (the shape

@@ -3090,6 +3090,60 @@ func (e RemoteBuildStepStatus) Valid() bool {
 	}
 }
 
+// Defines values for ReportContextStepResponseEffectiveStatus.
+const (
+	ReportContextStepResponseEffectiveStatusFailed  ReportContextStepResponseEffectiveStatus = "failed"
+	ReportContextStepResponseEffectiveStatusPassed  ReportContextStepResponseEffectiveStatus = "passed"
+	ReportContextStepResponseEffectiveStatusPending ReportContextStepResponseEffectiveStatus = "pending"
+	ReportContextStepResponseEffectiveStatusRunning ReportContextStepResponseEffectiveStatus = "running"
+	ReportContextStepResponseEffectiveStatusWarning ReportContextStepResponseEffectiveStatus = "warning"
+)
+
+// Valid indicates whether the value is a known member of the ReportContextStepResponseEffectiveStatus enum.
+func (e ReportContextStepResponseEffectiveStatus) Valid() bool {
+	switch e {
+	case ReportContextStepResponseEffectiveStatusFailed:
+		return true
+	case ReportContextStepResponseEffectiveStatusPassed:
+		return true
+	case ReportContextStepResponseEffectiveStatusPending:
+		return true
+	case ReportContextStepResponseEffectiveStatusRunning:
+		return true
+	case ReportContextStepResponseEffectiveStatusWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReportVideoTimelineActionStepStatus.
+const (
+	ReportVideoTimelineActionStepStatusFailed  ReportVideoTimelineActionStepStatus = "failed"
+	ReportVideoTimelineActionStepStatusPassed  ReportVideoTimelineActionStepStatus = "passed"
+	ReportVideoTimelineActionStepStatusPending ReportVideoTimelineActionStepStatus = "pending"
+	ReportVideoTimelineActionStepStatusRunning ReportVideoTimelineActionStepStatus = "running"
+	ReportVideoTimelineActionStepStatusWarning ReportVideoTimelineActionStepStatus = "warning"
+)
+
+// Valid indicates whether the value is a known member of the ReportVideoTimelineActionStepStatus enum.
+func (e ReportVideoTimelineActionStepStatus) Valid() bool {
+	switch e {
+	case ReportVideoTimelineActionStepStatusFailed:
+		return true
+	case ReportVideoTimelineActionStepStatusPassed:
+		return true
+	case ReportVideoTimelineActionStepStatusPending:
+		return true
+	case ReportVideoTimelineActionStepStatusRunning:
+		return true
+	case ReportVideoTimelineActionStepStatusWarning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RepositoryProjectCatalogQueryProvider.
 const (
 	RepositoryProjectCatalogQueryProviderGithub RepositoryProjectCatalogQueryProvider = "github"
@@ -9369,6 +9423,7 @@ type ReportContextResponse struct {
 	TraceId                *string                            `json:"trace_id,omitempty"`
 	UpdatedAt              *string                            `json:"updated_at,omitempty"`
 	ValidationsPassed      *int                               `json:"validations_passed,omitempty"`
+	VideoDuration          *float32                           `json:"video_duration,omitempty"`
 	VideoUrl               *string                            `json:"video_url,omitempty"`
 	WarningSteps           *int                               `json:"warning_steps,omitempty"`
 	WhepUrl                *string                            `json:"whep_url,omitempty"`
@@ -9382,32 +9437,99 @@ type ReportContextResponse_Tldr struct {
 
 // ReportContextStepResponse High-context step payload for CLI/agent report consumption.
 type ReportContextStepResponse struct {
-	Actions               *[]ReportContextActionResponse `json:"actions,omitempty"`
-	CompletedAt           *time.Time                     `json:"completed_at,omitempty"`
-	CreatedAt             *string                        `json:"created_at,omitempty"`
-	EffectiveStatus       *string                        `json:"effective_status,omitempty"`
-	EffectiveStatusReason *string                        `json:"effective_status_reason,omitempty"`
-	ErrorMessage          *string                        `json:"error_message,omitempty"`
-	ExecutionOrder        int                            `json:"execution_order"`
-	Id                    string                         `json:"id"`
-	LlmCall               *map[string]interface{}        `json:"llm_call,omitempty"`
-	LlmCallId             *string                        `json:"llm_call_id,omitempty"`
-	NodeId                *string                        `json:"node_id,omitempty"`
-	ParentStepId          *string                        `json:"parent_step_id,omitempty"`
-	ReportId              *string                        `json:"report_id,omitempty"`
-	SourceModuleId        *string                        `json:"source_module_id,omitempty"`
-	SourceModuleName      *string                        `json:"source_module_name,omitempty"`
-	StartedAt             *time.Time                     `json:"started_at,omitempty"`
-	Status                *string                        `json:"status,omitempty"`
-	StatusReason          *string                        `json:"status_reason,omitempty"`
-	StepDescription       *string                        `json:"step_description,omitempty"`
-	StepType              string                         `json:"step_type"`
-	Success               *bool                          `json:"success,omitempty"`
-	TypeData              *map[string]interface{}        `json:"type_data,omitempty"`
-	ValidationReasoning   *string                        `json:"validation_reasoning,omitempty"`
-	ValidationResult      *bool                          `json:"validation_result,omitempty"`
-	VideoTimestampEnd     *float32                       `json:"video_timestamp_end,omitempty"`
-	VideoTimestampStart   *float32                       `json:"video_timestamp_start,omitempty"`
+	Actions               *[]ReportContextActionResponse            `json:"actions,omitempty"`
+	CompletedAt           *time.Time                                `json:"completed_at,omitempty"`
+	CreatedAt             *string                                   `json:"created_at,omitempty"`
+	EffectiveStatus       *ReportContextStepResponseEffectiveStatus `json:"effective_status,omitempty"`
+	EffectiveStatusReason *string                                   `json:"effective_status_reason,omitempty"`
+	ErrorMessage          *string                                   `json:"error_message,omitempty"`
+	ExecutionOrder        int                                       `json:"execution_order"`
+	Id                    string                                    `json:"id"`
+	LlmCall               *map[string]interface{}                   `json:"llm_call,omitempty"`
+	LlmCallId             *string                                   `json:"llm_call_id,omitempty"`
+	NodeId                *string                                   `json:"node_id,omitempty"`
+	ParentStepId          *string                                   `json:"parent_step_id,omitempty"`
+	ReportId              *string                                   `json:"report_id,omitempty"`
+	SourceModuleId        *string                                   `json:"source_module_id,omitempty"`
+	SourceModuleName      *string                                   `json:"source_module_name,omitempty"`
+	StartedAt             *time.Time                                `json:"started_at,omitempty"`
+	Status                *string                                   `json:"status,omitempty"`
+	StatusReason          *string                                   `json:"status_reason,omitempty"`
+	StepDescription       *string                                   `json:"step_description,omitempty"`
+	StepType              string                                    `json:"step_type"`
+	Success               *bool                                     `json:"success,omitempty"`
+	TypeData              *map[string]interface{}                   `json:"type_data,omitempty"`
+	ValidationReasoning   *string                                   `json:"validation_reasoning,omitempty"`
+	ValidationResult      *bool                                     `json:"validation_result,omitempty"`
+	VideoTimestampEnd     *float32                                  `json:"video_timestamp_end,omitempty"`
+	VideoTimestampStart   *float32                                  `json:"video_timestamp_start,omitempty"`
+}
+
+// ReportContextStepResponseEffectiveStatus defines model for ReportContextStepResponse.EffectiveStatus.
+type ReportContextStepResponseEffectiveStatus string
+
+// ReportVideoTimelineAction One recorded action placed on its session recording.
+//
+// Every offset is in seconds from the recording's first frame, the same
+// semantics as `video_timestamp_start` and `video_timestamp_end` on report
+// actions.
+type ReportVideoTimelineAction struct {
+	// ActionIndex 0-based position of the action within its step
+	ActionIndex int `json:"action_index"`
+
+	// ActionLabel Short description of the action
+	ActionLabel string `json:"action_label"`
+
+	// ActionType Report action type such as tap, swipe, input, navigate or validation; null for device actions outside that set, such as launch
+	ActionType *string `json:"action_type,omitempty"`
+
+	// ClipVideoTimestampEnd End of the suggested clip
+	ClipVideoTimestampEnd *float32 `json:"clip_video_timestamp_end,omitempty"`
+
+	// ClipVideoTimestampStart Start of the suggested clip; null when the action is untimed or falls outside the recording
+	ClipVideoTimestampStart *float32 `json:"clip_video_timestamp_start,omitempty"`
+	StepDescription         *string  `json:"step_description,omitempty"`
+
+	// StepExecutionOrder Execution order of the report step that contains the action
+	StepExecutionOrder int `json:"step_execution_order"`
+
+	// StepStatus Outcome of the step that contains the action; actions carry no outcome of their own
+	StepStatus ReportVideoTimelineActionStepStatus `json:"step_status"`
+	StepType   string                              `json:"step_type"`
+
+	// TimelineIndex 0-based position of the action in this timeline, in report order
+	TimelineIndex int `json:"timeline_index"`
+
+	// VideoTimestampEnd When the action completed; null when untimed
+	VideoTimestampEnd *float32 `json:"video_timestamp_end,omitempty"`
+
+	// VideoTimestampStart When the action started; null when untimed
+	VideoTimestampStart *float32 `json:"video_timestamp_start,omitempty"`
+}
+
+// ReportVideoTimelineActionStepStatus Outcome of the step that contains the action; actions carry no outcome of their own
+type ReportVideoTimelineActionStepStatus string
+
+// ReportVideoTimelineResponse A report's recorded actions placed on its recording, with clip windows.
+//
+// Each clip keeps up to `clip_padding_seconds` before its action starts and
+// after it completes, shrinking either side when a nearby timed action leaves
+// less room. Windows are clamped to the recording.
+type ReportVideoTimelineResponse struct {
+	Actions *[]ReportVideoTimelineAction `json:"actions,omitempty"`
+
+	// ClipPaddingSeconds Maximum footage a clip keeps before its action starts and after it completes, reduced near another timed action or recording boundary
+	ClipPaddingSeconds float32 `json:"clip_padding_seconds"`
+	ExecutionId        *string `json:"execution_id,omitempty"`
+	Platform           *string `json:"platform,omitempty"`
+	ReportId           string  `json:"report_id"`
+	SessionId          *string `json:"session_id,omitempty"`
+
+	// VideoDuration Recording length in seconds
+	VideoDuration *float32 `json:"video_duration,omitempty"`
+
+	// VideoUrl Short-lived signed URL of the full MP4 recording; null when no recording is available
+	VideoUrl *string `json:"video_url,omitempty"`
 }
 
 // RepositoryProjectCatalogItem Stable project locator needed to select its canonical aggregate.

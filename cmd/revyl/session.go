@@ -29,8 +29,9 @@ var sessionCmd = &cobra.Command{
 	Long: `Work with device sessions.
 
 COMMANDS:
-  share   - Generate a public shareable link for a session report
-  publish - Publish an image for a session and get a public URL for it`,
+  share    - Generate a public shareable link for a session report
+  publish  - Publish an image for a session and get a public URL for it
+  download - Download the action timeline, per-action clips, and recording`,
 }
 
 // sessionShareCmd generates a public shareable link for a device session report.
@@ -88,6 +89,7 @@ func init() {
 
 	sessionCmd.AddCommand(sessionShareCmd)
 	sessionCmd.AddCommand(sessionPublishCmd)
+	sessionCmd.AddCommand(sessionDownloadCmd)
 }
 
 // runSessionShare generates a shareable link for a device session report.

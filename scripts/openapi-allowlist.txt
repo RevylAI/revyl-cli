@@ -66,7 +66,9 @@ GET /api/v1/modules/{module_id}/versions
 GET /api/v1/projects/{project_id}/cursor-proof-authorization
 GET /api/v1/recordings/compile/{job_id}
 GET /api/v1/reports-v3/reports/by-execution/{execution_id}/context
+GET /api/v1/reports-v3/reports/by-execution/{execution_id}/video-timeline
 GET /api/v1/reports-v3/reports/by-session/{session_id}/context
+GET /api/v1/reports-v3/reports/by-session/{session_id}/video-timeline
 GET /api/v1/reports-v3/reports/{report_id}/device-logs
 GET /api/v1/tests/get_simple_tests
 GET /api/v1/tests/get_test_by_id/{test_id}
