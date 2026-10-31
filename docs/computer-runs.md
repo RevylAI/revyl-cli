@@ -11,7 +11,9 @@ creating anything.
 assigned physical Mac or change native device targeting.
 
 A configured computer runtime is required; a server without one returns
-`runtime_unavailable` on create, and there is no fake mode. A create whose
+`runtime_unavailable` on create, and there is no fake mode. Create also returns
+`runtime_unavailable` when no registered host can run a computer for its full
+lifetime; nothing is created, and it can be retried. A create whose
 computer was recorded but could not be started returns `start_failed`, and that computer reads as `failed`. Reading and
 stopping an existing computer still work. Tests inject a synthetic runtime
 explicitly. A hosted server admits only organizations enabled for computers,
