@@ -63,7 +63,10 @@ one-time ticket from the result's `_meta` to the page. It waits up to a minute
 for that call, because a host may first ask the person to approve it, as Cursor
 does. The CLI's server leaves
 it off, so here the bridge tells the page at once that no ticket is available
-and the page uses its own sign-in. If the host also announces that call's
+and the page uses its own sign-in. A framed page cannot show the sign-in pages,
+so when no ticket arrives and its own sign-in does not hold, it shows a panel
+offering **Open in browser** and **Try again** instead, and a session that
+expires inside the frame signs out in place. If the host also announces that call's
 result as a tool result, the bridge ignores it rather than treating it as a
 workspace to show.
 
