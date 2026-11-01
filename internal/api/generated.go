@@ -4968,6 +4968,7 @@ type AuthInfo struct {
 	ConcurrencyLimit        *int                `json:"concurrency_limit,omitempty"`
 	Email                   *string             `json:"email,omitempty"`
 	IosConcurrencyLimit     *int                `json:"ios_concurrency_limit,omitempty"`
+	IsRuntimePrincipal      *bool               `json:"is_runtime_principal,omitempty"`
 	OrgId                   *openapi_types.UUID `json:"org_id,omitempty"`
 	OrgName                 *string             `json:"org_name,omitempty"`
 	Permissions             *[]string           `json:"permissions,omitempty"`
@@ -9822,7 +9823,10 @@ type StartDeviceResponse struct {
 	// Results leave it absent or null when an exact build or All branches ·
 	// Latest build chose the build, because then no branch was chosen.
 	BranchSource *BranchSource `json:"branch_source,omitempty"`
-	Error        *string       `json:"error,omitempty"`
+
+	// BuildId The build an iOS app session inside a computer runs, including the one Revyl chose when the computer's own key named only the app
+	BuildId *openapi_types.UUID `json:"build_id,omitempty"`
+	Error   *string             `json:"error,omitempty"`
 
 	// ErrorDetail Safe, actionable context for a launch-variable resolution failure.
 	ErrorDetail *LaunchEnvVarErrorDetail `json:"error_detail,omitempty"`

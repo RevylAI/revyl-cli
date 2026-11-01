@@ -19,6 +19,7 @@ func TestStartSessionInsideComputerSendsComputerSessionID(t *testing.T) {
 		workflowRunID     = "99999999-9999-4999-8999-999999999901"
 		sessionID         = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01"
 	)
+	t.Setenv("REVYL_COMPUTER_ID", computerSessionID)
 	for _, platform := range []string{"ios", "android"} {
 		t.Run(platform, func(t *testing.T) {
 			var captured struct {

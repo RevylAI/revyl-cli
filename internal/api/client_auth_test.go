@@ -77,6 +77,28 @@ func TestSetAPIKeyUpdatesSubsequentAuthorization(t *testing.T) {
 	}
 }
 
+func TestValidateAPIKeyAcceptsOrgRuntimeIdentity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":"agent-outpost:00000000-0000-4000-8000-000000000001","org_id":"00000000-0000-4000-8000-000000000002","org_name":"Acme","email":"","service":false,"user_role":"Member"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	result, err := NewClientWithBaseURL("outpost-key", server.URL).ValidateAPIKey(context.Background())
+	if err != nil {
+		t.Fatalf("ValidateAPIKey() error = %v, want nil", err)
+	}
+	if result.UserID != "agent-outpost:00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("UserID = %q, want stable org-runtime identity", result.UserID)
+	}
+	if result.OrgID != "00000000-0000-4000-8000-000000000002" {
+		t.Fatalf("OrgID = %q, want org id", result.OrgID)
+	}
+}
+
 // TestAPIKeyAccessIsConcurrentSafe verifies credential refresh can overlap request reads.
 func TestAPIKeyAccessIsConcurrentSafe(t *testing.T) {
 	client := NewClient("initial-token")
