@@ -7414,39 +7414,6 @@ func (c *Client) GetRemoteBuildLogs(ctx context.Context, buildJobID string, afte
 	return &result, nil
 }
 
-// BuildRunnerStatus is defined in generated.go from the OpenAPI schema.
-
-// CheckBuildRunnersAvailable queries the backend for active build capacity
-// assigned to the caller's organisation. Used as a pre-flight check before
-// uploading source to avoid wasting time when no capacity is available.
-//
-// Parameters:
-//   - ctx: cancellation context
-//   - platform: build platform ("ios" or "android")
-//
-// Returns:
-//   - *BuildRunnerStatus with availability flag and capacity count
-//   - error on API or network failure
-func (c *Client) CheckBuildRunnersAvailable(ctx context.Context, platform string) (*BuildRunnerStatus, error) {
-	path := "/api/v1/apps/remote/runners/available"
-	values := url.Values{}
-	if strings.TrimSpace(platform) != "" {
-		values.Set("platform", strings.TrimSpace(platform))
-	}
-	if encoded := values.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	resp, err := c.doRequest(ctx, "GET", path, nil)
-	if err != nil {
-		return nil, err
-	}
-	var result BuildRunnerStatus
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 // UploadFileToPresignedURL uploads a file to a presigned S3 PUT URL with retry.
 //
 // Parameters:

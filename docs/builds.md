@@ -25,8 +25,8 @@ selects for hot reload. Check the generated Xcode scheme: without an existing
 Cloud builds require a Git worktree and an accessible, same-platform app UUID
 in the recipe's `app_id`. Use `revyl app list --platform ios` (or `android` or `web`)
 to find an app, or `revyl app create` to create one. Cloud builds consume
-metered compute credits and require available capacity; failures never fall
-back to local execution.
+metered compute credits and wait in a queue until a build runner is free;
+failures never fall back to local execution.
 
 Inside a running computer, `REVYL_COMPUTER_ID` changes the default to a local
 build and upload so the checkout's toolchain runs on that computer. Pass

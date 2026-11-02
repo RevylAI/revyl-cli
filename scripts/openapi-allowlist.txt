@@ -25,7 +25,6 @@ GET /api/v1/apps/
 GET /api/v1/apps/build-caches
 GET /api/v1/apps/builds/{version_id}
 GET /api/v1/apps/builds/{version_id}/runs
-GET /api/v1/apps/remote/runners/available
 GET /api/v1/apps/remote/{build_job_id}/logs
 GET /api/v1/apps/remote/{build_job_id}/status
 GET /api/v1/apps/{app_id}

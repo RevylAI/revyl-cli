@@ -3621,27 +3621,6 @@ func (e CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection) Valid() bo
 	}
 }
 
-// Defines values for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform.
-const (
-	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "android"
-	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformIos     CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "ios"
-	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformWeb     CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "web"
-)
-
-// Valid indicates whether the value is a known member of the CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform enum.
-func (e CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform) Valid() bool {
-	switch e {
-	case CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid:
-		return true
-	case CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformIos:
-		return true
-	case CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformWeb:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds.
 const (
 	ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKindsWebBundle   ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds = "web_bundle"
@@ -5780,19 +5759,6 @@ type BuildRunItem struct {
 	Success              *bool                   `json:"success,omitempty"`
 	TestId               *string                 `json:"test_id,omitempty"`
 	TestName             *string                 `json:"test_name,omitempty"`
-}
-
-// BuildRunnerStatus Response for the build runner availability pre-flight check.
-//
-// Attributes:
-//
-//	available: Whether at least one build runner is online for the org.
-//	runner_count: Number of active build runners matching the org.
-//	    ``-1`` indicates Hatchet availability is unknown.
-type BuildRunnerStatus struct {
-	Available         bool    `json:"available"`
-	RunnerCount       int     `json:"runner_count"`
-	UnavailableReason *string `json:"unavailable_reason,omitempty"`
 }
 
 // BuildSelectionMode defines model for BuildSelectionMode.
@@ -11202,20 +11168,6 @@ type TriggerRemoteBuildApiV1AppsRemotePostParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
-
-// CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
-type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams struct {
-	Platform *CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
-
-	// RunnerId Deprecated and ignored. Runner selection is managed by Revyl.
-	RunnerId *string `form:"runner_id,omitempty" json:"runner_id,omitempty"`
-
-	// Image Optional sandbox build image key. Defaults to latest.
-	Image *string `form:"image,omitempty" json:"image,omitempty"`
-}
-
-// CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
-type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform string
 
 // GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams defines parameters for GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGet.
 type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {

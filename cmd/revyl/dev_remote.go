@@ -646,7 +646,7 @@ func seedLatestDevBuild(
 //
 // Returns:
 //   - remoteDevBuildJob: Accepted remote job metadata.
-//   - error: Packaging, upload, validation, capacity, or admission failure.
+//   - error: Packaging, upload, validation, or admission failure.
 func triggerRemoteDevBuild(
 	ctx context.Context,
 	client *api.Client,
@@ -657,19 +657,6 @@ func triggerRemoteDevBuild(
 	parsedAppID, err := uuid.Parse(strings.TrimSpace(invocation.AppID))
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("app id must be a valid UUID: %w", err)
-	}
-	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
-		State: devloop.BuildStatePreparing, Phase: "capacity_check", Message: "Checking remote build capacity",
-	})
-	availability, availabilityErr := client.CheckBuildRunnersAvailable(ctx, invocation.Platform)
-	if availabilityErr != nil {
-		ui.PrintWarning("Build capacity preflight unavailable; continuing to authoritative admission: %v", availabilityErr)
-	} else if availability != nil && !availability.Available && availability.RunnerCount >= 0 {
-		reason := "no active runner"
-		if availability.UnavailableReason != nil && strings.TrimSpace(*availability.UnavailableReason) != "" {
-			reason = strings.TrimSpace(*availability.UnavailableReason)
-		}
-		return remoteDevBuildJob{}, fmt.Errorf("build capacity unavailable: %s", reason)
 	}
 	ui.Println()
 	ui.PrintInfo("Remote building %s/%s...", invocation.Profile, invocation.Platform)
