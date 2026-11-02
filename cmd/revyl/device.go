@@ -98,6 +98,11 @@ func computerSessionIDForStart(cmd *cobra.Command) string {
 	return computerID
 }
 
+func deviceStartOpensBrowser(cmd *cobra.Command, computerSessionID string) bool {
+	openBrowser, _ := cmd.Flags().GetBool("open")
+	return openBrowser && (computerSessionID == "" || cmd.Flags().Changed("open"))
+}
+
 // resolveTargetOrCoords checks whether --target was provided or --x/--y were
 // explicitly set. Uses cobra's Changed() to distinguish "not provided" from 0.
 func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager, session *mcppkg.DeviceSession) (int, int, string, error) {
@@ -843,7 +848,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 		computerSessionID := computerSessionIDForStart(cmd)
 		platformExplicit := cmd.Flags().Changed("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
-		openBrowser, _ := cmd.Flags().GetBool("open")
+		openBrowser := deviceStartOpensBrowser(cmd, computerSessionID)
 		appID, _ := cmd.Flags().GetString("app-id")
 		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
 		branchName, _ := cmd.Flags().GetString("branch")

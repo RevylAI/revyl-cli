@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestNormalizeDeviceStartPlatform(t *testing.T) {
@@ -61,5 +63,30 @@ func TestDeviceStartPlatformFlagDefault(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(flag.Usage), "required") {
 		t.Fatalf("device start --platform usage should not say required, got %q", flag.Usage)
+	}
+}
+
+func TestDeviceStartOpenBrowserDefaultsOffInsideComputer(t *testing.T) {
+	t.Setenv("REVYL_COMPUTER_ID", "computer-1")
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("open", true, "")
+	computerSessionID := computerSessionIDForStart(cmd)
+	if got := deviceStartOpensBrowser(cmd, computerSessionID); got {
+		t.Fatal("device start should not open a browser by default inside a computer")
+	}
+
+	if err := cmd.Flags().Set("open", "true"); err != nil {
+		t.Fatalf("set --open: %v", err)
+	}
+	if got := deviceStartOpensBrowser(cmd, computerSessionID); !got {
+		t.Fatal("explicit --open should open a browser inside a computer")
+	}
+
+	t.Setenv("REVYL_COMPUTER_ID", "")
+	standalone := &cobra.Command{}
+	standalone.Flags().Bool("open", true, "")
+	if got := deviceStartOpensBrowser(standalone, computerSessionIDForStart(standalone)); !got {
+		t.Fatal("device start should keep opening the browser by default outside a computer")
 	}
 }

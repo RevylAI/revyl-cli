@@ -137,7 +137,7 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		ui.PrintLink("Session", session.SessionID)
 		ui.PrintLink("Live View", session.ViewerURL)
 	}
-	openBrowser, _ := cmd.Flags().GetBool("open")
+	openBrowser := deviceStartOpensBrowser(cmd, computerSessionID)
 	if openBrowser {
 		_ = ui.OpenBrowser(session.ViewerURL)
 	}

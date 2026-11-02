@@ -194,7 +194,9 @@ revyl device start --platform web --app "$WEB_APP" --computer "$C1" --json
 
 Inside a running computer, `REVYL_COMPUTER_ID` makes `revyl build` run the
 configured recipe locally and makes `device start` target that computer. The
-bare start selects the newest build on the checkout's detected Git branch when
+device viewer stays closed by default inside a computer; pass `--open` when the
+viewer should open on the computer's desktop. Bare start selects the newest
+build on the checkout's detected Git branch when
 that branch follows Latest; concurrent uploads to the same branch can still
 race, so use `--build-version-id` when exact build identity matters. Unset the
 variable to disable both defaults. Explicit `--remote`, `--app-id`,

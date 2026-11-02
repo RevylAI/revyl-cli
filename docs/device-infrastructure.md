@@ -59,6 +59,8 @@ When `REVYL_COMPUTER_ID` is set, mobile `device start` uses that computer and
 the configured app's detected branch build. Pass `--app-id` or
 `--build-version-id` to choose explicitly, `--computer=none` to start a
 standalone device, or unset `REVYL_COMPUTER_ID` to disable the default.
+The viewer stays closed by default for an implicit computer start; pass
+`--open` to open it on the computer's desktop.
 Implicit computer starts skip `session.before_script` and `session.auth_bypass`
 and use the app's defaults; standalone starts keep those session settings.
 
