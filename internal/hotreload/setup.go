@@ -37,9 +37,6 @@ type SetupOptions struct {
 	// ExplicitProvider is the provider specified via --provider flag.
 	// If empty, auto-detection is used.
 	ExplicitProvider string
-
-	// Platform is the platform filter for build search ("ios", "android", or empty).
-	Platform string
 }
 
 // AutoSetup attempts to auto-configure hot reload for a project.
@@ -106,48 +103,6 @@ func AutoSetup(ctx context.Context, client *api.Client, opts SetupOptions) (*Set
 		ProjectInfo:  info,
 		Detection:    detection,
 	}, nil
-}
-
-// AutoSetupAll detects and sets up all compatible providers for a project.
-//
-// This is useful for cross-platform projects that may have multiple
-// hot reload providers (e.g., Expo + Android).
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - client: API client for searching builds
-//   - workDir: Working directory for the project
-//
-// Returns:
-//   - []*SetupResult: Setup results for each detected provider
-//   - error: Any error that occurred
-func AutoSetupAll(ctx context.Context, client *api.Client, workDir string) ([]*SetupResult, error) {
-	registry := DefaultRegistry()
-	detections := registry.DetectAllProviders(workDir)
-
-	if len(detections) == 0 {
-		return nil, fmt.Errorf("no compatible hot reload providers found")
-	}
-
-	var results []*SetupResult
-	for _, d := range detections {
-		result, err := AutoSetup(ctx, client, SetupOptions{
-			WorkDir:          workDir,
-			ExplicitProvider: d.Provider.Name(),
-			Platform:         d.Detection.Platform,
-		})
-		if err != nil {
-			// Log but continue with other providers
-			continue
-		}
-		results = append(results, result)
-	}
-
-	if len(results) == 0 {
-		return nil, fmt.Errorf("failed to setup any providers")
-	}
-
-	return results, nil
 }
 
 // ApplySetupResult applies a setup result to a project configuration.
