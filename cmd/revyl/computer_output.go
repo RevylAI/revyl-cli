@@ -63,7 +63,7 @@ var computerFailureReasons = map[string]string{
 	"device_limit": "All of your organization's device slots were in use, so this computer didn't start",
 }
 
-const computerLimitMessage = "Every device slot a computer can use is busy. Stop a session, then try again."
+const computerLimitMessage = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
 const computerNotEnabledMessage = "Computers aren't enabled for this organization. Mac computers are experimental: an owner or admin can request access in Settings > Experiments."
 
 func computerStateText(state, release string) string {
