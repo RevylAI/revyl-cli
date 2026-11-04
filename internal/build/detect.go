@@ -13,6 +13,8 @@ import (
 	"unicode"
 )
 
+var bazelTargetNamePattern = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+
 const xcodeSimulatorDestination = "-destination 'generic/platform=iOS Simulator'"
 
 // BuildSystem represents a detected build system type.
@@ -780,7 +782,7 @@ func parseBazelAndroidTarget(dir string) string {
 		filepath.Join(dir, "BUILD"),
 	}
 
-	namePattern := regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+	namePattern := bazelTargetNamePattern
 	for _, buildFile := range buildFiles {
 		if !fileExists(buildFile) {
 			continue
@@ -866,7 +868,7 @@ func parseBazelIOSTarget(dir string) string {
 		filepath.Join(dir, "BUILD"),
 	}
 
-	namePattern := regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+	namePattern := bazelTargetNamePattern
 	for _, buildFile := range buildFiles {
 		if !fileExists(buildFile) {
 			continue

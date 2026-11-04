@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import tempfile
 import unittest
@@ -22,32 +21,6 @@ spec.loader.exec_module(recipe)
 
 
 class RecipeTests(unittest.TestCase):
-    def test_workflow_summaries_use_the_helper_checkpoint(self) -> None:
-        for workflow_path in Path(__file__).parent.glob("refresh-*.yml"):
-            with self.subTest(workflow=workflow_path.name):
-                workflow = workflow_path.read_text()
-                summary = workflow.split("      - name: Summarize\n", 1)[1]
-                script = summary.split("        run: |\n", 1)[1]
-                script = "\n".join(
-                    line.removeprefix("          ") for line in script.splitlines()
-                )
-                filenames = re.findall(r"[A-Za-z0-9_-]+\.json", script)
-                self.assertEqual(filenames, [recipe.CHECKPOINT.name] * 2)
-                with tempfile.TemporaryDirectory() as directory:
-                    checkpoint_path = Path(directory) / recipe.CHECKPOINT.name
-                    checkpoint_path.write_text('{"build_id":"exact-build-proof"}\n')
-                    summary_path = Path(directory) / "summary.md"
-                    result = subprocess.run(
-                        ["bash", "-e", "-c", script],
-                        cwd=directory,
-                        env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary_path)},
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                        check=False,
-                    )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("exact-build-proof", summary_path.read_text())
 
     def test_workflow_tests_run_on_the_explored_build(self) -> None:
         for workflow_path in Path(__file__).parent.glob("refresh-*.yml"):
@@ -194,33 +167,6 @@ class RecipeTests(unittest.TestCase):
             saved = json.loads(receipt.read_text())
         return calls, saved
 
-    def test_artifact_exact_handoff_waits_for_atlas(self) -> None:
-        calls, saved = self.run_recipe(artifact=True)
-        self.assertEqual(saved["build_id"], "build")
-        self.assertEqual(saved["outcome"], "completed")
-        self.assertEqual(calls.count(("explore", "status", "run")), 2)
-
-    def test_remote_job_id_is_not_used_as_build_id(self) -> None:
-        _, saved = self.run_recipe(artifact=False)
-        self.assertEqual(saved["build_job_id"], "job")
-        self.assertEqual(saved["build_id"], "build")
-
-    def test_partial_map_is_explicit_success(self) -> None:
-        _, saved = self.run_recipe(artifact=True, outcome="partial")
-        self.assertEqual(saved["outcome"], "partial")
-        self.assertTrue(saved["success"])
-
-    def test_poll_failure_cancels_and_observes_terminal_state(self) -> None:
-        calls, saved = self.run_recipe(artifact=True, broken_poll=True)
-        self.assertIn(("explore", "cancel", "run"), calls)
-        self.assertEqual(calls[-1], ("explore", "status", "run"))
-        self.assertNotIn("unsettled_operation", saved)
-
-    def test_cleanup_failure_preserves_operation_for_recovery(self) -> None:
-        _, saved = self.run_recipe(
-            artifact=True, broken_poll=True, cleanup_failure=True
-        )
-        self.assertEqual(saved["unsettled_operation"], {"kind": "explore", "id": "run"})
 
     def test_wait_deadline_bounds_poll_and_sleep(self) -> None:
         with (

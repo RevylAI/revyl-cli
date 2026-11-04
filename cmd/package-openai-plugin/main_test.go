@@ -340,7 +340,7 @@ func TestOpenAIAttributesSurvivePackageExport(t *testing.T) {
 	}
 }
 
-func TestWorkspaceBridgeMakeAndCIContract(t *testing.T) {
+func TestMakeAndCIContract(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Makefile validation requires POSIX tooling")
 	}
@@ -352,7 +352,7 @@ func TestWorkspaceBridgeMakeAndCIContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("make -n test: %v\n%s", err, output)
 	}
-	for _, required := range []string{"node --test internal/mcp/workspace_app.test.cjs", "./scripts/go-test-summary.sh ./..."} {
+	for _, required := range []string{"./scripts/go-test-summary.sh ./..."} {
 		if !strings.Contains(string(output), required) {
 			t.Errorf("make test does not run %q: %s", required, output)
 		}

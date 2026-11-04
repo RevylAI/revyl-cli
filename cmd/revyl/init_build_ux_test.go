@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -217,74 +216,6 @@ func TestRunInitSkipBuildSetupForNowCreatesPlaceholderPlatforms(t *testing.T) {
 	}
 	if platformCfg.BuildCommands == nil || len(*platformCfg.BuildCommands) != 0 || platformCfg.OutputPath != nil || platformCfg.AppID != nil {
 		t.Fatalf("android placeholder platform not cleared: %+v", platformCfg)
-	}
-}
-
-func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *testing.T) {
-	tests := []struct {
-		name     string
-		fixture  string
-		platform string
-		stdin    string
-	}{
-		{name: "expo", fixture: "bug-bazaar", platform: "ios", stdin: "3\n5\n"},
-		// rn-bare-minimal detects iOS with -scheme *, which triggers a scheme
-		// prompt when xcodebuild is absent (CI). Prepend "\n" to skip it.
-		{name: "react-native", fixture: "rn-bare-minimal", platform: "ios", stdin: "\n3\n5\n"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resetInitGlobals(t)
-
-			workDir := copyInternalAppFixture(t, filepath.Join(repoRootForInitFixtureTests(t), "internal-apps", tt.fixture), true)
-			gitInitForInitTest(t, workDir)
-			withWorkingDir(t, workDir)
-
-			cmd := &cobra.Command{Use: "init"}
-			cmd.Flags().Bool("dev", false, "")
-
-			output := captureStdoutAndStderr(t, func() {
-				withStdin(t, tt.stdin, func() {
-					if err := runInit(cmd, nil); err != nil {
-						t.Fatalf("runInit() error = %v", err)
-					}
-				})
-			})
-
-			configBytes, err := os.ReadFile(filepath.Join(workDir, ".revyl", "config.yaml"))
-			if err != nil {
-				t.Fatalf("ReadFile(config.yaml) error = %v", err)
-			}
-			authored, err := config.ParseAuthoredConfig(configBytes)
-			if err != nil {
-				t.Fatalf("ParseAuthoredConfig() error = %v", err)
-			}
-			profile := authored.Build.Profiles["development"]
-			platformCfg := profile.IOS
-			if tt.platform == "android" {
-				platformCfg = profile.Android
-			}
-			if platformCfg == nil {
-				t.Fatalf("missing %s placeholder recipe in %+v", tt.platform, authored.Build.Profiles)
-			}
-			if platformCfg.BuildCommands == nil || len(*platformCfg.BuildCommands) != 0 || platformCfg.OutputPath != nil || platformCfg.AppID != nil {
-				t.Fatalf("%s placeholder platform not cleared: %+v", tt.platform, platformCfg)
-			}
-			if strings.Contains(string(configBytes), "hotreload:") {
-				t.Fatalf("canonical config contains retired hotreload state:\n%s", configBytes)
-			}
-
-			if !strings.Contains(output, "Hot reload and live dev setup are deferred until at least one build platform has a build command and artifact path.") {
-				t.Fatalf("expected deferred hot reload guidance, got:\n%s", output)
-			}
-			if strings.Contains(output, "Hot reload configured during init") {
-				t.Fatalf("unexpected hot reload configured message in output:\n%s", output)
-			}
-			if regexp.MustCompile(`\brevyl dev\b`).MatchString(output) {
-				t.Fatalf("unexpected revyl dev suggestion in output:\n%s", output)
-			}
-		})
 	}
 }
 

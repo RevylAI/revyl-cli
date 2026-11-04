@@ -20,6 +20,12 @@ import (
 	"time"
 )
 
+var packageNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+var registeredAppIDPattern = regexp.MustCompile(`^asdk_app_[A-Za-z0-9][A-Za-z0-9_-]*$`)
+var assetSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+var hostnameLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+var topLevelDomainPattern = regexp.MustCompile(`^[a-z]{2,63}$`)
+
 const pluginSchema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 const mcpSchema = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
 
@@ -70,11 +76,11 @@ func run(packageDirectory string, args []string) error {
 	if connectionFlags != 1 {
 		return errors.New("use exactly one of --registered-app-id or --mcp-url, not both")
 	}
-	if *packageName != "" && (*appID == "" || len(*packageName) > 64 || !regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`).MatchString(*packageName)) {
+	if *packageName != "" && (*appID == "" || len(*packageName) > 64 || !packageNamePattern.MatchString(*packageName)) {
 		return errors.New("--package-name requires a registered app and a lowercase kebab-case name of at most 64 characters")
 	}
 	registeredID := strings.TrimPrefix(*appID, "plugin_")
-	if *appID != "" && !regexp.MustCompile(`^asdk_app_[A-Za-z0-9][A-Za-z0-9_-]*$`).MatchString(registeredID) {
+	if *appID != "" && !registeredAppIDPattern.MatchString(registeredID) {
 		return errors.New("--registered-app-id must start with asdk_app_ or plugin_asdk_app_, followed by a letter or digit and only letters, digits, underscores, or hyphens")
 	}
 	if *mcpURL != "" {
@@ -248,7 +254,7 @@ func validateRuntime(files []archiveFile) error {
 		if strings.HasPrefix(platform, "windows_") {
 			asset += ".exe"
 		}
-		if jsonString(manifest[platform+"_asset"]) != asset || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(jsonString(manifest[platform+"_sha256"])) {
+		if jsonString(manifest[platform+"_asset"]) != asset || !assetSHA256Pattern.MatchString(jsonString(manifest[platform+"_sha256"])) {
 			return invalid
 		}
 	}
@@ -275,11 +281,11 @@ func validateMCPURL(value string) error {
 	}
 	labels := strings.Split(host, ".")
 	for _, label := range labels {
-		if !regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(label) {
+		if !hostnameLabelPattern.MatchString(label) {
 			return invalid
 		}
 	}
-	if !regexp.MustCompile(`^[a-z]{2,63}$`).MatchString(labels[len(labels)-1]) {
+	if !topLevelDomainPattern.MatchString(labels[len(labels)-1]) {
 		return invalid
 	}
 	if u.Port() != "" {

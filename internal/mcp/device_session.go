@@ -45,6 +45,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+var screenTokenPattern = regexp.MustCompile(`^screen--?[0-9]+-[0-9]+$`)
+
 // pngDimensions extracts width and height from a PNG file's IHDR chunk.
 // Returns (width, height, ok). Falls back to (0, 0, false) if the data
 // is not a valid PNG or too short.
@@ -1463,7 +1465,7 @@ func (m *DeviceSessionManager) RuntimeScreenTokenForAnchor(session *DeviceSessio
 		return token, nil
 	}
 	m.mu.RUnlock()
-	if !regexp.MustCompile(`^screen--?[0-9]+-[0-9]+$`).MatchString(screenToken) {
+	if !screenTokenPattern.MatchString(screenToken) {
 		return "", fmt.Errorf("stale_target: screen_token is not a local screenshot anchor; capture a fresh screenshot")
 	}
 	directory, err := privatefs.OpenDirectory(m.artifactRootDirectory(), filepath.Join(".revyl", "mcp", "screenshots", fmt.Sprintf("session-%d", session.Index)))

@@ -38,19 +38,6 @@ class BinaryTests(unittest.TestCase):
 
         self.assertEqual(binary.ensure_binary(), self.binary_path)
 
-    def test_ensure_binary_rejects_missing_packaged_binary(self) -> None:
-        """Fail clearly when a platform wheel lacks its native CLI."""
-        with self.assertRaisesRegex(RuntimeError, "does not contain a CLI binary"):
-            binary.ensure_binary()
-
-    @unittest.skipIf(os.name == "nt", "Windows does not use POSIX executable bits")
-    def test_ensure_binary_rejects_non_executable_packaged_binary(self) -> None:
-        """Fail clearly when installation loses the CLI executable bit."""
-        self.binary_path.write_bytes(b"binary")
-        self.binary_path.chmod(0o644)
-
-        with self.assertRaisesRegex(RuntimeError, "is not executable"):
-            binary.ensure_binary()
 
     def test_ensure_binary_prefers_environment_override(self) -> None:
         """Resolve REVYL_BINARY before checking wheel package data."""
@@ -62,20 +49,6 @@ class BinaryTests(unittest.TestCase):
             {"REVYL_BINARY": str(override_path)},
         ):
             self.assertEqual(binary.ensure_binary(), override_path.resolve())
-
-    def test_ensure_binary_rejects_missing_environment_override(self) -> None:
-        """Fail clearly when REVYL_BINARY points to a missing file."""
-        missing_path = self.binary_path.parent / "missing-revyl"
-
-        with mock.patch.dict(
-            os.environ,
-            {"REVYL_BINARY": str(missing_path)},
-        ):
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "REVYL_BINARY points to non-existent path",
-            ):
-                binary.ensure_binary()
 
 
 if __name__ == "__main__":

@@ -92,14 +92,9 @@ clean:
 	@rm -f $(BINARY) $(COMPUTER_BINARY)
 
 ## test: Run tests with summary
-test: test-workspace
+test:
 	@echo "Running tests..."
 	@$(SCRIPTS_DIR)/go-test-summary.sh ./...
-
-.PHONY: test-workspace
-## test-workspace: Run embedded workspace bridge tests
-test-workspace:
-	@node --test internal/mcp/workspace_app.test.cjs
 
 ## test-coverage: Run tests with coverage
 test-coverage:

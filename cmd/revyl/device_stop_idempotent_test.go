@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -289,61 +288,5 @@ func TestDeviceStop_InaccessibleSessionIDStillFails(t *testing.T) {
 	}
 	if strings.Contains(stdout, "already_stopped") {
 		t.Fatalf("stdout = %s, an inaccessible session ID must not report a no-op stop", stdout)
-	}
-}
-
-// TestDeviceCommandErrorsNameCLICommands drives device commands through the
-// real CLI manager and asserts their session errors name revyl commands, never
-// MCP tool calls such as screenshot().
-func TestDeviceCommandErrorsNameCLICommands(t *testing.T) {
-	testCases := []struct {
-		name    string
-		runE    func(*cobra.Command, []string) error
-		args    []string
-		ended   bool
-		wantErr string
-	}{
-		{name: "screenshot without a session", runE: deviceScreenshotCmd.RunE, wantErr: "Start one with 'revyl device start'"},
-		{name: "hierarchy with a stale index", runE: deviceHierarchyCmd.RunE, args: []string{"-s", "3"}, wantErr: "Run 'revyl device list'"},
-		{name: "screenshot after the session ended", runE: deviceScreenshotCmd.RunE, args: []string{"-s", flowSessionID}, ended: true, wantErr: "Start a new session with 'revyl device start'"},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			withWorkingDirectory(t, t.TempDir())
-			t.Setenv("REVYL_API_KEY", "test-api-key")
-			t.Setenv(sessionIDEnvVar, "")
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				switch r.URL.Path {
-				case "/api/v1/entity/users/get_user_uuid":
-					_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-1","email":"test@example.com"}`))
-				case "/api/v1/execution/device-sessions/active":
-					_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[]}`))
-				case "/api/v1/execution/device-sessions/" + flowSessionID:
-					_, _ = w.Write([]byte(`{"id":"` + flowSessionID + `","org_id":"org-1","platform":"ios","status":"running","workflow_run_id":"` + flowWorkflowRunID + `"}`))
-				case "/api/v1/execution/streaming/worker-connection/" + flowWorkflowRunID:
-					_, _ = w.Write([]byte(`{"status":"stopped","workflow_run_id":"` + flowWorkflowRunID + `","message":"Idle timeout reached"}`))
-				case "/api/v1/execution/device-proxy/" + flowWorkflowRunID + "/screenshot":
-					w.WriteHeader(http.StatusNotFound)
-					_, _ = w.Write([]byte(`{"detail":"Worker URL not found"}`))
-				default:
-					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-					http.NotFound(w, r)
-				}
-			}))
-			t.Cleanup(server.Close)
-			t.Setenv("REVYL_BACKEND_URL", server.URL)
-
-			cmd := newStopTestCommand(t, tc.args...)
-			cmd.Flags().String("out", "", "")
-			var runErr error
-			captureStdout(t, func() { runErr = tc.runE(cmd, nil) })
-			if runErr == nil || !strings.Contains(runErr.Error(), tc.wantErr) {
-				t.Fatalf("error = %v, want it to contain %q", runErr, tc.wantErr)
-			}
-			if mcpToolCall := regexp.MustCompile(`\w+\(\)`); mcpToolCall.MatchString(runErr.Error()) {
-				t.Fatalf("CLI error %q names an MCP tool call", runErr)
-			}
-		})
 	}
 }

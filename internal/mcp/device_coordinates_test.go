@@ -12,6 +12,8 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
+const surfaceTestWorkflowRunID = "12121212-1212-4212-8212-121212121212"
+
 func TestRequireCoordsOnScreenRefusesOnlyAnOffScreenPoint(t *testing.T) {
 	for _, tc := range []struct {
 		name          string

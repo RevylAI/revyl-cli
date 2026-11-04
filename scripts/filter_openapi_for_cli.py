@@ -16,6 +16,16 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+_FILTER_OPENAPI_FOR_CLI_API_ADMIN_PATTERN: re.Pattern[str] = re.compile(
+    r"^/api/v1/admin(?:/|$)"
+)
+_FILTER_OPENAPI_FOR_CLI_INTERNAL_PATTERN: re.Pattern[str] = re.compile(
+    r"/internal(?:/|$)"
+)
+_FILTER_OPENAPI_FOR_CLI_SECRETS_PATTERN: re.Pattern[str] = re.compile(
+    r"/secrets(?:/|$)"
+)
+
 
 HTTP_METHODS = {"delete", "get", "patch", "post", "put"}
 SCHEMA_REF_PREFIX = "#/components/schemas/"
@@ -24,9 +34,9 @@ GO_RAW_STRING = re.compile(r"`([^`]*)`")
 FORMAT_SEGMENT = re.compile(r"%(?:\[[0-9]+\])?[-+#0-9.]*[a-zA-Z]")
 OPENAPI_PARAMETER_SEGMENT = re.compile(r"\{[^{}]+\}")
 DENIED_PATH_PATTERNS = (
-    re.compile(r"^/api/v1/admin(?:/|$)"),
-    re.compile(r"/internal(?:/|$)"),
-    re.compile(r"/secrets(?:/|$)"),
+    _FILTER_OPENAPI_FOR_CLI_API_ADMIN_PATTERN,
+    _FILTER_OPENAPI_FOR_CLI_INTERNAL_PATTERN,
+    _FILTER_OPENAPI_FOR_CLI_SECRETS_PATTERN,
 )
 
 

@@ -19,6 +19,8 @@ import (
 
 const claudePluginName = "revyl-cli"
 
+var pluginVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
 type pluginManifest struct {
 	Name        string          `json:"name"`
 	DisplayName string          `json:"displayName,omitempty"`
@@ -62,7 +64,7 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 	if err := json.Unmarshal(manifestJSON, &plugin); err != nil {
 		return err
 	}
-	if plugin.Name != "revyl" || !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).MatchString(plugin.Version) {
+	if plugin.Name != "revyl" || !pluginVersionPattern.MatchString(plugin.Version) {
 		return fmt.Errorf("expected Revyl plugin with a release semantic version")
 	}
 	versionBytes, err := packageRoot.ReadFile(filepath.Join(pluginRoot, "runtime-version"))

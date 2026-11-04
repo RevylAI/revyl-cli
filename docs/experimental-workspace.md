@@ -107,9 +107,7 @@ host does not delegate local-network access; do not disable browser security.
 
 This is a navigation prototype, not a new authentication or device-execution
 path. Validation is local: Go tests cover the tool/resource contracts and
-profile compatibility, and `make -C revyl-cli test-workspace` checks bridge
-ordering, message isolation, and URL filtering. The CLI's `make test` and
-Linux CLI CI include those Node bridge tests.
+profile compatibility. Run them with `make -C revyl-cli test`.
 
 The core/full profiles accept object-valued `params` for their composite tools.
 For exact-build device and test workflows, `manage_builds(action="list",

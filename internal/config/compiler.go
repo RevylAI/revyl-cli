@@ -20,6 +20,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var nonAlphanumericKeyPattern = regexp.MustCompile(`[^A-Za-z0-9]+`)
+
 const MaxConfigBytes = 1_048_576
 const MaxNormalizedConfigBytes = 8 * MaxConfigBytes
 const MaxConfigProfiles = 64
@@ -1513,7 +1515,7 @@ func legacyMapping(values map[string]any, key string, path []string) (map[string
 }
 
 func legacyProfileName(key, platform string) string {
-	tokens := regexp.MustCompile(`[^A-Za-z0-9]+`).Split(key, -1)
+	tokens := nonAlphanumericKeyPattern.Split(key, -1)
 	remaining := []string{}
 	for _, token := range tokens {
 		if token != "" && !strings.EqualFold(token, platform) {
