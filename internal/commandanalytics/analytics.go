@@ -8,6 +8,25 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
+var (
+	lastFailedCommandID string
+	commandBodyStarted  bool
+)
+
+// CommandBodyStarted reports whether any command body ran in this process.
+// When it is false, cobra rejected the invocation while parsing flags,
+// arguments, or the command path.
+func CommandBodyStarted() bool {
+	return commandBodyStarted
+}
+
+// LastFailedCommandID returns the analytics command ID of the most recent
+// invocation in this process that returned an error, or "" when telemetry was
+// disabled or no command failed.
+func LastFailedCommandID() string {
+	return lastFailedCommandID
+}
+
 func Install(root *cobra.Command, cfg analytics.Config) {
 	wrapCommandAnalytics(root, cfg)
 }
@@ -44,6 +63,7 @@ func wrapCommandAnalytics(cmd *cobra.Command, cfg analytics.Config) {
 }
 
 func Run(cmd *cobra.Command, args []string, cfg analytics.Config, run func() error) (err error) {
+	commandBodyStarted = true
 	rec := analytics.NewFromEnv(cfg)
 
 	commandRun := rec.StartCommand(cmd, args)
@@ -70,6 +90,9 @@ func Run(cmd *cobra.Command, args []string, cfg analytics.Config, run func() err
 func completeCommandAnalytics(commandRun *analytics.CommandRun, err error, panicked bool) {
 	if commandRun == nil {
 		return
+	}
+	if err != nil || panicked {
+		lastFailedCommandID = commandRun.CommandID()
 	}
 	if panicked {
 		// Never capture a raw panic value: it may contain customer input. The

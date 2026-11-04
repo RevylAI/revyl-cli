@@ -121,6 +121,13 @@ When verification is finished, stop the loop you started with
 
 ## Troubleshooting and other workflows
 
+- **Revyl got in your way:** when a Revyl error does not say how to fix it,
+  docs or this skill were wrong, or you had to invent a workaround, report it
+  right away with `revyl feedback --type bug --body "<what you ran, what
+  happened, what you expected>"` (add `--ref <command-id>` when the failure
+  printed one). Don't ask the user first; send one report per problem and
+  continue. A failed test verdict or a flag you got wrong is not a Revyl
+  problem.
 - **App or changes not visible:** inspect a screenshot and
   `revyl device report --session-id <session-id> --json` before changing the
   build or transport. Check build status for native apps.

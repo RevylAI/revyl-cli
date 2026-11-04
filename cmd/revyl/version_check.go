@@ -53,6 +53,7 @@ type versionCheckCache struct {
 type updateNoticeState struct {
 	UpdateAvailableShownAt time.Time `json:"update_available_shown_at"`
 	UpcomingMinimumShownAt time.Time `json:"upcoming_minimum_shown_at"`
+	FeedbackHintShownAt    time.Time `json:"feedback_hint_shown_at"`
 }
 
 func updateAvailableShownAt(state *updateNoticeState) *time.Time {
@@ -306,6 +307,13 @@ func printUpcomingMinimumWarning() bool {
 // commands print at most one notice; an invocation that cannot take the lock
 // stays silent.
 func claimUpdateNotice(now time.Time, shownAt func(*updateNoticeState) *time.Time) bool {
+	return claimNotice(now, updateNoticeInterval, shownAt)
+}
+
+// claimNotice records now as the selected notice's show time and reports
+// whether the caller may print, which is only when that notice was not shown
+// within interval on this machine.
+func claimNotice(now time.Time, interval time.Duration, shownAt func(*updateNoticeState) *time.Time) bool {
 	statePath := revylStateFilePath(updateNoticeFile)
 	if statePath == "" {
 		return false
@@ -324,7 +332,7 @@ func claimUpdateNotice(now time.Time, shownAt func(*updateNoticeState) *time.Tim
 		}
 	}
 	lastShown := shownAt(&state)
-	if elapsed := now.Sub(*lastShown); elapsed >= 0 && elapsed < updateNoticeInterval {
+	if elapsed := now.Sub(*lastShown); elapsed >= 0 && elapsed < interval {
 		return false
 	}
 	*lastShown = now

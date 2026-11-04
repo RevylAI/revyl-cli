@@ -394,7 +394,7 @@ func TestJSONStdoutIsIdenticalWithAndWithoutUpcomingMinimumWarning(t *testing.T)
 		}})
 		root.SetArgs([]string{"run", "--json"})
 		return captureStdoutAndStderrSeparate(t, func() {
-			if err := executeWithVersionNotice(root); err != nil {
+			if err := executeWithNotices(root); err != nil {
 				t.Fatalf("command failed: %v", err)
 			}
 		})

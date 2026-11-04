@@ -87,3 +87,28 @@ func TestInstallPreservesCommandResult(t *testing.T) {
 		t.Fatalf("command result = %v, runs = %d", err, runs)
 	}
 }
+
+func TestCommandBodyStartedOnlyAfterCobraAcceptsTheInvocation(t *testing.T) {
+	t.Setenv("REVYL_TELEMETRY_DISABLED", "true")
+	t.Cleanup(func() { commandBodyStarted = false })
+	commandBodyStarted = false
+	root := &cobra.Command{Use: "revyl", SilenceErrors: true, SilenceUsage: true}
+	root.PersistentFlags().Bool("dev", false, "")
+	root.AddCommand(&cobra.Command{
+		Use:  "run",
+		Args: cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error { return errors.New("test failed") },
+	})
+	Install(root, analytics.Config{})
+
+	for _, args := range [][]string{{"run", "--latest-build"}, {"run", "extra"}, {"nope"}} {
+		root.SetArgs(args)
+		if err := root.Execute(); err == nil || CommandBodyStarted() {
+			t.Fatalf("%v: err = %v, started = %v", args, err, CommandBodyStarted())
+		}
+	}
+	root.SetArgs([]string{"run"})
+	if err := root.Execute(); err == nil || !CommandBodyStarted() {
+		t.Fatalf("run: err = %v, started = %v", err, CommandBodyStarted())
+	}
+}

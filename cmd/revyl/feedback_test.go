@@ -135,7 +135,7 @@ func TestFeedbackCommandHumanOutputGoesToStderr(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Feedback submitted.") {
+	if !strings.Contains(stderr.String(), "Feedback sent to the Revyl team.") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -187,5 +187,83 @@ func TestReadCommandBodyRejectsOversizedFile(t *testing.T) {
 	}
 	if _, err := readCommandBody(command, commandBodyOptions{bodyFile: path}, "feedback body", 0, feedbackBodyLimit); err == nil || !strings.Contains(err.Error(), "4000 characters") {
 		t.Fatalf("error = %v, want body size rejection", err)
+	}
+}
+
+func newFeedbackTestRoot(t *testing.T, captured *map[string]any) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(body, captured); err != nil {
+			t.Fatalf("body = %s: %v", body, err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"sent": true, "attachments_uploaded": true})
+	}))
+	t.Cleanup(server.Close)
+	original := feedbackSetupClient
+	feedbackSetupClient = func(*cobra.Command) (*api.Client, error) {
+		return api.NewClientWithBaseURL("test-key", server.URL), nil
+	}
+	t.Cleanup(func() { feedbackSetupClient = original })
+
+	command := newFeedbackCommand()
+	root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().Bool("json", false, "")
+	root.PersistentFlags().Bool("dev", false, "")
+	root.AddCommand(command)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetIn(strings.NewReader(""))
+	return root, &stdout, &stderr
+}
+
+func TestFeedbackCommandAcceptsPositionalMessageAndRef(t *testing.T) {
+	var captured map[string]any
+	root, _, stderr := newFeedbackTestRoot(t, &captured)
+	root.SetArgs([]string{"feedback", "--type", "bug", "--ref", "6f1c2d3e-0000-4000-8000-000000000000", "  rebuild hung after Metro restarted  "})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := "rebuild hung after Metro restarted\n\nRef: 6f1c2d3e-0000-4000-8000-000000000000"
+	if captured["message"] != want {
+		t.Fatalf("message = %#v, want %q", captured["message"], want)
+	}
+	if strings.TrimSpace(stderr.String()) != "Feedback sent to the Revyl team." {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestFeedbackCommandRejectsAmbiguousOrMissingMessageWithoutPrompting(t *testing.T) {
+	for name, args := range map[string][]string{
+		"argument and flag": {"feedback", "--type", "bug", "--body", "one", "two"},
+		"no message":        {"feedback", "--type", "bug"},
+		"bad ref":           {"feedback", "--type", "bug", "--ref", "has space", "msg"},
+		"two arguments":     {"feedback", "--type", "bug", "one", "two"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var captured map[string]any
+			root, _, _ := newFeedbackTestRoot(t, &captured)
+			root.SetArgs(args)
+			if err := root.Execute(); err == nil {
+				t.Fatal("expected a local error")
+			}
+			if captured != nil {
+				t.Fatalf("request sent: %#v", captured)
+			}
+		})
+	}
+}
+
+func TestFeedbackRefCountsTowardMessageLimit(t *testing.T) {
+	var captured map[string]any
+	root, _, _ := newFeedbackTestRoot(t, &captured)
+	root.SetArgs([]string{"feedback", "--type", "bug", "--ref", "run-1", strings.Repeat("x", feedbackBodyLimit)})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "characters") {
+		t.Fatalf("error = %v, want length rejection", err)
 	}
 }

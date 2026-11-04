@@ -105,7 +105,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	installAnalytics(rootCmd)
 
-	err := executeWithVersionNotice(rootCmd)
+	err := executeWithNotices(rootCmd)
 	if err != nil {
 		// Check if this is an unknown command error and provide suggestions
 		errStr := err.Error()
@@ -135,9 +135,10 @@ func Execute() {
 	}
 }
 
-func executeWithVersionNotice(root *cobra.Command) error {
+func executeWithNotices(root *cobra.Command) error {
 	cmd, err := root.ExecuteC()
 	printVersionWarning(cmd)
+	printAgentFeedbackHint(root.ErrOrStderr(), cmd, err)
 	return err
 }
 

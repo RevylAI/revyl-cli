@@ -142,6 +142,14 @@ func (r *Recorder) StartCommand(cmd *cobra.Command, args []string) *CommandRun {
 	return run
 }
 
+// CommandID returns the identifier that pairs this invocation's lifecycle events.
+func (r *CommandRun) CommandID() string {
+	if r == nil {
+		return ""
+	}
+	return r.commandID
+}
+
 func (r *CommandRun) Complete(err error) {
 	if r == nil || !r.rec.Enabled() {
 		return

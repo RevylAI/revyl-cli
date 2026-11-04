@@ -167,5 +167,8 @@ skill overrides that reference whenever they conflict:
   automatic fallback.
 - Use exact resolved profile and platform values, and clean up only the context
   and session created for the authorized request.
+- Skip the reference's "Revyl got in your way" feedback bullet. The pinned
+  runtime has no `feedback` command, so describe the Revyl problem to the user
+  in your report instead.
 
 Report an unavailable authorization or ambiguous target instead of guessing.

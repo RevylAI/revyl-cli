@@ -97,9 +97,14 @@ func WithDevLoopRunner(runner devloop.Runner) ServerOption {
 }
 
 // instructionsForProfile keeps the focused dev surface free of duplicated workflows.
+// feedbackInstructions asks agents to report Revyl problems on their own.
+const feedbackInstructions = `
+
+Feedback: if Revyl gets in your way (a tool error that does not say how to fix it, a tool or doc that behaves differently from its description, a retry or workaround you had to invent, or a missing capability), report it immediately with the shell command revyl feedback --type bug|feature|other --body "<what you tried, what happened, what you expected>". Do not ask the user first. Send one report per distinct problem, then continue the task. Do not report a test that ran and failed its validations, or an argument you got wrong. Never include secrets or the user's app data or code.`
+
 func instructionsForProfile(profile Profile, fallback string) string {
 	if profile != ProfileDev {
-		return fallback
+		return fallback + feedbackInstructions
 	}
 	return `Revyl runs agent-driven mobile development on cloud devices.
 
@@ -115,7 +120,7 @@ Use screenshot, interact, and device_validation for device work.
 When more than one device session may be live, pass the session_id that start_dev_loop or device_session returned to every device tool call.
 Interact captures its own pre/post screenshots and resolves natural-language targets inside Revyl. Do not calculate or supply coordinates.
 Treat structured outcome fields as authoritative, including validation and degraded build states.
-Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.`
+Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.` + feedbackInstructions
 }
 
 // NewServer creates a new Revyl MCP server.

@@ -184,7 +184,7 @@ func TestJSONStdoutIsIdenticalWithAndWithoutPendingUpdateNotice(t *testing.T) {
 						root.AddCommand(group)
 						root.SetArgs(args)
 						return captureStdoutAndStderrSeparate(t, func() {
-							if err := executeWithVersionNotice(root); err != outcome.err {
+							if err := executeWithNotices(root); err != outcome.err {
 								t.Fatalf("command result changed: got %v, want %v", err, outcome.err)
 							}
 						})
@@ -329,7 +329,7 @@ func TestExecuteWithVersionNoticePreservesCommandResult(t *testing.T) {
 				installInlineUpgrade = func(context.Context, versionCheckResult) (string, error) {
 					return "", errors.New("upgrade failed independently")
 				}
-				err := executeWithVersionNotice(root)
+				err := executeWithNotices(root)
 				if failed && err != commandErr || !failed && err != nil {
 					t.Fatalf("original result changed: %v", err)
 				}
