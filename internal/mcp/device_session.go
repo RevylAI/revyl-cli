@@ -485,8 +485,11 @@ func (m *DeviceSessionManager) StartSession(
 		if _, err := uuid.Parse(computerSessionID); err != nil {
 			return -1, nil, fmt.Errorf("computer session ID must be a UUID")
 		}
-		if opts.DeviceModel != "" || opts.OsVersion != "" || opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
-			return -1, nil, fmt.Errorf("a session inside a computer uses the computer's device and an uploaded build; omit the device, app URL and test")
+		if platform != "ios" && (opts.DeviceModel != "" || opts.OsVersion != "") {
+			return -1, nil, fmt.Errorf("only iOS sessions inside a computer accept a device model and OS version; omit them")
+		}
+		if opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
+			return -1, nil, fmt.Errorf("a session inside a computer uses an uploaded build; omit the device runner, app URL and test")
 		}
 		if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
 			return -1, nil, fmt.Errorf("a session inside a computer launches the app with its defaults; omit launch variables, arguments, environment and run options")

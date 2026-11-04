@@ -217,9 +217,11 @@ platform: iOS simulators and Web on macOS. Hosted Web needs
 no separate Web enablement and uses a registered deployment URL build, not a
 managed Web bundle. Select an app and one of its builds (`--app`, optionally
 `--build-version-id`); the computer chooses
-the device and the app launches with its defaults, so `--app-url`, device
-selectors, launch variables, arguments and environment, run options and
-test-backed starts are refused.
+the device and the app launches with its defaults, so `--app-url`, launch
+variables, arguments and environment, run options and test-backed starts are
+refused. For hosted iOS starts, `--device-model "iPhone Air"` runs an iPhone
+Air when the computer's image supports it; otherwise the backend refuses the
+start.
 The app session has its own session ID, stream, report and `revyl device stop`.
 Stopping it leaves C1 running; stopping C1 ends it. Its report attributes only
 the actions Revyl's driver took, and commands run in C1 can also change the

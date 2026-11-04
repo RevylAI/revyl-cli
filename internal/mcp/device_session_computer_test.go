@@ -143,7 +143,6 @@ func TestStartSessionInsideComputerRefusesBeforeAPIWork(t *testing.T) {
 		{"unsupported platform", StartSessionOptions{Platform: "linux", AppID: "app-123", ComputerSessionID: computerSessionID}},
 		{"android device model", StartSessionOptions{Platform: "android", AppID: "app-123", DeviceModel: "Pixel 7", ComputerSessionID: computerSessionID}},
 		{"android app URL", StartSessionOptions{Platform: "android", AppURL: "https://example.test/app.apk", ComputerSessionID: computerSessionID}},
-		{"device model", StartSessionOptions{Platform: "ios", AppID: "app-123", DeviceModel: "iPhone 16", OsVersion: "iOS 18.5", ComputerSessionID: computerSessionID}},
 		{"device runner", StartSessionOptions{Platform: "ios", AppID: "app-123", DeviceRunnerID: "runner-1", ComputerSessionID: computerSessionID}},
 		{"app URL", StartSessionOptions{Platform: "ios", AppURL: "https://example.test/app.zip", ComputerSessionID: computerSessionID}},
 		{"test", StartSessionOptions{Platform: "ios", AppID: "app-123", TestID: "test-1", ComputerSessionID: computerSessionID}},

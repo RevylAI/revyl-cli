@@ -815,6 +815,10 @@ Inside a computer, REVYL_COMPUTER_ID supplies --computer. Use --computer=none
 for a standalone device, or unset REVYL_COMPUTER_ID to disable computer defaults.
 Explicit --app-id and --build-version-id override the configured app selection.
 
+For iOS sessions inside a computer, --device-model (and optionally --os-version)
+selects a model such as iPhone Air; the start is refused when the computer's
+image does not support it.
+
 ` + runtimeBuildSelectionHelp + `
 
 Web sessions (--platform web) without --build-version-id or --url open the
