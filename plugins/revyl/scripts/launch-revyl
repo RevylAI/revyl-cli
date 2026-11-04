@@ -3,5 +3,8 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REVYL_PLUGIN_HOST=codex
+if [ -z "${CODEX_THREAD_ID:-}${CODEX_SHELL:-}${CODEX_CI:-}" ] && [ -n "${CLAUDECODE:-}" ]; then
+  REVYL_PLUGIN_HOST=claude
+fi
 export REVYL_PLUGIN_HOST
 exec "$SCRIPT_DIR/launch-runtime" "$@"

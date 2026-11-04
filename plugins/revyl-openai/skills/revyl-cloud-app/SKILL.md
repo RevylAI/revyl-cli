@@ -14,8 +14,8 @@ ask the user to enable the cloud coding workspace. Do not substitute an MCP
 server's filesystem for the user's workspace or send arbitrary shell commands
 to MCP. An unavailable embedded viewer does not block authorized CLI work.
 
-For an existing development loop, use `revyl-codex-dev-loop`. For proof of an
-existing CI artifact, use `revyl-codex-proof-ci`; do not rebuild it. For viewing
+For an existing development loop, use `revyl-dev-loop`. For proof of an
+existing CI artifact, use `revyl-proof-ci`; do not rebuild it. For viewing
 only, use `revyl-workspace`; do not start a build or exploration just to open
 Atlas. This workflow owns standalone builds, verification sessions, tests, and
 exploration runs, and must not duplicate another workflow's resources.

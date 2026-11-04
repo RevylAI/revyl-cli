@@ -8,8 +8,10 @@ import (
 func TestCodexGuardRequiresAnIndependentVersionIncrease(t *testing.T) {
 	for _, path := range []string{
 		"revyl-cli/.agents/plugins/marketplace.json",
+		"revyl-cli/.claude-plugin/marketplace.json",
 		"revyl-cli/plugins/revyl/.codex-plugin/plugin.json",
-		"revyl-cli/plugins/revyl/skills/revyl-codex-dev-loop/SKILL.md",
+		"revyl-cli/plugins/revyl/.claude-plugin/plugin.json",
+		"revyl-cli/plugins/revyl/skills/revyl-dev-loop/SKILL.md",
 		"revyl-cli/plugins/revyl/scripts/launch-runtime",
 		"revyl-cli/plugins/revyl/runtime-version",
 		"revyl-cli/cmd/sync-codex-plugin/main.go",

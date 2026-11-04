@@ -123,7 +123,7 @@ func TestMaintainedPackageIncludesCloudWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	contents, _ := readArchive(t, out)
-	for _, name := range []string{"revyl-cloud-app", "revyl-workspace", "revyl-codex-dev-loop", "revyl-codex-proof-ci"} {
+	for _, name := range []string{"revyl-cloud-app", "revyl-workspace", "revyl-dev-loop", "revyl-proof-ci"} {
 		path := "skills/" + name + "/SKILL.md"
 		source := "plugins/revyl/"
 		if name == "revyl-cloud-app" || name == "revyl-workspace" {
@@ -155,7 +155,7 @@ func TestPackageRoundTrip(t *testing.T) {
 				t.Fatal(err)
 			}
 			contents, entries := readArchive(t, out)
-			expected := []string{"assets/icon.png", "references/revyl-cli-dev-loop.md", "runtime-manifest.json", "runtime-version", "scripts/launch-revyl", "scripts/launch-revyl.cmd", "scripts/launch-revyl.ps1", "scripts/launch-runtime", "scripts/launch-runtime.ps1", "skills/revyl-codex-dev-loop/SKILL.md", "skills/revyl-codex-proof-ci/SKILL.md", "skills/revyl-workspace/SKILL.md", "skills/revyl-cloud-app/SKILL.md", "plugin.json", mode.connection}
+			expected := []string{"assets/icon.png", "references/revyl-cli-dev-loop.md", "runtime-manifest.json", "runtime-version", "scripts/launch-revyl", "scripts/launch-revyl.cmd", "scripts/launch-revyl.ps1", "scripts/launch-runtime", "scripts/launch-runtime.ps1", "skills/revyl-dev-loop/SKILL.md", "skills/revyl-proof-ci/SKILL.md", "skills/revyl-workspace/SKILL.md", "skills/revyl-cloud-app/SKILL.md", "plugin.json", mode.connection}
 			slices.Sort(expected)
 			var names []string
 			for _, entry := range entries {
@@ -539,7 +539,7 @@ func TestRejectMissingAndUnpreparedRuntime(t *testing.T) {
 			assertFailedWithoutOutput(t, root)
 		})
 	}
-	for _, name := range []string{"runtime-version", "runtime-manifest.json", "scripts/launch-runtime", "skills/revyl-codex-dev-loop/SKILL.md"} {
+	for _, name := range []string{"runtime-version", "runtime-manifest.json", "scripts/launch-runtime", "skills/revyl-dev-loop/SKILL.md"} {
 		t.Run("missing_"+name, func(t *testing.T) {
 			root := fixture(t)
 			if err := os.Remove(filepath.Join(root, "plugins/revyl", filepath.FromSlash(name))); err != nil {

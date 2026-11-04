@@ -49,6 +49,38 @@ func TestSyncPluginChecksDriftWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestSyncPluginDerivesClaudeManifestFromCodexManifest(t *testing.T) {
+	root := syncFixture(t)
+	codexPath := filepath.Join(root, "plugins/revyl/.codex-plugin/plugin.json")
+	codexManifest := `{"name":"revyl","version":"0.3.1","description":"Run apps.","license":"MIT","skills":"./skills/","interface":{"displayName":"Revyl"}}`
+	if err := os.WriteFile(codexPath, []byte(codexManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	client := releaseClient(t, "")
+	if err := syncPlugin(root, false, client); err != nil {
+		t.Fatal(err)
+	}
+	claudePath := filepath.Join(root, "plugins/revyl/.claude-plugin/plugin.json")
+	var claude map[string]any
+	content, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(content, &claude); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"name": "revyl-cli", "displayName": "Revyl CLI", "version": "0.3.1", "description": "Run apps.", "license": "MIT", "skills": "./skills/"}
+	if fmt.Sprint(claude) != fmt.Sprint(want) {
+		t.Fatalf("Claude manifest = %v, want %v", claude, want)
+	}
+	if err := os.WriteFile(claudePath, []byte(strings.Replace(string(content), "0.3.1", "0.3.0", 1)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncPlugin(root, true, client); err == nil || !strings.Contains(err.Error(), ".claude-plugin") {
+		t.Fatalf("check error = %v, want Claude manifest drift", err)
+	}
+}
+
 func TestSyncPluginRejectsIncompatibleRuntime(t *testing.T) {
 	root := syncFixture(t)
 	if err := os.WriteFile(filepath.Join(root, "plugins/revyl/runtime-version"), []byte("0.1.89"), 0644); err != nil {

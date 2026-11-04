@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -115,6 +116,78 @@ func TestCodexManifestAndMarketplace(t *testing.T) {
 	}
 }
 
+type sharedManifest struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Skills      string `json:"skills"`
+}
+
+func readManifest(t *testing.T, path string) (sharedManifest, map[string]json.RawMessage) {
+	t.Helper()
+	content := readFile(t, path)
+	var manifest sharedManifest
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(content, &fields); err != nil {
+		t.Fatal(err)
+	}
+	return manifest, fields
+}
+
+func TestClaudeManifestAgreesWithCodexManifest(t *testing.T) {
+	root := pluginRoot(t)
+	codex, _ := readManifest(t, filepath.Join(root, ".codex-plugin/plugin.json"))
+	claude, fields := readManifest(t, filepath.Join(root, ".claude-plugin/plugin.json"))
+	if claude.Name != "revyl-cli" {
+		t.Fatalf("Claude plugin name = %q, want revyl-cli", claude.Name)
+	}
+	if claude.Version != codex.Version || claude.Description != codex.Description || claude.Skills != codex.Skills || claude.Skills != "./skills/" {
+		t.Fatalf("Claude manifest %+v diverges from Codex manifest %+v; run make -C revyl-cli sync-codex-plugin", claude, codex)
+	}
+	for _, component := range []string{"hooks", "mcpServers", "commands", "agents", "lspServers", "monitors"} {
+		if _, ok := fields[component]; ok {
+			t.Errorf("Claude manifest must not declare %s", component)
+		}
+	}
+	hosted, _ := readManifest(t, filepath.Join(filepath.Dir(root), "revyl-claude/.claude-plugin/plugin.json"))
+	if claude.Name == hosted.Name {
+		t.Fatalf("Claude plugin name %q collides with the hosted directory plugin", claude.Name)
+	}
+}
+
+func TestClaudeMarketplaceListsOnlyThisPlugin(t *testing.T) {
+	root := pluginRoot(t)
+	publicRoot := filepath.Dir(filepath.Dir(root))
+	var marketplace struct {
+		Name  string `json:"name"`
+		Owner struct {
+			Name string `json:"name"`
+		} `json:"owner"`
+		Plugins []struct {
+			Name   string          `json:"name"`
+			Source json.RawMessage `json:"source"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(readFile(t, filepath.Join(publicRoot, ".claude-plugin/marketplace.json")), &marketplace); err != nil {
+		t.Fatal(err)
+	}
+	if marketplace.Name != "revyl" || marketplace.Owner.Name == "" || len(marketplace.Plugins) != 1 {
+		t.Fatalf("invalid Claude marketplace: %+v", marketplace)
+	}
+	claude, _ := readManifest(t, filepath.Join(root, ".claude-plugin/plugin.json"))
+	entry := marketplace.Plugins[0]
+	var source string
+	if err := json.Unmarshal(entry.Source, &source); err != nil {
+		t.Fatalf("Claude marketplace source must be a relative path: %s", entry.Source)
+	}
+	if entry.Name != claude.Name || !strings.HasPrefix(source, "./") || filepath.Join(publicRoot, source) != root {
+		t.Fatalf("Claude marketplace entry %s -> %s must name %s at %s", entry.Name, source, claude.Name, root)
+	}
+}
+
 func TestCodexBrandingIconMeetsDirectoryRequirements(t *testing.T) {
 	content := readFile(t, filepath.Join(pluginRoot(t), "assets/icon.svg"))
 	if len(content) > 5*1024*1024 {
@@ -150,19 +223,63 @@ func TestCodexLauncherPreservesArgumentsAndExitStatus(t *testing.T) {
 		if (exitCode == "0") != (err == nil) {
 			t.Fatalf("exit %s: %v, %s", exitCode, err, output)
 		}
-		want := appRoot + "\n\ntest-codex-thread\ndevice\nvalidation\nThe screen is visible\n--json\n"
+		want := appRoot + "\ncodex\n\ntest-codex-thread\ndevice\nvalidation\nThe screen is visible\n--json\n"
 		if string(output) != want {
 			t.Fatalf("launcher output = %q, want %q", output, want)
 		}
 	}
 }
 
-func TestCodexLauncherUsesVerifiedCacheWithoutPublishingCLI(t *testing.T) {
+func TestLauncherDetectsHostFromEnvironment(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX executable fixture")
 	}
 	fixture := newLauncherFixture(t)
-	cacheBinary := filepath.Join(fixture.home, ".cache/revyl/codex-plugin", fixture.manifest.RuntimeVersion, runtime.GOOS+"_"+runtime.GOARCH, "revyl")
+	for _, test := range []struct {
+		name string
+		env  []string
+		host string
+	}{
+		{"Claude Code", []string{"CLAUDECODE=1"}, "claude"},
+		{"Codex thread", []string{"CODEX_THREAD_ID=test-codex-thread"}, "codex"},
+		{"Codex shell", []string{"CODEX_SHELL=1"}, "codex"},
+		{"Codex inside a Claude Code terminal", []string{"CLAUDECODE=1", "CODEX_THREAD_ID=test-codex-thread"}, "codex"},
+		{"no host marker", nil, "codex"},
+		{"caller cannot choose the host", []string{"REVYL_PLUGIN_HOST=unknown", "CLAUDECODE=1"}, "claude"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := fixture.command(t, "version")
+			command.Env = append(command.Env, "REVYL_BINARY="+fixture.binary, "REVYL_CLIENT_SOURCE=cursor_plugin")
+			command.Env = append(command.Env, test.env...)
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("launcher: %v, %s", err, output)
+			}
+			lines := strings.Split(string(output), "\n")
+			if len(lines) < 3 || lines[1] != test.host || lines[2] != "" {
+				t.Fatalf("host/client source = %q, want %s with no client source", output, test.host)
+			}
+		})
+	}
+}
+
+func TestCodexLauncherUsesVerifiedCacheWithoutPublishingCLI(t *testing.T) {
+	for _, test := range []struct {
+		host string
+		env  []string
+	}{{"codex", nil}, {"claude", []string{"CLAUDECODE=1"}}} {
+		t.Run(test.host, func(t *testing.T) {
+			testLauncherUsesVerifiedCache(t, test.host, test.env)
+		})
+	}
+}
+
+func testLauncherUsesVerifiedCache(t *testing.T, host string, env []string) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX executable fixture")
+	}
+	fixture := newLauncherFixture(t)
+	cacheBinary := filepath.Join(fixture.home, ".cache/revyl", host+"-plugin", fixture.manifest.RuntimeVersion, runtime.GOOS+"_"+runtime.GOARCH, "revyl")
 	if err := os.MkdirAll(filepath.Dir(cacheBinary), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -170,6 +287,7 @@ func TestCodexLauncherUsesVerifiedCacheWithoutPublishingCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := fixture.command(t, "version")
+	command.Env = append(command.Env, env...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("verified cached runtime: %v, %s", err, output)
@@ -182,25 +300,40 @@ func TestCodexLauncherUsesVerifiedCacheWithoutPublishingCLI(t *testing.T) {
 	if err := os.WriteFile(cacheBinary, []byte("#!/bin/sh\necho CORRUPT_EXECUTED\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	output, err = fixture.command(t, "version").CombinedOutput()
+	command = fixture.command(t, "version")
+	command.Env = append(command.Env, env...)
+	output, err = command.CombinedOutput()
 	if err == nil || bytes.Contains(output, []byte("CORRUPT_EXECUTED")) || !bytes.Contains(output, []byte("may not download")) {
 		t.Fatalf("corrupt cache must fail closed offline: %v, %s", err, output)
 	}
 }
 
-func TestCodexLauncherRejectsUnknownHost(t *testing.T) {
+func TestRuntimeAcceptsOnlyKnownHosts(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX executable fixture")
 	}
 	fixture := newLauncherFixture(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, filepath.Join(pluginRoot(t), "scripts/launch-runtime"), "version")
-	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + fixture.home, "REVYL_PLUGIN_HOST=unknown", "REVYL_BINARY=" + fixture.binary}
-	output, err := command.CombinedOutput()
-	if err == nil || !bytes.Contains(output, []byte("unsupported plugin host")) {
-		t.Fatalf("unknown host accepted: %v, %s", err, output)
+	for _, host := range []string{"unknown", "Claude", "claude_code"} {
+		output, err := fixture.runtimeCommand(t, host).CombinedOutput()
+		if err == nil || !bytes.Contains(output, []byte("unsupported plugin host")) {
+			t.Fatalf("host %q accepted: %v, %s", host, err, output)
+		}
 	}
+	for _, host := range []string{"cursor", "codex", "claude"} {
+		output, err := fixture.runtimeCommand(t, host).CombinedOutput()
+		if err != nil {
+			t.Fatalf("host %q rejected: %v, %s", host, err, output)
+		}
+	}
+}
+
+func (f launcherFixture) runtimeCommand(t *testing.T, host string) *exec.Cmd {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	command := exec.CommandContext(ctx, filepath.Join(f.pluginRoot, "scripts/launch-runtime"), "version")
+	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + f.home, "REVYL_PLUGIN_HOST=" + host, "REVYL_BINARY=" + f.binary}
+	return command
 }
 
 type launcherFixture struct {
@@ -224,7 +357,7 @@ func newLauncherFixture(t *testing.T) launcherFixture {
 			t.Fatal(err)
 		}
 	}
-	binary := []byte("#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"${REVYL_CLIENT_SOURCE:-}\" \"${CODEX_THREAD_ID:-}\" \"$@\"\nexit \"${FAKE_EXIT_CODE:-0}\"\n")
+	binary := []byte("#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"${REVYL_PLUGIN_HOST:-}\" \"${REVYL_CLIENT_SOURCE:-}\" \"${CODEX_THREAD_ID:-}\" \"$@\"\nexit \"${FAKE_EXIT_CODE:-0}\"\n")
 	if err := os.WriteFile(f.binary, binary, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +395,7 @@ func (f launcherFixture) command(t *testing.T, args ...string) *exec.Cmd {
 func TestCodexWindowsAdapterUsesTheSharedRuntime(t *testing.T) {
 	root := pluginRoot(t)
 	adapter := string(readFile(t, filepath.Join(root, "scripts/launch-revyl.ps1")))
-	for _, value := range []string{`$env:REVYL_PLUGIN_HOST = "codex"`, `"launch-runtime.ps1"`, "@RevylArguments", "exit $LASTEXITCODE"} {
+	for _, value := range []string{`$env:REVYL_PLUGIN_HOST = "codex"`, `$env:REVYL_PLUGIN_HOST = "claude"`, "$env:CODEX_THREAD_ID", "$env:CLAUDECODE", `"launch-runtime.ps1"`, "@RevylArguments", "exit $LASTEXITCODE"} {
 		if !strings.Contains(adapter, value) {
 			t.Errorf("Windows adapter missing %s", value)
 		}
@@ -287,7 +420,7 @@ func TestCodexRuntimePinHasEveryPublishedPlatform(t *testing.T) {
 	}
 }
 
-func TestCodexSkillsResolveOnlyBundledLaunchers(t *testing.T) {
+func TestSkillsResolveOnlyBundledLaunchers(t *testing.T) {
 	root := pluginRoot(t)
 	entries, err := os.ReadDir(filepath.Join(root, "skills"))
 	if err != nil {
@@ -296,12 +429,23 @@ func TestCodexSkillsResolveOnlyBundledLaunchers(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("skill count = %d, want 2", len(entries))
 	}
-	for _, name := range []string{"revyl-codex-dev-loop", "revyl-codex-proof-ci"} {
+	bareCLI := regexp.MustCompile(`(^|[\s;&|(\x60])revyl(\.exe)?\s`)
+	for _, name := range []string{"revyl-dev-loop", "revyl-proof-ci"} {
 		path := filepath.Join(root, "skills", name, "SKILL.md")
 		content := string(readFile(t, path))
-		for _, required := range []string{"name: " + name, "../../scripts/launch-revyl", "launch-revyl.cmd"} {
+		for _, required := range []string{"name: " + name, "../../scripts/launch-revyl", "launch-revyl.cmd", "${CLAUDE_SKILL_DIR}", "**Claude Code**", "**Codex**"} {
 			if !strings.Contains(content, required) {
 				t.Errorf("%s is missing %q", name, required)
+			}
+		}
+		inFence := false
+		for number, line := range strings.Split(content, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "```") {
+				inFence = !inFence
+				continue
+			}
+			if inFence && bareCLI.MatchString(line) {
+				t.Errorf("%s:%d runs a Revyl CLI other than the bundled launcher: %s", name, number+1, line)
 			}
 		}
 		for _, relative := range []string{"../../scripts/launch-revyl", "../../scripts/launch-revyl.cmd"} {

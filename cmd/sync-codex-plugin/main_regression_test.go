@@ -53,6 +53,8 @@ func TestDistributionAttributesSurvivePackageExport(t *testing.T) {
 		"cursor-plugin/skills/revyl-cli-dev-loop/SKILL.md",
 		"skills/revyl-cli-dev-loop/SKILL.md",
 		"plugins/revyl/.codex-plugin/plugin.json",
+		"plugins/revyl/.claude-plugin/plugin.json",
+		".claude-plugin/marketplace.json",
 		"plugins/revyl/runtime-version",
 		"plugins/revyl/runtime-manifest.json",
 		"plugins/revyl/scripts/launch-revyl",
@@ -62,8 +64,8 @@ func TestDistributionAttributesSurvivePackageExport(t *testing.T) {
 		"plugins/revyl/scripts/launch-runtime.ps1",
 		"plugins/revyl/assets/icon.svg",
 		"plugins/revyl/references/revyl-cli-dev-loop.md",
-		"plugins/revyl/skills/revyl-codex-dev-loop/SKILL.md",
-		"plugins/revyl/skills/revyl-codex-proof-ci/SKILL.md",
+		"plugins/revyl/skills/revyl-dev-loop/SKILL.md",
+		"plugins/revyl/skills/revyl-proof-ci/SKILL.md",
 	} {
 		t.Run(path, func(t *testing.T) {
 			checkedOut := runGit(t, "", "-c", "core.autocrlf=true", "cat-file", "--filters", "--path="+path, objectID)
@@ -161,6 +163,7 @@ func TestSyncPluginRejectsSymlinkEscapes(t *testing.T) {
 			"cursor-plugin/assets/icon.svg",
 			"skills/revyl-cli-dev-loop/SKILL.md",
 			"plugins/revyl/runtime-manifest.json",
+			"plugins/revyl/.claude-plugin/plugin.json",
 			"plugins/revyl/scripts/launch-runtime",
 			"plugins/revyl/scripts",
 		} {

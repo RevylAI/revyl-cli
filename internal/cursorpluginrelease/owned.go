@@ -193,7 +193,7 @@ func isCodexPluginOwnedPath(path string) bool {
 	if strings.HasSuffix(normalized, "_test.go") || normalized == "revyl-cli/plugins/revyl/README.md" {
 		return false
 	}
-	if normalized == "revyl-cli/.agents/plugins/marketplace.json" {
+	if normalized == "revyl-cli/.agents/plugins/marketplace.json" || normalized == "revyl-cli/.claude-plugin/marketplace.json" {
 		return true
 	}
 	for _, prefix := range []string{"revyl-cli/plugins/revyl/", "revyl-cli/cmd/sync-codex-plugin/"} {

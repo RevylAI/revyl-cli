@@ -207,8 +207,10 @@ function Invoke-RevylRuntime {
 
     $env:REVYL_MCP_EXECUTABLE = $BinaryPath
     $env:REVYL_NO_UPDATE_NOTIFIER = "1"
-    $env:REVYL_CLIENT_SOURCE = "cursor_plugin"
-    if ($pluginHost -eq "codex") {
+    if ($pluginHost -eq "cursor") {
+        $env:REVYL_CLIENT_SOURCE = "cursor_plugin"
+    }
+    else {
         Remove-Item -Path Env:REVYL_CLIENT_SOURCE -ErrorAction SilentlyContinue
     }
     & $BinaryPath @Arguments
@@ -306,8 +308,8 @@ try {
     } else {
         $env:REVYL_PLUGIN_HOST
     }
-    if ($pluginHost -notin @("cursor", "codex")) {
-        throw "unsupported plugin host; expected cursor or codex"
+    if ($pluginHost -notin @("cursor", "codex", "claude")) {
+        throw "unsupported plugin host; expected cursor, codex, or claude"
     }
     if ($env:REVYL_API_KEY -eq '${env:REVYL_API_KEY}') {
         Remove-Item -Path Env:REVYL_API_KEY -ErrorAction SilentlyContinue

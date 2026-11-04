@@ -32,8 +32,8 @@ var bundledPaths = []string{
 	"scripts/launch-revyl.ps1",
 	"scripts/launch-runtime",
 	"scripts/launch-runtime.ps1",
-	"skills/revyl-codex-dev-loop/SKILL.md",
-	"skills/revyl-codex-proof-ci/SKILL.md",
+	"skills/revyl-dev-loop/SKILL.md",
+	"skills/revyl-proof-ci/SKILL.md",
 }
 
 var releaseVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)

@@ -2,7 +2,7 @@
 
 This package definition combines the existing pinned-CLI workflows with the
 connected Atlas and device-session workspace. The archive contains four
-skills: `revyl-cloud-app`, `revyl-codex-dev-loop`, `revyl-codex-proof-ci`, and
+skills: `revyl-cloud-app`, `revyl-dev-loop`, `revyl-proof-ci`, and
 `revyl-workspace`. Users install one package; source work runs through the CLI
 in the host's cloud coding workspace, while connected MCP tools provide
 embedded views and explicitly requested service operations.

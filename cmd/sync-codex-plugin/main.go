@@ -17,6 +17,21 @@ import (
 	"github.com/revyl/cli/internal/cursorpluginrelease"
 )
 
+const claudePluginName = "revyl-cli"
+
+type pluginManifest struct {
+	Name        string          `json:"name"`
+	DisplayName string          `json:"displayName,omitempty"`
+	Version     string          `json:"version"`
+	Description string          `json:"description,omitempty"`
+	Author      json.RawMessage `json:"author,omitempty"`
+	Homepage    string          `json:"homepage,omitempty"`
+	Repository  string          `json:"repository,omitempty"`
+	License     string          `json:"license,omitempty"`
+	Keywords    []string        `json:"keywords,omitempty"`
+	Skills      string          `json:"skills,omitempty"`
+}
+
 type generatedFile struct {
 	path    string
 	content []byte
@@ -43,10 +58,7 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 	if err != nil {
 		return err
 	}
-	var plugin struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
+	var plugin pluginManifest
 	if err := json.Unmarshal(manifestJSON, &plugin); err != nil {
 		return err
 	}
@@ -73,8 +85,17 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 	if err != nil {
 		return err
 	}
+	claudeManifest := plugin
+	claudeManifest.Name = claudePluginName
+	claudeManifest.DisplayName = "Revyl CLI"
+	claudeJSON, err := json.MarshalIndent(claudeManifest, "", "  ")
+	if err != nil {
+		return err
+	}
 	files := []generatedFile{{
 		path: filepath.Join(pluginRoot, "runtime-manifest.json"), content: append(runtimeJSON, '\n'), mode: 0644,
+	}, {
+		path: filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), content: append(claudeJSON, '\n'), mode: 0644,
 	}}
 	for _, copy := range []struct{ source, destination string }{
 		{"cursor-plugin/hooks/launch-revyl", "scripts/launch-runtime"},

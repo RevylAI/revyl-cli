@@ -1,0 +1,16 @@
+{
+  "name": "revyl",
+  "description": "Revyl's local Claude Code plugin: a pinned Revyl CLI launcher and dev-loop skills for running and verifying mobile apps on cloud devices.",
+  "owner": {
+    "name": "Revyl",
+    "email": "support@revyl.ai"
+  },
+  "plugins": [
+    {
+      "name": "revyl-cli",
+      "source": "./plugins/revyl",
+      "description": "Run mobile changes on Revyl cloud devices and verify them with screenshots and semantic validation through the Revyl CLI.",
+      "category": "development"
+    }
+  ]
+}

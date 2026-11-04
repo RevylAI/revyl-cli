@@ -20,9 +20,9 @@ authentication flow. Never request API keys, passwords, or login codes in chat.
 - For a new app, standalone remote build, new persisted test, exploration, or other
   CLI operation, use `revyl-cloud-app` in a shell-capable cloud workspace.
 - For a continuous development loop in an existing repository, use the bundled
-  `revyl-codex-dev-loop` skill in a shell-capable host.
+  `revyl-dev-loop` skill in a shell-capable host.
 - For exact-SHA proof of an existing CI artifact, use the bundled
-  `revyl-codex-proof-ci` skill and its bounded artifact lookup.
+  `revyl-proof-ci` skill and its bounded artifact lookup.
 
 The CLI and MCP can display the same server-issued session ID, but one workflow
 must own its creation and cleanup. Never call `start_device_session` to recreate

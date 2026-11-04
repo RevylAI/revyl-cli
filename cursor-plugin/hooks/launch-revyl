@@ -69,9 +69,9 @@ run_runtime() {
   export REVYL_MCP_EXECUTABLE
   REVYL_NO_UPDATE_NOTIFIER=1
   export REVYL_NO_UPDATE_NOTIFIER
-  REVYL_CLIENT_SOURCE=cursor_plugin
-  if [ "$PLUGIN_HOST" = codex ]; then
-    REVYL_CLIENT_SOURCE=
+  REVYL_CLIENT_SOURCE=
+  if [ "$PLUGIN_HOST" = cursor ]; then
+    REVYL_CLIENT_SOURCE=cursor_plugin
   fi
   export REVYL_CLIENT_SOURCE
   trap - EXIT HUP INT TERM
@@ -246,8 +246,8 @@ umask 077
 
 PLUGIN_HOST=${REVYL_PLUGIN_HOST:-cursor}
 case "$PLUGIN_HOST" in
-  cursor|codex) ;;
-  *) fail "unsupported plugin host; expected cursor or codex" ;;
+  cursor|codex|claude) ;;
+  *) fail "unsupported plugin host; expected cursor, codex, or claude" ;;
 esac
 
 if [ "${REVYL_API_KEY:-}" = '${env:REVYL_API_KEY}' ]; then
