@@ -25,6 +25,8 @@ revyl config pull                          # Existing registered project
 # revyl init -y                            # New local project
 # revyl config migrate --check             # Legacy config: inspect first
 # revyl config migrate                     # Legacy config: then convert
+# Legacy config: commit the converted .revyl/config.yaml and new .revyl/tests/ files
+# with your change and mention it in your summary; if you can't, tell the repository owner
 
 # 3) Create from YAML
 revyl test create <test-name> --from-file ./<test-name>.yaml

@@ -239,7 +239,9 @@ revyl module list                         # reuse before creating
 
 `revyl test validate` works without a project config, but `revyl test push`
 and `revyl test list` need a current `.revyl/config.yaml` inside a Git
-worktree. Use the existing one (a legacy config asks for `revyl config migrate`).
+worktree. Use the existing one (a legacy config asks for `revyl config migrate`;
+commit the converted `.revyl/config.yaml` and any new `.revyl/tests/` files with
+your change, or tell the repository owner when you can't).
 When the user handed you test files rather than an app repository, work in a
 scratch directory: `git init`, then `revyl init -y`, which writes only the
 local config and makes no org write. Otherwise set one up as `revyl-cli-create`

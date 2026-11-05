@@ -138,7 +138,7 @@ func ResolveConfigFileContext(cwd, changeDirectory string) (*ConfigFileContext, 
 	if err != nil {
 		return nil, &os.PathError{Op: "read", Path: configPath, Err: err}
 	}
-	return &ConfigFileContext{
+	fileContext := &ConfigFileContext{
 		EffectiveDirectory:                   effectiveDirectory,
 		WorktreeRoot:                         worktreeRoot,
 		ProjectRoot:                          projectRoot,
@@ -147,7 +147,9 @@ func ResolveConfigFileContext(cwd, changeDirectory string) (*ConfigFileContext, 
 		RepositoryRelativeProjectRoot:        repositoryRelativeProjectRoot,
 		RepositoryRelativeExecutionDirectory: repositoryRelativeExecutionDirectory,
 		OriginalBytes:                        originalBytes,
-	}, nil
+	}
+	RecordConfigFileRead(worktreeRoot, configPath, originalBytes)
+	return fileContext, nil
 }
 
 func resolveGitWorktreeRoot(effectiveDirectory string) (string, error) {

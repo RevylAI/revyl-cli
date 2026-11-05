@@ -168,7 +168,7 @@ func localConfigRecoveryError(configError *config.ConfigError, configFilePath st
 	doctor := cliRecoveryCommand("doctor")
 	switch configError.Code {
 	case "legacy_config_requires_migration", "mixed_config_formats":
-		return fmt.Errorf("%s uses a legacy format; run `%s` to preview the conversion, then run `%s`", configFile, migrateCheck, migrate)
+		return fmt.Errorf("%s uses a legacy format; run `%s` to preview the conversion, then run `%s` and commit the converted files", configFile, migrateCheck, migrate)
 	case "config_not_found":
 		if recovery := nestedProjectConfigRecovery(); recovery != "" {
 			return errors.New(recovery)

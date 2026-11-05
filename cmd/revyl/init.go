@@ -327,7 +327,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 		initProjectID = parsedProjectID.String()
 	}
-	cwd, _, err = config.ResolveGitWorktreeRoot(cwd, "")
+	cwd, worktreeRoot, err := config.ResolveGitWorktreeRoot(cwd, "")
 	if err != nil {
 		return fmt.Errorf("revyl init requires an active Git worktree before it can write project files: %w", err)
 	}
@@ -350,6 +350,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return &os.PathError{Op: "read", Path: configPath, Err: err}
 		}
+		config.RecordConfigFileRead(worktreeRoot, configPath, existingBytes)
 		existingCanonical, err = config.ParseAuthoredConfig(existingBytes)
 		if err != nil {
 			var configErr *config.ConfigError

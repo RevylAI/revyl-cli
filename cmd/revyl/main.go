@@ -138,6 +138,7 @@ func Execute() {
 func executeWithNotices(root *cobra.Command) error {
 	cmd, err := root.ExecuteC()
 	printVersionWarning(cmd)
+	printUncommittedConfigMigrationReminder(cmd)
 	printAgentFeedbackHint(root.ErrOrStderr(), cmd, err)
 	return err
 }

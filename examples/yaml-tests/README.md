@@ -35,7 +35,8 @@ This command:
 
 The selected project must already have a valid `.revyl/config.yaml`. Use
 `revyl config pull` for an existing registered project, `revyl init -y` for a
-new local project, or `revyl config migrate` for a legacy file. Test creation
+new local project, or `revyl config migrate` for a legacy file, then commit the
+converted `.revyl/config.yaml` and any new `.revyl/tests/` files. Test creation
 never creates or migrates project configuration.
 
 Useful flags:

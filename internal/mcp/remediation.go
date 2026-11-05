@@ -418,7 +418,7 @@ func legacyProjectStatus(projectDirectory, configPath string, failure error, dev
 		ProjectDirectory: projectDirectory,
 		Failure:          failure,
 		Message: fmt.Sprintf(
-			"legacy Revyl config requires migration; run `%s` to inspect the proposal, then `%s` to back up and apply it",
+			"legacy Revyl config requires migration; run `%s` to inspect the proposal, then `%s` to back up and apply it, and commit the converted files with your change",
 			checkCommand,
 			applyCommand,
 		),

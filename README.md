@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.213-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.214-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -156,6 +156,16 @@ externalizes legacy top-level test aliases to conflict-checked
 byte-for-byte, and stops on destination conflicts because those are unsafe to
 write. The retired top-level workflow alias cache is reported and removed.
 
+The conversion exists only in your checkout until you commit it. After
+migrating, commit the converted `.revyl/config.yaml` and any new
+`.revyl/tests/` files with your change, but not the backup; otherwise every
+fresh checkout fails with the legacy-format error again. A write lists those
+files, and `--write --json` reports them in
+`uncommitted_config_migration.repository_relative_paths_to_commit`. Until the
+commit lands, commands that read the project config print a one-line stderr
+reminder at most once every 24 hours per machine, never with `--json` or
+`--quiet`. If you can't commit, tell the repository owner.
+
 When authenticated, migration may make read-only verified lookups to reuse or
 interactively select a project from the verified repository, resolve enabled
 legacy PR-build app names to exact platform app IDs, and resolve legacy PR
@@ -230,7 +240,7 @@ local project, or migrate a legacy file before creating the test:
 ```bash
 revyl config pull                       # Existing project already registered with Revyl
 # or: revyl init -y                     # New local project
-# legacy only: revyl config migrate --check && revyl config migrate
+# legacy only: revyl config migrate --check && revyl config migrate, then commit .revyl/config.yaml and new .revyl/tests/ files
 
 revyl test create login-flow --from-file ./login-flow.yaml
 revyl test create --from-session <session-id> login-flow --app <app-id>

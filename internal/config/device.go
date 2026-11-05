@@ -12,6 +12,7 @@ type DeviceConfigContext struct {
 	ProjectRoot                   string
 	ConfigPath                    string
 	repositoryRelativeProjectRoot string
+	gitWorktreeRoot               string
 }
 
 func ResolveDeviceConfigContext(cwd string) (DeviceConfigContext, error) {
@@ -19,6 +20,7 @@ func ResolveDeviceConfigContext(cwd string) (DeviceConfigContext, error) {
 	if err != nil {
 		return DeviceConfigContext{}, err
 	}
+	context := DeviceConfigContext{ProjectRoot: effectiveDirectory, repositoryRelativeProjectRoot: "."}
 	root, err := resolveGitWorktreeRoot(effectiveDirectory)
 	if err != nil {
 		var configErr *ConfigError
@@ -26,8 +28,9 @@ func ResolveDeviceConfigContext(cwd string) (DeviceConfigContext, error) {
 			return DeviceConfigContext{}, err
 		}
 		root = effectiveDirectory
+	} else {
+		context.gitWorktreeRoot = root
 	}
-	context := DeviceConfigContext{ProjectRoot: effectiveDirectory, repositoryRelativeProjectRoot: "."}
 	configPath, err := DiscoverConfigPath(effectiveDirectory, root)
 	if err != nil {
 		var configErr *ConfigError
@@ -45,11 +48,22 @@ func ResolveDeviceConfigContext(cwd string) (DeviceConfigContext, error) {
 	return context, nil
 }
 
+func (c DeviceConfigContext) readConfigFile() ([]byte, error) {
+	data, err := ReadConfigFile(c.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if c.gitWorktreeRoot != "" {
+		RecordConfigFileRead(c.gitWorktreeRoot, c.ConfigPath, data)
+	}
+	return data, nil
+}
+
 func (c DeviceConfigContext) ReadSession() (AuthoredSession, error) {
 	if c.ConfigPath == "" {
 		return AuthoredSession{}, nil
 	}
-	data, err := ReadConfigFile(c.ConfigPath)
+	data, err := c.readConfigFile()
 	if err != nil {
 		return AuthoredSession{}, err
 	}
@@ -91,7 +105,7 @@ func (c DeviceConfigContext) Compile() (*NormalizedProjectAggregate, error) {
 	if c.ConfigPath == "" {
 		return &NormalizedProjectAggregate{}, nil
 	}
-	data, err := ReadConfigFile(c.ConfigPath)
+	data, err := c.readConfigFile()
 	if err != nil {
 		return nil, err
 	}

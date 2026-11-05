@@ -49,11 +49,12 @@ type versionCheckCache struct {
 	LatestVersion string    `json:"latest_version"`
 }
 
-// updateNoticeState stores when each daily update notice was last shown.
+// updateNoticeState stores when each daily notice was last shown.
 type updateNoticeState struct {
-	UpdateAvailableShownAt time.Time `json:"update_available_shown_at"`
-	UpcomingMinimumShownAt time.Time `json:"upcoming_minimum_shown_at"`
-	FeedbackHintShownAt    time.Time `json:"feedback_hint_shown_at"`
+	UpdateAvailableShownAt            time.Time `json:"update_available_shown_at"`
+	UpcomingMinimumShownAt            time.Time `json:"upcoming_minimum_shown_at"`
+	UncommittedConfigMigrationShownAt time.Time `json:"uncommitted_config_migration_shown_at"`
+	FeedbackHintShownAt               time.Time `json:"feedback_hint_shown_at"`
 }
 
 func updateAvailableShownAt(state *updateNoticeState) *time.Time {
@@ -62,6 +63,10 @@ func updateAvailableShownAt(state *updateNoticeState) *time.Time {
 
 func upcomingMinimumShownAt(state *updateNoticeState) *time.Time {
 	return &state.UpcomingMinimumShownAt
+}
+
+func uncommittedConfigMigrationShownAt(state *updateNoticeState) *time.Time {
+	return &state.UncommittedConfigMigrationShownAt
 }
 
 // versionCheckResult holds the outcome of a background check.

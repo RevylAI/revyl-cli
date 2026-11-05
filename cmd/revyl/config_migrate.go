@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -27,13 +28,20 @@ type configMigrateOptions struct {
 }
 
 type configMigrateOutput struct {
-	Outcome        string                             `json:"outcome"`
-	ProjectID      string                             `json:"project_id"`
-	Configuration  config.AuthoredConfig              `json:"configuration"`
-	BackupPath     string                             `json:"backup_path,omitempty"`
-	TestAliases    []config.LegacyConfigTestAliasPlan `json:"test_aliases,omitempty"`
-	Omissions      []config.LegacyConfigOmission      `json:"omissions,omitempty"`
-	Reconciliation *configMigrationReconciliation     `json:"reconciliation,omitempty"`
+	Outcome                    string                             `json:"outcome"`
+	ProjectID                  string                             `json:"project_id"`
+	Configuration              config.AuthoredConfig              `json:"configuration"`
+	BackupPath                 string                             `json:"backup_path,omitempty"`
+	TestAliases                []config.LegacyConfigTestAliasPlan `json:"test_aliases,omitempty"`
+	Omissions                  []config.LegacyConfigOmission      `json:"omissions,omitempty"`
+	Reconciliation             *configMigrationReconciliation     `json:"reconciliation,omitempty"`
+	UncommittedConfigMigration *uncommittedConfigMigration        `json:"uncommitted_config_migration,omitempty"`
+}
+
+type uncommittedConfigMigration struct {
+	RepositoryRelativePathsToCommit []string `json:"repository_relative_paths_to_commit"`
+	NextAction                      string   `json:"next_action"`
+	Explanation                     string   `json:"explanation"`
 }
 
 type configMigrationReconciliation struct {
@@ -130,7 +138,12 @@ lookups resolve the exact repository project ID, legacy app names, and legacy PR
 workflow names. Legacy test aliases become conflict-checked .revyl/tests/ files.
 The command prints a concise migration summary, creates an exact-byte config
 backup before local replacement, and never creates, attaches, pulls, publishes,
-or otherwise mutates server state.`,
+or otherwise mutates server state.
+
+The conversion exists only in this checkout until it is committed. Commit the
+converted .revyl/config.yaml and any new .revyl/tests/ files with your change,
+but not the backup; otherwise every fresh checkout fails with the legacy-format
+error again.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			err := runConfigMigrate(cmd, options)
@@ -350,14 +363,16 @@ func runConfigMigrate(cmd *cobra.Command, options configMigrateOptions) error {
 		}
 		return actionableErr
 	}
+	uncommitted := newUncommittedConfigMigration(result)
 	output := configMigrateOutput{
-		Outcome:        "migrated",
-		ProjectID:      result.ProjectID,
-		Configuration:  result.Authored,
-		BackupPath:     backupPath,
-		TestAliases:    result.TestAliasPlan,
-		Omissions:      result.Omissions,
-		Reconciliation: &reconciliation,
+		Outcome:                    "migrated",
+		ProjectID:                  result.ProjectID,
+		Configuration:              result.Authored,
+		BackupPath:                 backupPath,
+		TestAliases:                result.TestAliasPlan,
+		Omissions:                  result.Omissions,
+		Reconciliation:             &reconciliation,
+		UncommittedConfigMigration: &uncommitted,
 	}
 	properties := configMigrationProperties(identitySource, result.Omissions)
 	properties["config_migration_backup_created"] = true
@@ -367,7 +382,64 @@ func runConfigMigrate(cmd *cobra.Command, options configMigrateOptions) error {
 	}
 	ui.PrintSuccess("Migrated the local project configuration")
 	ui.PrintKeyValue("Backup:", backupPath)
+	ui.PrintWarning("This conversion exists only in this checkout. Commit these files with your current change:")
+	for _, repositoryRelativePath := range uncommitted.RepositoryRelativePathsToCommit {
+		fmt.Fprintf(os.Stderr, "    %s\n", repositoryRelativePath)
+	}
+	fmt.Fprintf(os.Stderr, "  %s\n", uncommittedConfigMigrationGuidance(uncommitted.RepositoryRelativePathsToCommit[0]))
 	return nil
+}
+
+func newUncommittedConfigMigration(result preparedLocalConfigMigration) uncommittedConfigMigration {
+	repositoryRelativeConfigPath := path.Join(result.RepositoryRelativeProjectRoot, ".revyl", "config.yaml")
+	repositoryRelativePaths := []string{repositoryRelativeConfigPath}
+	var reusedAliasPaths []string
+	for _, alias := range result.TestAliasPlan {
+		aliasPath := path.Join(result.RepositoryRelativeProjectRoot, alias.Path)
+		if alias.Disposition == config.LegacyConfigTestAliasCreate {
+			repositoryRelativePaths = append(repositoryRelativePaths, aliasPath)
+			continue
+		}
+		reusedAliasPaths = append(reusedAliasPaths, aliasPath)
+	}
+	repositoryRelativePaths = append(repositoryRelativePaths, config.FindPathsChangedSinceHEAD(result.WorktreeRoot, reusedAliasPaths)...)
+	return uncommittedConfigMigration{
+		RepositoryRelativePathsToCommit: repositoryRelativePaths,
+		NextAction:                      "commit_migrated_files_or_tell_repository_owner",
+		Explanation: "This conversion exists only in this checkout. Commit every path in repository_relative_paths_to_commit with your current change. " +
+			uncommittedConfigMigrationGuidance(repositoryRelativeConfigPath),
+	}
+}
+
+func uncommittedConfigMigrationGuidance(repositoryRelativeConfigPath string) string {
+	return fmt.Sprintf(
+		"Until they are committed, every Revyl command in a fresh checkout fails with the legacy-format error. Leave the backup out of the commit and mention the Revyl config conversion in your summary. If you cannot commit, tell the repository owner that %s must be converted with `%s` and committed.",
+		repositoryRelativeConfigPath,
+		cliRecoveryCommand("config", "migrate"),
+	)
+}
+
+// printUncommittedConfigMigrationReminder prints one stderr line, at most once
+// per updateNoticeInterval per machine and never with --json or --quiet, when
+// the command read a project config converted only in this checkout.
+func printUncommittedConfigMigrationReminder(cmd *cobra.Command) {
+	if cmd == nil {
+		return
+	}
+	jsonOutput, _ := cmd.Flags().GetBool("json")
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	if jsonOutput || quiet {
+		return
+	}
+	repositoryRelativeConfigPath, found := config.FindConfigPathWithUncommittedMigration()
+	if !found || !claimUpdateNotice(time.Now(), uncommittedConfigMigrationShownAt) {
+		return
+	}
+	ui.PrintWarning(
+		"%s is converted only in this checkout; HEAD still has the legacy format. Commit it and any converted .revyl/tests/ files with your current change, or every fresh checkout will need `%s` again.",
+		repositoryRelativeConfigPath,
+		cliRecoveryCommand("config", "migrate"),
+	)
 }
 
 func deterministicConfigMigrationProjectID(cwd string) (string, error) {
