@@ -75,7 +75,7 @@ type DeviceSessionInput struct {
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
 	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name; ignores the project's Git branch), or pinned with build_version_id."`
 	Action                     string   `json:"action" jsonschema:"required,Session action: start stop list switch info doctor"`
-	Platform                   string   `json:"platform,omitempty" jsonschema:"Platform for start: ios or android."`
+	Platform                   string   `json:"platform,omitempty" jsonschema:"Platform for start: ios, android, or web."`
 	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID for start."`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Build version ID for start."`
 	AppURL                     string   `json:"app_url,omitempty" jsonschema:"Direct app artifact URL for start."`

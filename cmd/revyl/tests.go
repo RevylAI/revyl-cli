@@ -44,7 +44,7 @@ func init() {
 	testsPullCmd.Flags().BoolVar(&testsPullAll, "all", false, "Pull all tests from the organization, including those not in local config")
 
 	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
-	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
+	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios, web)")
 	testsRemoteCmd.Flags().StringVar(&testsTag, "tag", "", "Filter by tag name")
 	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
 

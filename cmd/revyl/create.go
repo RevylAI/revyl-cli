@@ -809,7 +809,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		platform = platformOptions[idx]
 	}
 	if strings.EqualFold(strings.TrimSpace(platform), "web") {
-		return fmt.Errorf("interactive test creation is not available for Web tests yet: run 'revyl test create %s --platform web' without --interactive, then 'revyl test run %s'", testName, testName)
+		return fmt.Errorf("interactive test creation needs a mobile device session (a simulator driven over the worker WebSocket), which Web tests don't use: run 'revyl test create %s --platform web' without --interactive, then 'revyl test run %s'", testName, testName)
 	}
 
 	// Auto-detect app_id when canonical profiles agree on one app for the

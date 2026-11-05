@@ -20,7 +20,7 @@ import (
 //
 // Fields:
 //   - Name: Test name
-//   - Platform: Target platform (ios or android)
+//   - Platform: Target platform (ios, android, or web)
 //   - YAMLContent: Optional YAML test definition (if provided, creates with blocks)
 //   - AppID: Optional app ID to associate
 //   - OrgID: Organization ID
@@ -146,8 +146,8 @@ func CreateTestWithClient(ctx context.Context, client *api.Client, params Create
 func buildCreateTestRequest(ctx context.Context, client *api.Client, params CreateTestParams) (*api.CreateTestRequest, error) {
 	platform := normalizeCreatePlatform(params.Platform)
 	// Validate platform
-	if platform != "ios" && platform != "android" {
-		return nil, fmt.Errorf("invalid platform '%s': must be 'ios' or 'android'", params.Platform)
+	if platform != "ios" && platform != "android" && platform != "web" {
+		return nil, fmt.Errorf("invalid platform '%s': must be 'ios', 'android', or 'web'", params.Platform)
 	}
 	name := strings.TrimSpace(params.Name)
 	if name == "" {

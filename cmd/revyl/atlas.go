@@ -212,7 +212,7 @@ func init() {
 	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "runtime", "", "Filter by OS runtime")
 	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "os-version", "", "Alias for --runtime")
 	atlasOpenCmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Show variant nodes")
-	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
+	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios, web)")
 	atlasAppsCmd.Flags().StringVar(&atlasAppsSearch, "search", "", "Search by app name")
 	atlasAppsCmd.Flags().BoolVar(&atlasAppsAll, "all", false, "Include apps without available Atlas data")
 	atlasAppsCmd.Flags().IntVar(&atlasAppsOffset, "offset", 0, "Apps to skip before local platform filtering (0-100000)")

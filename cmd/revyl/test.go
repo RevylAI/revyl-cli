@@ -214,7 +214,7 @@ func init() {
 	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
 	testRunCmd.Flags().StringVar(&runTestProfile, "profile", "", "Named build profile (requires --build)")
-	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Build platform: ios or android (requires --build)")
+	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Build platform: ios, android, or web (requires --build)")
 	testRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 	testRunCmd.Flags().BoolVar(&runDeviceSelect, "device", false, "Interactively select device model and OS version")
 	testRunCmd.Flags().StringVar(&runDeviceModel, "device-model", "", "Target device model (e.g. \"iPhone 16\")")

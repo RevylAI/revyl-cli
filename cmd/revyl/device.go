@@ -43,17 +43,10 @@ import (
 //   - *mcppkg.DeviceSessionManager: A manager ready to resolve the target.
 //   - error: Authentication or project-context failure.
 func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, error) {
-	apiKey := os.Getenv("REVYL_API_KEY")
-	if apiKey == "" {
-		mgr := auth.NewManager()
-		creds, err := mgr.GetCredentials()
-		if err != nil || creds == nil || creds.APIKey == "" {
-			return nil, fmt.Errorf("not authenticated: set REVYL_API_KEY or run 'revyl auth login'")
-		}
-		apiKey = creds.APIKey
+	client, err := newDeviceAPIClient(cmd)
+	if err != nil {
+		return nil, err
 	}
-
-	devMode, _ := cmd.Flags().GetBool("dev")
 
 	workDir, _ := os.Getwd()
 	project, projectErr := config.ResolveDeviceConfigContext(workDir)
@@ -62,8 +55,7 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	}
 	workDir = project.ProjectRoot
 
-	client := api.NewClientWithDevMode(apiKey, devMode)
-	api.SetDefaultVersion(version)
+	devMode, _ := cmd.Flags().GetBool("dev")
 	sessionMgr := mcppkg.NewDeviceSessionManager(client, workDir)
 	sessionMgr.SetDevMode(devMode)
 	sessionMgr.SetErrorSurface(mcppkg.ErrorSurfaceCLI)
@@ -84,6 +76,71 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	}
 
 	return sessionMgr, nil
+}
+
+func newDeviceAPIClient(cmd *cobra.Command) (*api.Client, error) {
+	apiKey := os.Getenv("REVYL_API_KEY")
+	if apiKey == "" {
+		creds, err := auth.NewManager().GetCredentials()
+		if err != nil || creds == nil || creds.APIKey == "" {
+			return nil, fmt.Errorf("not authenticated: set REVYL_API_KEY or run 'revyl auth login'")
+		}
+		apiKey = creds.APIKey
+	}
+	devMode, _ := cmd.Flags().GetBool("dev")
+	api.SetDefaultVersion(version)
+	return api.NewClientWithDevMode(apiKey, devMode), nil
+}
+
+// inferDeviceStartPlatform infers the platform of a start that names an app,
+// build or artifact URL without --platform. A Web build named alone also sets
+// --app-id to its app, which the Web start requires.
+func inferDeviceStartPlatform(cmd *cobra.Command) (string, error) {
+	appID, _ := cmd.Flags().GetString("app-id")
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		app, _ := cmd.Flags().GetString("app")
+		appID = strings.TrimSpace(app)
+	}
+	buildVersionID, _ := cmd.Flags().GetString("build-version-id")
+	buildVersionID = strings.TrimSpace(buildVersionID)
+	appURL, _ := cmd.Flags().GetString("app-url")
+	appURL = strings.TrimSpace(appURL)
+	if appID == "" && buildVersionID == "" && appURL == "" {
+		return "", nil
+	}
+	if err := checkDeviceStartArtifactSelectors(appID, buildVersionID, appURL); err != nil {
+		return "", err
+	}
+	buildSelection, _ := cmd.Flags().GetString("build-selection")
+	if _, err := resolveCommandAllBranchesSelection(cmd, buildSelection, "branch", "build-version-id"); err != nil {
+		return "", err
+	}
+	client, err := newDeviceAPIClient(cmd)
+	if err != nil {
+		return "", err
+	}
+	platform, err := startdevice.InferPlatform(cmd.Context(), client, startdevice.StartArtifactOptions{
+		AppID:          appID,
+		BuildVersionID: buildVersionID,
+		AppURL:         appURL,
+	})
+	if err != nil || platform == "" {
+		return platform, err
+	}
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput {
+		ui.PrintDim("Inferred platform: %s", platform)
+	}
+	if platform == "web" && appID == "" && buildVersionID != "" {
+		detail, err := client.GetBuildVersionDetail(cmd.Context(), buildVersionID, false)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve the app of Web build %s: %w", buildVersionID, err)
+		}
+		if err := cmd.Flags().Set("app-id", detail.AppID); err != nil {
+			return "", err
+		}
+	}
+	return platform, nil
 }
 
 func computerSessionIDForStart(cmd *cobra.Command) string {
@@ -696,7 +753,7 @@ func checkDeviceStartArtifactSelectors(appID, buildVersionID, appURL string) err
 // when the build version belongs to that app, and names the conflict when it
 // belongs to another app.
 func confirmBuildVersionApp(ctx context.Context, client *api.Client, appID, buildVersionID string) error {
-	detail, err := client.GetBuildVersionDownloadURL(ctx, buildVersionID)
+	detail, err := client.GetBuildVersionDetail(ctx, buildVersionID, false)
 	if err != nil {
 		return fmt.Errorf("could not check that --build-version-id %s belongs to --app-id %s: %w", buildVersionID, appID, err)
 	}
@@ -831,6 +888,15 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
   revyl device start --platform ios --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
+		if !cmd.Flags().Changed("platform") {
+			inferred, err := inferDeviceStartPlatform(cmd)
+			if err != nil {
+				return err
+			}
+			if inferred != "" {
+				platform = inferred
+			}
+		}
 		if strings.EqualFold(strings.TrimSpace(platform), "web") {
 			return runWebDeviceStart(cmd)
 		}
@@ -850,7 +916,6 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			}
 		}
 		computerSessionID := computerSessionIDForStart(cmd)
-		platformExplicit := cmd.Flags().Changed("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser := deviceStartOpensBrowser(cmd, computerSessionID)
 		appID, _ := cmd.Flags().GetString("app-id")
@@ -923,22 +988,6 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			ui.PrintInfo("Starting build version %s, which belongs to --app-id %s.", buildVersionID, appID)
 		}
 
-		if !platformExplicit && (appID != "" || buildVersionID != "" || appURL != "") {
-			inferred, infErr := startdevice.InferPlatform(cmd.Context(), mgr.APIClient(), startdevice.StartArtifactOptions{
-				AppID:          appID,
-				BuildVersionID: buildVersionID,
-				AppURL:         appURL,
-			})
-			if infErr != nil {
-				return infErr
-			}
-			if inferred != "" {
-				platform = inferred
-				if !jsonOutput {
-					ui.PrintDim("Inferred platform: %s", platform)
-				}
-			}
-		}
 		if computerSessionID != "" && appID == "" && buildVersionID == "" && appURL == "" {
 			platform, appID, err = resolveComputerConfiguredMobileStart(project, platform)
 			if err != nil {
@@ -3719,7 +3768,7 @@ func init() {
 	sessionFlag := registerSessionTargetFlags
 
 	// Start
-	deviceStartCmd.Flags().String("platform", "", "Platform: ios, android, or web (Web requires --app; phone platform inferred when omitted)")
+	deviceStartCmd.Flags().String("platform", "", "Platform: ios, android, or web (inferred from --app-id or --build-version-id when omitted)")
 	deviceStartCmd.Flags().String("app", "", "App UUID (alias for --app-id); required for Web")
 	deviceStartCmd.Flags().String("url", "", "Create or reuse an HTTPS URL build on --app before starting Web")
 	deviceStartCmd.Flags().String("commit", "", "Commit SHA identity for --url on platform web")
@@ -3948,7 +3997,7 @@ func init() {
 	deviceHistoryCmd.Flags().String("to", "", "Exclusive creation timestamp (RFC3339)")
 	deviceHistoryCmd.Flags().String("source", "", "Session source: explore, ui, cli, api, ci_cd, workflow")
 	deviceHistoryCmd.Flags().String("status", "", "Session status; defaults to terminal sessions; all includes every status; running selects active sessions")
-	deviceHistoryCmd.Flags().String("platform", "", "Platform: ios or android")
+	deviceHistoryCmd.Flags().String("platform", "", "Platform: ios, android, or web")
 	deviceHistoryCmd.Flags().String("app-id", "", "Filter session history to an app")
 	deviceHistoryCmd.Flags().String("branch", "", "Filter history to a Revyl branch; requires --app or --app-id")
 	deviceHistoryCmd.MarkFlagsMutuallyExclusive("app", "app-id")

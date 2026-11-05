@@ -17,7 +17,7 @@ type ArtifactResolver interface {
 // PlatformResolver resolves an app's target platform for inference.
 type PlatformResolver interface {
 	GetApp(ctx context.Context, appID string) (*api.App, error)
-	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
+	GetBuildVersionDetail(ctx context.Context, versionID string, includeDownloadURL bool) (*api.BuildVersionDetail, error)
 }
 
 // LaunchVarResolver resolves org-scoped launch variables by listing the library.
@@ -176,8 +176,8 @@ func ResolveLaunchVar(
 	return api.OrgLaunchVariable{}, fmt.Errorf("launch variable %q not found", keyOrID)
 }
 
-// InferPlatform infers the device platform ("ios" or "android") from app
-// selection inputs. Priority:
+// InferPlatform infers the session platform ("ios", "android", or "web") from
+// app selection inputs. Priority:
 //  1. AppURL extension (.apk → android, .ipa → ios)
 //  2. BuildVersionID → app_id → app.platform
 //  3. AppID → app.platform
@@ -195,7 +195,7 @@ func InferPlatform(
 
 	buildVersionID := strings.TrimSpace(opts.BuildVersionID)
 	if buildVersionID != "" {
-		detail, err := resolver.GetBuildVersionDownloadURL(ctx, buildVersionID)
+		detail, err := resolver.GetBuildVersionDetail(ctx, buildVersionID, false)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve build version %s for platform inference: %w", buildVersionID, err)
 		}
@@ -253,6 +253,8 @@ func normalizeInferredPlatform(raw string) string {
 		return "ios"
 	case "android":
 		return "android"
+	case "web":
+		return "web"
 	default:
 		return ""
 	}

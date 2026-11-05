@@ -290,7 +290,7 @@ func init() {
 	_ = buildRemoteCmd.Flags().MarkHidden("env")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
-	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
+	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios, web) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Revyl branch to list (defaults to all branches); a name with no Revyl branch lists builds from that Git branch, and HEAD is your current Git branch")
 	buildListCmd.MarkFlagsMutuallyExclusive("branch", "all-branches")
@@ -1787,7 +1787,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 		}
 		if branchFilter != "" {
 			ui.PrintInfo("No builds on this page match branch %q", branchFilter)
-			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android%s", buildBranchArgument)
+			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android|web%s", buildBranchArgument)
 		} else {
 			ui.PrintInfo("No builds on this page")
 		}

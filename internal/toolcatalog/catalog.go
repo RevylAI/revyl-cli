@@ -104,7 +104,7 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 			}
 			switch name {
 			case "platform":
-				parameter.Enum = []string{"ios", "android"}
+				parameter.Enum = []string{"ios", "android", "web"}
 			case "direction":
 				parameter.Enum = []string{"both", "in", "out"}
 			case "surface-scope":

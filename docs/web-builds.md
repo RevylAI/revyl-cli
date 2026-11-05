@@ -204,7 +204,8 @@ from config. `--branch <name>` opens the newest build on that branch instead,
 and `--all-branches` the newest across every branch. `--build-version-id` opens
 a specific build, and `--url` registers a URL (on `--branch` when given) and
 opens it in one step. `--build-selection inherit` and `pinned` aren't available
-on platform web.
+on platform web. Without `--platform`, an `--app-id` or `--build-version-id`
+that belongs to a Web app starts a Web session the same way.
 
 ### When a bundle's app fails
 
@@ -233,7 +234,9 @@ revyl test run checkout
 
 A Web test runs against a Web app in a 1280x800 desktop browser. `revyl test
 run` and the GitHub Action start a Web session for the run and report it like
-any other test. Device flags such as `--device-model`, `--os-version` and
-`--device` don't apply. Web tests can run in workflows alongside mobile tests,
-and `revyl test create --interactive` doesn't support Web tests. `revyl schema`
-lists the steps a Web test can use.
+any other test. The MCP `create_test` tool and the interactive hub (`revyl`
+with no arguments) also create Web tests. Device flags such as `--device-model`,
+`--os-version` and `--device` don't apply. Web tests can run in workflows
+alongside mobile tests. `revyl test create --interactive` drives a mobile
+simulator over the worker WebSocket, so it doesn't support Web tests.
+`revyl schema` lists the steps a Web test can use.

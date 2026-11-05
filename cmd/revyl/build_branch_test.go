@@ -257,8 +257,8 @@ func TestBuildListEmptyHintUploadsToTheListedBranch(t *testing.T) {
 		isDefault bool
 		wantHint  string
 	}{
-		{"other branch", false, "--platform ios|android --branch staging"},
-		{"default branch", true, "--platform ios|android\n"},
+		{"other branch", false, "--platform ios|android|web --branch staging"},
+		{"default branch", true, "--platform ios|android|web\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := &buildListTestServer{revylBranches: map[string]bool{"staging": test.isDefault}, builds: `{"items":[],"total":0,"page":1,"page_size":20,"has_next":false}`}

@@ -74,7 +74,7 @@ func newCreateAppModel(client *api.Client, width, height int) createAppModel {
 	return createAppModel{
 		step:      appStepName,
 		nameInput: ti,
-		platforms: []string{"android", "ios"},
+		platforms: []string{"android", "ios", "web"},
 		client:    client,
 		spinner:   newSpinner(),
 		width:     width,
@@ -89,7 +89,7 @@ func newCreateAppModel(client *api.Client, width, height int) createAppModel {
 // Parameters:
 //   - client: authenticated API client
 //   - name: display name for the app
-//   - platform: target platform (ios or android)
+//   - platform: target platform (ios, android, or web)
 //
 // Returns:
 //   - tea.Cmd: async command that sends AppCreatedMsg on completion
@@ -263,7 +263,7 @@ func (m createAppModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		m.done = true
-		m.uploadNow = m.doneCursor == 0
+		m.uploadNow = m.doneCursor == 0 && m.platforms[m.platformCursor] != "web"
 	}
 	return m, nil
 }
@@ -338,6 +338,12 @@ func (m createAppModel) View() string {
 		name := strings.TrimSpace(m.nameInput.Value())
 		b.WriteString("  " + successStyle.Render("✓ Created app: "+name) + "\n")
 		b.WriteString("  " + dimStyle.Render("ID: "+m.createdID) + "\n\n")
+		if m.platforms[m.platformCursor] == "web" {
+			b.WriteString("  " + normalStyle.Render("Register a deployment URL as a build:") + "\n")
+			b.WriteString("  " + dimStyle.Render("revyl build upload --platform web --app "+m.createdID+" --url <https-url>") + "\n\n")
+			b.WriteString("  " + helpStyle.Render("enter to finish") + "\n")
+			break
+		}
 		b.WriteString("  " + normalStyle.Render("Upload a build now?") + "\n\n")
 
 		options := []string{"Upload build now", "Maybe later"}

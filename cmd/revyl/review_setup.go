@@ -130,10 +130,13 @@ func completeReviewSetupConfiguration(
 			if selectErr != nil {
 				return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for CI uploads: %w", platform, selectErr)
 			}
-			if platform == "ios" {
+			switch platform {
+			case "ios":
 				reviewBuild.AppIDs.IOS = &appID
-			} else {
+			case "android":
 				reviewBuild.AppIDs.Android = &appID
+			case "web":
+				reviewBuild.AppIDs.Web = &appID
 			}
 		}
 		proofEnabled := true
@@ -151,7 +154,7 @@ func completeReviewSetupConfiguration(
 	case "revyl":
 		profileName := *candidate.PRReview.Build.Profile
 		profile := candidate.Build.Profiles[profileName]
-		for _, platform := range []string{"ios", "android"} {
+		for _, platform := range []string{"ios", "android", "web"} {
 			recipe := reviewProfileRecipe(&profile, platform)
 			if recipe == nil || recipe.AppID != nil {
 				continue
@@ -215,12 +218,12 @@ func promptReviewBuild(authored config.AuthoredConfig) (config.AuthoredReviewBui
 
 	selection, err := promptReviewSetupSelect(
 		"Which platforms will CI upload to Revyl?",
-		[]string{"iOS", "Android", "iOS and Android"},
+		[]string{"iOS", "Android", "iOS and Android", "Web"},
 	)
 	if err != nil {
 		return config.AuthoredReviewBuild{}, nil, err
 	}
-	platforms := [][]string{{"ios"}, {"android"}, {"ios", "android"}}[selection]
+	platforms := [][]string{{"ios"}, {"android"}, {"ios", "android"}, {"web"}}[selection]
 	return config.AuthoredReviewBuild{
 		Kind:   buildKind,
 		AppIDs: &config.AuthoredExternalCIAppIDs{},
@@ -228,10 +231,16 @@ func promptReviewBuild(authored config.AuthoredConfig) (config.AuthoredReviewBui
 }
 
 func reviewProfileRecipe(profile *config.AuthoredBuildProfile, platform string) *config.AuthoredBuildRecipe {
-	if platform == "ios" {
+	switch platform {
+	case "ios":
 		return profile.IOS
+	case "android":
+		return profile.Android
+	case "web":
+		return (*config.AuthoredBuildRecipe)(profile.Web)
+	default:
+		return nil
 	}
-	return profile.Android
 }
 
 func selectOrCreateReviewSetupApp(

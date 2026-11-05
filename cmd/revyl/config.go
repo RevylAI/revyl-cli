@@ -206,12 +206,12 @@ func localConfigRecoveryError(configError *config.ConfigError, configFilePath st
 		return fmt.Errorf("Revyl could not safely materialize the migrated test alias files%s; retry %q, then run %q if it still fails", field, migrate, doctor)
 	case "unknown_or_ineligible_profile":
 		profile := lastConfigErrorPathSegment(configError.Path)
-		return fmt.Errorf("build profile %q is not configured; run %q to list configured profiles, then retry with '--profile <name>' and, when needed, '--platform ios|android'", profile, configShow)
+		return fmt.Errorf("build profile %q is not configured; run %q to list configured profiles, then retry with '--profile <name>' and, when needed, '--platform ios|android|web'", profile, configShow)
 	case "no_build_profiles":
-		return fmt.Errorf("no build profiles are configured; add a recipe under 'build.profiles.<name>.ios' or 'build.profiles.<name>.android', then run %q", validate)
+		return fmt.Errorf("no build profiles are configured; add a recipe under 'build.profiles.<name>.ios', 'build.profiles.<name>.android' or 'build.profiles.<name>.web', then run %q", validate)
 	case "no_build_profile_for_platform":
 		platform := lastConfigErrorPathSegment(configError.Path)
-		return fmt.Errorf("no build profile configures platform %q; run %q to list configured recipes, then add that platform recipe or retry with '--platform ios|android'", platform, configShow)
+		return fmt.Errorf("no build profile configures platform %q; run %q to list configured recipes, then add that platform recipe or retry with '--platform ios|android|web'", platform, configShow)
 	case "profile_platform_not_configured":
 		profile, platform := trailingConfigErrorPathSegments(configError.Path)
 		return fmt.Errorf("build profile %q does not configure platform %q; run %q to list configured recipes, then retry with a supported '--profile' and '--platform' pair", profile, platform, configShow)
@@ -229,7 +229,7 @@ func localConfigRecoveryError(configError *config.ConfigError, configFilePath st
 	case "write":
 		return fmt.Errorf("%s: %w", configFile, configError)
 	case "selection":
-		return fmt.Errorf("the project configuration is ambiguous%s; run %q, then retry with '--profile <name>' and '--platform ios|android'", field, configShow)
+		return fmt.Errorf("the project configuration is ambiguous%s; run %q, then retry with '--profile <name>' and '--platform ios|android|web'", field, configShow)
 	case "legacy_translation":
 		return fmt.Errorf("%w; run %q to inspect the conversion, then retry %q", configError, migrateCheck, migrate)
 	default:

@@ -203,7 +203,7 @@ func (s stubPlatformResolver) GetApp(ctx context.Context, appID string) (*api.Ap
 	return s.appByID[appID], nil
 }
 
-func (s stubPlatformResolver) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error) {
+func (s stubPlatformResolver) GetBuildVersionDetail(ctx context.Context, versionID string, includeDownloadURL bool) (*api.BuildVersionDetail, error) {
 	if s.detailErr != nil {
 		return nil, s.detailErr
 	}
@@ -340,7 +340,7 @@ func TestInferPlatform_UnknownAppPlatformReturnsEmpty(t *testing.T) {
 
 	resolver := stubPlatformResolver{
 		appByID: map[string]*api.App{
-			"app-x": {ID: "app-x", Platform: "Web"},
+			"app-x": {ID: "app-x", Platform: "Symbian"},
 		},
 	}
 	got, err := InferPlatform(context.Background(), resolver, StartArtifactOptions{AppID: "app-x"})

@@ -97,7 +97,7 @@ func newCreateModel(apiKey string, devMode bool, client *api.Client, project *co
 	return createModel{
 		step:      stepName,
 		nameInput: ti,
-		platforms: []string{"android", "ios"},
+		platforms: []string{"android", "ios", "web"},
 		apiKey:    apiKey,
 		devMode:   devMode,
 		client:    client,

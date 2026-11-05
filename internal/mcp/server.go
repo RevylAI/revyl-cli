@@ -1515,7 +1515,7 @@ func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolReque
 // CreateTestInput defines input for create_test tool.
 type CreateTestInput struct {
 	Name             string   `json:"name" jsonschema:"Test name"`
-	Platform         string   `json:"platform" jsonschema:"Target platform (ios or android)"`
+	Platform         string   `json:"platform" jsonschema:"Target platform (ios, android, or web)"`
 	YAMLContent      string   `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition to create with real blocks"`
 	AppID            string   `json:"app_id,omitempty" jsonschema:"Optional explicit app ID to associate with the test"`
 	BranchID         string   `json:"branch_id,omitempty" jsonschema:"Saved Revyl branch ID; omit for Default branch (runs try the bound project's Git branch first only when automatic Git branch detection is enabled in the app's Build branches settings)"`
@@ -1548,16 +1548,16 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 	if input.Platform == "" {
 		return nil, CreateTestOutput{
 			Success: false,
-			Error:   "platform is required (ios or android)",
+			Error:   "platform is required (ios, android, or web)",
 		}, nil
 	}
 
 	// Validate platform value
 	platform := strings.ToLower(input.Platform)
-	if platform != "ios" && platform != "android" {
+	if platform != "ios" && platform != "android" && platform != "web" {
 		return nil, CreateTestOutput{
 			Success: false,
-			Error:   "platform must be 'ios' or 'android'",
+			Error:   "platform must be 'ios', 'android', or 'web'",
 		}, nil
 	}
 	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
@@ -1630,10 +1630,13 @@ func canonicalAppIDForPlatform(project *config.ProjectContext, platform string) 
 	appIDs := make(map[string]struct{})
 	for _, profile := range project.Authored.Build.Profiles {
 		var recipe *config.AuthoredBuildRecipe
-		if platform == "ios" {
+		switch platform {
+		case "ios":
 			recipe = profile.IOS
-		} else {
+		case "android":
 			recipe = profile.Android
+		case "web":
+			recipe = (*config.AuthoredBuildRecipe)(profile.Web)
 		}
 		if recipe != nil && recipe.AppID != nil && strings.TrimSpace(*recipe.AppID) != "" {
 			appIDs[strings.TrimSpace(*recipe.AppID)] = struct{}{}
@@ -1775,7 +1778,7 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 // ListBuildsInput defines input for list_builds tool.
 type ListBuildsInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory; retained for compatibility and does not narrow build browsing"`
-	Platform   string `json:"platform,omitempty" jsonschema:"Filter app summaries by platform (ios or android)"`
+	Platform   string `json:"platform,omitempty" jsonschema:"Filter app summaries by platform (ios, android, or web)"`
 	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum number of entries to return (default 20, maximum 100)"`
 	AppID      string `json:"app_id,omitempty" jsonschema:"List actual build versions across all branches of this app instead of app summaries"`
 	BranchID   string `json:"branch_id,omitempty" jsonschema:"Filter versions by this Revyl branch ID; requires app_id"`
