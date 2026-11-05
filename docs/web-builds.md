@@ -95,6 +95,11 @@ the same port, so a localhost-only app fails the health check with "couldn't
 connect to revyl-app:<port>". The defaults are port `3000`, healthcheck `/`, and a
 60-second startup timeout (10–600 seconds allowed).
 
+The server's own outbound requests, for example to your API, don't come from
+Revyl's allowlisted Web address
+([Allowlist IP addresses](https://docs.revyl.com/security/allowlist-ip-addresses));
+only the browser's requests do.
+
 `run.env_keys` names existing plaintext organization launch variables;
 `run.secret_names` names encrypted organization launch variables. These are
 **names, never values or `KEY=VALUE` assignments**. They are injected only when
