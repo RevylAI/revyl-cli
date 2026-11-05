@@ -62,8 +62,15 @@ shared Cursor launcher sources, or the pin, run
 `make -C revyl-cli sync-codex-plugin`; use the corresponding check target
 before release. Sync resolves checksums against the published release assets
 and needs network access; the structural tests are hermetic once generated
-files are present, including the CI drift check. CI enforces the package
-version independently from Cursor and the CLI. The generated scripts support
+files are present, including the CI drift check. The release workflow manages
+this package's version independently from Cursor and the CLI: changes merged
+to staging receive an automatic patch bump before publication. To choose a
+minor or major release instead, increase `.codex-plugin/plugin.json` and run
+the sync target in the same change; an explicit increase is preserved without
+an extra patch. Add the PR label `skip version` (also `skip-version` or
+`no-plugin-release`), or `[skip version]` in its title, to skip the automatic
+bump without preventing publication. README and test-only changes do not
+trigger a bump. The generated scripts support
 POSIX and Windows launchers, but native Windows runtime behavior has not yet
 been verified.
 

@@ -43,6 +43,16 @@ your apps, device sessions and screenshots under its privacy policy:
 For other editors and the Revyl CLI, see
 [Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp).
 
+## Maintainers
+
+Changes merged to staging receive an automatic patch-version bump before
+publication. For a minor or major release, increase
+`.claude-plugin/plugin.json` in the same change; the workflow preserves that
+version without adding another patch. The PR label `skip version` (also
+`skip-version` or `no-plugin-release`), or `[skip version]` in its title,
+skips the automatic bump but does not prevent publication. README and
+test-only changes do not trigger a bump.
+
 ## License
 
 MIT

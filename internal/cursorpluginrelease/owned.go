@@ -78,6 +78,7 @@ func HasNoPluginReleaseLabel(labelsJSON string) (bool, error) {
 // GuardInput is the plugin-version-guard decision input after git or test env.
 type GuardInput struct {
 	PluginHost   string
+	BaseRef      string
 	ChangedFiles string
 	BaseVersion  string
 	HeadVersion  string
@@ -145,6 +146,10 @@ func EvaluateGuard(input GuardInput) GuardResult {
 			input.BaseVersion,
 			input.HeadVersion,
 		))
+		return GuardResult{ExitCode: 0, Stdout: stdout.String()}
+	}
+	if compare == 0 && input.PluginHost == "codex" && input.BaseRef == "staging" {
+		stdout.WriteString("The staging release workflow will patch-bump this plugin unless the PR opts out.\n")
 		return GuardResult{ExitCode: 0, Stdout: stdout.String()}
 	}
 

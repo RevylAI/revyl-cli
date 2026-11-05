@@ -44,6 +44,7 @@ func usage() string {
 Git mode (CI): BASE_SHA, HEAD_SHA, optional PR_LABELS JSON array.
 Test mode: CHANGED_FILES, BASE_PLUGIN_VERSION, HEAD_PLUGIN_VERSION.
 Plugin selection: PLUGIN_HOST=cursor (default) or codex.
+Staging automation: PLUGIN_BASE_REF=staging permits an unchanged Codex version.
 `
 }
 
@@ -56,6 +57,7 @@ func guardInputFromEnv() (cursorpluginrelease.GuardInput, error) {
 	input := cursorpluginrelease.GuardInput{
 		LabelsJSON: os.Getenv("PR_LABELS"),
 		PluginHost: os.Getenv("PLUGIN_HOST"),
+		BaseRef:    os.Getenv("PLUGIN_BASE_REF"),
 	}
 	if _, testMode := os.LookupEnv("CHANGED_FILES"); testMode {
 		input.ChangedFiles = os.Getenv("CHANGED_FILES")
