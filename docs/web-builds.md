@@ -234,5 +234,6 @@ revyl test run checkout
 A Web test runs against a Web app in a 1280x800 desktop browser. `revyl test
 run` and the GitHub Action start a Web session for the run and report it like
 any other test. Device flags such as `--device-model`, `--os-version` and
-`--device` don't apply, and `revyl test create --interactive` and workflows
-don't support Web tests yet. `revyl schema` lists the steps a Web test can use.
+`--device` don't apply. Web tests can run in workflows alongside mobile tests,
+and `revyl test create --interactive` doesn't support Web tests. `revyl schema`
+lists the steps a Web test can use.
