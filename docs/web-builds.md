@@ -1,12 +1,12 @@
 # Web builds
 
-Web is in Alpha. An organization Owner or Admin can enable it in
-**Settings → Experiments** on any plan, with no paid-plan restriction.
-Organizations already enabled by Revyl keep access without opting in. If Revyl
-has disabled Web for your organization, email support@revyl.ai.
-
-Opting out hides Web but keeps your apps and builds. Sessions already in progress
-finish normally.
+Web is available to every organization on every plan. Web builds and Web
+sessions each use 83.33 compute credits per second, equivalent to $0.05 per
+minute at the standard overage price; plans with included credits use those
+credits first, and build promotions such as BUILDREVYL lower the Web build
+rate. If a Web command returns `Web is not enabled for this
+organization`, Revyl has turned Web off for your organization; email
+support@revyl.ai.
 
 A Web build is either a bundle built by Revyl or a registered deployment URL.
 Managed builds run the configured recipe locally or on Revyl's build runners,

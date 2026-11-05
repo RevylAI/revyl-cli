@@ -48,10 +48,8 @@ Keep values out of prompts, flags, logs and committed workflow files.
 
 ## Web exploration
 
-Web exploration uses the same organization access gate as Web sessions. Web must
-be enabled for your organization; there is no separate exploration feature flag.
-An organization Owner or Admin can enable Web in **Settings → Experiments** on
-any plan; see [Web access](web-builds.md).
+Web exploration uses the same organization access as Web sessions; there is no
+separate exploration feature flag. See [Web access](web-builds.md).
 
 ```bash
 revyl explore run "My Web App" --platform web --max-duration 20m
