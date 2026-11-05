@@ -775,3 +775,43 @@ func TestStripBlockIDs_PreservesStepType(t *testing.T) {
 		t.Fatalf("nested StepType should be preserved, got %q", result[2].Then[0].StepType)
 	}
 }
+
+func TestSyncToRemote_UpdateSendsLocalPlatform(t *testing.T) {
+	testsDir := t.TempDir()
+	var sentPlatform any
+
+	client, cleanup := newResolverTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/update"):
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			sentPlatform = req["platform"]
+			_, _ = w.Write([]byte(`{"id":"existing-id","version":4}`))
+		case r.URL.Path == "/api/v1/tests/scripts" || r.URL.Path == "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
+		default:
+			t.Fatalf("unexpected path: %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer cleanup()
+
+	local := &config.LocalTest{
+		Meta: config.TestMeta{RemoteID: "existing-id", RemoteVersion: 3, LocalVersion: 3},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: "Fold", Platform: "ios"},
+			Blocks:   []config.TestBlock{{Type: "manual", StepType: "set_fold_state", StepDescription: "folded"}},
+		},
+	}
+
+	resolver := NewResolver(client, &config.ProjectConfig{}, map[string]*config.LocalTest{"fold": local})
+	results, err := resolver.SyncToRemote(context.Background(), "fold", testsDir, true)
+	if err != nil || results[0].Error != nil {
+		t.Fatalf("SyncToRemote() error = %v, result error = %v", err, results[0].Error)
+	}
+	if sentPlatform != "ios" {
+		t.Fatalf("update platform = %v, want the YAML's ios", sentPlatform)
+	}
+}

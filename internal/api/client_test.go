@@ -1968,3 +1968,30 @@ func TestProxyWorkerRequestDetailed_ReturnsRetryAfter(t *testing.T) {
 		t.Fatalf("RetryAfter = %v, want 4s", resp.RetryAfter)
 	}
 }
+
+const taskValidationFailureBody = `{"detail":{"message":"Task validation failed","issues":[{"severity":"error","message":"Step type 'set_fold_state' not supported on android","field_path":"blocks[1].step_type","suggestion":"Supported on: ios"}],"summary":"blocks[1].step_type: Step type 'set_fold_state' not supported on android"}}`
+
+func TestParseAPIErrorBodyIncludesTaskValidationIssues(t *testing.T) {
+	err := parseAPIErrorBody(http.StatusUnprocessableEntity, []byte(taskValidationFailureBody))
+
+	want := "Task validation failed: blocks[1].step_type: Step type 'set_fold_state' not supported on android (Supported on: ios)"
+	if got := err.Error(); got != want {
+		t.Fatalf("Error() = %q, want %q", got, want)
+	}
+	if len(err.ValidationIssues) != 1 || err.ValidationIssues[0].Field != "blocks[1].step_type" {
+		t.Fatalf("ValidationIssues = %#v", err.ValidationIssues)
+	}
+}
+
+func TestParseAPIErrorBodyLogsBodyForDebug(t *testing.T) {
+	var logged []string
+	previous := debugLogf
+	debugLogf = func(format string, args ...interface{}) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	t.Cleanup(func() { debugLogf = previous })
+
+	_ = parseAPIErrorBody(http.StatusUnprocessableEntity, []byte(taskValidationFailureBody))
+
+	if len(logged) != 1 || !strings.Contains(logged[0], "HTTP 422") || !strings.Contains(logged[0], `"field_path":"blocks[1].step_type"`) {
+		t.Fatalf("debug log = %q, want the status and the error body", logged)
+	}
+}

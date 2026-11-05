@@ -281,6 +281,9 @@ type APIValidationIssue struct {
 	Type    string
 }
 
+// maxDebugErrorBodyBytes bounds the error response body --debug prints.
+const maxDebugErrorBodyBytes = 4096
+
 // validationRequestLocations are the request parts FastAPI puts first in a
 // failure's field, as in "body.name".
 var validationRequestLocations = []string{"body.", "query.", "path.", "header.", "cookie."}
@@ -495,6 +498,11 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		} `json:"errors"`
 	}
 	_ = json.Unmarshal(body, &errResp)
+	debugBody := string(body)
+	if len(debugBody) > maxDebugErrorBodyBytes {
+		debugBody = debugBody[:maxDebugErrorBodyBytes] + "..."
+	}
+	debugLogf("API error response (HTTP %d): %s", statusCode, debugBody)
 
 	message := errResp.Error
 	if message == "" {
@@ -504,6 +512,7 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 	var (
 		detail       string
 		detailObject map[string]interface{}
+		detailIssues []APIValidationIssue
 	)
 	if len(errResp.Detail) > 0 && string(errResp.Detail) != "null" {
 		var detailValue interface{}
@@ -517,6 +526,24 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 					detail = detailMessage
 				} else if rawDetail, marshalErr := json.Marshal(value); marshalErr == nil {
 					detail = string(rawDetail)
+				}
+				rawIssues, _ := value["issues"].([]interface{})
+				for _, rawIssue := range rawIssues {
+					issueFields, ok := rawIssue.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					field, _ := issueFields["field_path"].(string)
+					issueMessage, _ := issueFields["message"].(string)
+					code, _ := issueFields["code"].(string)
+					if suggestion, _ := issueFields["suggestion"].(string); strings.TrimSpace(suggestion) != "" {
+						issueMessage = fmt.Sprintf("%s (%s)", strings.TrimSpace(issueMessage), strings.TrimSpace(suggestion))
+					}
+					detailIssues = append(detailIssues, APIValidationIssue{
+						Field:   strings.TrimSpace(field),
+						Message: strings.TrimSpace(issueMessage),
+						Type:    strings.TrimSpace(code),
+					})
 				}
 			default:
 				if rawDetail, marshalErr := json.Marshal(value); marshalErr == nil {
@@ -541,7 +568,19 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		}
 	}
 
-	validationIssues := make([]APIValidationIssue, 0, len(errResp.Errors))
+	validationIssues := make([]APIValidationIssue, 0, len(errResp.Errors)+len(detailIssues))
+	if len(detailIssues) > 0 {
+		validationIssues = append(validationIssues, detailIssues...)
+		parts := make([]string, 0, len(detailIssues))
+		for _, issue := range detailIssues {
+			if part := issue.readableText(); part != "" {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) > 0 {
+			detail = strings.TrimPrefix(detail+": "+strings.Join(parts, "; "), ": ")
+		}
+	}
 	if len(errResp.Errors) > 0 {
 		var parts []string
 		for _, validationErr := range errResp.Errors {
@@ -2637,6 +2676,7 @@ type UpdateTestRequest struct {
 	TestID          string      `json:"-"`
 	Name            string      `json:"name,omitempty"`
 	Description     string      `json:"description,omitempty"`
+	Platform        string      `json:"platform,omitempty"`
 	Tasks           interface{} `json:"tasks,omitempty"`
 	AppID           string      `json:"app_id,omitempty"`
 	PinnedVersionID string      `json:"pinned_version,omitempty"`

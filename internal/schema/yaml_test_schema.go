@@ -34,10 +34,29 @@ test:
     build_selection: inherit   # inherit (Automatic: the branch's default build), latest, latest_all_branches, or pinned
     # pinned_build_id: "build-uuid" # Required with pinned; must belong to branch_id
     # pinned_version: "1.0.0"  # Legacy alternative; do not mix with the selector above
+  device:                       # Optional: saved device target (mobile only)
+    model: "iPhone 16"
+    os_version: "iOS 18.5"
+    orientation: "portrait"     # portrait or landscape
+  variables:                    # Optional: test variables
+    username: "testuser"
+  env_vars:                     # Optional: org launch variable keys to attach
+    - "API_BASE_URL"
   blocks:                       # Required: At least one block
     - type: "instructions"
       step_description: "..."
 ` + "```" + `
+
+Only the keys shown above are read; validation warns about any other key under
+` + "`test`" + `, ` + "`build`" + ` or ` + "`device`" + `.
+
+## Device Target
+
+` + "`device`" + ` saves the device a mobile test runs on. ` + "`revyl test create --from-file`" + ` and
+` + "`revyl test push`" + ` store it on the test, so runs use it without ` + "`--device-model`" + `.
+List valid ` + "`model`" + ` and ` + "`os_version`" + ` pairs with ` + "`revyl device targets`" + `. Omit
+` + "`device`" + ` to keep the saved target; a test without one runs on the platform's
+default device. There is no ` + "`mobile_targets`" + ` key: use ` + "`device`" + `.
 
 ## Build Selection
 
@@ -379,6 +398,15 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			"webManualStepTypes": []string{"wait", "navigate", "back", "end"},
 			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "set_orientation", "set_appearance", "set_fold_state", "download_file", "end"},
 		},
+		"device": map[string]interface{}{
+			"fields": map[string]string{
+				"model":       "string (device model from revyl device targets)",
+				"os_version":  "string (OS version compatible with model)",
+				"orientation": "portrait or landscape",
+			},
+			"appliedBy": "revyl test create --from-file and revyl test push save it as the test's device target",
+		},
+		"optionalSections": []string{"device", "variables", "env_vars"},
 		"buildSelection": map[string]interface{}{
 			"fields":         []string{"branch_id", "build_selection", "pinned_build_id"},
 			"modes":          []string{"inherit", "latest", "latest_all_branches", "pinned"},
