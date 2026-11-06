@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -344,6 +346,8 @@ func detectInstallMethodForExecutable(execPath string) string {
 	return method
 }
 
+var pythonPackageDownloadedBinaryName = regexp.MustCompile(`^revyl-(darwin|linux|windows)-(amd64|arm64)(\.exe)?$`)
+
 // detectInstallMethodFromPath classifies install method from executable path.
 func detectInstallMethodFromPath(execPath string) string {
 	normalizedPath := strings.ToLower(filepath.ToSlash(execPath))
@@ -367,11 +371,15 @@ func detectInstallMethodFromPath(execPath string) string {
 		return "uv"
 	}
 
-	// Check for pip (Python)
-	//
-	// NOTE: Paths under ~/.revyl/bin are downloaded CLI binaries and should be
-	// treated as direct installs so `revyl upgrade` can self-update in place.
 	if strings.Contains(normalizedPath, "site-packages") || strings.Contains(normalizedPath, "dist-packages") {
+		return "pip"
+	}
+
+	// Older revyl Python packages downloaded the binary into ~/.revyl/bin and
+	// trust it only while it matches the checksum they recorded. Replacing it in
+	// place makes those launchers fall back to a PATH search that can find and
+	// spawn themselves forever, so only a package upgrade may update it.
+	if strings.Contains(normalizedPath, "/.revyl/bin/") && pythonPackageDownloadedBinaryName.MatchString(path.Base(normalizedPath)) {
 		return "pip"
 	}
 

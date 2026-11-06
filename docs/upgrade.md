@@ -37,7 +37,17 @@ for Homebrew, `pip install --upgrade revyl`, `pipx upgrade revyl`, or
 `uv tool upgrade revyl` for Python packages, `npm update -g @revyl/cli` for npm,
 and `revyl upgrade` for the shell installer, direct downloads, and any location
 it cannot classify. npm, pip, pipx, and uv installations are never updated
-automatically, because that could update a different installation.
+automatically, because that could update a different installation. A
+`revyl-<os>-<arch>` binary that an older `revyl` Python package downloaded into
+`~/.revyl/bin` counts as a Python package installation, so it is updated by
+upgrading that package rather than in place.
+
+Those older Python packages run their downloaded binary only while it matches
+the checksum they recorded. If `revyl upgrade` from an earlier CLI already
+replaced it, the `revyl` command can hang with no output while it starts
+itself over and over, most visibly on Windows. Upgrade the Python package with
+`uv tool upgrade revyl`, `pipx upgrade revyl`, or `pip install --upgrade revyl`;
+current packages bundle the binary and never search `PATH` for it.
 
 The notice never writes to stdout, so `--json` output is unchanged. If a script
 parses stdout and stderr together, set `REVYL_NO_UPDATE_NOTIFIER=1`.
