@@ -765,8 +765,8 @@ func checkDeviceStartArtifactSelectors(appID, buildVersionID, appURL string) err
 // confirmBuildVersionApp accepts --app-id together with --build-version-id
 // when the build version belongs to that app, and names the conflict when it
 // belongs to another app.
-func confirmBuildVersionApp(ctx context.Context, client *api.Client, appID, buildVersionID string) error {
-	detail, err := client.GetBuildVersionDetail(ctx, buildVersionID, false)
+func confirmBuildVersionApp(ctx context.Context, client startdevice.BuildVersionGetter, appID, buildVersionID string) error {
+	detail, err := client.GetBuildVersionDownloadURL(ctx, buildVersionID)
 	if err != nil {
 		return fmt.Errorf("could not check that --build-version-id %s belongs to --app-id %s: %w", buildVersionID, appID, err)
 	}
@@ -994,8 +994,9 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			return err
 		}
 
+		buildVersionClient := startdevice.NewBuildVersionDetailMemo(mgr.APIClient())
 		if appID != "" && buildVersionID != "" {
-			if err := confirmBuildVersionApp(cmd.Context(), mgr.APIClient(), appID, buildVersionID); err != nil {
+			if err := confirmBuildVersionApp(cmd.Context(), buildVersionClient, appID, buildVersionID); err != nil {
 				return err
 			}
 			ui.PrintInfo("Starting build version %s, which belongs to --app-id %s.", buildVersionID, appID)
@@ -1015,9 +1016,6 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			return err
 		}
 
-		targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)
-
-		// Resolve device model/OS version selection
 		deviceNameFlag, _ := cmd.Flags().GetString("device-name")
 		deviceSelectFlag, _ := cmd.Flags().GetBool("device")
 		deviceModelFlag, _ := cmd.Flags().GetString("device-model")
@@ -1025,6 +1023,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 
 		var selectedDeviceModel, selectedOsVersion string
 		if deviceNameFlag != "" {
+			targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)
 			presetPlatform, presetModel, presetRuntime, presetErr := targetCatalog.ResolvePreset(deviceNameFlag)
 			if presetErr != nil {
 				return presetErr
@@ -1036,6 +1035,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			if deviceModelFlag == "" {
 				return fmt.Errorf("--device-model and --os-version must both be provided")
 			}
+			targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)
 			if osVersionFlag == "" {
 				osVersionFlag, err = defaultOSVersionForModel(cmd, targetCatalog, platform, deviceModelFlag)
 				if err != nil {
@@ -1048,6 +1048,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			selectedDeviceModel = deviceModelFlag
 			selectedOsVersion = osVersionFlag
 		} else if deviceSelectFlag {
+			targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)
 			pairs, pairsErr := targetCatalog.GetAvailableTargetPairs(platform)
 			if pairsErr != nil {
 				return pairsErr
@@ -1118,6 +1119,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			AppID:          appID,
 			BuildVersionID: buildVersionID,
 			BranchName:     branchName, BuildSelection: buildSelection,
+			BuildVersionDetail:         buildVersionClient.RememberedDetail(buildVersionID),
 			GitBranchName:              gitBranchName,
 			AppURL:                     appURL,
 			LaunchVars:                 launchVars,

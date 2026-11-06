@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	gosync "sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -1323,12 +1324,26 @@ func fetchWorkflowSettingsCmd(client *api.Client, workflowID string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		var testsResp *api.CLISimpleTestListResponse
+		var tErr error
+		var appsResp *api.CLIPaginatedAppsResponse
+		var aErr error
+		var listsWG gosync.WaitGroup
+		listsWG.Add(2)
+		go func() {
+			defer listsWG.Done()
+			testsResp, tErr = client.ListOrgTests(ctx, 200, 0)
+		}()
+		go func() {
+			defer listsWG.Done()
+			appsResp, aErr = client.ListApps(ctx, "", 1, 100)
+		}()
 		wf, err := client.GetWorkflow(ctx, workflowID)
+		listsWG.Wait()
 		if err != nil {
 			return WorkflowSettingsMsg{Err: err}
 		}
 
-		testsResp, tErr := client.ListOrgTests(ctx, 200, 0)
 		var allTests []TestItem
 		if tErr == nil {
 			for _, t := range testsResp.Tests {
@@ -1341,7 +1356,6 @@ func fetchWorkflowSettingsCmd(client *api.Client, workflowID string) tea.Cmd {
 		}
 
 		var allApps []api.App
-		appsResp, aErr := client.ListApps(ctx, "", 1, 100)
 		if aErr == nil {
 			allApps = appsResp.Items
 		}

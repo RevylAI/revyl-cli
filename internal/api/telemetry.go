@@ -123,6 +123,18 @@ func (c *Client) ExportDevTraceHandoff(ctx context.Context) (*TraceHandoff, erro
 	return c.exportRootCLITrace(ctx, newTraceRequestID(), cliDevTraceSpanName, revylCLICommandDev)
 }
 
+// ExportStartDeviceTraceHandoff exports the root device-start trace ahead of
+// StartDevice so callers can overlap it with other work; attach the result with
+// WithTraceHandoff. On failure it returns a handoff without trace headers, which
+// makes StartDevice send the request untraced instead of exporting again.
+func (c *Client) ExportStartDeviceTraceHandoff(ctx context.Context) *TraceHandoff {
+	handoff, err := c.exportStartDeviceTrace(ctx, newTraceRequestID())
+	if err != nil {
+		return &TraceHandoff{}
+	}
+	return handoff
+}
+
 func (c *Client) exportStartDeviceTrace(ctx context.Context, requestID string) (*TraceHandoff, error) {
 	return c.exportRootCLITrace(ctx, requestID, cliTraceSpanName, revylCLICommandDeviceStart)
 }

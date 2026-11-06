@@ -9,9 +9,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -516,22 +515,59 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	inheritedLaunchConfigurationIDs, err := launchvars.LoadInheritedIDs(
+
+	var iosApp, androidApp *api.PlatformApp
+	var iosAppErr, androidAppErr error
+	if params.IOSAppID != "" {
+		iosApp, iosAppErr = workflowPlatformApp("iOS", params.IOSAppID, params.IOSBuild)
+	}
+	if params.AndroidAppID != "" {
+		androidApp, androidAppErr = workflowPlatformApp("Android", params.AndroidAppID, params.AndroidBuild)
+	}
+	var iosBuildErr, androidBuildErr error
+	var exactBuilds sync.WaitGroup
+	if iosApp != nil {
+		exactBuilds.Add(1)
+		go func() {
+			defer exactBuilds.Done()
+			iosBuildErr = applyWorkflowExactBuild(ctx, client, iosApp, params.IOSBuildID, params.IOSBuild, params.BranchName, params.IOSBranchID)
+		}()
+	}
+	if androidApp != nil {
+		exactBuilds.Add(1)
+		go func() {
+			defer exactBuilds.Done()
+			androidBuildErr = applyWorkflowExactBuild(ctx, client, androidApp, params.AndroidBuildID, params.AndroidBuild, params.BranchName, params.AndroidBranchID)
+		}()
+	}
+
+	var launchConfigurationIDs []string
+	inheritedLaunchConfigurationIDs, inheritedErr := launchvars.LoadInheritedIDs(
 		params.DisableInheritedLaunchVars,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
+	var launchErr error
+	if inheritedErr == nil {
+		launchConfigurationIDs, launchErr = startdevice.ResolveLaunchConfigurationSelection(
+			ctx,
+			client,
+			inheritedLaunchConfigurationIDs,
+			params.LaunchVars,
+			params.LaunchArgSets,
+		)
 	}
-	launchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
-		ctx,
-		client,
-		inheritedLaunchConfigurationIDs,
-		params.LaunchVars,
-		params.LaunchArgSets,
-	)
-	if err != nil {
-		return nil, err
+	exactBuilds.Wait()
+	if inheritedErr != nil {
+		return nil, fmt.Errorf("failed to load inherited launch variables: %w", inheritedErr)
 	}
+	if launchErr != nil {
+		return nil, launchErr
+	}
+	for _, err := range []error{iosAppErr, iosBuildErr, androidAppErr, androidBuildErr} {
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	req := &api.ExecuteWorkflowRequest{
 		ConcurrencyLimitOverride: params.ConcurrencyLimitOverride,
 		WorkflowID:               workflowID,
@@ -544,37 +580,9 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		GitBranchName:            params.GitBranchName,
 		BuildSelection:           api.BuildSelectionMode(params.BuildSelection),
 	}
-	if params.IOSAppID != "" || params.AndroidAppID != "" {
-		req.BuildConfig = &api.WorkflowAppConfig{}
+	if iosApp != nil || androidApp != nil {
+		req.BuildConfig = &api.WorkflowAppConfig{IosBuild: iosApp, AndroidBuild: androidApp}
 		req.OverrideBuildConfig = true
-		if params.IOSAppID != "" {
-			iosUUID, err := uuid.Parse(params.IOSAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid iOS app ID %q: %w", params.IOSAppID, err)
-			}
-			iosApp := &api.PlatformApp{AppId: iosUUID}
-			if params.IOSBuild != "" {
-				iosApp.PinnedVersion = &params.IOSBuild
-			}
-			if err := applyWorkflowExactBuild(ctx, client, iosApp, params.IOSBuildID, params.IOSBuild, params.BranchName, params.IOSBranchID); err != nil {
-				return nil, err
-			}
-			req.BuildConfig.IosBuild = iosApp
-		}
-		if params.AndroidAppID != "" {
-			androidUUID, err := uuid.Parse(params.AndroidAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Android app ID %q: %w", params.AndroidAppID, err)
-			}
-			androidApp := &api.PlatformApp{AppId: androidUUID}
-			if params.AndroidBuild != "" {
-				androidApp.PinnedVersion = &params.AndroidBuild
-			}
-			if err := applyWorkflowExactBuild(ctx, client, androidApp, params.AndroidBuildID, params.AndroidBuild, params.BranchName, params.AndroidBranchID); err != nil {
-				return nil, err
-			}
-			req.BuildConfig.AndroidBuild = androidApp
-		}
 	}
 	if params.HasLocation {
 		req.LocationConfig = &api.CLILocation{

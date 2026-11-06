@@ -3158,11 +3158,19 @@ func (c *Client) ListAllOrgTests(ctx context.Context, pageSize int) ([]SimpleTes
 
 	var all []SimpleTest
 	offset := 0
+	var prefetchedPages []*CLISimpleTestListResponse
+	prefetched := false
 
 	for {
-		resp, err := c.ListOrgTests(ctx, pageSize, offset)
-		if err != nil {
-			return nil, err
+		var resp *CLISimpleTestListResponse
+		if len(prefetchedPages) > 0 {
+			resp, prefetchedPages = prefetchedPages[0], prefetchedPages[1:]
+		} else {
+			var err error
+			resp, err = c.ListOrgTests(ctx, pageSize, offset)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if resp == nil || len(resp.Tests) == 0 {
 			break
@@ -3180,9 +3188,49 @@ func (c *Client) ListAllOrgTests(ctx context.Context, pageSize int) ([]SimpleTes
 		if len(resp.Tests) < pageSize {
 			break
 		}
+
+		if !prefetched && resp.Count > 0 {
+			prefetched = true
+			var err error
+			prefetchedPages, err = c.listOrgTestPages(ctx, pageSize, offset, resp.Count)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return all, nil
+}
+
+const listAllOrgTestsConcurrency = 4
+
+// listOrgTestPages fetches the full pages from startOffset up to totalCount
+// concurrently and returns them in offset order. Any failed page fails the call.
+func (c *Client) listOrgTestPages(ctx context.Context, pageSize, startOffset, totalCount int) ([]*CLISimpleTestListResponse, error) {
+	var offsets []int
+	for offset := startOffset; offset < totalCount; offset += pageSize {
+		offsets = append(offsets, offset)
+	}
+	pages := make([]*CLISimpleTestListResponse, len(offsets))
+	errs := make([]error, len(offsets))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, listAllOrgTestsConcurrency)
+	for i, offset := range offsets {
+		wg.Add(1)
+		go func(i, offset int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			pages[i], errs[i] = c.ListOrgTests(ctx, pageSize, offset)
+		}(i, offset)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return pages, nil
 }
 
 // TestWithTags represents a test with its associated tags.

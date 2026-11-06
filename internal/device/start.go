@@ -20,6 +20,50 @@ type PlatformResolver interface {
 	GetBuildVersionDetail(ctx context.Context, versionID string, includeDownloadURL bool) (*api.BuildVersionDetail, error)
 }
 
+// BuildVersionGetter fetches a build version with its presigned download URL.
+type BuildVersionGetter interface {
+	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
+}
+
+// BuildVersionDetailMemo is an API client that fetches each build version's
+// detail at most once, so the steps of one device start share a lookup. It is
+// not safe for concurrent use.
+type BuildVersionDetailMemo struct {
+	*api.Client
+	detailsByVersionID map[string]*api.BuildVersionDetail
+}
+
+// NewBuildVersionDetailMemo wraps client with an empty build version memo.
+func NewBuildVersionDetailMemo(client *api.Client) *BuildVersionDetailMemo {
+	return &BuildVersionDetailMemo{Client: client, detailsByVersionID: map[string]*api.BuildVersionDetail{}}
+}
+
+// Remember records an already-fetched detail for versionID.
+func (m *BuildVersionDetailMemo) Remember(versionID string, detail *api.BuildVersionDetail) {
+	if detail != nil {
+		m.detailsByVersionID[versionID] = detail
+	}
+}
+
+// RememberedDetail returns the detail fetched or remembered for versionID, if any.
+func (m *BuildVersionDetailMemo) RememberedDetail(versionID string) *api.BuildVersionDetail {
+	return m.detailsByVersionID[versionID]
+}
+
+// GetBuildVersionDownloadURL returns the remembered detail for versionID or
+// fetches and remembers it.
+func (m *BuildVersionDetailMemo) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error) {
+	if detail, ok := m.detailsByVersionID[versionID]; ok {
+		return detail, nil
+	}
+	detail, err := m.Client.GetBuildVersionDownloadURL(ctx, versionID)
+	if err != nil {
+		return nil, err
+	}
+	m.Remember(versionID, detail)
+	return detail, nil
+}
+
 // LaunchVarResolver resolves org-scoped launch variables by listing the library.
 type LaunchVarResolver interface {
 	ListOrgLaunchVariables(ctx context.Context) (*api.OrgLaunchVariablesResponse, error)
@@ -266,7 +310,24 @@ func ResolveLaunchVarIDs(
 	resolver LaunchVarResolver,
 	keyOrIDs []string,
 ) ([]string, error) {
-	return resolveLaunchConfigurationIDs(ctx, resolver, keyOrIDs, "key_value")
+	return resolveLaunchConfigurationIDs(ctx, &listOnceLaunchVarResolver{resolver: resolver}, keyOrIDs, "key_value")
+}
+
+type listOnceLaunchVarResolver struct {
+	resolver LaunchVarResolver
+	listed   *api.OrgLaunchVariablesResponse
+}
+
+func (r *listOnceLaunchVarResolver) ListOrgLaunchVariables(ctx context.Context) (*api.OrgLaunchVariablesResponse, error) {
+	if r.listed != nil {
+		return r.listed, nil
+	}
+	resp, err := r.resolver.ListOrgLaunchVariables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.listed = resp
+	return resp, nil
 }
 
 // ResolveLaunchConfigurationSelection resolves inherited configurations of
@@ -280,6 +341,7 @@ func ResolveLaunchConfigurationSelection(
 	launchVars []string,
 	launchArgumentSets []string,
 ) ([]string, error) {
+	resolver = &listOnceLaunchVarResolver{resolver: resolver}
 	inherited, err := resolveLaunchConfigurationIDs(ctx, resolver, inheritedIDs, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve inherited launch configurations: %w", err)

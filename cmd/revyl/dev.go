@@ -638,6 +638,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	selectedAppID := invocation.AppID
 	buildSelectionSource := ""
 	var selectedVersion *api.BuildVersion
+	var selectedDetail *api.BuildVersionDetail
 	if buildVersionID == "" && !devStartBuild {
 		if selectedAppID == "" {
 			invocation, err = ensureDevApp(cmd, client, invocation)
@@ -650,14 +651,15 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		var source string
 		var warnings []string
 		var latestErr error
-		selectedVersion, source, warnings, latestErr = selectDevStartBuild(cmd.Context(), client, selectedAppID, invocation)
+		selectedDetail, source, warnings, latestErr = selectDevStartBuild(cmd.Context(), client, selectedAppID, invocation)
 		if latestErr != nil {
 			return fmt.Errorf("failed to resolve branch build for app %s: %w", selectedAppID, latestErr)
 		}
 		for _, warning := range warnings {
 			ui.PrintWarning("%s", warning)
 		}
-		if selectedVersion != nil {
+		if selectedDetail != nil {
+			selectedVersion = selectedDetail.BuildVersion()
 			buildVersionID = selectedVersion.ID
 			buildSelectionSource = source
 			invocation = invocation.withResolvedBranch(selectedVersion.BranchID, selectedVersion.BranchName)
@@ -721,9 +723,12 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		buildVersionID = buildResult.Upload.VersionID
 	}
 
-	buildDetail, err := client.GetBuildVersionDownloadURL(cmd.Context(), buildVersionID)
-	if err != nil {
-		return fmt.Errorf("failed to resolve build download URL: %w", err)
+	buildDetail := selectedDetail
+	if buildDetail == nil || buildDetail.ID != buildVersionID {
+		buildDetail, err = client.GetBuildVersionDownloadURL(cmd.Context(), buildVersionID)
+		if err != nil {
+			return fmt.Errorf("failed to resolve build download URL: %w", err)
+		}
 	}
 	ui.PrintDebug(
 		"resolved dev build artifact: version=%s package=%s",
@@ -2222,12 +2227,14 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	appID := strings.TrimSpace(invocation.AppID)
 	uploadedVersionID := strings.TrimSpace(devStartBuildVerID)
 	needsBuild := devStartBuild || invocation.branchAwaitsFirstUpload()
+	var existingDetail *api.BuildVersionDetail
 	if !needsBuild {
 		existing, resolveErr := client.ResolveBuildSelection(cmd.Context(), appID, devBuildSelection(invocation))
 		if resolveErr != nil && !devResolveErrorNeedsBuild(invocation, resolveErr) {
 			return resolveErr
 		}
 		if resolveErr == nil {
+			existingDetail = existing
 			uploadedVersionID = existing.ID
 			invocation = invocation.withResolvedBranch(existing.BranchID, existing.BranchName)
 		} else {
@@ -2287,11 +2294,18 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		ui.PrintDim("Using selected branch build (pass --build to force rebuild)")
 	}
 
-	selectedVersion, buildDetail, err := resolveDevRebuildInitialBuild(
-		cmd.Context(), client, appID, uploadedVersionID, devBuildSelection(invocation),
-	)
-	if err != nil {
-		return err
+	var selectedVersion *api.BuildVersion
+	var buildDetail *api.BuildVersionDetail
+	if existingDetail != nil && strings.TrimSpace(existingDetail.ID) == strings.TrimSpace(uploadedVersionID) {
+		selectedVersion = &api.BuildVersion{ID: strings.TrimSpace(existingDetail.ID), Version: existingDetail.Version}
+		buildDetail = existingDetail
+	} else {
+		selectedVersion, buildDetail, err = resolveDevRebuildInitialBuild(
+			cmd.Context(), client, appID, uploadedVersionID, devBuildSelection(invocation),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Provision device.

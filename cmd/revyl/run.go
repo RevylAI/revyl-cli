@@ -340,8 +340,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return testLookupFailure(err)
 	}
+	var validatedTest *api.TestSummary
 	if looksLikeUUID(testNameOrID) {
-		if _, err := validationClient.GetTest(cmd.Context(), testID); err != nil {
+		if validatedTest, err = validationClient.GetTest(cmd.Context(), testID); err != nil {
 			var apiErr *api.APIError
 			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
 				ui.PrintError("could not look up test '%s': %v", testNameOrID, err)
@@ -383,7 +384,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	// Resolve device selection (--device, --device-model, --os-version)
 	var deviceModel, osVersion string
 	if runDeviceModel != "" || runOsVersion != "" || runDeviceSelect {
-		deviceModel, osVersion, err = resolveDeviceSelection(cmd, testID, validationClient, runDeviceSelect, runDeviceModel, runOsVersion)
+		deviceModel, osVersion, err = resolveDeviceSelectionForTest(cmd, testID, validatedTest, validationClient, runDeviceSelect, runDeviceModel, runOsVersion)
 		if err != nil {
 			return err
 		}
@@ -714,44 +715,58 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 	fmt.Println(string(data))
 }
 
-// validateWorkflowBuildVersion verifies that a build version exists for the given app,
-// returning a helpful error listing recent versions if it does not.
-func validateWorkflowBuildVersion(ctx context.Context, client *api.Client, appID, version, platformLabel string) error {
+type workflowBuildVersionLookup struct {
+	appID         string
+	version       string
+	platformLabel string
+	found         bool
+	recentSamples []string
+	err           error
+}
+
+// lookupWorkflowBuildVersion pages the app's builds looking for version without
+// printing anything, so lookups for several platforms can run concurrently.
+func lookupWorkflowBuildVersion(ctx context.Context, client *api.Client, appID, version, platformLabel string) workflowBuildVersionLookup {
 	const pageSize = 100
 
-	ui.StartSpinner(fmt.Sprintf("Validating %s build version...", platformLabel))
-	found := false
-	var samples []string
-	for page := 1; !found && page <= workflowBuildVersionValidationMaxPages; page++ {
+	lookup := workflowBuildVersionLookup{appID: appID, version: version, platformLabel: platformLabel}
+	for page := 1; page <= workflowBuildVersionValidationMaxPages; page++ {
 		resp, err := client.ListBuildVersionsPage(ctx, appID, page, pageSize)
 		if err != nil {
-			ui.StopSpinner()
-			return fmt.Errorf("failed to look up %s builds for app %s: %w", platformLabel, appID, err)
+			lookup.err = err
+			return lookup
 		}
 		for _, v := range resp.Items {
 			if v.Version == version {
-				found = true
-				break
+				lookup.found = true
+				return lookup
 			}
-			if len(samples) < 5 {
-				samples = append(samples, v.Version)
+			if len(lookup.recentSamples) < 5 {
+				lookup.recentSamples = append(lookup.recentSamples, v.Version)
 			}
 		}
-		if found || !hasNextWorkflowBuildVersionsPage(resp, page) {
+		if !hasNextWorkflowBuildVersionsPage(resp, page) {
 			break
 		}
 	}
-	ui.StopSpinner()
+	return lookup
+}
 
-	if found {
+// validate reports a missing build version, listing recent versions when the
+// app has any.
+func (l workflowBuildVersionLookup) validate() error {
+	if l.err != nil {
+		return fmt.Errorf("failed to look up %s builds for app %s: %w", l.platformLabel, l.appID, l.err)
+	}
+	if l.found {
 		return nil
 	}
-	if len(samples) > 0 {
-		ui.PrintError("%s build version %q not found for app %s (recent versions: %s)", platformLabel, version, appID, strings.Join(samples, ", "))
+	if len(l.recentSamples) > 0 {
+		ui.PrintError("%s build version %q not found for app %s (recent versions: %s)", l.platformLabel, l.version, l.appID, strings.Join(l.recentSamples, ", "))
 	} else {
-		ui.PrintError("%s build version %q not found for app %s (app has no builds)", platformLabel, version, appID)
+		ui.PrintError("%s build version %q not found for app %s (app has no builds)", l.platformLabel, l.version, l.appID)
 	}
-	return fmt.Errorf("invalid --%s-build version", strings.ToLower(platformLabel))
+	return fmt.Errorf("invalid --%s-build version", strings.ToLower(l.platformLabel))
 }
 
 func hasNextWorkflowBuildVersionsPage(resp *api.BuildVersionsPage, requestedPage int) bool {
@@ -962,49 +977,63 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		buildInvocation = &invocation
 	}
 
-	// Validate app IDs exist before running
+	// Validate app IDs and their app-scoped build-version overrides before running.
+	var iosAppErr, androidAppErr error
+	var iosBuildLookup, androidBuildLookup workflowBuildVersionLookup
 	if effectiveIOSAppID != "" || effectiveAndroidAppID != "" {
-		appClient := api.NewClientWithDevMode(apiKey, devMode)
+		overrideClient := api.NewClientWithDevMode(apiKey, devMode)
+		var overrideWG sync.WaitGroup
+		runOverrideCheck := func(check func()) {
+			overrideWG.Add(1)
+			go func() {
+				defer overrideWG.Done()
+				check()
+			}()
+		}
 		if effectiveIOSAppID != "" {
-			ui.StartSpinner("Validating iOS app...")
-			_, appErr := appClient.GetApp(cmd.Context(), effectiveIOSAppID)
-			ui.StopSpinner()
-			if appErr != nil {
-				ui.PrintError("iOS app '%s' not found", effectiveIOSAppID)
-				return fmt.Errorf("invalid --ios-app ID")
+			runOverrideCheck(func() { _, iosAppErr = overrideClient.GetApp(cmd.Context(), effectiveIOSAppID) })
+			if effectiveIOSBuild != "" {
+				runOverrideCheck(func() {
+					iosBuildLookup = lookupWorkflowBuildVersion(cmd.Context(), overrideClient, effectiveIOSAppID, effectiveIOSBuild, "iOS")
+				})
 			}
 		}
 		if effectiveAndroidAppID != "" {
-			ui.StartSpinner("Validating Android app...")
-			_, appErr := appClient.GetApp(cmd.Context(), effectiveAndroidAppID)
-			ui.StopSpinner()
-			if appErr != nil {
-				ui.PrintError("Android app '%s' not found", effectiveAndroidAppID)
-				return fmt.Errorf("invalid --android-app ID")
+			runOverrideCheck(func() { _, androidAppErr = overrideClient.GetApp(cmd.Context(), effectiveAndroidAppID) })
+			if effectiveAndroidBuild != "" {
+				runOverrideCheck(func() {
+					androidBuildLookup = lookupWorkflowBuildVersion(cmd.Context(), overrideClient, effectiveAndroidAppID, effectiveAndroidBuild, "Android")
+				})
 			}
+		}
+		ui.StartSpinner("Validating app overrides...")
+		overrideWG.Wait()
+		ui.StopSpinner()
+	}
+	if iosAppErr != nil {
+		ui.PrintError("iOS app '%s' not found", effectiveIOSAppID)
+		return fmt.Errorf("invalid --ios-app ID")
+	}
+	if androidAppErr != nil {
+		ui.PrintError("Android app '%s' not found", effectiveAndroidAppID)
+		return fmt.Errorf("invalid --android-app ID")
+	}
+	if effectiveIOSBuild != "" {
+		if effectiveIOSAppID == "" {
+			ui.PrintError("--ios-build requires --ios-app")
+			return fmt.Errorf("--ios-build requires --ios-app")
+		}
+		if err := iosBuildLookup.validate(); err != nil {
+			return err
 		}
 	}
-
-	// Validate build-version overrides: app-scoped, so they require the matching app.
-	if effectiveIOSBuild != "" || effectiveAndroidBuild != "" {
-		buildClient := api.NewClientWithDevMode(apiKey, devMode)
-		if effectiveIOSBuild != "" {
-			if effectiveIOSAppID == "" {
-				ui.PrintError("--ios-build requires --ios-app")
-				return fmt.Errorf("--ios-build requires --ios-app")
-			}
-			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, effectiveIOSAppID, effectiveIOSBuild, "iOS"); err != nil {
-				return err
-			}
+	if effectiveAndroidBuild != "" {
+		if effectiveAndroidAppID == "" {
+			ui.PrintError("--android-build requires --android-app")
+			return fmt.Errorf("--android-build requires --android-app")
 		}
-		if effectiveAndroidBuild != "" {
-			if effectiveAndroidAppID == "" {
-				ui.PrintError("--android-build requires --android-app")
-				return fmt.Errorf("--android-build requires --android-app")
-			}
-			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, effectiveAndroidAppID, effectiveAndroidBuild, "Android"); err != nil {
-				return err
-			}
+		if err := androidBuildLookup.validate(); err != nil {
+			return err
 		}
 	}
 
@@ -1445,6 +1474,20 @@ func resolveDeviceSelection(
 	deviceModel string,
 	osVersion string,
 ) (string, string, error) {
+	return resolveDeviceSelectionForTest(cmd, testID, nil, client, interactive, deviceModel, osVersion)
+}
+
+// resolveDeviceSelectionForTest is resolveDeviceSelection for a caller that
+// may already hold the test; a nil knownTest is fetched.
+func resolveDeviceSelectionForTest(
+	cmd *cobra.Command,
+	testID string,
+	knownTest *api.TestSummary,
+	client *api.Client,
+	interactive bool,
+	deviceModel string,
+	osVersion string,
+) (string, string, error) {
 	// Non-interactive: validate the explicit pair
 	if !interactive {
 		if deviceModel == "" && osVersion == "" {
@@ -1456,12 +1499,16 @@ func resolveDeviceSelection(
 	}
 
 	// Fetch the test once to determine the target platform.
-	test, err := client.GetTest(cmd.Context(), testID)
-	if err != nil {
-		if interactive {
-			return "", "", fmt.Errorf("failed to fetch test for device selection: %w", err)
+	test := knownTest
+	var err error
+	if test == nil {
+		test, err = client.GetTest(cmd.Context(), testID)
+		if err != nil {
+			if interactive {
+				return "", "", fmt.Errorf("failed to fetch test for device selection: %w", err)
+			}
+			return "", "", fmt.Errorf("failed to fetch test for device validation: %w", err)
 		}
-		return "", "", fmt.Errorf("failed to fetch test for device validation: %w", err)
 	}
 	if strings.EqualFold(strings.TrimSpace(test.Platform), "web") {
 		return "", "", fmt.Errorf("test %s is a Web test, which runs in a desktop browser: drop --device-model, --os-version, and --device", testID)

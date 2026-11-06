@@ -59,6 +59,20 @@ func SavedBuildSelectionFromConfig(build config.TestBuildConfig) (*api.SavedBuil
 	return api.NewSavedBuildSelection(build.BranchID, build.BuildSelection, build.PinnedBuildID)
 }
 
+// workflowPlatformApp builds a workflow app override from its app ID and
+// optional legacy pinned version.
+func workflowPlatformApp(platformLabel, appID, legacyVersion string) (*api.PlatformApp, error) {
+	appUUID, err := uuid.Parse(appID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s app ID %q: %w", platformLabel, appID, err)
+	}
+	app := &api.PlatformApp{AppId: appUUID}
+	if legacyVersion != "" {
+		app.PinnedVersion = &legacyVersion
+	}
+	return app, nil
+}
+
 func applyWorkflowExactBuild(ctx context.Context, client *api.Client, target *api.PlatformApp, buildID, legacyVersion, branchName, frozenBranchID string) error {
 	if buildID == "" {
 		return nil

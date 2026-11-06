@@ -71,6 +71,16 @@ func SelectPreferredBuildVersionForBranch(ctx context.Context, client ResolverCl
 }
 
 func SelectBuildVersion(ctx context.Context, client ResolverClient, appID string, selection api.BuildSelection) (*api.BuildVersion, string, []string, error) {
+	detail, source, notices, err := SelectBuildVersionDetail(ctx, client, appID, selection)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return detail.BuildVersion(), source, notices, nil
+}
+
+// SelectBuildVersionDetail is SelectBuildVersion returning the resolved detail,
+// including its presigned download URL.
+func SelectBuildVersionDetail(ctx context.Context, client ResolverClient, appID string, selection api.BuildSelection) (*api.BuildVersionDetail, string, []string, error) {
 	detail, err := client.ResolveBuildSelection(ctx, appID, selection)
 	if err != nil {
 		return nil, "", nil, err
@@ -90,7 +100,7 @@ func SelectBuildVersion(ctx context.Context, client ResolverClient, appID string
 	if notice := ui.BranchSelectionNotice(detail.GitBranchName, detail.BranchName, string(detail.BranchSource), detail.AutoGitBranchEnabled); notice != "" {
 		notices = append(notices, notice)
 	}
-	return detail.BuildVersion(), source, notices, nil
+	return detail, source, notices, nil
 }
 
 // CurrentBranch returns the current git branch for the work directory.

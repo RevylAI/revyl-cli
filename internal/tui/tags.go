@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -103,14 +104,19 @@ func fetchTagPickerDataCmd(client *api.Client, testID string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Fetch all org tags
+		var testTags []api.CLITagResponse
+		var tErr error
+		var testTagsWG sync.WaitGroup
+		testTagsWG.Add(1)
+		go func() {
+			defer testTagsWG.Done()
+			testTags, tErr = client.GetTestTags(ctx, testID)
+		}()
 		allResp, err := client.ListTags(ctx)
+		testTagsWG.Wait()
 		if err != nil {
 			return tagPickerDataMsg{Err: err}
 		}
-
-		// Fetch test's current tags
-		testTags, tErr := client.GetTestTags(ctx, testID)
 		if tErr != nil {
 			return tagPickerDataMsg{Err: tErr}
 		}

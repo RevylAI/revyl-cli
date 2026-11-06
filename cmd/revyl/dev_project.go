@@ -393,11 +393,11 @@ func devResolveErrorNeedsBuild(invocation projectDevInvocation, err error) bool 
 		(devSelectionIsAppDefault(invocation) && errors.Is(err, api.ErrBranchHasNoCompatibleBuild))
 }
 
-func selectDevStartBuild(ctx context.Context, client buildselection.ResolverClient, appID string, invocation projectDevInvocation) (*api.BuildVersion, string, []string, error) {
+func selectDevStartBuild(ctx context.Context, client buildselection.ResolverClient, appID string, invocation projectDevInvocation) (*api.BuildVersionDetail, string, []string, error) {
 	if invocation.branchAwaitsFirstUpload() {
 		return nil, "", nil, nil
 	}
-	selected, source, warnings, err := buildselection.SelectBuildVersion(ctx, client, appID, devBuildSelection(invocation))
+	selected, source, warnings, err := buildselection.SelectBuildVersionDetail(ctx, client, appID, devBuildSelection(invocation))
 	if devResolveErrorNeedsBuild(invocation, err) {
 		return nil, "", nil, nil
 	}

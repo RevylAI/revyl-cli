@@ -393,6 +393,8 @@ type StartSessionOptions struct {
 	BuildSelection string
 	BuildVersionID string
 	AppURL         string
+	// BuildVersionDetail is BuildVersionID's already-fetched detail, if any.
+	BuildVersionDetail *api.BuildVersionDetail
 
 	// Optional app launch link and package hints.
 	AppLink       string
@@ -539,9 +541,16 @@ func (m *DeviceSessionManager) StartSession(
 		idleTimeout = 10 * time.Minute
 	}
 
+	var traceHandoffCh chan *api.TraceHandoff
+	if _, attached := api.TraceHandoffFromContext(ctx); !attached && m.apiClient != nil {
+		traceHandoffCh = make(chan *api.TraceHandoff, 1)
+		go func() {
+			traceHandoffCh <- m.apiClient.ExportStartDeviceTraceHandoff(ctx)
+		}()
+	}
+
 	testSelectsBuild := opts.TestID != "" && opts.AppID == "" && opts.BuildVersionID == "" && opts.AppURL == ""
 	var resolvedLaunchConfigurationIDs []string
-	var err error
 	if platform != "web" {
 		artifactOptions := startdevice.StartArtifactOptions{
 			AppID: opts.AppID, BuildVersionID: opts.BuildVersionID, AppURL: opts.AppURL, AppPackage: opts.AppPackage,
@@ -552,20 +561,34 @@ func (m *DeviceSessionManager) StartSession(
 			artifactOptions.BranchID, artifactOptions.BranchName, artifactOptions.BuildSelection = "", "", ""
 			artifactOptions.GitBranchName = ""
 		}
-		resolvedArtifact, err = startdevice.ResolveStartArtifact(ctx, m.apiClient, artifactOptions)
-		if err != nil {
-			return -1, nil, err
+		var launchConfigurationErr error
+		var launchConfigurationWG sync.WaitGroup
+		launchConfigurationWG.Add(1)
+		go func() {
+			defer launchConfigurationWG.Done()
+			resolvedLaunchConfigurationIDs, launchConfigurationErr = startdevice.ResolveLaunchConfigurationSelection(
+				ctx,
+				m.apiClient,
+				inheritedLaunchConfigurationIDs,
+				launchVars,
+				opts.LaunchArgSets,
+			)
+		}()
+		var artifactResolver startdevice.ArtifactResolver = m.apiClient
+		if opts.BuildVersionDetail != nil {
+			memo := startdevice.NewBuildVersionDetailMemo(m.apiClient)
+			memo.Remember(opts.BuildVersionID, opts.BuildVersionDetail)
+			artifactResolver = memo
 		}
-		resolvedLaunchConfigurationIDs, err = startdevice.ResolveLaunchConfigurationSelection(
-			ctx,
-			m.apiClient,
-			inheritedLaunchConfigurationIDs,
-			launchVars,
-			opts.LaunchArgSets,
-		)
-	}
-	if err != nil {
-		return -1, nil, err
+		var artifactErr error
+		resolvedArtifact, artifactErr = startdevice.ResolveStartArtifact(ctx, artifactResolver, artifactOptions)
+		launchConfigurationWG.Wait()
+		if artifactErr != nil {
+			return -1, nil, artifactErr
+		}
+		if launchConfigurationErr != nil {
+			return -1, nil, launchConfigurationErr
+		}
 	}
 
 	// Build the start device request
@@ -651,8 +674,11 @@ func (m *DeviceSessionManager) StartSession(
 		req.AppURL, req.AppPackage = "", ""
 	}
 
-	// Start the device via backend API
-	resp, err := m.apiClient.StartDevice(ctx, req)
+	startCtx := ctx
+	if traceHandoffCh != nil {
+		startCtx = api.WithTraceHandoff(ctx, <-traceHandoffCh)
+	}
+	resp, err := m.apiClient.StartDevice(startCtx, req)
 	if err != nil {
 		return -1, nil, fmt.Errorf("failed to start device: %w", err)
 	}
@@ -1013,6 +1039,8 @@ type DeviceSessionStopBatchResult struct {
 	Results         []DeviceSessionStopResult `json:"results"`
 }
 
+const stopAllSessionsConcurrency = 8
+
 // StopAllSessions retains pending sessions and returns errors only for failed requests.
 func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessionStopBatchResult, error) {
 	m.mu.Lock()
@@ -1030,14 +1058,19 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessi
 		indices = append(indices, idx)
 	}
 	sort.Ints(indices)
-	for _, idx := range indices {
+	stopErrsByPosition, stopRequestedByPosition := m.requestSessionStopsLocked(ctx, indices)
+	for position, idx := range indices {
 		session := m.sessions[idx]
 		identity := sessionCacheIdentityFor(session)
 		outcome := DeviceSessionStopResult{
 			SessionIndex: idx, SessionID: session.SessionID, WorkflowRunID: session.WorkflowRunID,
 			RequestAccepted: true, SessionSettled: true, DeviceReleased: true,
 		}
-		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil {
+		err := stopErrsByPosition[position]
+		if stopRequestedByPosition[position] {
+			err = m.applySessionStopLocked(idx, session, err)
+		}
+		if err != nil {
 			var pending *api.DeviceSessionStopPendingError
 			if errors.As(err, &pending) {
 				outcome.SessionSettled = pending.Response.SessionSettled != nil && *pending.Response.SessionSettled
@@ -1070,6 +1103,35 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) (DeviceSessi
 	return result, errors.Join(stopErrors...)
 }
 
+// requestSessionStopsLocked stops the idle timers of the sessions at indices
+// and sends their backend stop requests concurrently, returning per-position
+// errors and whether a stop request was sent. Caller must hold m.mu and apply
+// the outcomes with applySessionStopLocked.
+func (m *DeviceSessionManager) requestSessionStopsLocked(ctx context.Context, indices []int) ([]error, []bool) {
+	stopErrsByPosition := make([]error, len(indices))
+	stopRequestedByPosition := make([]bool, len(indices))
+	var stopWG sync.WaitGroup
+	stopSem := make(chan struct{}, stopAllSessionsConcurrency)
+	for position, idx := range indices {
+		session := m.sessions[idx]
+		m.stopIdleTimerLocked(idx)
+		if err := m.checkSessionStoppable(session); err != nil {
+			stopErrsByPosition[position] = err
+			continue
+		}
+		stopRequestedByPosition[position] = true
+		stopWG.Add(1)
+		go func(position int, session *DeviceSession) {
+			defer stopWG.Done()
+			stopSem <- struct{}{}
+			defer func() { <-stopSem }()
+			stopErrsByPosition[position] = m.requestSessionStop(ctx, session)
+		}(position, session)
+	}
+	stopWG.Wait()
+	return stopErrsByPosition, stopRequestedByPosition
+}
+
 // StopOwnedSessions stops only sessions provisioned by this manager process.
 func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 	m.mu.Lock()
@@ -1078,12 +1140,22 @@ func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 	var firstErr error
 	removedSessions := make([]sessionCacheIdentity, 0, len(m.ownedSessions))
 	endedSessions := make([]*EndedSession, 0, len(m.ownedSessions))
-	for idx, session := range m.sessions {
-		if !m.ownedSessions[idx] {
-			continue
+	indices := make([]int, 0, len(m.ownedSessions))
+	for idx := range m.sessions {
+		if m.ownedSessions[idx] {
+			indices = append(indices, idx)
 		}
+	}
+	sort.Ints(indices)
+	stopErrsByPosition, stopRequestedByPosition := m.requestSessionStopsLocked(ctx, indices)
+	for position, idx := range indices {
+		session := m.sessions[idx]
 		identity := sessionCacheIdentityFor(session)
-		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil {
+		err := stopErrsByPosition[position]
+		if stopRequestedByPosition[position] {
+			err = m.applySessionStopLocked(idx, session, err)
+		}
+		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -1589,32 +1661,51 @@ func (m *DeviceSessionManager) writePNGArtifact(relDir, fileName string, imageBy
 // stopSessionAtIndexLocked stops a specific session without acquiring the lock.
 // Caller must hold m.mu.
 func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, index int, session *DeviceSession) error {
-	// Stop idle timer
+	m.stopIdleTimerLocked(index)
+	if err := m.checkSessionStoppable(session); err != nil {
+		return err
+	}
+	return m.applySessionStopLocked(index, session, m.requestSessionStop(ctx, session))
+}
+
+func (m *DeviceSessionManager) stopIdleTimerLocked(index int) {
 	if timer, ok := m.idleTimers[index]; ok {
 		timer.Stop()
 		delete(m.idleTimers, index)
 	}
+}
 
-	// Cancel on backend
-	var cancelErr error
-	if m.apiClient != nil && session != nil {
-		var resp *api.CancelDeviceResponse
-		var err error
-		if session.Platform == "web" && session.SessionID == "" {
-			return fmt.Errorf("web stop requires its canonical session ID")
-		}
-		if session.Platform == "web" && session.SessionID != "" {
-			resp, err = m.apiClient.StopDeviceSession(ctx, session.SessionID)
-		} else {
-			resp, err = m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
-		}
-		if err != nil {
-			ui.PrintDebug("CancelDevice failed for %s: %v", session.WorkflowRunID, err)
-			cancelErr = fmt.Errorf("backend cancel failed: %w", err)
-		} else {
-			ui.PrintDebug("CancelDevice succeeded for %s: %s", session.WorkflowRunID, resp.Message)
-		}
+func (m *DeviceSessionManager) checkSessionStoppable(session *DeviceSession) error {
+	if m.apiClient != nil && session != nil && session.Platform == "web" && session.SessionID == "" {
+		return fmt.Errorf("web stop requires its canonical session ID")
 	}
+	return nil
+}
+
+// requestSessionStop asks the backend to stop session. It reads no manager
+// state beyond the API client, so callers may run it without holding m.mu.
+func (m *DeviceSessionManager) requestSessionStop(ctx context.Context, session *DeviceSession) error {
+	if m.apiClient == nil || session == nil {
+		return nil
+	}
+	var resp *api.CancelDeviceResponse
+	var err error
+	if session.Platform == "web" && session.SessionID != "" {
+		resp, err = m.apiClient.StopDeviceSession(ctx, session.SessionID)
+	} else {
+		resp, err = m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
+	}
+	if err != nil {
+		ui.PrintDebug("CancelDevice failed for %s: %v", session.WorkflowRunID, err)
+		return fmt.Errorf("backend cancel failed: %w", err)
+	}
+	ui.PrintDebug("CancelDevice succeeded for %s: %s", session.WorkflowRunID, resp.Message)
+	return nil
+}
+
+// applySessionStopLocked records the outcome of a backend stop request.
+// Caller must hold m.mu.
+func (m *DeviceSessionManager) applySessionStopLocked(index int, session *DeviceSession, cancelErr error) error {
 	if cancelErr != nil {
 		// Keep the session addressable so callers can retry cleanup. Restoring
 		// the idle timer also preserves the manager's eventual-cleanup safety net.
@@ -1628,16 +1719,12 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 		_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
 	}
 
-	// Remove from map
 	delete(m.sessions, index)
 	delete(m.screenAnchors, index)
 	delete(m.ownedSessions, index)
 	delete(m.idleTimerDisabled, index)
 
-	// Adjust active index if needed
 	if m.activeIndex == index {
-		m.activeIndex = -1
-		// Auto-switch to lowest remaining
 		lowest := -1
 		for idx := range m.sessions {
 			if lowest < 0 || idx < lowest {
@@ -1647,7 +1734,7 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 		m.activeIndex = lowest
 	}
 
-	return cancelErr
+	return nil
 }
 
 // resetIdleTimerForSessionLocked resets the idle timer for a specific session.
@@ -4315,16 +4402,36 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		m.loadLocalCache()
 	}
 
-	// Step 1: Resolve orgID if not cached
+	// The backend scopes the active list by the API key, so with a cached org it
+	// need not wait on org validation; validation errors still take precedence.
+	type activeSessionsResult struct {
+		resp *api.ActiveDeviceSessionsResponse
+		err  error
+	}
+	var prefetchedActive chan activeSessionsResult
+	if m.apiClient != nil && m.orgID != "" {
+		prefetchedActive = make(chan activeSessionsResult, 1)
+		cachedOrgID := m.orgID
+		go func() {
+			resp, err := m.apiClient.GetActiveDeviceSessions(ctx, cachedOrgID)
+			prefetchedActive <- activeSessionsResult{resp: resp, err: err}
+		}()
+	}
+
 	if err := m.ensureOrgInfoLocked(ctx); err != nil {
 		return err
 	}
 
-	// Step 2: Fetch active sessions from backend
-	activeResp, err := m.apiClient.GetActiveDeviceSessions(ctx, m.orgID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch active sessions: %w", err)
+	var active activeSessionsResult
+	if prefetchedActive != nil {
+		active = <-prefetchedActive
+	} else {
+		active.resp, active.err = m.apiClient.GetActiveDeviceSessions(ctx, m.orgID)
 	}
+	if active.err != nil {
+		return fmt.Errorf("failed to fetch active sessions: %w", active.err)
+	}
+	activeResp := active.resp
 	m.inventoryConfirmed = true
 	m.unreachableSessions = nil
 
@@ -4413,13 +4520,15 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 			applyBackendIdleTimeout(ls, bs)
 		}
 	}
+	settlementReads := m.readSessionSettlements(ctx, allBackendIDs)
 	pruneTime := time.Now()
 	var settlementReadErrors []error
 	for idx, ls := range m.sessions {
 		if allBackendIDs[ls.SessionID] {
 			continue
 		}
-		detail, err := m.apiClient.GetDeviceSessionByID(ctx, ls.SessionID)
+		settlement := settlementReads[idx]
+		detail, err := settlement.detail, settlement.err
 		if err != nil {
 			var apiError *api.APIError
 			if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
@@ -4458,14 +4567,20 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		}
 	}
 
-	addedSessions := make([]*DeviceSession, 0)
+	uncachedSessions := make([]api.ActiveDeviceSessionItem, 0)
 	for _, bs := range backendSessions {
 		if _, exists := localByID[bs.Id]; exists {
-			continue // already known locally
+			continue
 		}
 		if isOtherProofRunSession(bs.SourceMetadata, activeResp.ProofRunId) {
 			continue
 		}
+		uncachedSessions = append(uncachedSessions, bs)
+	}
+	workerProbes := m.probeUncachedSessionWorkers(ctx, uncachedSessions)
+
+	addedSessions := make([]*DeviceSession, 0)
+	for probeIdx, bs := range uncachedSessions {
 		if bs.Platform == "web" {
 			detail, err := m.apiClient.GetDeviceSessionByID(ctx, bs.Id)
 			if err == nil && !isWebSessionDetail(detail) {
@@ -4494,38 +4609,21 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 			continue
 		}
 
-		// Need to resolve worker URL
-		workerBaseURL := ""
-		if bs.WorkflowRunId != nil && *bs.WorkflowRunId != "" {
-			wsResp, wsErr := m.apiClient.GetWorkerWSURL(ctx, *bs.WorkflowRunId)
-			if wsErr == nil && wsResp.WorkerWsUrl != nil && *wsResp.WorkerWsUrl != "" {
-				workerBaseURL = wsURLToHTTP(*wsResp.WorkerWsUrl)
-			}
-		}
-
-		if workerBaseURL == "" {
-			// Can't resolve worker URL; skip this session
+		probe := workerProbes[probeIdx]
+		if probe.workerBaseURL == "" {
 			m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
 			continue
 		}
-
-		workflowRunID := ""
-		if bs.WorkflowRunId != nil {
-			workflowRunID = *bs.WorkflowRunId
+		if probe.healthErr != nil {
+			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), probe.healthErr)
+			m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
+			continue
 		}
+		workerBaseURL := probe.workerBaseURL
+		workflowRunID := *bs.WorkflowRunId
 		traceID := ""
 		if bs.TraceId != nil {
 			traceID = strings.TrimSpace(*bs.TraceId)
-		}
-
-		// Validate worker is actually reachable before adding.
-		// DNS entries are cleaned up before backend DB status is updated,
-		// so a non-empty URL doesn't guarantee the worker is alive.
-		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
-		if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
-			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), hErr)
-			m.unreachableSessions = append(m.unreachableSessions, unreachableSessionFrom(bs))
-			continue
 		}
 
 		// Build viewer URL
@@ -4594,6 +4692,101 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		resetNextIndex:  len(m.sessions) == 0,
 	})
 	return errors.Join(syncErr, errors.Join(settlementReadErrors...))
+}
+
+const syncSessionWorkerProbeConcurrency = 8
+
+type sessionWorkerProbe struct {
+	workerBaseURL string
+	healthErr     error
+}
+
+type sessionSettlementRead struct {
+	detail *api.DeviceSessionDetail
+	err    error
+}
+
+// readSessionSettlements reads, concurrently, the backend detail of every
+// cached session missing from the active list, keyed by session index. Caller
+// must hold m.mu.
+func (m *DeviceSessionManager) readSessionSettlements(
+	ctx context.Context,
+	activeSessionIDs map[string]bool,
+) map[int]sessionSettlementRead {
+	sessionIDsByIndex := make(map[int]string)
+	for idx, session := range m.sessions {
+		if !activeSessionIDs[session.SessionID] {
+			sessionIDsByIndex[idx] = session.SessionID
+		}
+	}
+	reads := make(map[int]sessionSettlementRead, len(sessionIDsByIndex))
+	var readsMu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, syncSessionWorkerProbeConcurrency)
+	for idx, sessionID := range sessionIDsByIndex {
+		wg.Add(1)
+		go func(idx int, sessionID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
+			readsMu.Lock()
+			reads[idx] = sessionSettlementRead{detail: detail, err: err}
+			readsMu.Unlock()
+		}(idx, sessionID)
+	}
+	wg.Wait()
+	return reads
+}
+
+// probeUncachedSessionWorkers resolves and health-checks the worker of every
+// non-web session concurrently, returning results aligned with sessions. A
+// session whose worker URL cannot be resolved has an empty workerBaseURL.
+func (m *DeviceSessionManager) probeUncachedSessionWorkers(
+	ctx context.Context,
+	sessions []api.ActiveDeviceSessionItem,
+) []sessionWorkerProbe {
+	probes := make([]sessionWorkerProbe, len(sessions))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, syncSessionWorkerProbeConcurrency)
+	for i := range sessions {
+		if sessions[i].Platform == "web" {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+			probes[idx] = m.probeSessionWorker(ctx, sessions[idx])
+		}(i)
+	}
+	wg.Wait()
+	return probes
+}
+
+func (m *DeviceSessionManager) probeSessionWorker(ctx context.Context, bs api.ActiveDeviceSessionItem) sessionWorkerProbe {
+	if bs.WorkflowRunId == nil || *bs.WorkflowRunId == "" {
+		return sessionWorkerProbe{}
+	}
+	workflowRunID := *bs.WorkflowRunId
+	wsResp, wsErr := m.apiClient.GetWorkerWSURL(ctx, workflowRunID)
+	if wsErr != nil || wsResp.WorkerWsUrl == nil || *wsResp.WorkerWsUrl == "" {
+		return sessionWorkerProbe{}
+	}
+	probe := sessionWorkerProbe{workerBaseURL: wsURLToHTTP(*wsResp.WorkerWsUrl)}
+	traceID := ""
+	if bs.TraceId != nil {
+		traceID = strings.TrimSpace(*bs.TraceId)
+	}
+	// Worker DNS is removed before the backend marks the session ended, so a
+	// resolved URL does not prove the worker is alive.
+	_, probe.healthErr = m.healthCheckSession(&DeviceSession{WorkerBaseURL: probe.workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID})
+	return probe
 }
 
 func (m *DeviceSessionManager) sessionOwnerAllowedLocked(userEmail *string, identity sessionCacheIdentity) bool {

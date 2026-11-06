@@ -732,7 +732,7 @@ func TestValidateWorkflowBuildVersionSearchesBeyondFiftyPages(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	if err := validateWorkflowBuildVersion(context.Background(), client, "app-ios", "target-version", "iOS"); err != nil {
+	if err := lookupWorkflowBuildVersion(context.Background(), client, "app-ios", "target-version", "iOS").validate(); err != nil {
 		t.Fatalf("validateWorkflowBuildVersion() error = %v", err)
 	}
 
@@ -762,7 +762,7 @@ func TestValidateWorkflowBuildVersionStopsAtDefensivePageCap(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	err := validateWorkflowBuildVersion(context.Background(), client, "app-ios", "target-version", "iOS")
+	err := lookupWorkflowBuildVersion(context.Background(), client, "app-ios", "target-version", "iOS").validate()
 	if err == nil {
 		t.Fatal("validateWorkflowBuildVersion() error = nil, want invalid version error")
 	}
