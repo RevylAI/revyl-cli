@@ -269,7 +269,7 @@ func TestWebStartHonorsTheSelectedBranch(t *testing.T) {
 				t.Fatal(err)
 			}
 			manager := NewDeviceSessionManager(api.NewClientWithBaseURL("fixture-key", backend.URL), t.TempDir())
-			artifact, err := manager.resolveWebStartArtifact(context.Background(), opts)
+			artifact, err := manager.PrepareWebStartArtifact(context.Background(), opts)
 			if err != nil {
 				t.Fatal(err)
 			}

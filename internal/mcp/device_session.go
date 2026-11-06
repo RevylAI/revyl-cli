@@ -376,7 +376,10 @@ type StartSessionOptions struct {
 	Web          *api.DeviceWebOptions
 	WebURL       string
 	WebCommitSHA string
-	OnPhase      func(string)
+	// ResolvedWebArtifact skips Web artifact resolution when the caller has
+	// already resolved it with PrepareWebStartArtifact.
+	ResolvedWebArtifact *startdevice.ResolvedStartArtifact
+	OnPhase             func(string)
 
 	// Optional app selection inputs.
 	// Priority for app installation is:
@@ -440,6 +443,27 @@ type StartSessionOptions struct {
 	OnStartAccepted func(sessionID string)
 }
 
+// ValidateComputerSessionStart rejects start options that a session inside the
+// computer computerSessionID cannot use. An empty computerSessionID passes.
+func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSessionID string) error {
+	if computerSessionID == "" {
+		return nil
+	}
+	if _, err := uuid.Parse(computerSessionID); err != nil {
+		return fmt.Errorf("computer session ID must be a UUID")
+	}
+	if platform != "ios" && (opts.DeviceModel != "" || opts.OsVersion != "") {
+		return fmt.Errorf("only iOS sessions inside a computer accept a device model and OS version; omit them")
+	}
+	if opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
+		return fmt.Errorf("a session inside a computer uses an uploaded build; omit the device runner, app URL and test")
+	}
+	if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
+		return fmt.Errorf("a session inside a computer launches the app with its defaults; omit launch variables, arguments, environment and run options")
+	}
+	return nil
+}
+
 // StartSession provisions a new cloud device and adds it to the session map.
 // The new session is auto-set as active if it is the first session.
 //
@@ -475,7 +499,7 @@ func (m *DeviceSessionManager) StartSession(
 	var resolvedArtifact startdevice.ResolvedStartArtifact
 	if platform == "web" && opts.WebURL == "" {
 		var err error
-		resolvedArtifact, err = m.resolveWebStartArtifact(ctx, opts)
+		resolvedArtifact, err = m.PrepareWebStartArtifact(ctx, opts)
 		if err != nil {
 			return -1, nil, err
 		}
@@ -483,23 +507,12 @@ func (m *DeviceSessionManager) StartSession(
 			computerSessionID = ""
 		}
 	}
-	if computerSessionID != "" {
-		if _, err := uuid.Parse(computerSessionID); err != nil {
-			return -1, nil, fmt.Errorf("computer session ID must be a UUID")
-		}
-		if platform != "ios" && (opts.DeviceModel != "" || opts.OsVersion != "") {
-			return -1, nil, fmt.Errorf("only iOS sessions inside a computer accept a device model and OS version; omit them")
-		}
-		if opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
-			return -1, nil, fmt.Errorf("a session inside a computer uses an uploaded build; omit the device runner, app URL and test")
-		}
-		if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
-			return -1, nil, fmt.Errorf("a session inside a computer launches the app with its defaults; omit launch variables, arguments, environment and run options")
-		}
+	if err := ValidateComputerSessionStart(opts, platform, computerSessionID); err != nil {
+		return -1, nil, err
 	}
 	if platform == "web" && opts.WebURL != "" {
 		var err error
-		resolvedArtifact, err = m.resolveWebStartArtifact(ctx, opts)
+		resolvedArtifact, err = m.PrepareWebStartArtifact(ctx, opts)
 		if err != nil {
 			return -1, nil, err
 		}
@@ -861,12 +874,22 @@ func (m *DeviceSessionManager) readRuntimeReadyLocked(ctx context.Context, sessi
 	return frame, screenToken, nil
 }
 
+// webReadinessPollInterval polls quickly while a warm Web start is expected to
+// become usable, then slows down for a start that is waiting in a queue.
+func webReadinessPollInterval(elapsed time.Duration) time.Duration {
+	if elapsed < time.Minute {
+		return 500 * time.Millisecond
+	}
+	return 2 * time.Second
+}
+
 func (m *DeviceSessionManager) waitForRuntimeReadyLocked(ctx context.Context, session *DeviceSession, timeout time.Duration, onPhase func(string)) ([]byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if onPhase != nil {
 		onPhase("initializing")
 	}
+	pollStarted := time.Now()
 	for {
 		frame, screenToken, err := m.readRuntimeReadyLocked(ctx, session)
 		if err == nil {
@@ -882,7 +905,7 @@ func (m *DeviceSessionManager) waitForRuntimeReadyLocked(ctx context.Context, se
 		select {
 		case <-ctx.Done():
 			return nil, "", fmt.Errorf("web readiness observation timed out or was cancelled: %w", ctx.Err())
-		case <-time.After(2 * time.Second):
+		case <-time.After(webReadinessPollInterval(time.Since(pollStarted))):
 		}
 	}
 }

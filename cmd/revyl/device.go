@@ -43,22 +43,10 @@ import (
 //   - *mcppkg.DeviceSessionManager: A manager ready to resolve the target.
 //   - error: Authentication or project-context failure.
 func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, error) {
-	client, err := newDeviceAPIClient(cmd)
+	sessionMgr, err := newUnsyncedDeviceSessionMgr(cmd)
 	if err != nil {
 		return nil, err
 	}
-
-	workDir, _ := os.Getwd()
-	project, projectErr := config.ResolveDeviceConfigContext(workDir)
-	if projectErr != nil {
-		return nil, actionableLocalConfigError(projectErr)
-	}
-	workDir = project.ProjectRoot
-
-	devMode, _ := cmd.Flags().GetBool("dev")
-	sessionMgr := mcppkg.NewDeviceSessionManager(client, workDir)
-	sessionMgr.SetDevMode(devMode)
-	sessionMgr.SetErrorSurface(mcppkg.ErrorSurfaceCLI)
 
 	// A single-session durable-ID target resolves straight from the backend, so
 	// neither the sync nor the local cache is needed and both are skipped to
@@ -71,11 +59,36 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 		}
 	}
 
-	if syncErr := sessionMgr.SyncSessions(cmd.Context()); syncErr != nil {
-		ui.PrintDebug("session sync: %v", syncErr)
+	syncDeviceSessions(cmd.Context(), sessionMgr)
+	return sessionMgr, nil
+}
+
+// newUnsyncedDeviceSessionMgr creates an authenticated DeviceSessionManager
+// for CLI use without syncing it with the backend; the caller syncs it with
+// syncDeviceSessions before reading or changing session inventory.
+func newUnsyncedDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, error) {
+	client, err := newDeviceAPIClient(cmd)
+	if err != nil {
+		return nil, err
 	}
 
+	workDir, _ := os.Getwd()
+	project, projectErr := config.ResolveDeviceConfigContext(workDir)
+	if projectErr != nil {
+		return nil, actionableLocalConfigError(projectErr)
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	sessionMgr := mcppkg.NewDeviceSessionManager(client, project.ProjectRoot)
+	sessionMgr.SetDevMode(devMode)
+	sessionMgr.SetErrorSurface(mcppkg.ErrorSurfaceCLI)
 	return sessionMgr, nil
+}
+
+func syncDeviceSessions(ctx context.Context, sessionMgr *mcppkg.DeviceSessionManager) {
+	if syncErr := sessionMgr.SyncSessions(ctx); syncErr != nil {
+		ui.PrintDebug("session sync: %v", syncErr)
+	}
 }
 
 func newDeviceAPIClient(cmd *cobra.Command) (*api.Client, error) {

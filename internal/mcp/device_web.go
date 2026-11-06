@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -174,15 +175,45 @@ func WebSignInFromSession(session *config.AuthoredSession) *api.DeviceWebSignIn 
 	return &api.DeviceWebSignIn{Path: stringValue(signIn.Path), SecretName: stringValue(signIn.Secret)}
 }
 
-func (m *DeviceSessionManager) resolveWebStartArtifact(ctx context.Context, opts StartSessionOptions) (startdevice.ResolvedStartArtifact, error) {
+// PrepareWebStartArtifact resolves the Web app and build a start runs,
+// registering opts.WebURL as a URL build when it is set, or returns
+// opts.ResolvedWebArtifact when the caller already prepared it.
+// The app is checked before a URL build is registered; a build lookup, which
+// writes nothing, runs alongside the app read.
+func (m *DeviceSessionManager) PrepareWebStartArtifact(ctx context.Context, opts StartSessionOptions) (startdevice.ResolvedStartArtifact, error) {
+	if opts.ResolvedWebArtifact != nil {
+		return *opts.ResolvedWebArtifact, nil
+	}
 	appID := strings.TrimSpace(opts.AppID)
-	app, err := m.apiClient.GetApp(ctx, appID)
-	if err != nil {
-		return startdevice.ResolvedStartArtifact{}, err
+	checkApp := func() error {
+		app, err := m.apiClient.GetApp(ctx, appID)
+		if err != nil {
+			return err
+		}
+		if app == nil || app.ID != appID || !strings.EqualFold(app.Platform, "web") {
+			return fmt.Errorf("platform web requires a Web app")
+		}
+		return nil
 	}
-	if app == nil || app.ID != appID || !strings.EqualFold(app.Platform, "web") {
-		return startdevice.ResolvedStartArtifact{}, fmt.Errorf("platform web requires a Web app")
+	if opts.WebURL != "" {
+		if err := checkApp(); err != nil {
+			return startdevice.ResolvedStartArtifact{}, err
+		}
+		return m.resolveWebStartBuild(ctx, appID, opts)
 	}
+	var appErr error
+	var appRead sync.WaitGroup
+	appRead.Go(func() { appErr = checkApp() })
+	artifact, err := m.resolveWebStartBuild(ctx, appID, opts)
+	appRead.Wait()
+	if appErr != nil {
+		return startdevice.ResolvedStartArtifact{}, appErr
+	}
+	return artifact, err
+}
+
+func (m *DeviceSessionManager) resolveWebStartBuild(ctx context.Context, appID string, opts StartSessionOptions) (startdevice.ResolvedStartArtifact, error) {
+	var err error
 	buildID := strings.TrimSpace(opts.BuildVersionID)
 	var build *api.WebBuild
 	artifact := startdevice.ResolvedStartArtifact{AppID: appID}

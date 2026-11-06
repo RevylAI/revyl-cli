@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -117,12 +118,25 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		recordAppliedDefault(cmd, appliedDefault{Flag: "viewport", Value: "1280x800", Reason: "platform_default"})
 	}
 	opts.IdleTimeout = time.Duration(timeout) * time.Second
-	mgr, err := getDeviceSessionMgr(cmd)
+	if opts.WebURL != "" {
+		if err := mcppkg.ValidateComputerSessionStart(opts, "web", computerSessionID); err != nil {
+			return err
+		}
+	}
+	mgr, err := newUnsyncedDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	var sessionSync sync.WaitGroup
+	sessionSync.Go(func() { syncDeviceSessions(ctx, mgr) })
+	artifact, err := mgr.PrepareWebStartArtifact(ctx, opts)
+	sessionSync.Wait()
+	if err != nil {
+		return err
+	}
+	opts.ResolvedWebArtifact = &artifact
 	_, session, err := mgr.StartSession(ctx, opts)
 	if err != nil {
 		return err
