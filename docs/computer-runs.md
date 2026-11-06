@@ -211,6 +211,10 @@ Implicit mobile starts use the app's defaults instead of running the project's
 `session.before_script` or applying `session.auth_bypass`. Use `--computer=none`
 when those standalone session settings are required.
 
+On an agent outpost's computer, phones start inside that computer by default.
+Use `--computer=none` there only for a model the computer can't run; the
+outpost stops every session it started outside its computer when it ends.
+
 `--computer` requires computer runs to be enabled for your organization. It
 starts an app session when the running computer's hosting capability lists that
 platform: iOS simulators and Web on macOS. Hosted Web needs
