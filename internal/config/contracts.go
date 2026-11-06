@@ -26,10 +26,11 @@ var safeCacheKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
 // runtime cutover. Parsing, defaulting, hashing, and execution do not belong to
 // this shape-only contract.
 type AuthoredConfig struct {
-	Project  AuthoredProject   `json:"project" yaml:"project"`
-	Session  *AuthoredSession  `json:"session,omitempty" yaml:"session,omitempty"`
-	Build    *AuthoredBuild    `json:"build,omitempty" yaml:"build,omitempty"`
-	PRReview *AuthoredPRReview `json:"pr_review,omitempty" yaml:"pr_review,omitempty"`
+	Project                   AuthoredProject   `json:"project" yaml:"project"`
+	RunTestDefinitionsFromGit bool              `json:"run_test_definitions_from_git,omitempty" yaml:"run_test_definitions_from_git,omitempty"`
+	Session                   *AuthoredSession  `json:"session,omitempty" yaml:"session,omitempty"`
+	Build                     *AuthoredBuild    `json:"build,omitempty" yaml:"build,omitempty"`
+	PRReview                  *AuthoredPRReview `json:"pr_review,omitempty" yaml:"pr_review,omitempty"`
 }
 
 // AuthoredProject carries only the stable server project identity.

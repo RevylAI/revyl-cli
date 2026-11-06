@@ -22,12 +22,13 @@ type CompilationContext struct {
 // NormalizedProjectAggregate is the deterministic semantic projection of one
 // canonical config.
 type NormalizedProjectAggregate struct {
-	ProjectID                string                   `json:"project_id"`
-	Session                  AuthoredSession          `json:"session"`
-	Framework                *string                  `json:"framework,omitempty"`
-	Profiles                 []NormalizedBuildProfile `json:"profiles"`
-	ReviewPolicy             *NormalizedReviewPolicy  `json:"review_policy,omitempty"`
-	ProjectConfigurationHash string                   `json:"project_configuration_hash"`
+	ProjectID                 string                   `json:"project_id"`
+	RunTestDefinitionsFromGit bool                     `json:"run_test_definitions_from_git,omitempty"`
+	Session                   AuthoredSession          `json:"session"`
+	Framework                 *string                  `json:"framework,omitempty"`
+	Profiles                  []NormalizedBuildProfile `json:"profiles"`
+	ReviewPolicy              *NormalizedReviewPolicy  `json:"review_policy,omitempty"`
+	ProjectConfigurationHash  string                   `json:"project_configuration_hash"`
 }
 
 type NormalizedBuildProfile struct {
@@ -154,9 +155,10 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 	}
 
 	aggregate := &NormalizedProjectAggregate{
-		ProjectID: authored.Project.ID,
-		Session:   session,
-		Profiles:  []NormalizedBuildProfile{},
+		ProjectID:                 authored.Project.ID,
+		RunTestDefinitionsFromGit: authored.RunTestDefinitionsFromGit,
+		Session:                   session,
+		Profiles:                  []NormalizedBuildProfile{},
 	}
 	normalizedRecipeBytes := 0
 	if authored.Build != nil {
@@ -273,6 +275,9 @@ func encodeCanonicalAuthoredConfig(authored AuthoredConfig) ([]byte, error) {
 func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 	projection := map[string]any{
 		"project": map[string]any{"id": authored.Project.ID},
+	}
+	if authored.RunTestDefinitionsFromGit {
+		projection["run_test_definitions_from_git"] = true
 	}
 	if authored.Session != nil {
 		session := map[string]any{}
@@ -522,10 +527,14 @@ func ProjectHashProjection(aggregate NormalizedProjectAggregate) map[string]any 
 			"strict_build_check": aggregate.ReviewPolicy.StrictBuildCheck,
 		}
 	}
-	return map[string]any{
+	projection := map[string]any{
 		"session": normalizeSessionProjection(aggregate.Session), "framework": nullableString(aggregate.Framework),
 		"profiles": profileProjection, "review_policy": policyProjection,
 	}
+	if aggregate.RunTestDefinitionsFromGit {
+		projection["run_test_definitions_from_git"] = true
+	}
+	return projection
 }
 
 func urlOnlyBuildDefinitionHash() string {

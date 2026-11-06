@@ -272,8 +272,13 @@ func validateContractKeys(root *yaml.Node) error {
 	if root.Kind != yaml.MappingNode {
 		return newConfigError("contract", "invalid_contract", nil, "")
 	}
-	if err := validateAllowedKeys(root, nil, "project", "session", "build", "pr_review"); err != nil {
+	if err := validateAllowedKeys(root, nil, "project", "session", "build", "pr_review", "run_test_definitions_from_git"); err != nil {
 		return err
+	}
+	if value := mappingValue(root, "run_test_definitions_from_git"); value != nil {
+		if err := validateBooleanNode(value, []string{"run_test_definitions_from_git"}); err != nil {
+			return err
+		}
 	}
 	project := mappingValue(root, "project")
 	if project == nil {

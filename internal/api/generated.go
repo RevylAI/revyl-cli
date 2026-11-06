@@ -1185,6 +1185,24 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 	}
 }
 
+// Defines values for ComputerAPIErrorPhase.
+const (
+	ComputerAPIErrorPhaseComputerStarting  ComputerAPIErrorPhase = "computer_starting"
+	ComputerAPIErrorPhasePublisherStarting ComputerAPIErrorPhase = "publisher_starting"
+)
+
+// Valid indicates whether the value is a known member of the ComputerAPIErrorPhase enum.
+func (e ComputerAPIErrorPhase) Valid() bool {
+	switch e {
+	case ComputerAPIErrorPhaseComputerStarting:
+		return true
+	case ComputerAPIErrorPhasePublisherStarting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerATIFArgumentsKind.
 const (
 	ComputerATIFArgumentsKindExec             ComputerATIFArgumentsKind = "exec"
@@ -3489,6 +3507,36 @@ func (e SupportContextSource) Valid() bool {
 	}
 }
 
+// Defines values for SupportContextSurface.
+const (
+	SupportContextSurfaceAccountMenu       SupportContextSurface = "account_menu"
+	SupportContextSurfaceAtlasChat         SupportContextSurface = "atlas_chat"
+	SupportContextSurfaceCapyAgentLaunch   SupportContextSurface = "capy_agent_launch"
+	SupportContextSurfaceCursorAgentLaunch SupportContextSurface = "cursor_agent_launch"
+	SupportContextSurfaceDevinAgentLaunch  SupportContextSurface = "devin_agent_launch"
+	SupportContextSurfaceExperiments       SupportContextSurface = "experiments"
+)
+
+// Valid indicates whether the value is a known member of the SupportContextSurface enum.
+func (e SupportContextSurface) Valid() bool {
+	switch e {
+	case SupportContextSurfaceAccountMenu:
+		return true
+	case SupportContextSurfaceAtlasChat:
+		return true
+	case SupportContextSurfaceCapyAgentLaunch:
+		return true
+	case SupportContextSurfaceCursorAgentLaunch:
+		return true
+	case SupportContextSurfaceDevinAgentLaunch:
+		return true
+	case SupportContextSurfaceExperiments:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SupportRequestType.
 const (
 	SupportRequestTypeBug     SupportRequestType = "bug"
@@ -3953,6 +4001,7 @@ type ActiveDeviceSessionItem struct {
 	ComputerSessionId         *string                 `json:"computer_session_id,omitempty"`
 	CreatedAt                 *time.Time              `json:"created_at,omitempty"`
 	DeviceModel               *string                 `json:"device_model,omitempty"`
+	DeviceScaleFactor         *float32                `json:"device_scale_factor,omitempty"`
 	ExplorationRunId          *string                 `json:"exploration_run_id,omitempty"`
 	HasTestExecution          *bool                   `json:"has_test_execution,omitempty"`
 	Id                        string                  `json:"id"`
@@ -4052,6 +4101,9 @@ type AppPlatformCounts struct {
 
 	// Total Total number of apps across all platforms
 	Total *int `json:"total,omitempty"`
+
+	// Web Number of Web apps; 0 when Web is off for the organization
+	Web *int `json:"web,omitempty"`
 }
 
 // AppResponse Response model for an app.
@@ -5110,7 +5162,8 @@ type AuthoredRevylConfig struct {
 	PrReview *AuthoredPRReview `json:"pr_review,omitempty"`
 
 	// Project Authored stable project identity.
-	Project AuthoredProject `json:"project"`
+	Project                   AuthoredProject `json:"project"`
+	RunTestDefinitionsFromGit *bool           `json:"run_test_definitions_from_git,omitempty"`
 
 	// Session Authored project-wide device-session settings.
 	Session *AuthoredSession `json:"session,omitempty"`
@@ -5727,7 +5780,10 @@ type BuildResolutionResponseResolutionStatus string
 
 // BuildResponse Response model for a build (specific artifact/version of an app).
 type BuildResponse struct {
-	AppId                  *openapi_types.UUID                       `json:"app_id,omitempty"`
+	AppId *openapi_types.UUID `json:"app_id,omitempty"`
+
+	// AppName The name of the app that owns this build
+	AppName                *string                                   `json:"app_name,omitempty"`
 	ArtifactKind           *string                                   `json:"artifact_kind,omitempty"`
 	ArtifactUrl            *string                                   `json:"artifact_url,omitempty"`
 	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
@@ -5740,9 +5796,12 @@ type BuildResponse struct {
 	Metadata               *map[string]interface{}                   `json:"metadata,omitempty"`
 	Owner                  *openapi_types.UUID                       `json:"owner,omitempty"`
 	PackageName            *string                                   `json:"package_name,omitempty"`
-	UploadedAt             *time.Time                                `json:"uploaded_at,omitempty"`
-	Version                *string                                   `json:"version,omitempty"`
-	WasReused              *bool                                     `json:"was_reused,omitempty"`
+
+	// Platform The platform of the app that owns this build
+	Platform   *string    `json:"platform,omitempty"`
+	UploadedAt *time.Time `json:"uploaded_at,omitempty"`
+	Version    *string    `json:"version,omitempty"`
+	WasReused  *bool      `json:"was_reused,omitempty"`
 }
 
 // BuildRunItem defines model for BuildRunItem.
@@ -6181,6 +6240,8 @@ type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 	Detail         ComputerAPIError_Detail       `json:"detail"`
 	Message        *string                       `json:"message,omitempty"`
+	Phase          *ComputerAPIErrorPhase        `json:"phase,omitempty"`
+	Reason         *string                       `json:"reason,omitempty"`
 }
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.
@@ -6196,6 +6257,9 @@ type ComputerAPIErrorDetail2 string
 type ComputerAPIError_Detail struct {
 	union json.RawMessage
 }
+
+// ComputerAPIErrorPhase defines model for ComputerAPIError.Phase.
+type ComputerAPIErrorPhase string
 
 // ComputerATIFAgent defines model for ComputerATIFAgent.
 type ComputerATIFAgent struct {
@@ -7267,6 +7331,7 @@ type DeviceSessionDetailResponse struct {
 	ComputerSessionId         *string                                   `json:"computer_session_id,omitempty"`
 	CreatedAt                 *string                                   `json:"created_at,omitempty"`
 	DeviceModel               *string                                   `json:"device_model,omitempty"`
+	DeviceScaleFactor         *float32                                  `json:"device_scale_factor,omitempty"`
 	DurationSeconds           *float32                                  `json:"duration_seconds,omitempty"`
 	EndedAt                   *string                                   `json:"ended_at,omitempty"`
 	ErrorMessage              *string                                   `json:"error_message,omitempty"`
@@ -9300,30 +9365,32 @@ type ReplaceTestLaunchEnvVarRefsRequest struct {
 
 // ReportContextActionResponse High-context action payload for CLI/agent report consumption.
 type ReportContextActionResponse struct {
-	ActionIndex              int                     `json:"action_index"`
-	ActionType               *string                 `json:"action_type,omitempty"`
-	ActiveScreenId           *int                    `json:"active_screen_id,omitempty"`
-	AgentDescription         *string                 `json:"agent_description,omitempty"`
-	CompletedAt              *time.Time              `json:"completed_at,omitempty"`
-	CreatedAt                *string                 `json:"created_at,omitempty"`
-	Id                       *string                 `json:"id,omitempty"`
-	IsTerminal               *bool                   `json:"is_terminal,omitempty"`
-	LlmCall                  *map[string]interface{} `json:"llm_call,omitempty"`
-	LlmCallId                *string                 `json:"llm_call_id,omitempty"`
-	Reasoning                *string                 `json:"reasoning,omitempty"`
-	ReflectionDecision       *string                 `json:"reflection_decision,omitempty"`
-	ReflectionLlmCall        *map[string]interface{} `json:"reflection_llm_call,omitempty"`
-	ReflectionLlmCallId      *string                 `json:"reflection_llm_call_id,omitempty"`
-	ReflectionReasoning      *string                 `json:"reflection_reasoning,omitempty"`
-	ReflectionSuggestion     *string                 `json:"reflection_suggestion,omitempty"`
-	ScreenshotAfterUrl       *string                 `json:"screenshot_after_url,omitempty"`
-	ScreenshotBeforeCleanUrl *string                 `json:"screenshot_before_clean_url,omitempty"`
-	ScreenshotBeforeUrl      *string                 `json:"screenshot_before_url,omitempty"`
-	StartedAt                *time.Time              `json:"started_at,omitempty"`
-	StepId                   *string                 `json:"step_id,omitempty"`
-	TypeData                 *map[string]interface{} `json:"type_data,omitempty"`
-	VideoTimestampEnd        *float32                `json:"video_timestamp_end,omitempty"`
-	VideoTimestampStart      *float32                `json:"video_timestamp_start,omitempty"`
+	ActionIndex                       int                     `json:"action_index"`
+	ActionType                        *string                 `json:"action_type,omitempty"`
+	ActiveScreenId                    *int                    `json:"active_screen_id,omitempty"`
+	AgentDescription                  *string                 `json:"agent_description,omitempty"`
+	CompletedAt                       *time.Time              `json:"completed_at,omitempty"`
+	CreatedAt                         *string                 `json:"created_at,omitempty"`
+	Id                                *string                 `json:"id,omitempty"`
+	IsTerminal                        *bool                   `json:"is_terminal,omitempty"`
+	LlmCall                           *map[string]interface{} `json:"llm_call,omitempty"`
+	LlmCallId                         *string                 `json:"llm_call_id,omitempty"`
+	Reasoning                         *string                 `json:"reasoning,omitempty"`
+	ReflectionDecision                *string                 `json:"reflection_decision,omitempty"`
+	ReflectionLlmCall                 *map[string]interface{} `json:"reflection_llm_call,omitempty"`
+	ReflectionLlmCallId               *string                 `json:"reflection_llm_call_id,omitempty"`
+	ReflectionReasoning               *string                 `json:"reflection_reasoning,omitempty"`
+	ReflectionSuggestion              *string                 `json:"reflection_suggestion,omitempty"`
+	ScreenshotAfterDeviceScaleFactor  *float32                `json:"screenshot_after_device_scale_factor,omitempty"`
+	ScreenshotAfterUrl                *string                 `json:"screenshot_after_url,omitempty"`
+	ScreenshotBeforeCleanUrl          *string                 `json:"screenshot_before_clean_url,omitempty"`
+	ScreenshotBeforeDeviceScaleFactor *float32                `json:"screenshot_before_device_scale_factor,omitempty"`
+	ScreenshotBeforeUrl               *string                 `json:"screenshot_before_url,omitempty"`
+	StartedAt                         *time.Time              `json:"started_at,omitempty"`
+	StepId                            *string                 `json:"step_id,omitempty"`
+	TypeData                          *map[string]interface{} `json:"type_data,omitempty"`
+	VideoTimestampEnd                 *float32                `json:"video_timestamp_end,omitempty"`
+	VideoTimestampStart               *float32                `json:"video_timestamp_start,omitempty"`
 }
 
 // ReportContextResponse Canonical high-context report payload for CLI JSON consumption.
@@ -9342,6 +9409,7 @@ type ReportContextResponse struct {
 	// column in the database.
 	DeviceMetadata         *DeviceMetadata                    `json:"device_metadata,omitempty"`
 	DeviceModel            *string                            `json:"device_model,omitempty"`
+	DeviceScaleFactor      *float32                           `json:"device_scale_factor,omitempty"`
 	DeviceStatePartial     *bool                              `json:"device_state_partial,omitempty"`
 	DeviceStateUrl         *string                            `json:"device_state_url,omitempty"`
 	DurationSeconds        *float32                           `json:"duration_seconds,omitempty"`
@@ -9828,23 +9896,27 @@ type SupportAttachment struct {
 
 // SupportContext defines model for SupportContext.
 type SupportContext struct {
-	Arch              *string               `json:"arch,omitempty"`
-	CliVersion        *string               `json:"cli_version,omitempty"`
-	Language          *string               `json:"language,omitempty"`
-	Os                *string               `json:"os,omitempty"`
-	PosthogDistinctId *string               `json:"posthog_distinct_id,omitempty"`
-	PosthogProjectId  *string               `json:"posthog_project_id,omitempty"`
-	PosthogReplayUrl  *string               `json:"posthog_replay_url,omitempty"`
-	PosthogSessionId  *string               `json:"posthog_session_id,omitempty"`
-	PosthogStatus     *string               `json:"posthog_status,omitempty"`
-	Source            *SupportContextSource `json:"source,omitempty"`
-	Timezone          *string               `json:"timezone,omitempty"`
-	UserAgent         *string               `json:"user_agent,omitempty"`
-	Viewport          *string               `json:"viewport,omitempty"`
+	Arch              *string                `json:"arch,omitempty"`
+	CliVersion        *string                `json:"cli_version,omitempty"`
+	Language          *string                `json:"language,omitempty"`
+	Os                *string                `json:"os,omitempty"`
+	PosthogDistinctId *string                `json:"posthog_distinct_id,omitempty"`
+	PosthogProjectId  *string                `json:"posthog_project_id,omitempty"`
+	PosthogReplayUrl  *string                `json:"posthog_replay_url,omitempty"`
+	PosthogSessionId  *string                `json:"posthog_session_id,omitempty"`
+	PosthogStatus     *string                `json:"posthog_status,omitempty"`
+	Source            *SupportContextSource  `json:"source,omitempty"`
+	Surface           *SupportContextSurface `json:"surface,omitempty"`
+	Timezone          *string                `json:"timezone,omitempty"`
+	UserAgent         *string                `json:"user_agent,omitempty"`
+	Viewport          *string                `json:"viewport,omitempty"`
 }
 
 // SupportContextSource defines model for SupportContext.Source.
 type SupportContextSource string
+
+// SupportContextSurface defines model for SupportContext.Surface.
+type SupportContextSurface string
 
 // SupportRequest defines model for SupportRequest.
 type SupportRequest struct {

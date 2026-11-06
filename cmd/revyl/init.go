@@ -954,7 +954,7 @@ func nonblankInitCommands(commands ...string) []string {
 // mergeExistingCanonicalInitConfig overlays fields authored by the current
 // detection pass while retaining canonical state that init does not own. This
 // keeps --detect from erasing build defaults, app bindings, custom profiles,
-// session setup, or review policy.
+// session setup, review policy, or the run-tests-from-Git switch.
 func mergeExistingCanonicalInitConfig(authored, existing *config.AuthoredConfig, draft *initConfigDraft) error {
 	if authored == nil || existing == nil {
 		return nil
@@ -963,6 +963,7 @@ func mergeExistingCanonicalInitConfig(authored, existing *config.AuthoredConfig,
 		return err
 	}
 
+	authored.RunTestDefinitionsFromGit = existing.RunTestDefinitionsFromGit
 	authored.Session = existing.Session
 	authored.Build = mergeExistingCanonicalInitBuild(existing.Build, authored.Build, draft)
 	authored.PRReview = existing.PRReview
