@@ -68,7 +68,8 @@ credentials in instructions.
 variables are ignored automatically. Web `--max-duration` defaults to 30 minutes
 and cannot exceed `30m`; `--idle-timeout` defaults to 15 minutes and cannot
 exceed `60m`. Both require whole seconds and a minimum of `1m`. The requested
-explorer count must not exceed your organization's Web concurrency limit.
+explorer count cannot exceed 100, the number of Web sessions an organization
+can run at once.
 
 Each Web explorer defaults to 20 planner turns, with at most 8 browser actions
 per turn, in a 1280×800 browser viewport. The API supports up to 50 planner
