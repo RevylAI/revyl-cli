@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,6 +37,8 @@ const (
 	sessionClipFFmpegWaitDelay        = 5 * time.Second
 	sessionClipFramesPerSecond        = 30
 	sessionClipFFmpegErrorTailBytes   = 600
+	sessionVideoPublishWaitLimit      = 30 * time.Minute
+	sessionVideoPublishPollInterval   = 5 * time.Second
 
 	computerSessionVideoTimelineUnsupportedCode = "computer_session_video_timeline_unsupported"
 )
@@ -61,13 +65,16 @@ Writes into the output directory:
   video.mp4       the full session video, only with --include-full-video
 
 Accepts a device session ID or a test execution (task) ID; computer sessions
-are not supported yet. Clips are cut sequentially on this machine and need
-ffmpeg on PATH. Clean machines may not have ffmpeg installed: install it with
-"brew install ffmpeg" on macOS, "sudo apt-get install ffmpeg" on Debian or
-Ubuntu, or "winget install ffmpeg" on Windows. Use "--no-clips" for a timeline
-only, or combine "--no-clips --include-full-video" for the full-video-only
-fallback. The command reports recording bytes when the server provides a size,
-otherwise it reports downloaded bytes without inventing a percentage.
+are not supported yet. Clips and the full video need the session video, which
+is published after the session ends: the command waits up to 30 minutes for
+it, and fails fast when the session finished without one. Clips are cut
+sequentially on this machine and need ffmpeg on PATH. Clean machines may not
+have ffmpeg installed: install it with "brew install ffmpeg" on macOS,
+"sudo apt-get install ffmpeg" on Debian or Ubuntu, or "winget install ffmpeg"
+on Windows. Use "--no-clips" for a timeline only, or combine
+"--no-clips --include-full-video" for the full-video-only fallback. The
+command reports recording bytes when the server provides a size, otherwise it
+reports downloaded bytes without inventing a percentage.
 
 Examples:
   revyl session download <session-id>
@@ -163,7 +170,16 @@ func runSessionDownload(cmd *cobra.Command, args []string) error {
 	ui.StartSpinner("Loading session timeline...")
 	timeline, err := fetchSessionVideoTimeline(ctx, client, sessionOrExecutionID)
 	ui.StopSpinner()
+	if err == nil && timeline.RecordingStatus == api.SessionRecordingStatusPending && sessionDownloadNeedsVideo(timeline, includeFullVideo, noClips) {
+		ui.StartSpinner(fmt.Sprintf("The session is still finishing; waiting up to %d minutes for its video...", int(sessionVideoPublishWaitLimit.Minutes())))
+		timeline, err = waitForSessionVideoPublish(ctx, client, sessionOrExecutionID, timeline)
+		ui.StopSpinner()
+	}
 	if err != nil {
+		if ctx.Err() != nil {
+			recordSessionDownloadCompletion(cmd.Context(), "interrupted", sessionOrExecutionID, nil, sessionDownloadTimeline{}, 0)
+			return errSessionDownloadInterrupted
+		}
 		recordSessionDownloadCompletion(cmd.Context(), "timeline_unavailable", sessionOrExecutionID, nil, sessionDownloadTimeline{}, 0)
 		return err
 	}
@@ -191,6 +207,7 @@ func runSessionDownload(cmd *cobra.Command, args []string) error {
 		return failure
 	}
 
+	timelinePath := filepath.Join(outputDirectory, sessionDownloadTimelineFileName)
 	cutClips := !noClips && clipWindowCount > 0
 	ffmpegPath := ""
 	if cutClips {
@@ -198,7 +215,7 @@ func runSessionDownload(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return finish("ffmpeg_missing", 0, analytics.WithSafeDiagnostic(fmt.Errorf(
 				"wrote %s, but cutting clips needs ffmpeg, which is not on PATH. Install it (macOS: brew install ffmpeg; Debian/Ubuntu: sudo apt-get install ffmpeg; Windows: winget install ffmpeg) and rerun, or rerun with --no-clips",
-				filepath.Join(outputDirectory, sessionDownloadTimelineFileName),
+				timelinePath,
 			), "ffmpeg not found on PATH"))
 		}
 	}
@@ -210,9 +227,24 @@ func runSessionDownload(cmd *cobra.Command, args []string) error {
 		return printSessionDownloadResult(jsonOutput, outputDirectory, download, 0)
 	}
 	if timeline.VideoUrl == nil || strings.TrimSpace(*timeline.VideoUrl) == "" {
+		switch timeline.RecordingStatus {
+		case api.SessionRecordingStatusPending:
+			return finish("video_wait_timed_out", 0, analytics.WithFailureClass(analytics.WithSafeDiagnostic(fmt.Errorf(
+				"wrote %s, but the session was still running or publishing its video after %d minutes; rerun once it finishes",
+				timelinePath, int(sessionVideoPublishWaitLimit.Minutes()),
+			), "session video still pending after the wait limit"), analytics.FailureClassTimeout))
+		case api.SessionRecordingStatusUnavailable:
+			return finish("video_unavailable", 0, analytics.WithSafeDiagnostic(fmt.Errorf(
+				"wrote %s, but this session finished without a video", timelinePath,
+			), "session finished without a video"))
+		case api.SessionRecordingStatusUnknown:
+			return finish("video_unavailable", 0, analytics.WithSafeDiagnostic(fmt.Errorf(
+				"wrote %s, but Revyl could not confirm a video for this session", timelinePath,
+			), "session video unconfirmed"))
+		}
 		return finish("video_unavailable", 0, analytics.WithSafeDiagnostic(fmt.Errorf(
 			"wrote %s, but this session has no video yet; it may still be processing, so retry in a minute",
-			filepath.Join(outputDirectory, sessionDownloadTimelineFileName),
+			timelinePath,
 		), "session video unavailable"))
 	}
 
@@ -226,7 +258,7 @@ func runSessionDownload(cmd *cobra.Command, args []string) error {
 			err = requestErr.Err
 		}
 		return finish("video_download_failed", 0, analytics.WithSafeDiagnostic(
-			fmt.Errorf("could not download the session video: %w", err), "session video download failed"))
+			fmt.Errorf("could not download the session video: %w", err), "session video download failed: "+sessionVideoDownloadFailureCause(err)))
 	}
 	defer removeVideo()
 	if includeFullVideo {
@@ -288,6 +320,69 @@ func fetchSessionVideoTimeline(ctx context.Context, client *api.Client, sessionO
 		return nil, fmt.Errorf("no device session or test execution %s with a report was found in your organization", sessionOrExecutionID)
 	}
 	return timeline, sessionTimelineFetchError(err)
+}
+
+// sessionDownloadNeedsVideo reports whether the requested files need the
+// recording: the full video, or clips for actions that have a clip window.
+func sessionDownloadNeedsVideo(timeline *api.ReportVideoTimelineResponse, includeFullVideo, noClips bool) bool {
+	if includeFullVideo {
+		return true
+	}
+	if noClips || timeline.Actions == nil {
+		return false
+	}
+	for _, action := range *timeline.Actions {
+		if action.ClipVideoTimestampStart != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// waitForSessionVideoPublish polls a finishing session's timeline until its
+// video leaves pending or the wait limit passes, and returns the last timeline.
+func waitForSessionVideoPublish(ctx context.Context, client *api.Client, sessionOrExecutionID string, timeline *api.ReportVideoTimelineResponse) (*api.ReportVideoTimelineResponse, error) {
+	if timeline.SessionId != nil {
+		sessionOrExecutionID = *timeline.SessionId
+	}
+	deadline := time.Now().Add(sessionVideoPublishWaitLimit)
+	for timeline.RecordingStatus == api.SessionRecordingStatusPending && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(sessionVideoPublishPollInterval):
+		}
+		next, err := fetchSessionVideoTimeline(ctx, client, sessionOrExecutionID)
+		if err != nil {
+			return nil, err
+		}
+		timeline = next
+	}
+	return timeline, nil
+}
+
+// sessionVideoDownloadFailureCause names why a video download failed from the
+// error's type, never its text, which can hold the signed URL or addresses.
+func sessionVideoDownloadFailureCause(err error) string {
+	var statusErr *api.UploadHTTPError
+	var dnsErr *net.DNSError
+	var errno syscall.Errno
+	var networkErr net.Error
+	switch {
+	case errors.As(err, &statusErr) && statusErr.Code != "":
+		return fmt.Sprintf("HTTP %d %s", statusErr.StatusCode, statusErr.Code)
+	case errors.As(err, &statusErr):
+		return fmt.Sprintf("HTTP %d", statusErr.StatusCode)
+	case errors.As(err, &dnsErr):
+		return "DNS lookup failed"
+	case errors.As(err, &errno):
+		return errno.Error()
+	case errors.As(err, &networkErr) && networkErr.Timeout():
+		return "timed out"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "connection closed before the video finished"
+	}
+	return "unclassified error"
 }
 
 func sessionTimelineFetchError(err error) error {

@@ -9554,11 +9554,12 @@ type ReportVideoTimelineResponse struct {
 	Actions *[]ReportVideoTimelineAction `json:"actions,omitempty"`
 
 	// ClipPaddingSeconds Maximum footage a clip keeps before its action starts and after it completes, reduced near another timed action or recording boundary
-	ClipPaddingSeconds float32 `json:"clip_padding_seconds"`
-	ExecutionId        *string `json:"execution_id,omitempty"`
-	Platform           *string `json:"platform,omitempty"`
-	ReportId           string  `json:"report_id"`
-	SessionId          *string `json:"session_id,omitempty"`
+	ClipPaddingSeconds float32                `json:"clip_padding_seconds"`
+	ExecutionId        *string                `json:"execution_id,omitempty"`
+	Platform           *string                `json:"platform,omitempty"`
+	RecordingStatus    SessionRecordingStatus `json:"recording_status"`
+	ReportId           string                 `json:"report_id"`
+	SessionId          *string                `json:"session_id,omitempty"`
 
 	// VideoDuration Recording length in seconds
 	VideoDuration *float32 `json:"video_duration,omitempty"`
@@ -11558,6 +11559,7 @@ type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
 	Limit        *int    `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
 	Search       *string `form:"search,omitempty" json:"search,omitempty"`
+	AppId        *string `form:"app_id,omitempty" json:"app_id,omitempty"`
 	ContentOnly  *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
 	OlapReady    *bool   `form:"olap_ready,omitempty" json:"olap_ready,omitempty"`
 	SummaryFirst *bool   `form:"summary_first,omitempty" json:"summary_first,omitempty"`
