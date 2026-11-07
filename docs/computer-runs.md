@@ -59,6 +59,8 @@ existing meaning.
 
 ```sh
 revyl computer create --os macos --json
+revyl computer create --os macos --wait --json
+revyl computer create --os macos --wait --timeout 5m
 revyl computer create --os macos --id "$C1" --json
 revyl computer list
 revyl computer get "$C1"
@@ -84,7 +86,15 @@ revyl computer stop "$C1" --json
 ```
 
 Create uses `--os macos` and an optional proposed `--id`; otherwise it
-generates C1 once. Other commands require C1 explicitly. `exec` requires `--`
+generates C1 once. Create returns as soon as the computer is recorded, usually
+still `starting`. Add `--wait` to return only once it is `active` and accepts
+operations: the CLI re-reads the computer every 250 ms and prints the report
+the way create does. `--timeout`
+(default 2m, 1s to 30m, only with `--wait`) counts from the create request. A
+computer that ends instead of becoming active exits non-zero and names its
+state and release (`failed` and `owner_lost` exit 125, others 1); one still
+starting at the timeout exits 124 and keeps starting, so read it with `get` or
+stop it. Other commands require C1 explicitly. `exec` requires `--`
 before structured argv and never invokes a local shell. `--stdin -` and
 `files write --from -` read bounded stdin. Process handles are run-owned, not PIDs.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -26,6 +27,7 @@ type computerInvocation struct {
 	OperationID       string `json:"operation_id,omitempty"`
 	Status            string `json:"status,omitempty"`
 	Error             string `json:"error,omitempty"`
+	waitedForActive   bool
 }
 
 type computerPerformanceResult struct {
@@ -43,6 +45,7 @@ Mac computers are experimental and opt-in: an organization owner or admin
 requests access in Settings > Experiments, and Revyl enables the organization.
 
   revyl computer create --os macos       start a computer
+  revyl computer create --os macos --wait  start one and wait until it is active
   revyl computer list                    show your organization's computers
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
@@ -58,6 +61,8 @@ Add --json to any command for machine-readable output.`,
 	create := &cobra.Command{Use: "create", Short: "Start a computer"}
 	create.Flags().String("os", "", "Computer OS: macos")
 	create.Flags().String("id", "", "Proposed computer UUID (generated once when omitted)")
+	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --timeout")
+	create.Flags().Duration("timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
 			if len(args) != 0 {
@@ -66,6 +71,14 @@ Add --json to any command for machine-readable output.`,
 			osName, _ := cmd.Flags().GetString("os")
 			if osName != "macos" && osName != "linux" {
 				return nil, errors.New("specify --os macos")
+			}
+			wait, _ := cmd.Flags().GetBool("wait")
+			timeout, _ := cmd.Flags().GetDuration("timeout")
+			if cmd.Flags().Changed("timeout") && !wait {
+				return nil, errors.New("--timeout requires --wait")
+			}
+			if timeout < time.Second || timeout > 30*time.Minute {
+				return nil, errors.New("--timeout must be from 1s to 30m")
 			}
 			idText, _ := cmd.Flags().GetString("id")
 			id, err := computerUUIDOrNew(idText)
@@ -78,7 +91,13 @@ Add --json to any command for machine-readable output.`,
 			if err != nil {
 				return nil, err
 			}
-			report, err := client.CreateComputerRun(cmd.Context(), api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName)})
+			ctx := cmd.Context()
+			if wait {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName)})
 			var refusal *api.APIError
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
 				switch refusal.Code {
@@ -87,6 +106,17 @@ Add --json to any command for machine-readable output.`,
 				case "computer_not_enabled":
 					refusal.Message = computerNotEnabledMessage
 				}
+			}
+			if err != nil || !wait {
+				return report, err
+			}
+			invocation.waitedForActive = true
+			if api.InspectComputerReport(*report).State == "starting" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "waiting for the computer to become active")
+			}
+			report, err = client.AwaitComputerRunStarted(ctx, report)
+			if err == nil && cmd.Context().Err() != nil {
+				return nil, cmd.Context().Err()
 			}
 			return report, err
 		})
@@ -511,11 +541,17 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 				exitCode = 74
 			}
 		}
-		if cmd.Name() == "create" && (status.State == "failed" || status.State == "owner_lost") {
-			exitCode = 125
-		}
-		if cmd.Name() == "create" && exitCode == 0 && status.Evidence != "recorded" {
-			exitCode = 74
+		if cmd.Name() == "create" {
+			switch {
+			case status.State == "failed" || status.State == "owner_lost":
+				exitCode, exitMessage = 125, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
+			case invocation.waitedForActive && status.State == "starting":
+				exitCode, exitMessage = 124, "computer is still starting at --timeout; check it with revyl computer get, or stop it"
+			case invocation.waitedForActive && status.State != "active":
+				exitCode, exitMessage = 1, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
+			case status.Evidence != "recorded":
+				exitCode = 74
+			}
 		}
 		if jsonOutput || cmd.Name() == "report" {
 			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {

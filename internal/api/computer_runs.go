@@ -19,6 +19,8 @@ var ErrComputerExportCutOff = errors.New("computer export was cut off")
 
 var computerOperationPollInterval = 2 * time.Second
 
+var computerStartPollInterval = 250 * time.Millisecond
+
 func (c *Client) CreateComputerRun(ctx context.Context, request ComputerRunCreate) (*ComputerReport, error) {
 	if request.ComputerSessionId == uuid.Nil || request.Os != "macos" && request.Os != "linux" {
 		return nil, fmt.Errorf("computer creation requires a nonzero UUID and a supported OS")
@@ -30,6 +32,34 @@ func (c *Client) CreateComputerRun(ctx context.Context, request ComputerRunCreat
 func (c *Client) GetComputerRun(ctx context.Context, id uuid.UUID) (*ComputerReportDetail, error) {
 	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s", id))
 	return readComputerReportDetail(response, err, id)
+}
+
+// AwaitComputerRunStarted re-reads a starting computer until it leaves starting
+// or ctx ends, returning the latest report either way. Reads never dispatch, so
+// a transient read failure is retried within ctx and only a refusal ends the
+// wait with an error.
+func (c *Client) AwaitComputerRunStarted(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
+	id := report.ComputerSessionId
+	for InspectComputerReport(*report).State == "starting" {
+		select {
+		case <-ctx.Done():
+			return report, nil
+		case <-time.After(computerStartPollInterval):
+		}
+		response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s", id))
+		_, next, err := readComputerReportDetailAndReport(response, err, id)
+		var apiErr *APIError
+		switch {
+		case err == nil:
+			report = next
+		case ctx.Err() != nil:
+			return report, nil
+		case errors.Is(err, errComputerReadFailed), errors.As(err, &apiErr) && apiErr.Code == "" && apiErr.StatusCode >= 500:
+		default:
+			return nil, err
+		}
+	}
+	return report, nil
 }
 
 func (c *Client) ExportComputerHarbor(ctx context.Context, id uuid.UUID, destination io.Writer) error {

@@ -250,19 +250,26 @@ func decodeComputerReport(body []byte, id uuid.UUID) (*ComputerReport, error) {
 }
 
 func readComputerReportDetail(response *http.Response, requestErr error, id uuid.UUID) (*ComputerReportDetail, error) {
+	detail, _, err := readComputerReportDetailAndReport(response, requestErr, id)
+	return detail, err
+}
+
+// readComputerReportDetailAndReport reads a computer's detail and the report it
+// carries without step command displays.
+func readComputerReportDetailAndReport(response *http.Response, requestErr error, id uuid.UUID) (*ComputerReportDetail, *ComputerReport, error) {
 	body, err := readComputerBody(response, requestErr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var detail ComputerReportDetail
 	if response.StatusCode != http.StatusOK || validateComputerResponseSchema(body, "ComputerReportDetail") != nil || decodeComputerJSON(body, &detail) != nil {
-		return nil, errComputerResponse
+		return nil, nil, errComputerResponse
 	}
 	var fields map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if decoder.Decode(&fields) != nil {
-		return nil, errComputerResponse
+		return nil, nil, errComputerResponse
 	}
 	if steps, ok := fields["steps"].([]any); ok {
 		for _, step := range steps {
@@ -273,12 +280,13 @@ func readComputerReportDetail(response *http.Response, requestErr error, id uuid
 	}
 	reportBody, err := json.Marshal(fields)
 	if err != nil {
-		return nil, errComputerResponse
+		return nil, nil, errComputerResponse
 	}
-	if _, err := decodeComputerReport(reportBody, id); err != nil {
-		return nil, err
+	report, err := decodeComputerReport(reportBody, id)
+	if err != nil {
+		return nil, nil, err
 	}
-	return &detail, nil
+	return &detail, report, nil
 }
 
 func readComputerATIF(response *http.Response, requestErr error, id uuid.UUID) (*ComputerATIFTrajectory, error) {
