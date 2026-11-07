@@ -66,7 +66,7 @@ func TestDetectInstallMethodFromPath(t *testing.T) {
 		{
 			name:     "python package downloaded binary in revyl home",
 			execPath: "/Users/alice/.revyl/bin/revyl-darwin-arm64",
-			expected: "pip",
+			expected: "python",
 		},
 		{
 			name:     "default direct path",

@@ -120,7 +120,7 @@ BEHAVIOR:
   - Detects how the CLI was installed (Homebrew, npm, pip, pipx, uv, install
     script or direct download)
   - Homebrew: runs brew update && brew upgrade revyl automatically
-  - npm/pip/pipx/uv: shows the upgrade command to run
+  - npm/pip/pipx/uv/older Python packages: shows the upgrade command to run
   - Install script and direct downloads: downloads and replaces the binary
   - Resolves the latest release from the github.com release redirect, which
     is not subject to the GitHub API rate limit
@@ -240,7 +240,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		printUpgradeNextSteps()
 		return nil
 
-	case "npm", "pipx", "uv", "pip":
+	case "npm", "pipx", "uv", "pip", "python":
 		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
 		result.Message = "Update available via " + result.InstallMethod
 
@@ -301,6 +301,8 @@ func upgradeCommandForInstallMethod(installMethod string) string {
 		return "uv tool upgrade revyl"
 	case "pip":
 		return "pip install --upgrade revyl"
+	case "python":
+		return "uv tool upgrade revyl, pipx upgrade revyl, or pip install --upgrade revyl"
 	default:
 		return "revyl upgrade"
 	}
@@ -309,7 +311,7 @@ func upgradeCommandForInstallMethod(installMethod string) string {
 // detectInstallMethod determines how the CLI was installed.
 //
 // Returns:
-//   - string: The installation method (homebrew, npm, pipx, uv, pip, direct)
+//   - string: The installation method (homebrew, npm, pipx, uv, pip, python, direct)
 func detectInstallMethod() string {
 	execPath, err := os.Executable()
 	if err != nil {
@@ -378,9 +380,10 @@ func detectInstallMethodFromPath(execPath string) string {
 	// Older revyl Python packages downloaded the binary into ~/.revyl/bin and
 	// trust it only while it matches the checksum they recorded. Replacing it in
 	// place makes those launchers fall back to a PATH search that can find and
-	// spawn themselves forever, so only a package upgrade may update it.
+	// spawn themselves forever, so only a package upgrade may update it. The
+	// path does not say whether pip, pipx or uv installed that package.
 	if strings.Contains(normalizedPath, "/.revyl/bin/") && pythonPackageDownloadedBinaryName.MatchString(path.Base(normalizedPath)) {
-		return "pip"
+		return "python"
 	}
 
 	return "direct"

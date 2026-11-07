@@ -40,7 +40,8 @@ it cannot classify. npm, pip, pipx, and uv installations are never updated
 automatically, because that could update a different installation. A
 `revyl-<os>-<arch>` binary that an older `revyl` Python package downloaded into
 `~/.revyl/bin` counts as a Python package installation, so it is updated by
-upgrading that package rather than in place.
+upgrading that package rather than in place. Its path cannot show whether uv,
+pipx, or pip installed the package, so the notice names all three commands.
 
 Those older Python packages run their downloaded binary only while it matches
 the checksum they recorded. If `revyl upgrade` from an earlier CLI already
