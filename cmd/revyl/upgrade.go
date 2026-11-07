@@ -240,7 +240,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		printUpgradeNextSteps()
 		return nil
 
-	case "npm", "pipx", "uv", "pip", "python":
+	case "npm", "pipx", "uv", "pip":
 		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
 		result.Message = "Update available via " + result.InstallMethod
 
@@ -252,6 +252,23 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintWarning("Installed via %s. Run:", result.InstallMethod)
 			ui.PrintDim("  %s", result.UpgradeCommand)
+		}
+		return nil
+
+	case "python":
+		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
+		result.Message = "Update available via the revyl Python package"
+
+		if jsonOutput {
+			outputJSON(result)
+		} else {
+			ui.PrintInfo("Current version: %s", version)
+			ui.PrintInfo("Latest version:  %s", release.TagName)
+			ui.Println()
+			ui.PrintWarning("Installed by the revyl Python package. Run the command for the tool that installed revyl:")
+			for _, command := range legacyPythonPackageUpgradeCommands {
+				ui.PrintDim("  %s", command)
+			}
 		}
 		return nil
 
@@ -302,7 +319,7 @@ func upgradeCommandForInstallMethod(installMethod string) string {
 	case "pip":
 		return "pip install --upgrade revyl"
 	case "python":
-		return "uv tool upgrade revyl, pipx upgrade revyl, or pip install --upgrade revyl"
+		return strings.Join(legacyPythonPackageUpgradeCommands, ", ") + " (use whichever one installed revyl)"
 	default:
 		return "revyl upgrade"
 	}
@@ -347,6 +364,8 @@ func detectInstallMethodForExecutable(execPath string) string {
 	}
 	return method
 }
+
+var legacyPythonPackageUpgradeCommands = []string{"uv tool upgrade revyl", "pipx upgrade revyl", "pip install --upgrade revyl"}
 
 var pythonPackageDownloadedBinaryName = regexp.MustCompile(`^revyl-(darwin|linux|windows)-(amd64|arm64)(\.exe)?$`)
 
