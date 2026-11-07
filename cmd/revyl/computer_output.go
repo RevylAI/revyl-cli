@@ -144,6 +144,9 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 		}
 		rows = append(rows, []string{"Reason", reason})
 	}
+	if status.State == "stopped" && detail.ExecutionStartedAt == nil {
+		rows = append(rows, []string{"Reason", "Stopped before it started"})
+	}
 	rows = append(rows, []string{"Created", computerTime(detail.CreatedAt)})
 	if detail.ExecutionStartedAt != nil {
 		rows = append(rows, []string{"Started", computerTime(*detail.ExecutionStartedAt)})

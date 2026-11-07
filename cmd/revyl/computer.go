@@ -13,6 +13,8 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
+const computerStopReleaseWait = time.Minute
+
 type computerExitError struct {
 	err  error
 	code int
@@ -180,7 +182,18 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 				case "get":
 					return client.GetComputerRun(cmd.Context(), id)
 				case "stop":
-					return client.StopComputerRun(cmd.Context(), id)
+					report, err := client.StopComputerRun(cmd.Context(), id)
+					if err != nil || !api.ComputerRunUnsettled(api.InspectComputerReport(*report)) {
+						return report, err
+					}
+					fmt.Fprintln(cmd.ErrOrStderr(), "waiting for the computer's release to be confirmed")
+					ctx, cancel := context.WithTimeout(cmd.Context(), computerStopReleaseWait)
+					defer cancel()
+					report, err = client.AwaitComputerRunSettled(ctx, report)
+					if err == nil && cmd.Context().Err() != nil {
+						return nil, cmd.Context().Err()
+					}
+					return report, err
 				default:
 					format, _ := cmd.Flags().GetString("format")
 					watch, _ := cmd.Flags().GetBool("watch")

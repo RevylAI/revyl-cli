@@ -27,10 +27,10 @@ func validComputerLifecycle(status ComputerReportStatus, created, expires, asOf 
 	if created.IsZero() || !expires.After(created) || asOf.Before(created) || (status.Release == "confirmed") != (released != nil) {
 		return false
 	}
-	if status.State == "stopped" && ended == nil {
+	if status.State == "stopped" && (started != nil && ended == nil || started == nil && status.Release != "confirmed") {
 		return false
 	}
-	if (status.State == "active" || status.State == "closing" || status.State == "stopped") && started == nil {
+	if (status.State == "active" || status.State == "closing") && started == nil {
 		return false
 	}
 	if status.State == "starting" && (started != nil || ended != nil || status.Release != "pending") {

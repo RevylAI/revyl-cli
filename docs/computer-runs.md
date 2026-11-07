@@ -94,7 +94,11 @@ the way create does. `--timeout`
 computer that ends instead of becoming active exits non-zero and names its
 state and release (`failed` and `owner_lost` exit 125, others 1); one still
 starting at the timeout exits 124 and keeps starting, so read it with `get` or
-stop it. Other commands require C1 explicitly. `exec` requires `--`
+stop it. `stop` waits up to a minute for a pending release and evidence to
+settle, re-reading the computer every second, so stopping a computer that is
+still starting exits 0 once its release is confirmed. A computer stopped
+before it started reads `stopped` with no start time. Other commands require
+C1 explicitly. `exec` requires `--`
 before structured argv and never invokes a local shell. `--stdin -` and
 `files write --from -` read bounded stdin. Process handles are run-owned, not PIDs.
 
@@ -322,7 +326,7 @@ Execution outcome (`succeeded`, `failed`, `timed_out`, `unknown`), evidence heal
 | 1–255 | A command that exited non-zero exits with the guest's code and prints `Command exited with code N`. A guest code outside 1–255, such as a signal's negative code, exits 1 with the same message. |
 | 1 | Invalid input, authentication/API/transport failure, or another failed operation (`Command failed: <code>`). The remote result remains in JSON. |
 | 74 | Execution succeeded but evidence is not recorded. |
-| 75 | Operation result or release remains pending. |
+| 75 | Operation result remains pending, or a stopped computer's release is still pending after stop's one-minute wait. |
 | 124 | Execution timed out (`Command timed out`); JSON retains termination certainty. |
 | 124 | Performance watch reached its timeout; the computer is not stopped. |
 | 130 | Performance watch was canceled; the computer is not stopped. |

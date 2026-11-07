@@ -21,6 +21,8 @@ var computerOperationPollInterval = 2 * time.Second
 
 var computerStartPollInterval = 250 * time.Millisecond
 
+var computerReleasePollInterval = time.Second
+
 func (c *Client) CreateComputerRun(ctx context.Context, request ComputerRunCreate) (*ComputerReport, error) {
 	if request.ComputerSessionId == uuid.Nil || request.Os != "macos" && request.Os != "linux" {
 		return nil, fmt.Errorf("computer creation requires a nonzero UUID and a supported OS")
@@ -35,16 +37,34 @@ func (c *Client) GetComputerRun(ctx context.Context, id uuid.UUID) (*ComputerRep
 }
 
 // AwaitComputerRunStarted re-reads a starting computer until it leaves starting
-// or ctx ends, returning the latest report either way. Reads never dispatch, so
-// a transient read failure is retried within ctx and only a refusal ends the
-// wait with an error.
+// or ctx ends, returning the latest report either way.
 func (c *Client) AwaitComputerRunStarted(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
+	return c.awaitComputerRun(ctx, report, computerStartPollInterval, func(status ComputerReportStatus) bool {
+		return status.State == "starting"
+	})
+}
+
+// AwaitComputerRunSettled re-reads a stopped computer while its release or
+// evidence is still pending, until both settle or ctx ends, returning the
+// latest report either way.
+func (c *Client) AwaitComputerRunSettled(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
+	return c.awaitComputerRun(ctx, report, computerReleasePollInterval, ComputerRunUnsettled)
+}
+
+func ComputerRunUnsettled(status ComputerReportStatus) bool {
+	return status.Release == "pending" || status.Evidence == "pending"
+}
+
+// awaitComputerRun re-reads a computer while waiting holds for its report or
+// until ctx ends. Reads never dispatch, so a transient read failure is retried
+// within ctx and only a refusal ends the wait with an error.
+func (c *Client) awaitComputerRun(ctx context.Context, report *ComputerReport, interval time.Duration, waiting func(ComputerReportStatus) bool) (*ComputerReport, error) {
 	id := report.ComputerSessionId
-	for InspectComputerReport(*report).State == "starting" {
+	for waiting(InspectComputerReport(*report)) {
 		select {
 		case <-ctx.Done():
 			return report, nil
-		case <-time.After(computerStartPollInterval):
+		case <-time.After(interval):
 		}
 		response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s", id))
 		_, next, err := readComputerReportDetailAndReport(response, err, id)
