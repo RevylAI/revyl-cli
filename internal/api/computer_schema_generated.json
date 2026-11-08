@@ -405,7 +405,7 @@
           "items": {
             "$ref": "#/$defs/ComputerATIFStep"
           },
-          "maxItems": 258,
+          "maxItems": 8194,
           "minItems": 1,
           "title": "Steps",
           "type": "array"
@@ -934,7 +934,7 @@
           "title": "Error Code"
         },
         "execution_order": {
-          "maximum": 256.0,
+          "maximum": 8192.0,
           "minimum": 1.0,
           "title": "Execution Order",
           "type": "integer"
@@ -1095,7 +1095,7 @@
           "title": "Error Code"
         },
         "execution_order": {
-          "maximum": 256.0,
+          "maximum": 8192.0,
           "minimum": 1.0,
           "title": "Execution Order",
           "type": "integer"
@@ -1802,7 +1802,7 @@
           "items": {
             "$ref": "#/$defs/ComputerOperationEvidence"
           },
-          "maxItems": 256,
+          "maxItems": 8192,
           "title": "Steps",
           "type": "array"
         },
@@ -1997,7 +1997,7 @@
           "items": {
             "$ref": "#/$defs/ComputerOperationDetail"
           },
-          "maxItems": 256,
+          "maxItems": 8192,
           "title": "Steps",
           "type": "array"
         },

@@ -6426,6 +6426,12 @@ type ComputerDiskSample struct {
 	WriteKbPerS float64 `json:"write_kb_per_s"`
 }
 
+// ComputerDisplaySize A computer's display in pixels, fixed when its VM boots.
+type ComputerDisplaySize struct {
+	Height int `json:"height"`
+	Width  int `json:"width"`
+}
+
 // ComputerExec defines model for ComputerExec.
 type ComputerExec struct {
 	Argv []string `json:"argv"`
@@ -6899,8 +6905,11 @@ type ComputerReportDetailState string
 
 // ComputerRunCreate defines model for ComputerRunCreate.
 type ComputerRunCreate struct {
-	ComputerSessionId openapi_types.UUID  `json:"computer_session_id"`
-	Os                ComputerRunCreateOs `json:"os"`
+	ComputerSessionId openapi_types.UUID `json:"computer_session_id"`
+
+	// Display A computer's display in pixels, fixed when its VM boots.
+	Display *ComputerDisplaySize `json:"display,omitempty"`
+	Os      ComputerRunCreateOs  `json:"os"`
 }
 
 // ComputerRunCreateOs defines model for ComputerRunCreate.Os.

@@ -523,6 +523,88 @@ No steps yet.
 	}
 }
 
+func TestComputerCreateSendsTheRequestedDisplaySize(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	for _, tc := range []struct {
+		name       string
+		display    string
+		want       string
+		refused    bool
+		wantPreset string
+		wantSize   string
+	}{
+		{"omitted", "", "", false, "default", "1280x800"},
+		{"standard", "1280x1024", `{"height":1024,"width":1280}`, false, "custom", "1280x1024"},
+		{"wide", "1440x900", `{"height":900,"width":1440}`, false, "custom", "other"},
+		{"odd", "1441x900", "", true, "", ""},
+		{"too_large", "2560x1440", "", true, "", ""},
+		{"malformed", "1440x900px", "", true, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var bodies []map[string]json.RawMessage
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]json.RawMessage
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				bodies = append(bodies, body)
+				w.WriteHeader(http.StatusTooManyRequests)
+				fmt.Fprint(w, `{"detail":"computer_limit"}`)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+			root.AddCommand(newComputerCommand())
+			args := []string{"computer", "create", "--os", "macos", "--json"}
+			if tc.display != "" {
+				args = append(args, "--display", tc.display)
+			}
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs(args)
+			leaf, _, err := root.Find(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payloads []analytics.TelemetryPayload
+			t.Setenv("REVYL_API_KEY", "")
+			recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) { payloads = append(payloads, payload) })
+			run := recorder.StartCommand(leaf, nil)
+			root.SetContext(analytics.ContextWithCommandRun(context.Background(), run))
+			t.Setenv("REVYL_API_KEY", "fixture-key")
+			err = root.Execute()
+			run.Complete(err)
+			run.Flush()
+			if len(payloads) != 1 || len(payloads[0].Events) != 2 {
+				t.Fatal("expected one start and one terminal event")
+			}
+			props := payloads[0].Events[1].Properties
+			if tc.wantPreset == "" {
+				for _, key := range []string{"computer_display_preset", "computer_display_size"} {
+					if _, exists := props[key]; exists {
+						t.Fatalf("rejected --display %s recorded %s", tc.display, key)
+					}
+				}
+			} else if props["computer_display_preset"] != tc.wantPreset || props["computer_display_size"] != tc.wantSize {
+				t.Fatalf("computer create recorded display %v/%v, want %s/%s", props["computer_display_preset"], props["computer_display_size"], tc.wantPreset, tc.wantSize)
+			}
+			if _, exists := payloads[0].Events[0].Properties["computer_display_size"]; exists {
+				t.Fatal("display fact entered the start event")
+			}
+			if tc.refused {
+				if len(bodies) != 0 {
+					t.Fatalf("computer create --display %s sent %d requests, want none", tc.display, len(bodies))
+				}
+				return
+			}
+			if len(bodies) != 1 {
+				t.Fatalf("computer create sent %d requests, want 1", len(bodies))
+			}
+			if got := string(bodies[0]["display"]); got != tc.want {
+				t.Fatalf("computer create sent display %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	for _, tc := range []struct {

@@ -62,6 +62,7 @@ revyl computer create --os macos --json
 revyl computer create --os macos --wait --json
 revyl computer create --os macos --wait --timeout 5m
 revyl computer create --os macos --id "$C1" --json
+revyl computer create --os macos --display 1440x900 --json
 revyl computer list
 revyl computer get "$C1"
 revyl computer get "$C1" --json
@@ -94,7 +95,11 @@ the way create does. `--timeout`
 computer that ends instead of becoming active exits non-zero and names its
 state and release (`failed` and `owner_lost` exit 125, others 1); one still
 starting at the timeout exits 124 and keeps starting, so read it with `get` or
-stop it. `stop` waits up to a minute for a pending release and evidence to
+stop it. `--display WIDTHxHEIGHT` sets the screen size in pixels for the
+computer's lifetime: an even width from 800 to 1920 and an even height from 600
+to 1080, default 1280x800. Pick the size of the pane you view it in to avoid
+letterboxing; a non-default size always boots a fresh VM, so it starts slower
+than the default. `stop` waits up to a minute for a pending release and evidence to
 settle, re-reading the computer every second, so stopping a computer that is
 still starting exits 0 once its release is confirmed. A computer stopped
 before it started reads `stopped` with no start time. Other commands require

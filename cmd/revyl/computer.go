@@ -30,6 +30,7 @@ type computerInvocation struct {
 	Status            string `json:"status,omitempty"`
 	Error             string `json:"error,omitempty"`
 	waitedForActive   bool
+	createdDisplay    *api.ComputerDisplaySize
 }
 
 type computerPerformanceResult struct {
@@ -48,6 +49,7 @@ requests access in Settings > Experiments, and Revyl enables the organization.
 
   revyl computer create --os macos       start a computer
   revyl computer create --os macos --wait  start one and wait until it is active
+  revyl computer create --os macos --display 1440x900  start one at a display size
   revyl computer list                    show your organization's computers
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
@@ -63,6 +65,7 @@ Add --json to any command for machine-readable output.`,
 	create := &cobra.Command{Use: "create", Short: "Start a computer"}
 	create.Flags().String("os", "", "Computer OS: macos")
 	create.Flags().String("id", "", "Proposed computer UUID (generated once when omitted)")
+	create.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
 	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --timeout")
 	create.Flags().Duration("timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
@@ -82,12 +85,18 @@ Add --json to any command for machine-readable output.`,
 			if timeout < time.Second || timeout > 30*time.Minute {
 				return nil, errors.New("--timeout must be from 1s to 30m")
 			}
+			displayText, _ := cmd.Flags().GetString("display")
+			display, err := computerDisplaySize(displayText)
+			if err != nil {
+				return nil, err
+			}
 			idText, _ := cmd.Flags().GetString("id")
 			id, err := computerUUIDOrNew(idText)
 			if err != nil {
 				return nil, err
 			}
 			invocation.ComputerSessionID = id.String()
+			invocation.createdDisplay = display
 			fmt.Fprintf(cmd.ErrOrStderr(), "computer_session_id=%s\n", id)
 			client, err := computerClient(cmd)
 			if err != nil {
@@ -99,7 +108,7 @@ Add --json to any command for machine-readable output.`,
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName)})
+			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display})
 			var refusal *api.APIError
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
 				switch refusal.Code {
@@ -422,6 +431,29 @@ func computerUUIDOrNew(value string) (uuid.UUID, error) {
 	return parseComputerUUID(value)
 }
 
+func computerDisplaySize(value string) (*api.ComputerDisplaySize, error) {
+	if value == "" {
+		return nil, nil
+	}
+	var width, height int
+	if n, err := fmt.Sscanf(value, "%dx%d", &width, &height); err != nil || n != 2 || fmt.Sprintf("%dx%d", width, height) != value ||
+		width < 800 || width > 1920 || height < 600 || height > 1080 || width%2 != 0 || height%2 != 0 {
+		return nil, errors.New("--display must be WIDTHxHEIGHT with an even width from 800 to 1920 and an even height from 600 to 1080, for example 1440x900")
+	}
+	return &api.ComputerDisplaySize{Width: width, Height: height}, nil
+}
+
+func computerDisplayAnalytics(display *api.ComputerDisplaySize) (preset string, sizeBucket string) {
+	if display == nil {
+		return "default", "1280x800"
+	}
+	switch size := fmt.Sprintf("%dx%d", display.Width, display.Height); size {
+	case "1280x800", "1280x1024", "1920x1080":
+		return "custom", size
+	}
+	return "custom", "other"
+}
+
 func computerClient(cmd *cobra.Command) (*api.Client, error) {
 	key, err := getAPIKey()
 	if err != nil {
@@ -437,6 +469,9 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 	performance, isPerformance := value.(*computerPerformanceResult)
 	if invocation.ComputerSessionID != "" {
 		completion.Properties["entity_id"] = invocation.ComputerSessionID
+	}
+	if cmd.Name() == "create" && invocation.ComputerSessionID != "" {
+		completion.Properties["computer_display_preset"], completion.Properties["computer_display_size"] = computerDisplayAnalytics(invocation.createdDisplay)
 	}
 	if isPerformance && performance.Page != nil {
 		completion.DomainStatus = string(performance.Page.State)
