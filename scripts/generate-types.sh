@@ -46,11 +46,13 @@ echo ""
 # Ensure Go binaries are on PATH (needed on sandboxes where ~/.zshrc may not be sourced)
 export PATH="$HOME/go/bin:$PATH"
 
-# Check if oapi-codegen is installed
-if ! command -v oapi-codegen &> /dev/null; then
-    echo "Error: oapi-codegen not installed"
-    echo "Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0"
-    exit 1
+if command -v oapi-codegen &> /dev/null \
+    && go version -m "$(command -v oapi-codegen)" 2>/dev/null \
+    | grep -q 'github.com/oapi-codegen/oapi-codegen/v2.*v2.6.0'; then
+    OAPI_CODEGEN=(oapi-codegen)
+else
+    echo "Using pinned oapi-codegen v2.6.0..."
+    OAPI_CODEGEN=(go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0)
 fi
 
 # Create output directory if needed
@@ -191,7 +193,7 @@ echo "Generating Go types..."
 # Generate types only (not full client) to keep it lightweight.
 # We use our own client implementation for better control.
 # Generation options live in oapi-codegen-config.yaml.
-oapi-codegen \
+"${OAPI_CODEGEN[@]}" \
     -config "$SCRIPT_DIR/oapi-codegen-config.yaml" \
     -o "$OUTPUT_FILE" \
     "$PROCESSED_SPEC"
