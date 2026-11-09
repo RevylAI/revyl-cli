@@ -57,6 +57,9 @@ type ExpoDevServer struct {
 	// processDone receives the result of the single cmd.Wait goroutine.
 	processDone chan error
 
+	// stderr keeps the running process's last stderr lines.
+	stderr *processStderr
+
 	// stopping suppresses failure reports for intentional shutdown.
 	stopping bool
 
@@ -160,11 +163,19 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to capture stdout: %w", err)
 	}
 
-	// Also capture stderr
-	stderr, err := e.cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to capture stderr: %w", err)
-	}
+	errChan := make(chan error, 1)
+	e.stderr = newProcessStderr(func(line string) {
+		e.emitProcessOutput(outputCallback, hotreload.DevServerOutputStderr, line)
+		lowerLine := strings.ToLower(line)
+		if strings.Contains(lowerLine, "error") && strings.Contains(lowerLine, "fatal") {
+			select {
+			case errChan <- fmt.Errorf("Expo error: %s", line):
+			default:
+			}
+		}
+	})
+	e.cmd.Stderr = e.stderr
+	e.cmd.WaitDelay = processOutputWaitDelay
 
 	// Start the process
 	if err := e.cmd.Start(); err != nil {
@@ -176,27 +187,11 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 
 	// Wait for server to be ready
 	readyChan := make(chan bool, 1)
-	errChan := make(chan error, 1)
 	signalReady := newReadyNotifier(readyChan)
 
 	// Monitor stdout for ready indicators
 	go func() {
 		e.streamStdout(stdout, outputCallback, signalReady)
-	}()
-
-	// Monitor stderr for errors
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			e.emitProcessOutput(outputCallback, hotreload.DevServerOutputStderr, line)
-			// Check for fatal errors
-			if strings.Contains(strings.ToLower(line), "error") &&
-				strings.Contains(strings.ToLower(line), "fatal") {
-				errChan <- fmt.Errorf("Expo error: %s", line)
-				return
-			}
-		}
 	}()
 
 	// Also poll the health endpoint
@@ -301,18 +296,12 @@ func (e *ExpoDevServer) watchProcess(ctx context.Context, cmd *exec.Cmd, done ch
 	e.mu.Lock()
 	shouldReport := e.ready && !e.stopping && e.cmd == cmd && ctx.Err() == nil
 	port := e.Port
+	stderr := e.stderr
 	e.mu.Unlock()
 	if !shouldReport {
 		return
 	}
-	e.emitFailure(hotreload.RuntimeFailure{
-		Kind:     hotreload.RuntimeFailureLocalDevServerDown,
-		Provider: e.Name(),
-		Port:     port,
-		Detail:   processExitDetail("Expo dev server exited unexpectedly", err),
-		Fatal:    true,
-		Err:      err,
-	})
+	e.emitFailure(unexpectedProcessExitFailure(e.Name(), port, "Expo dev server exited unexpectedly", err, stderr.Tail()))
 }
 
 func (e *ExpoDevServer) Failures() <-chan hotreload.RuntimeFailure {

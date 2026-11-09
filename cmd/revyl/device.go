@@ -3820,7 +3820,7 @@ func init() {
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
-	deviceStartCmd.Flags().String("computer", "", "Run inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device. Experimental")
+	deviceStartCmd.Flags().String("computer", "", "Run inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")
