@@ -18,6 +18,7 @@ const (
 	CliCommandStartedEvent   = "cli_command_started"
 	CliCommandCompletedEvent = "cli_command_completed"
 	CliCommandFailedEvent    = "cli_command_failed"
+	McpToolCalledEvent       = "mcp_tool_called"
 
 	// Output is buffered but never streamed: only a failing command attaches
 	// its tail, so successful runs contribute no output volume at all.
@@ -225,6 +226,29 @@ func SetCommandCompletion(ctx context.Context, completion CommandCompletion) {
 		return
 	}
 	run.setCompletion(completion)
+}
+
+// RecordMCPToolCall captures one MCP tool call served by the command in ctx,
+// with the same base properties as its lifecycle events, and hands it to the
+// best-effort sender without waiting. The event carries only the tool call's
+// own intent, never the serving command's --intent.
+func RecordMCPToolCall(ctx context.Context, tool string, duration time.Duration, failed bool, intent string) {
+	run, _ := ctx.Value(commandRunContextKey{}).(*CommandRun)
+	if run == nil {
+		return
+	}
+	props := map[string]interface{}{
+		"mcp_tool":    tool,
+		"mcp_server":  "local",
+		"duration_ms": duration.Milliseconds(),
+		"error":       failed,
+		"intent":      nil,
+	}
+	if intent = sanitizeString(intent); intent != "" {
+		props["intent"] = intent
+	}
+	run.capture(McpToolCalledEvent, props)
+	run.rec.flushInBackground()
 }
 
 func (r *CommandRun) setCompletion(completion CommandCompletion) {
