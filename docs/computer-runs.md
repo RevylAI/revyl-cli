@@ -211,6 +211,9 @@ revyl device start --platform ios --app "$APP" --computer "$C1" --json
 revyl device start --platform web --app "$WEB_APP" --computer "$C1" --json
 ```
 
+A mobile `device start --json` reports `computer_session_id`: the computer the
+app session runs inside, or `null` for a standalone device.
+
 Inside a running computer, `REVYL_COMPUTER_ID` makes `revyl build` run the
 configured recipe locally and makes `device start` target that computer. The
 device viewer stays closed by default inside a computer; pass `--open` when the

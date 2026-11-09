@@ -168,6 +168,13 @@ func computerSessionIDForStart(cmd *cobra.Command) string {
 	return computerID
 }
 
+// deviceStartOutput is the device start --json contract: the session plus the
+// computer it runs inside, or null for a standalone device.
+type deviceStartOutput struct {
+	*mcppkg.DeviceSession
+	ComputerSessionID *string `json:"computer_session_id"`
+}
+
 func deviceStartOpensBrowser(cmd *cobra.Command, computerSessionID string) bool {
 	openBrowser, _ := cmd.Flags().GetBool("open")
 	return openBrowser && (computerSessionID == "" || cmd.Flags().Changed("open"))
@@ -1180,7 +1187,11 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 		}
 
 		if jsonOutput {
-			data, _ := json.MarshalIndent(withAppliedDefaults(cmd, session), "", "  ")
+			output := deviceStartOutput{DeviceSession: session}
+			if computerSessionID != "" {
+				output.ComputerSessionID = &computerSessionID
+			}
+			data, _ := json.MarshalIndent(withAppliedDefaults(cmd, output), "", "  ")
 			fmt.Println(string(data))
 		} else {
 			devMode, _ := cmd.Flags().GetBool("dev")
