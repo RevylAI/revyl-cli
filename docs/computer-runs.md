@@ -13,9 +13,9 @@ A configured computer runtime is required; a server without one returns
 `runtime_unavailable` on create, and there is no fake mode. Create also returns
 `runtime_unavailable` when no registered host can run a computer for its full
 lifetime; nothing is created, and it can be retried. A create whose
-computer was recorded but could not be started returns `start_failed`, and that computer reads as `failed`. Reading and
-stopping an existing computer still work. Tests inject a synthetic runtime
-explicitly. A hosted server admits only organizations enabled for computers,
+computer was recorded but could not be started returns `start_failed`, and
+that computer reads as `failed`. Reading and stopping an existing computer
+still work. A hosted server admits only organizations enabled for computers,
 and only while its device lane has headroom (`computer_limit`): queued work
 counts against that lane, a computer takes one slot of the budget its iOS
 sessions use, and the sessions hosted inside it take none. A computer runs for
@@ -136,7 +136,6 @@ Human output shows the state, source, sample count and duration, followed by
 latest/minimum/average/maximum CPU %, system memory %, disk read/write KB/s,
 network in/out KB/s and desktop FPS. A measure without samples is shown as `—`.
 `--json` prints the API report, including nullable measures, without rounding.
-Live samples require host release r3.36 or later.
 
 `--watch` follows new samples using the returned cursor, including the final
 saved report after the computer ends. Human output prints one line per new
@@ -254,9 +253,8 @@ app.
 
 ## Bounds and output
 
-The server fixes each new run's lifetime at 120 minutes from creation. Runs
-created before the upgrade keep their original deadline; the returned
-`expires_at` is authoritative and cannot be extended. Operations accept
+The server fixes each new run's lifetime at 120 minutes from creation. The
+returned `expires_at` is authoritative and cannot be extended. Operations accept
 `--timeout 1ms..5m` (default 30s), additionally bounded by run lifetime. Exec accepts
 at most 64 arguments and 16,384 total UTF-8 argv plus stdin bytes. Exec keeps the
 first 1,048,576 bytes (1 MiB) of combined stdout/stderr; the command still runs to
@@ -341,21 +339,3 @@ Execution outcome (`succeeded`, `failed`, `timed_out`, `unknown`), evidence heal
 
 A report read succeeds even when describing a failed historical operation. Stop
 does not delete evidence or treat unknown physical release as confirmation.
-
-## Contributor validation
-
-`make -C revyl-cli computer-integration` uses the monorepo Python environment and
-the actual CLI against a loopback-only API fixture with injected fake owner/sink.
-It needs no live credentials, database, device, VM or Revup. It validates binary
-maximums, identities, conflicts, auth/org denial, outcomes and retained JSON/ATIF,
-not a real provider.
-
-The generator leaves cached OpenAPI 3.1 intact. Its temporary 3.0 view represents
-null-only responses as nullable unconstrained JSON because 3.0 cannot express
-null alone; the client still requires HTTP 202 with exact JSON `null` for pending.
-Fixed one-item tuples and compatible constant union discriminators receive
-narrow codegen metadata. Generated code is never edited by hand.
-The same generator emits a self-contained original-schema validation artifact.
-Responses are checked recursively before output or analytics, with separate
-checks for lifecycle, evidence and request/result relationships; validation does
-not fetch external schemas or insert defaults.
