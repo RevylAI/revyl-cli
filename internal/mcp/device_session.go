@@ -667,7 +667,8 @@ func (m *DeviceSessionManager) StartSession(
 		req.DeviceRunnerID = strings.TrimSpace(opts.DeviceRunnerID)
 	}
 	if computerSessionID != "" {
-		if req.AppID == "" || req.BuildID == "" {
+		bareDevice := platform != "web" && req.AppID == "" && req.BuildID == ""
+		if !bareDevice && (req.AppID == "" || req.BuildID == "") {
 			return -1, nil, fmt.Errorf("a session inside a computer needs an app and one of its builds")
 		}
 		req.ComputerSessionID = computerSessionID

@@ -1014,9 +1014,6 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			if err != nil {
 				return fmt.Errorf("resolve configured app for device start; pass --app-id to select an app: %w", err)
 			}
-			if appID == "" {
-				return fmt.Errorf("no %s app is configured; pass --app-id or set the recipe's app_id in .revyl/config.yaml", platform)
-			}
 		}
 		platform, err = normalizeDeviceStartPlatform(platform)
 		if err != nil {
