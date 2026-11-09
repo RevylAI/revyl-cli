@@ -18,9 +18,9 @@ device or build time starts without the user's go-ahead.
 
 Both marketplaces are named `revyl` and live at the root of the exported
 `revyl-cli/` folder, which is the public `RevylAI/revyl-cli` repository. The
-Claude Code plugin is named `revyl-cli` because Revyl's hosted plugin in
-Anthropic's directory, `revyl-cli/plugins/revyl-claude/`, is already named
-`revyl`; the distinct name keeps their install ids and skill prefixes apart.
+Claude Code plugin is named `revyl-cli` because Revyl's hosted-MCP Claude
+plugin, `revyl-cli/plugins/revyl-claude/`, is already named `revyl`; the
+distinct name keeps their install ids and skill prefixes apart.
 
 Install steps for both hosts are in
 [Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp). Neither
