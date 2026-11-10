@@ -8695,9 +8695,12 @@ type OrgLaunchEnvVarsResponse struct {
 
 // OrgRepository defines model for OrgRepository.
 type OrgRepository struct {
-	InstallationId int    `json:"installation_id"`
-	Owner          string `json:"owner"`
-	Repo           string `json:"repo"`
+	DefaultBranch  *string    `json:"default_branch,omitempty"`
+	InstallationId int        `json:"installation_id"`
+	Language       *string    `json:"language,omitempty"`
+	Owner          string     `json:"owner"`
+	PushedAt       *time.Time `json:"pushed_at,omitempty"`
+	Repo           string     `json:"repo"`
 }
 
 // OrganizationMemberSummary defines model for OrganizationMemberSummary.
