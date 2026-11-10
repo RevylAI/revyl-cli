@@ -64,10 +64,13 @@ If `--seed-latest` was used, the visible app may still be the previous build.
 Save the returned `context` and `session_id`. Use that context for status,
 rebuild, and stop, and `-s <session-id>` for device commands.
 
-Contexts are worktree-local. Revyl auto-selects a safe branch/platform context name
-if another loop is running in the same worktree.
+Contexts are worktree-local. Run one loop per project: `revyl dev` without
+`--context` refuses to start while another loop in the same project is
+running or still starting, and names that loop. Reuse it, or stop it with
+`revyl dev stop <context>`.
 Pass `--context <name>` only when deliberately targeting a known
-loop. Inspect existing loops with `revyl dev list` before starting a duplicate.
+loop or starting a second one on purpose. Inspect existing loops with
+`revyl dev list`.
 
 Use `revyl dev use <name>` when deliberately switching the current named
 context. To reuse an existing device, run `revyl dev attach <session-id> --context <name>`,

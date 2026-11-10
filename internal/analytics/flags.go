@@ -39,6 +39,10 @@ func (r *Recorder) commandProps(cmd *cobra.Command, args []string, commandID str
 	if len(args) > 0 {
 		props["positional_args_present"] = true
 	}
+	intent, _ := cmd.Flags().GetString("intent")
+	if intent = sanitizeString(intent); intent != "" {
+		props["intent"] = intent
+	}
 	flagNames := changedFlagNames(cmd)
 	if len(flagNames) > 0 {
 		props["flag_names"] = flagNames

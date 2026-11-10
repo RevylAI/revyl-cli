@@ -17,7 +17,7 @@ func TestDevLoopSkillContextGuidance(t *testing.T) {
 
 	for _, expected := range []string{
 		"Use normal `revyl dev` for new work.",
-		"Revyl auto-selects a safe branch/platform context name",
+		"refuses to start while another loop in the same project is",
 		"Pass `--context <name>` only when deliberately targeting a known",
 		"revyl dev --no-build --app-id <app-id>",
 	} {

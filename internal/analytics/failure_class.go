@@ -34,6 +34,9 @@ const (
 	FailureClassGitHub    FailureClass = "github"
 	FailureClassInternal  FailureClass = "internal"
 	FailureClassUnknown   FailureClass = "unknown"
+	// FailureClassMetroExited marks a dev loop ended by its local Metro or
+	// Expo process exiting on its own.
+	FailureClassMetroExited FailureClass = "metro_exited"
 )
 
 type classifiedError struct {

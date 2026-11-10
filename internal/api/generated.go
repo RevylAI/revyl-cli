@@ -7367,10 +7367,13 @@ type DeviceSessionDetailResponse struct {
 	UserEmail                 *string                                   `json:"user_email,omitempty"`
 	UserId                    *string                                   `json:"user_id,omitempty"`
 	ViewerKind                *DeviceSessionDetailResponseViewerKind    `json:"viewer_kind,omitempty"`
-	WhepUrl                   *string                                   `json:"whep_url,omitempty"`
-	WorkflowExecutionId       *string                                   `json:"workflow_execution_id,omitempty"`
-	WorkflowName              *string                                   `json:"workflow_name,omitempty"`
-	WorkflowRunId             *string                                   `json:"workflow_run_id,omitempty"`
+
+	// ViewerLookupTimedOut True when viewer_kind is none only because the viewer lookup timed out; the viewer may be ready, so read the session again shortly.
+	ViewerLookupTimedOut *bool   `json:"viewer_lookup_timed_out,omitempty"`
+	WhepUrl              *string `json:"whep_url,omitempty"`
+	WorkflowExecutionId  *string `json:"workflow_execution_id,omitempty"`
+	WorkflowName         *string `json:"workflow_name,omitempty"`
+	WorkflowRunId        *string `json:"workflow_run_id,omitempty"`
 }
 
 // DeviceSessionDetailResponseViewerKind defines model for DeviceSessionDetailResponse.ViewerKind.
@@ -8695,9 +8698,12 @@ type OrgLaunchEnvVarsResponse struct {
 
 // OrgRepository defines model for OrgRepository.
 type OrgRepository struct {
-	InstallationId int    `json:"installation_id"`
-	Owner          string `json:"owner"`
-	Repo           string `json:"repo"`
+	DefaultBranch  *string    `json:"default_branch,omitempty"`
+	InstallationId int        `json:"installation_id"`
+	Language       *string    `json:"language,omitempty"`
+	Owner          string     `json:"owner"`
+	PushedAt       *time.Time `json:"pushed_at,omitempty"`
+	Repo           string     `json:"repo"`
 }
 
 // OrganizationMemberSummary defines model for OrganizationMemberSummary.

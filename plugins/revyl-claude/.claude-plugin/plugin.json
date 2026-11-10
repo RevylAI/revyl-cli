@@ -1,7 +1,7 @@
 {
   "name": "revyl",
-  "version": "0.1.2",
-  "description": "Browse Revyl Atlas, your team's shared record of how your app behaves, and start, screenshot and stop live iOS and Android cloud devices through Revyl's hosted MCP server. Sign in with your Revyl account on first connection; no API key or local install needed.",
+  "version": "0.1.3",
+  "description": "Browse Revyl Atlas, your team's shared record of how your app behaves, and start, screenshot and stop live iOS and Android cloud devices, web browsers and macOS computers through Revyl's hosted MCP server. Sign in with your Revyl account on first connection; no API key or local install needed.",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai",
@@ -10,5 +10,10 @@
   "homepage": "https://revyl.com",
   "repository": "https://github.com/RevylAI/revyl-cli",
   "license": "MIT",
-  "keywords": ["revyl", "revyl atlas", "revyl device", "revyl session"]
+  "keywords": [
+    "revyl",
+    "revyl atlas",
+    "revyl device",
+    "revyl session"
+  ]
 }

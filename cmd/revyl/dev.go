@@ -490,6 +490,11 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	analyticsProperties["build_platform"] = invocation.Platform
 	analyticsProperties["selection_source"] = invocation.SelectionSource
 	cwd = invocation.ProjectRoot
+	releaseDevLoop, err := claimDevLoop(cwd, getDevContextFlag(cmd))
+	if err != nil {
+		return err
+	}
+	defer releaseDevLoop()
 
 	if devStartNoBuild && devStartBuild {
 		return fmt.Errorf("use either --no-build or --build, not both")
@@ -1234,7 +1239,21 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 				}
 				msg := formatHotReloadRuntimeFailure(failure)
 				cancel()
-				return fmt.Errorf("%s", msg)
+				if !failure.ProcessExited {
+					return fmt.Errorf("%s", msg)
+				}
+				if len(failure.StderrTail) > 0 {
+					ui.PrintWarning("Last %s stderr lines before it exited:", failure.Provider)
+					for _, line := range failure.StderrTail {
+						ui.PrintDim("  %s", line)
+					}
+				}
+				if failure.ExitCode >= 0 && failure.ExitCode <= 255 {
+					analytics.SetCommandCompletion(ctx, analytics.CommandCompletion{
+						Properties: map[string]interface{}{"dev_server_exit_code": failure.ExitCode},
+					})
+				}
+				return analytics.WithFailureClass(fmt.Errorf("%s", msg), analytics.FailureClassMetroExited)
 			}
 			msg := formatHotReloadRuntimeFailure(failure)
 			ui.PrintWarning("%s", msg)

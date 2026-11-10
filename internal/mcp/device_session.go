@@ -667,7 +667,8 @@ func (m *DeviceSessionManager) StartSession(
 		req.DeviceRunnerID = strings.TrimSpace(opts.DeviceRunnerID)
 	}
 	if computerSessionID != "" {
-		if req.AppID == "" || req.BuildID == "" {
+		bareDevice := platform != "web" && req.AppID == "" && req.BuildID == ""
+		if !bareDevice && (req.AppID == "" || req.BuildID == "") {
 			return -1, nil, fmt.Errorf("a session inside a computer needs an app and one of its builds")
 		}
 		req.ComputerSessionID = computerSessionID
@@ -871,7 +872,7 @@ func (m *DeviceSessionManager) readRuntimeReadyLocked(ctx context.Context, sessi
 	case "failed", "completed", "cancelled", "timeout", "stopping":
 		return nil, "", webSessionEndedBeforeReadyError(detail)
 	case "running":
-		if stringValue(detail.ViewerKind) == "" && detail.WorkflowRunID == nil {
+		if detail.ViewerLookupTimedOut || (stringValue(detail.ViewerKind) == "" && detail.WorkflowRunID == nil) {
 			return nil, "", &WorkerHTTPError{StatusCode: 503, Path: "/screenshot", Code: "not_ready"}
 		}
 		if stringValue(detail.ViewerKind) != string(api.DeviceSessionDetailResponseViewerKindWhep) || detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" || (session.WorkflowRunID != "" && session.WorkflowRunID != *detail.WorkflowRunID) {
@@ -4847,8 +4848,9 @@ func (m *DeviceSessionManager) workerStartFailureError(ctx context.Context, sess
 // regardless of who started it.
 //
 // If the session is already in the local map, it is activated directly.
-// Otherwise it is fetched from the backend, the worker URL is resolved,
-// and it is added to the local session list and set as active.
+// Otherwise it is fetched from the backend without holding m.mu, the worker URL
+// is resolved, and it is added to the local session list and set as active,
+// unless another caller attached it while the fetch ran.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
@@ -4859,39 +4861,28 @@ func (m *DeviceSessionManager) workerStartFailureError(ctx context.Context, sess
 //   - session: The attached DeviceSession.
 //   - error: Any error during attachment.
 func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID string) (int, *DeviceSession, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.apiClient == nil {
 		return -1, nil, fmt.Errorf("no API client configured")
 	}
 
-	// Check if already known locally.
-	for idx, s := range m.sessions {
-		if s.SessionID == sessionID {
-			var frame []byte
-			var token string
-			if s.Platform == "web" {
-				var err error
-				frame, token, err = m.readRuntimeReadyLocked(ctx, s)
-				if err != nil {
-					return -1, nil, err
-				}
-			}
-			previousActiveIndex := m.activeIndex
-			m.activeIndex = idx
-			if err := m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true, selectedSession: s}); err != nil {
-				m.activeIndex = previousActiveIndex
-				return -1, nil, fmt.Errorf("could not save the attached session: %w", err)
-			}
-			if s.Platform == "web" {
-				m.screenAnchors[s.Index] = &screenAnchorState{ImageBytes: frame, RuntimeScreenToken: token, SessionID: s.SessionID}
-			}
-			return idx, s, nil
-		}
+	m.mu.Lock()
+	knownIndex, known, knownFound, err := m.activateKnownSessionLocked(ctx, sessionID)
+	m.mu.Unlock()
+	if knownFound {
+		return knownIndex, known, err
 	}
 
-	session, err := m.resolveSessionByIDLocked(ctx, sessionID)
+	detail, err := m.readSessionDetailByID(ctx, sessionID)
+	if err != nil {
+		return -1, nil, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if knownIndex, known, knownFound, err := m.activateKnownSessionLocked(ctx, sessionID); knownFound {
+		return knownIndex, known, err
+	}
+	session, err := m.unattachedSessionFromDetailLocked(sessionID, detail)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -4935,6 +4926,35 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	return idx, session, nil
 }
 
+// activateKnownSessionLocked activates sessionID when it is already in the
+// local map and reports whether it was found there. Caller must hold m.mu.
+func (m *DeviceSessionManager) activateKnownSessionLocked(ctx context.Context, sessionID string) (int, *DeviceSession, bool, error) {
+	for idx, s := range m.sessions {
+		if s.SessionID == sessionID {
+			var frame []byte
+			var token string
+			if s.Platform == "web" {
+				var err error
+				frame, token, err = m.readRuntimeReadyLocked(ctx, s)
+				if err != nil {
+					return -1, nil, true, err
+				}
+			}
+			previousActiveIndex := m.activeIndex
+			m.activeIndex = idx
+			if err := m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true, selectedSession: s}); err != nil {
+				m.activeIndex = previousActiveIndex
+				return -1, nil, true, fmt.Errorf("could not save the attached session: %w", err)
+			}
+			if s.Platform == "web" {
+				m.screenAnchors[s.Index] = &screenAnchorState{ImageBytes: frame, RuntimeScreenToken: token, SessionID: s.SessionID}
+			}
+			return idx, s, true, nil
+		}
+	}
+	return -1, nil, false, nil
+}
+
 // ResolveSessionByID resolves a server-issued session ID into a usable session
 // reference without reading or mutating local session state.
 //
@@ -4948,7 +4968,9 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 //   - ctx: Context for cancellation.
 //   - sessionID: The durable device session UUID.
 //
-// Resolution costs a single backend call. Worker liveness is not probed here:
+// Resolution costs a single backend call, plus at most api.DefaultMaxRetries
+// re-reads while the backend reports a timed-out Web viewer lookup; those
+// re-reads happen before m.mu is taken. Worker liveness is not probed here:
 // the caller's own action is the probe, and checkSessionStatusOnFailure turns a
 // failed action into a specific reason, so the happy path pays nothing for
 // diagnostics it does not need.
@@ -4958,28 +4980,44 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 //   - error: If the session is unknown, in a terminal state, or still queued
 //     (no workflow run).
 func (m *DeviceSessionManager) ResolveSessionByID(ctx context.Context, sessionID string) (*DeviceSession, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.apiClient == nil {
 		return nil, fmt.Errorf("no API client configured")
 	}
-	return m.resolveSessionByIDLocked(ctx, sessionID)
+	detail, err := m.readSessionDetailByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.unattachedSessionFromDetailLocked(sessionID, detail)
 }
 
-// resolveSessionByIDLocked fetches a session by durable ID and builds an
-// unattached DeviceSession for it. It performs no local-state mutation, so both
-// the stateless path and AttachBySessionID can share it, and issues exactly one
-// backend call so per-command targeting stays cheap in parallel batches.
-// Caller must hold m.mu.
-func (m *DeviceSessionManager) resolveSessionByIDLocked(ctx context.Context, sessionID string) (*DeviceSession, error) {
-	shortID := shortPrefix(sessionID, 8)
-
-	// Fetch the session directly by ID.
+// readSessionDetailByID fetches a session by durable ID, re-reading it at most
+// api.DefaultMaxRetries times, 500ms apart, while the backend reports a
+// timed-out Web viewer lookup. It takes no lock.
+func (m *DeviceSessionManager) readSessionDetailByID(ctx context.Context, sessionID string) (*api.DeviceSessionDetail, error) {
 	detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
+	for attempt := 0; err == nil && detail.ViewerLookupTimedOut && attempt < api.DefaultMaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(webReadinessPollInterval(0)):
+		}
+		detail, err = m.apiClient.GetDeviceSessionByID(ctx, sessionID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("session not found or not accessible: %w", err)
 	}
+	return detail, nil
+}
+
+// unattachedSessionFromDetailLocked builds an unattached DeviceSession from a
+// fetched session detail without any backend call or local-state mutation, so
+// both ResolveSessionByID and AttachBySessionID can share it. Caller must hold
+// m.mu.
+func (m *DeviceSessionManager) unattachedSessionFromDetailLocked(sessionID string, detail *api.DeviceSessionDetail) (*DeviceSession, error) {
+	shortID := shortPrefix(sessionID, 8)
 
 	// Verify it's in a usable state.
 	status := strings.ToLower(detail.Status)

@@ -4748,6 +4748,8 @@ type DeviceSessionDetail struct {
 	TestName        *string                 `json:"test_name"`
 	UserEmail       *string                 `json:"user_email"`
 	CanCancel       bool                    `json:"can_cancel"`
+
+	ViewerLookupTimedOut bool `json:"viewer_lookup_timed_out,omitempty"`
 }
 
 var webAppFailurePattern = regexp.MustCompile(`; app_failure=([a-z_]{1,64}); (.+)$`)

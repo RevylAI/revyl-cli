@@ -1,8 +1,8 @@
 # Revyl plugin for Claude
 
 Browse Revyl Atlas, your team's shared record of how your app behaves, and
-start, screenshot and stop live iOS and Android cloud devices from Claude,
-through Revyl's hosted MCP server.
+start, screenshot and stop live iOS and Android cloud devices, web browsers and
+macOS computers from Claude, through Revyl's hosted MCP server.
 
 The plugin contains one MCP server configuration and one skill. It has no
 hooks, runs no local commands, and downloads nothing.
