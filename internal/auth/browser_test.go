@@ -2,6 +2,8 @@ package auth
 
 import (
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -55,5 +57,31 @@ func TestCallbackServerBoundsHeaderReads(t *testing.T) {
 
 	if server.server.ReadHeaderTimeout != 5*time.Second {
 		t.Fatalf("ReadHeaderTimeout = %s", server.server.ReadHeaderTimeout)
+	}
+}
+
+func TestCallbackRedirectsToSignedInPageWithoutReferrer(t *testing.T) {
+	server := &callbackServer{
+		state:       "state-token",
+		signedInURL: "https://app.example.test/cli/authorized",
+		resultCh:    make(chan *BrowserAuthResult, 1),
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/callback?state=state-token&token=secret&email=a%40example.test", nil)
+
+	server.handleCallback(recorder, request)
+
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusSeeOther)
+	}
+	if got := recorder.Header().Get("Location"); got != "https://app.example.test/cli/authorized" {
+		t.Fatalf("Location = %q", got)
+	}
+	if got := recorder.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Fatalf("Referrer-Policy = %q, want no-referrer", got)
+	}
+	result := <-server.resultCh
+	if result.Token != "secret" || result.Email != "a@example.test" {
+		t.Fatalf("result = %+v", result)
 	}
 }
