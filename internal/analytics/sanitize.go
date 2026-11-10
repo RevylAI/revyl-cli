@@ -10,7 +10,7 @@ import (
 const maxSanitizedStringLength = 500
 
 var (
-	apiKeyPattern      = regexp.MustCompile(`\b(?:rk|revyl_sk)_[A-Za-z0-9._-]{8,}\b`)
+	apiKeyPattern      = regexp.MustCompile(`\brk_[A-Za-z0-9._-]{8,}\b`)
 	issuedTokenPattern = regexp.MustCompile(`\br(?:st|rt)_[a-z0-9][a-z0-9_-]{0,31}_[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])`)
 	bearerPattern      = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
 	secretKVPattern    = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*\S+`)

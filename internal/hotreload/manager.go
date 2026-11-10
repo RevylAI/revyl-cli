@@ -802,7 +802,6 @@ func (m *Manager) monitorLocalDevServerHealth(ctx context.Context, devServer Dev
 	defer ticker.Stop()
 
 	consecutiveConnectionRefused := 0
-	var firstRefusedAt, outageStartedAt time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -811,23 +810,13 @@ func (m *Manager) monitorLocalDevServerHealth(ctx context.Context, devServer Dev
 			check := checkMetroHealth(devServer.GetPort(), "")
 			if check.Passed {
 				consecutiveConnectionRefused = 0
-				if !outageStartedAt.IsZero() {
-					m.log("Local %s dev server is responsive again after %s unreachable; continuing.", devServer.Name(), time.Since(outageStartedAt).Round(time.Second))
-					outageStartedAt = time.Time{}
-				}
 				continue
 			}
 
 			if localHealthCheckConnectionRefused(check) {
 				consecutiveConnectionRefused++
-				if consecutiveConnectionRefused == 1 {
-					firstRefusedAt = time.Now()
-				}
 				if consecutiveConnectionRefused < localDevServerFailuresBeforeFatal {
 					continue
-				}
-				if outageStartedAt.IsZero() {
-					outageStartedAt = firstRefusedAt
 				}
 				recovered := m.handleRuntimeFailure(ctx, RuntimeFailure{
 					Kind:     RuntimeFailureLocalDevServerDown,
@@ -913,9 +902,7 @@ func (m *Manager) tryRecoverLocalDevServer(ctx context.Context, failure RuntimeF
 	}
 
 	if checkMetroHealth(devServer.GetPort(), "").Passed {
-		if failure.ProcessExited {
-			m.log("Local %s dev server process exited, but port %d still answers; continuing.", devServer.Name(), devServer.GetPort())
-		}
+		m.log("Local %s dev server is responsive again; continuing.", devServer.Name())
 		return true, failure
 	}
 

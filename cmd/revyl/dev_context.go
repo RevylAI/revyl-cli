@@ -82,7 +82,6 @@ const (
 	devContextStatusFile   = "status.json"
 	devContextManifestFile = "manifest.json"
 	devContextCurrentFile  = "_current"
-	devActiveLoopsDir      = "_active"
 
 	devContextStateRunning = "running"
 	devContextStateStopped = "stopped"
@@ -404,83 +403,6 @@ func printIfDevStartContextAlreadyRunning(repoRoot, ctxName string, invocation p
 	}
 	printDevContextAlreadyRunning(existing)
 	return true, nil
-}
-
-func devActiveLoopPath(repoRoot string, pid int) privateRuntimePath {
-	return privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, devActiveLoopsDir, strconv.Itoa(pid))}
-}
-
-// claimDevLoop records this process as a dev loop in the project from the
-// start of startup, before its context is visible, and then refuses an
-// implicit start while any other loop runs or holds a claim. Each start writes
-// its claim before it checks, so of two overlapping starts at least one sees
-// the other; at worst both refuse, never both proceed. It returns the release;
-// --context skips the refusal to start a second loop on purpose.
-func claimDevLoop(repoRoot, explicitContext string) (func(), error) {
-	path := devActiveLoopPath(repoRoot, os.Getpid())
-	if err := writeManagedRuntimeFile(path, nil); err != nil {
-		return nil, fmt.Errorf("failed to record the dev loop for this project: %w", err)
-	}
-	release := func() { _ = removeManagedRuntimeFile(path) }
-	if strings.TrimSpace(explicitContext) != "" {
-		return release, nil
-	}
-	if err := refuseConcurrentDevLoop(repoRoot); err != nil {
-		release()
-		return nil, err
-	}
-	return release, nil
-}
-
-// findOtherDevLoop returns another live dev loop in the project: a running
-// context or a live claim. A detached child ignores the parent that spawned
-// it. contextName is empty for a loop that is still starting.
-func findOtherDevLoop(repoRoot string) (contextName string, pid int, found bool) {
-	ownPID := os.Getpid()
-	spawningParentPID := 0
-	if isDetachedDevChild() {
-		spawningParentPID = os.Getppid()
-	}
-	contexts, _ := listDevContexts(repoRoot)
-	for _, ctx := range contexts {
-		if ctx.State == devContextStateRunning && ctx.PID != ownPID && ctx.PID != spawningParentPID {
-			return ctx.Name, ctx.PID, true
-		}
-	}
-	root, err := privatefs.OpenDirectory(repoRoot, filepath.Join(".revyl", devContextsDir, devActiveLoopsDir))
-	if err != nil {
-		return "", 0, false
-	}
-	defer func() { _ = root.Close() }()
-	entries, _ := fs.ReadDir(root.FS(), ".")
-	for _, entry := range entries {
-		loopPID, parseErr := strconv.Atoi(entry.Name())
-		if parseErr != nil || loopPID == ownPID || loopPID == spawningParentPID {
-			continue
-		}
-		if isProcessAlive(loopPID) {
-			return "", loopPID, true
-		}
-		_ = root.Remove(entry.Name())
-	}
-	return "", 0, false
-}
-
-func refuseConcurrentDevLoop(repoRoot string) error {
-	contextName, pid, found := findOtherDevLoop(repoRoot)
-	if !found {
-		return nil
-	}
-	if contextName == "" {
-		return analytics.WithFailureClass(fmt.Errorf(
-			"another dev loop (PID %d) is starting in this project; wait for it and use 'revyl dev list', or pass --context <name> to start a second loop on purpose",
-			pid,
-		), analytics.FailureClassUsage)
-	}
-	return analytics.WithFailureClass(fmt.Errorf(
-		"a dev loop is already running in this project (context '%s', PID %d); reuse it, stop it with 'revyl dev stop %s', or pass --context <name> to start a second loop on purpose",
-		contextName, pid, contextName,
-	), analytics.FailureClassUsage)
 }
 
 func suggestAutoDevContextName(repoRoot, platform string) string {
@@ -1345,7 +1267,7 @@ func printDevContextAlreadyRunning(ctx *DevContext) {
 	ui.PrintDim("  revyl dev status --context %s    # check context state", ctx.Name)
 	ui.PrintDim("  revyl dev rebuild --context %s   # trigger a rebuild", ctx.Name)
 	ui.PrintDim("  revyl dev stop --context %s      # stop this context", ctx.Name)
-	ui.PrintDim("  revyl dev --context <name>        # start a second loop on purpose")
+	ui.PrintDim("  revyl dev                         # start another loop with an automatic name")
 	ui.Println()
 	ui.PrintInfo("Interact with the device:")
 	ui.PrintDim("    revyl device tap --target \"Login button\" -s %d    # AI-grounded tap", ctx.SessionIndex)

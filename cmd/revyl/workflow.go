@@ -46,7 +46,7 @@ COMMANDS:
   share        - Generate shareable report link
   location     - Manage stored GPS location override
   app          - Manage stored app overrides (per platform)
-  config       - Manage run configuration (retries)
+	config       - Manage run configuration
   quarantine   - Manage test quarantine (ignore failures in CI)
 
 EXAMPLES:
@@ -206,7 +206,8 @@ func init() {
 
 	// workflow run flags (reuse run.go vars)
 	workflowRunCmd.Flags().Int("concurrency", 0, "Maximum concurrent tests for this run (0 removes the workflow cap; omitted uses the saved default). Organization capacity still applies.")
-	workflowRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
+	workflowRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Deprecated: whole-test retries are no longer supported")
+	_ = workflowRunCmd.Flags().MarkHidden("retries")
 	workflowRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after workflow starts without waiting")
 	workflowRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete (default in interactive terminals)")
 	workflowRunCmd.Flags().BoolVar(&runNoOpen, "no-open", false, "Do not open report in browser when complete")
@@ -579,12 +580,9 @@ func renderWorkflowInfoCLI(
 			}
 		}
 
-		if retries, hasRetries := full.RunConfigRetries(); hasRetries || full.OverrideRunConfig {
+		if full.OverrideRunConfig {
 			ui.Println()
 			ui.PrintInfo("Run Config")
-			if hasRetries {
-				ui.PrintKeyValue("Retries:", fmt.Sprintf("%d", retries))
-			}
 			ui.PrintKeyValue("Override:", workflowRunConfigOverrideLabel(full.OverrideRunConfig))
 		}
 	}

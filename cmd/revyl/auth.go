@@ -126,10 +126,10 @@ EXAMPLES:
   revyl auth login --browser  # Legacy loopback browser login
   revyl auth status           # Check authentication status`,
 	Example: `  revyl auth login
-  revyl auth login --api-key=revyl_sk_xxx
+  revyl auth login --api-key=rk_xxx
   revyl auth login --api-key
   revyl auth login --browser
-  REVYL_API_KEY=revyl_sk_xxx revyl auth status`,
+  REVYL_API_KEY=rk_xxx revyl auth status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		recordSetupRef(cmd)
 		ui.PrintBanner(version)

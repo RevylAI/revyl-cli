@@ -441,31 +441,3 @@ func lastEvent(t *testing.T, rec *Recorder) TelemetryEvent {
 	}
 	return rec.events[len(rec.events)-1]
 }
-
-func TestCommandEventsCarryTheSanitizedIntent(t *testing.T) {
-	command := &cobra.Command{Use: "run"}
-	command.Flags().String("intent", "", "")
-
-	rec := testRecorder()
-	rec.StartCommand(command, nil)
-	if _, ok := lastEvent(t, rec).Properties["intent"]; ok {
-		t.Fatal("intent set without a stated intent")
-	}
-
-	if err := command.Flags().Set("intent", "verify guest checkout with token=abc123secret"); err != nil {
-		t.Fatal(err)
-	}
-	rec = testRecorder()
-	rec.StartCommand(command, nil).Complete(nil)
-	rec.mu.Lock()
-	events := append([]TelemetryEvent(nil), rec.events...)
-	rec.mu.Unlock()
-	if len(events) != 2 {
-		t.Fatalf("recorded %d events, want start and completion", len(events))
-	}
-	for _, event := range events {
-		if got := event.Properties["intent"]; got != "verify guest checkout with token=<redacted>" {
-			t.Fatalf("%s intent = %v", event.Event, got)
-		}
-	}
-}

@@ -90,6 +90,12 @@ var runWorkflowExecution = execution.RunWorkflow
 var runOpenBrowserFn = ui.OpenBrowser
 var runReportBrowserSupportedFn = runReportBrowserSupported
 
+func warnDeprecatedWholeTestRetries(cmd *cobra.Command) {
+	if cmd.Flags().Changed("retries") {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Whole-test retries are no longer supported; each test runs once")
+	}
+}
+
 // resolveRunOpen determines whether a completed report should auto-open.
 // Reports open by default only for blocking human-terminal runs. Explicit
 // --no-open wins over --open, and machine/headless invocations never open.
@@ -276,10 +282,7 @@ func startRunInterruptHandler(
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runTestExec(cmd *cobra.Command, args []string) error {
-	// Validate retries range
-	if runRetries < minRetries || runRetries > maxRetries {
-		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
-	}
+	warnDeprecatedWholeTestRetries(cmd)
 	if strings.TrimSpace(runTestProfile) != "" && !runTestBuild {
 		return fmt.Errorf("--profile requires --build")
 	}
@@ -358,9 +361,6 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Running Test")
 	ui.Println()
 	ui.PrintInfo("Test ID: %s", testID)
-	if runRetries > 1 {
-		ui.PrintInfo("Retries: %d", runRetries)
-	}
 	if runBuildID != "" {
 		ui.PrintInfo("Build Version: %s", runBuildID)
 	}
@@ -492,7 +492,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	result, err := runTestExecution(ctx, apiKey, nil, execution.RunTestParams{
 		TestNameOrID:               testID,
 		TestsDir:                   testsDir,
-		Retries:                    runRetries,
+		Retries:                    1,
 		BuildVersionID:             effectiveBuildVersionID,
 		BranchName:                 effectiveBranchName,
 		GitBranchName:              gitBranchName,
@@ -861,6 +861,7 @@ func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, io
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runWorkflowExec(cmd *cobra.Command, args []string) error {
+	warnDeprecatedWholeTestRetries(cmd)
 	var concurrencyLimitOverride *int
 	if cmd.Flags().Changed("concurrency") {
 		concurrency, err := cmd.Flags().GetInt("concurrency")
@@ -887,10 +888,6 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 	if runWorkflowAndroidBuildID != "" && (runWorkflowAndroidAppID == "" || runWorkflowAndroidBuild != "") {
 		return fmt.Errorf("--android-build-id requires --android-app and cannot be combined with --android-build")
-	}
-	// Validate retries range
-	if runRetries < minRetries || runRetries > maxRetries {
-		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
 	}
 	if strings.TrimSpace(runWorkflowProfile) != "" && !runWorkflowBuild {
 		return fmt.Errorf("--profile requires --build")
@@ -1041,9 +1038,6 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Running Workflow")
 	ui.Println()
 	ui.PrintInfo("Workflow ID: %s", workflowID)
-	if runRetries > 1 {
-		ui.PrintInfo("Retries: %d", runRetries)
-	}
 	if effectiveIOSAppID != "" {
 		ui.PrintInfo("iOS App Override: %s", effectiveIOSAppID)
 	}
@@ -1130,7 +1124,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		queuedResult, err := queueWorkflowExecution(cmd.Context(), apiKey, workflowDisplayName, execution.RunWorkflowParams{
 			ConcurrencyLimitOverride:   concurrencyLimitOverride,
 			WorkflowNameOrID:           workflowID,
-			Retries:                    runRetries,
+			Retries:                    1,
 			DevMode:                    devMode,
 			IOSAppID:                   effectiveIOSAppID,
 			AndroidAppID:               effectiveAndroidAppID,
@@ -1201,7 +1195,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	result, err := runWorkflowExecution(ctx, apiKey, nil, execution.RunWorkflowParams{
 		ConcurrencyLimitOverride:   concurrencyLimitOverride,
 		WorkflowNameOrID:           workflowID,
-		Retries:                    runRetries,
+		Retries:                    1,
 		Timeout:                    effectiveTimeout,
 		DevMode:                    devMode,
 		MonitoringMode:             sse.MonitoringModePolling,

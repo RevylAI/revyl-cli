@@ -130,7 +130,7 @@ func TestWorkflowConfigSetPreservesStoredRunConfigAndOverride(t *testing.T) {
 		"run_config": map[string]interface{}{
 			"llm_config": map[string]interface{}{"model": "configured-model"},
 			"execution_mode": map[string]interface{}{
-				"retries":             float64(3),
+				"retries":             float64(1),
 				"enable_reflection":   false,
 				"initial_orientation": "landscape",
 			},
@@ -159,7 +159,7 @@ func TestWorkflowConfigSetCreatesRunConfigWhenUnset(t *testing.T) {
 	wantBody := map[string]interface{}{
 		"override_run_config": false,
 		"run_config": map[string]interface{}{
-			"execution_mode": map[string]interface{}{"retries": float64(2)},
+			"execution_mode": map[string]interface{}{"retries": float64(1)},
 		},
 	}
 	if !reflect.DeepEqual(body, wantBody) {
@@ -167,8 +167,8 @@ func TestWorkflowConfigSetCreatesRunConfigWhenUnset(t *testing.T) {
 	}
 
 	output := parseJSON(t, stdout)
-	if output["retries"] != float64(2) || output["override_run_config"] != false {
-		t.Fatalf("config set --json = %#v, want retries 2 and override_run_config false", output)
+	if output["retries"] != float64(1) || output["override_run_config"] != false {
+		t.Fatalf("config set --json = %#v, want effective retries 1 and override_run_config false", output)
 	}
 }
 
@@ -248,7 +248,7 @@ func TestWorkflowConfigSetRetriesValidation(t *testing.T) {
 		flagArgs  []string
 		wantError string
 	}{
-		{name: "missing", flagArgs: []string{"--json"}, wantError: "--retries or --concurrency is required"},
+		{name: "missing", flagArgs: []string{"--json"}, wantError: "--concurrency is required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := newWorkflowConfigServer(t, storedWorkflowRunConfigJSON)
@@ -290,7 +290,7 @@ func TestWorkflowConfigShowJSONReportsStoredRunConfig(t *testing.T) {
 
 	output := parseJSON(t, stdout)
 	if output["retries"] != float64(1) || output["override_run_config"] != true {
-		t.Fatalf("config show --json = %#v, want retries 1 and override_run_config true", output)
+		t.Fatalf("config show --json = %#v, want effective retries 1 and override_run_config true", output)
 	}
 	if len(output) != 3 {
 		t.Fatalf("config show --json = %#v, want retries, override_run_config, and default_concurrency_limit", output)

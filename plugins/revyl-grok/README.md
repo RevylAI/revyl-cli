@@ -1,7 +1,7 @@
 # Revyl plugin for Grok Build
 
-Opens your mobile app's Revyl Atlas map and live cloud iOS, Android, web and
-macOS sessions inside Grok through Revyl's hosted MCP server.
+Opens your mobile app's Revyl Atlas map and live cloud iOS and Android device
+sessions inside Grok through Revyl's hosted MCP server.
 
 The plugin contains one MCP server configuration and one skill. It has no
 hooks, runs no local commands, and downloads nothing.

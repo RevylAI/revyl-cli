@@ -162,7 +162,6 @@ func init() {
 	rootCmd.PersistentFlags().Bool("json", false, "Output results as JSON (where supported)")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
 	rootCmd.PersistentFlags().StringP("chdir", "C", "", "Run as if started in this directory (the project dir containing .revyl/)")
-	rootCmd.PersistentFlags().String("intent", "", "What you are trying to do with this command, in plain words; recommended for agents (max 500 chars). Recorded with the command's usage analytics")
 
 	_ = rootCmd.PersistentFlags().MarkHidden("dev")
 

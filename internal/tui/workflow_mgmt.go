@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	gosync "sync"
 	"time"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -1306,8 +1304,7 @@ const (
 	wfSettingsSectionTests    = 0
 	wfSettingsSectionApp      = 1
 	wfSettingsSectionLocation = 2
-	wfSettingsSectionConfig   = 3
-	wfSettingsSectionCount    = 4
+	wfSettingsSectionCount    = 3
 )
 
 // fetchWorkflowSettingsCmd loads the data needed for the workflow settings screen:
@@ -1622,8 +1619,6 @@ func settingsSectionMaxCursor(m hubModel) int {
 		return 1
 	case wfSettingsSectionLocation:
 		return 1
-	case wfSettingsSectionConfig:
-		return 0
 	}
 	return 0
 }
@@ -1712,12 +1707,6 @@ func startSettingsEdit(m *hubModel) {
 				}
 			}
 		}
-	case wfSettingsSectionConfig:
-		m.wfSettingsEditField = "retries"
-		m.wfSettingsInput.Placeholder = fmt.Sprintf("Attempts per test, including the first (%d-%d)", execution.MinRetries, execution.MaxRetries)
-		if retries, ok := wf.RunConfigRetries(); ok {
-			m.wfSettingsInput.SetValue(strconv.Itoa(retries))
-		}
 	}
 }
 
@@ -1791,14 +1780,6 @@ func applySettingsEdit(m *hubModel) {
 			wf.LocationConfig["longitude"] = val
 		}
 		wf.OverrideLocation = len(wf.LocationConfig) > 0
-		m.wfSettingsDirty = true
-	case "retries":
-		retries, err := strconv.Atoi(val)
-		if err != nil || retries < execution.MinRetries || retries > execution.MaxRetries {
-			m.wfSettingsEditErr = fmt.Sprintf("Retries must be a whole number from %d to %d", execution.MinRetries, execution.MaxRetries)
-			return
-		}
-		wf.SetRunConfigRetries(retries)
 		m.wfSettingsDirty = true
 	}
 }
@@ -1962,38 +1943,6 @@ func renderWorkflowSettings(m hubModel) string {
 	}
 	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", latCursor, dimStyle.Render("Latitude:"), latVal))
 	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", lngCursor, dimStyle.Render("Longitude:"), lngVal))
-
-	// --- Run Config section ---
-	if m.wfSettingsSection == wfSettingsSectionConfig {
-		b.WriteString("\n" + sectionStyle.Render("  RUN CONFIG") + "  " + selectedStyle.Render("◀") + "\n")
-	} else {
-		b.WriteString("\n" + sectionStyle.Render("  RUN CONFIG") + "\n")
-	}
-	b.WriteString("  " + separator(innerW) + "\n")
-
-	retriesVal := dimStyle.Render(fmt.Sprintf("%d (default)", execution.MinRetries))
-	overrideVal := dimStyle.Render("off (tests use their own run config)")
-	if wf != nil {
-		if retries, ok := wf.RunConfigRetries(); ok {
-			retriesVal = normalStyle.Render(strconv.Itoa(retries))
-		}
-		if wf.OverrideRunConfig {
-			overrideVal = normalStyle.Render("on")
-		}
-	}
-
-	retCursor := "  "
-	if m.wfSettingsSection == wfSettingsSectionConfig {
-		retCursor = selectedStyle.Render("▸ ")
-		if m.wfSettingsEditing {
-			retriesVal = m.wfSettingsInput.View()
-		}
-	}
-	b.WriteString(fmt.Sprintf("  %s%-14s %s\n", retCursor, dimStyle.Render("Retries:"), retriesVal))
-	b.WriteString(fmt.Sprintf("    %-14s %s\n", dimStyle.Render("Override:"), overrideVal))
-	if m.wfSettingsEditErr != "" {
-		b.WriteString("  " + errorStyle.Render(m.wfSettingsEditErr) + "\n")
-	}
 
 	// --- Footer ---
 	b.WriteString("\n  " + separator(innerW) + "\n")

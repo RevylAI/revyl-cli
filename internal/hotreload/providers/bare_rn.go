@@ -44,7 +44,6 @@ type BareRNDevServer struct {
 	cmd            *exec.Cmd
 	cancel         context.CancelFunc
 	processDone    chan error
-	stderr         *processStderr
 	stopping       bool
 	mu             sync.Mutex
 	ready          bool
@@ -122,18 +121,10 @@ func (b *BareRNDevServer) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to capture stdout: %w", err)
 	}
 
-	errChan := make(chan error, 1)
-	b.stderr = newProcessStderr(func(line string) {
-		b.emitProcessOutput(outputCallback, hotreload.DevServerOutputStderr, line)
-		if isMetroFatalError(line) {
-			select {
-			case errChan <- fmt.Errorf("Metro error: %s", line):
-			default:
-			}
-		}
-	})
-	b.cmd.Stderr = b.stderr
-	b.cmd.WaitDelay = processOutputWaitDelay
+	stderr, err := b.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to capture stderr: %w", err)
+	}
 
 	if err := b.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start Metro bundler: %w", err)
@@ -143,10 +134,23 @@ func (b *BareRNDevServer) Start(ctx context.Context) error {
 	go b.watchProcess(ctx, b.cmd, b.processDone)
 
 	readyChan := make(chan bool, 1)
+	errChan := make(chan error, 1)
 	signalReady := newReadyNotifier(readyChan)
 
 	go func() {
 		b.streamStdout(stdout, outputCallback, signalReady)
+	}()
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			b.emitProcessOutput(outputCallback, hotreload.DevServerOutputStderr, line)
+			if isMetroFatalError(line) {
+				errChan <- fmt.Errorf("Metro error: %s", line)
+				return
+			}
+		}
 	}()
 
 	go func() {
@@ -240,12 +244,18 @@ func (b *BareRNDevServer) watchProcess(ctx context.Context, cmd *exec.Cmd, done 
 	b.mu.Lock()
 	shouldReport := b.ready && !b.stopping && b.cmd == cmd && ctx.Err() == nil
 	port := b.Port
-	stderr := b.stderr
 	b.mu.Unlock()
 	if !shouldReport {
 		return
 	}
-	b.emitFailure(unexpectedProcessExitFailure(b.Name(), port, "Metro bundler exited unexpectedly", err, stderr.Tail()))
+	b.emitFailure(hotreload.RuntimeFailure{
+		Kind:     hotreload.RuntimeFailureLocalDevServerDown,
+		Provider: b.Name(),
+		Port:     port,
+		Detail:   processExitDetail("Metro bundler exited unexpectedly", err),
+		Fatal:    true,
+		Err:      err,
+	})
 }
 
 func (b *BareRNDevServer) Failures() <-chan hotreload.RuntimeFailure {

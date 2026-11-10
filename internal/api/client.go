@@ -1011,6 +1011,9 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 	if req == nil {
 		return nil, fmt.Errorf("test execution request is nil")
 	}
+	// Whole-test retries were removed from the public CLI. Keep requests from
+	// older callers compatible while forcing the effective attempt count to one.
+	req.Retries = 1
 	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
@@ -1079,6 +1082,9 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 	if req == nil {
 		return nil, fmt.Errorf("workflow execution request is nil")
 	}
+	// Whole-test retries were removed from the public CLI. Keep requests from
+	// older callers compatible while forcing the effective attempt count to one.
+	req.Retries = 1
 	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
 	}
@@ -4742,8 +4748,6 @@ type DeviceSessionDetail struct {
 	TestName        *string                 `json:"test_name"`
 	UserEmail       *string                 `json:"user_email"`
 	CanCancel       bool                    `json:"can_cancel"`
-
-	ViewerLookupTimedOut bool `json:"viewer_lookup_timed_out,omitempty"`
 }
 
 var webAppFailurePattern = regexp.MustCompile(`; app_failure=([a-z_]{1,64}); (.+)$`)

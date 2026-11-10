@@ -406,8 +406,8 @@ func TestRunWorkflowExecNoWaitOutputsQueuedJSON(t *testing.T) {
 	if executeReq.WorkflowID != "wf-uuid-001" {
 		t.Fatalf("WorkflowID = %q, want wf-uuid-001", executeReq.WorkflowID)
 	}
-	if executeReq.Retries != 2 {
-		t.Fatalf("Retries = %d, want 2", executeReq.Retries)
+	if executeReq.Retries != 1 {
+		t.Fatalf("Retries = %d, want 1", executeReq.Retries)
 	}
 }
 

@@ -566,8 +566,7 @@ func TestSessionTargetModeReachesTheServeEventThroughTheSDK(t *testing.T) {
 	}
 	commandRun.Complete(nil)
 	recorder.Flush()
-	terminal := captured.Events[len(captured.Events)-1]
-	if terminal.Event != analytics.CliCommandCompletedEvent || terminal.Properties["domain_status"] != "session_id" {
+	if len(captured.Events) != 2 || captured.Events[1].Properties["domain_status"] != "session_id" {
 		t.Fatalf("captured events = %+v, want the serve terminal event to record session_id targeting", captured.Events)
 	}
 }

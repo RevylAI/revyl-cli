@@ -24,11 +24,11 @@ import (
 // DefaultRunTimeoutSeconds is the default execution timeout for test and workflow runs.
 const DefaultRunTimeoutSeconds = 60 * 60
 
-// MinRetries and MaxRetries bound the attempts per test, including the first,
-// that the CLI accepts for a run or for a workflow's stored run config.
+// MinRetries and MaxRetries remain for source compatibility. Runs always use
+// one whole-test attempt.
 const (
 	MinRetries = 1
-	MaxRetries = 5
+	MaxRetries = 1
 )
 
 // testRunBuildReadTimeout bounds the read of the build a finished run used, so
@@ -39,7 +39,7 @@ const testRunBuildReadTimeout = 10 * time.Second
 //
 // Fields:
 //   - TestNameOrID: Test name (alias from config) or UUID
-//   - Retries: Number of retry attempts (1-5)
+//   - Retries: Deprecated whole-test retry count; runs always use one attempt
 //   - BuildVersionID: Optional specific build version ID
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
@@ -168,10 +168,7 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 	}
 
 	// Set defaults
-	retries := params.Retries
-	if retries == 0 {
-		retries = 1
-	}
+	retries := 1
 	timeout := params.Timeout
 	if timeout == 0 {
 		timeout = DefaultRunTimeoutSeconds
@@ -351,7 +348,7 @@ func attachTestRunBuild(ctx context.Context, client *api.Client, result *RunTest
 //
 // Fields:
 //   - WorkflowNameOrID: Workflow name (alias from config) or UUID
-//   - Retries: Number of retry attempts (1-5)
+//   - Retries: Deprecated whole-test retry count; runs always use one attempt
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
 //   - MonitoringMode: Monitoring transport to use while waiting for completion
@@ -504,10 +501,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 	workflowID := params.WorkflowNameOrID
 
 	// Set defaults
-	retries := params.Retries
-	if retries == 0 {
-		retries = 1
-	}
+	retries := 1
 	timeout := params.Timeout
 	if timeout == 0 {
 		timeout = DefaultRunTimeoutSeconds

@@ -29,11 +29,6 @@ type RuntimeFailure struct {
 	Detail   string
 	Fatal    bool
 	Err      error
-	// ProcessExited, ExitCode, and StderrTail describe a dev server process
-	// that died on its own; ExitCode is -1 when no exit status was reported.
-	ProcessExited bool
-	ExitCode      int
-	StderrTail    []string
 }
 
 func (f RuntimeFailure) Error() string {

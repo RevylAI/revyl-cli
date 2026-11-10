@@ -146,6 +146,7 @@ func TestStartSessionInsideComputerRefusesBeforeAPIWork(t *testing.T) {
 		{"device runner", StartSessionOptions{Platform: "ios", AppID: "app-123", DeviceRunnerID: "runner-1", ComputerSessionID: computerSessionID}},
 		{"app URL", StartSessionOptions{Platform: "ios", AppURL: "https://example.test/app.zip", ComputerSessionID: computerSessionID}},
 		{"test", StartSessionOptions{Platform: "ios", AppID: "app-123", TestID: "test-1", ComputerSessionID: computerSessionID}},
+		{"no build", StartSessionOptions{Platform: "ios", ComputerSessionID: computerSessionID, DisableInheritedLaunchVars: true}},
 		{"launch variable", StartSessionOptions{Platform: "ios", AppID: "app-123", LaunchVars: []string{"API_URL"}, ComputerSessionID: computerSessionID}},
 		{"launch environment", StartSessionOptions{Platform: "ios", AppID: "app-123", LaunchEnv: map[string]string{"A": "1"}, ComputerSessionID: computerSessionID}},
 		{"launch argument", StartSessionOptions{Platform: "ios", AppID: "app-123", LaunchArguments: []string{"-flag"}, ComputerSessionID: computerSessionID}},

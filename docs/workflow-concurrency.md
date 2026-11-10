@@ -29,11 +29,11 @@ snapshot, including after a worker restart. Concurrency applies independently
 of the test run-config override toggle.
 
 To remove the saved workflow cap, use `workflow config set` with `--concurrency 0`.
-This restores organization-governed
-concurrency. To change retries and the cap together, use
-`revyl workflow config set regression --retries 2 --concurrency 12`.
-Other stored settings are preserved. Retries still require the existing run-config
-override to be enabled to affect tests.
+This restores organization-governed concurrency.
+Whole-test retries are no longer supported. Older `--retries` invocations are
+accepted for compatibility, warn, and run each test once.
+Other stored settings are preserved. Reflection retries remain an internal
+step-level behavior.
 
 JSON output from `config show` and `config set` includes
 `default_concurrency_limit`: a positive integer when capped, or `null` when there

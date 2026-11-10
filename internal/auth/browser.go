@@ -154,26 +154,17 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 		return nil, err
 	}
 
-	authURL, err := url.Parse(b.config.AppURL)
-	if err != nil {
-		listener.Close()
-		return nil, fmt.Errorf("invalid app URL: %w", err)
-	}
-	signedInURL := *authURL
-	signedInURL.Path = "/cli/authorized"
-
 	// Create result channel
 	resultCh := make(chan *BrowserAuthResult, 1)
 	errCh := make(chan error, 1)
 
 	// Create HTTP server with the pre-bound listener
 	server := &callbackServer{
-		port:        port,
-		state:       state,
-		signedInURL: signedInURL.String(),
-		listener:    listener,
-		resultCh:    resultCh,
-		errCh:       errCh,
+		port:     port,
+		state:    state,
+		listener: listener,
+		resultCh: resultCh,
+		errCh:    errCh,
 	}
 
 	// Start the server
@@ -183,6 +174,11 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 	}
 	defer server.Stop()
 
+	// Build auth URL
+	authURL, err := url.Parse(b.config.AppURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid app URL: %w", err)
+	}
 	authURL.Path = "/cli/auth"
 	query := authURL.Query()
 	query.Set("port", fmt.Sprintf("%d", port))
@@ -252,15 +248,13 @@ func (b *BrowserAuth) GetAuthURL(port int, state string) string {
 
 // callbackServer is a temporary HTTP server that handles the OAuth callback.
 type callbackServer struct {
-	port  int
-	state string
-	// signedInURL is the app page the browser lands on after a successful callback.
-	signedInURL string
-	listener    net.Listener // Pre-bound listener to avoid race conditions
-	resultCh    chan *BrowserAuthResult
-	errCh       chan error
-	server      *http.Server
-	wg          sync.WaitGroup
+	port     int
+	state    string
+	listener net.Listener // Pre-bound listener to avoid race conditions
+	resultCh chan *BrowserAuthResult
+	errCh    chan error
+	server   *http.Server
+	wg       sync.WaitGroup
 }
 
 // Start starts the callback server using the pre-bound listener.
@@ -339,18 +333,121 @@ func (s *callbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 		AuthMethod: query.Get("auth_method"),
 	}
 
-	s.redirectToSignedInPage(w, r)
+	// Send success response
+	s.sendSuccessResponse(w)
 
 	// Send result
 	s.resultCh <- result
 }
 
-// redirectToSignedInPage sends the browser to the app's signed-in page. The
-// callback URL carries the credential, so the redirect withholds the referrer.
-func (s *callbackServer) redirectToSignedInPage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, s.signedInURL, http.StatusSeeOther)
+// sendSuccessResponse sends an HTML success page to the browser.
+func (s *callbackServer) sendSuccessResponse(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head>
+    <title>Revyl CLI - Authentication Successful</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #0a0a0a;
+        }
+        .container {
+            background: #0d0d0d;
+            border: 1px solid rgba(157, 97, 255, 0.2);
+            padding: 48px 56px;
+            text-align: center;
+            max-width: 400px;
+            position: relative;
+        }
+        .corner {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+        }
+        .corner-tl {
+            top: -1px;
+            left: -1px;
+            border-top: 2px solid #9D61FF;
+            border-left: 2px solid #9D61FF;
+        }
+        .corner-tr {
+            top: -1px;
+            right: -1px;
+            border-top: 2px solid #9D61FF;
+            border-right: 2px solid #9D61FF;
+        }
+        .corner-bl {
+            bottom: -1px;
+            left: -1px;
+            border-bottom: 2px solid #9D61FF;
+            border-left: 2px solid #9D61FF;
+        }
+        .corner-br {
+            bottom: -1px;
+            right: -1px;
+            border-bottom: 2px solid #9D61FF;
+            border-right: 2px solid #9D61FF;
+        }
+        .icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(157, 97, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
+        .icon svg {
+            width: 24px;
+            height: 24px;
+            color: #9D61FF;
+        }
+        h1 {
+            color: #ffffff;
+            font-size: 20px;
+            margin: 0 0 8px;
+            font-weight: 600;
+        }
+        p {
+            color: #888;
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .close-hint {
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+        <div class="icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+        </div>
+        <h1>Authentication Successful</h1>
+        <p>You have successfully authenticated with the Revyl CLI.</p>
+        <p class="close-hint">You can close this window and return to your terminal.</p>
+    </div>
+</body>
+</html>`))
 }
 
 // sendErrorResponse sends an HTML error page to the browser.

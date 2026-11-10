@@ -5,46 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textinput"
-
 	"github.com/revyl/cli/internal/api"
 )
 
-func TestApplySettingsEditRetries(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		input       string
-		wantRetries int
-		wantDirty   bool
-		wantErr     bool
-	}{
-		{name: "within range", input: "3", wantRetries: 3, wantDirty: true},
-		{name: "above maximum", input: "20", wantRetries: 1, wantErr: true},
-		{name: "zero", input: "0", wantRetries: 1, wantErr: true},
-		{name: "not a number", input: "two", wantRetries: 1, wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := hubModel{
-				wfSettingsWorkflow: &api.Workflow{RunConfig: map[string]interface{}{
-					"execution_mode": map[string]interface{}{"retries": float64(1)},
-				}},
-				wfSettingsEditField: "retries",
-				wfSettingsInput:     textinput.New(),
-			}
-			m.wfSettingsInput.SetValue(tc.input)
-
-			applySettingsEdit(&m)
-
-			if retries, _ := m.wfSettingsWorkflow.RunConfigRetries(); retries != tc.wantRetries {
-				t.Fatalf("retries = %d, want %d", retries, tc.wantRetries)
-			}
-			if m.wfSettingsDirty != tc.wantDirty {
-				t.Fatalf("dirty = %v, want %v", m.wfSettingsDirty, tc.wantDirty)
-			}
-			if (m.wfSettingsEditErr != "") != tc.wantErr {
-				t.Fatalf("edit error = %q, want error %v", m.wfSettingsEditErr, tc.wantErr)
-			}
-		})
+func TestWorkflowSettingsDoesNotOfferWholeTestRetries(t *testing.T) {
+	m := hubModel{wfSettingsWorkflow: &api.Workflow{RunConfig: map[string]interface{}{
+		"execution_mode": map[string]interface{}{"retries": float64(3)},
+	}}}
+	if strings.Contains(renderWorkflowSettings(m), "Retries:") {
+		t.Fatal("whole-test retries must not be offered in workflow settings")
+	}
+	if wfSettingsSectionCount != 3 {
+		t.Fatal("whole-test retry settings must not be navigable")
 	}
 }
 

@@ -203,7 +203,8 @@ func init() {
 	testCreateCmd.Flags().StringVar(&createTestBuildID, "build-id", "", "Save an exact build")
 	testCreateCmd.Flags().BoolVar(&createTestAllBranches, allBranchesFlagName, false, "Save All branches · Latest build: each run uses the newest build across all of the app's branches")
 	// test run flags
-	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
+	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Deprecated: whole-test retries are no longer supported")
+	_ = testRunCmd.Flags().MarkHidden("retries")
 	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
 	testRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
 	testRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete (default in interactive terminals)")

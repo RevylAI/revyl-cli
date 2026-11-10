@@ -168,13 +168,6 @@ func computerSessionIDForStart(cmd *cobra.Command) string {
 	return computerID
 }
 
-// deviceStartOutput is the device start --json contract: the session plus the
-// computer it runs inside, or null for a standalone device.
-type deviceStartOutput struct {
-	*mcppkg.DeviceSession
-	ComputerSessionID *string `json:"computer_session_id"`
-}
-
 func deviceStartOpensBrowser(cmd *cobra.Command, computerSessionID string) bool {
 	openBrowser, _ := cmd.Flags().GetBool("open")
 	return openBrowser && (computerSessionID == "" || cmd.Flags().Changed("open"))
@@ -1014,6 +1007,9 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 			if err != nil {
 				return fmt.Errorf("resolve configured app for device start; pass --app-id to select an app: %w", err)
 			}
+			if appID == "" {
+				return fmt.Errorf("no %s app is configured; pass --app-id or set the recipe's app_id in .revyl/config.yaml", platform)
+			}
 		}
 		platform, err = normalizeDeviceStartPlatform(platform)
 		if err != nil {
@@ -1184,11 +1180,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 		}
 
 		if jsonOutput {
-			output := deviceStartOutput{DeviceSession: session}
-			if computerSessionID != "" {
-				output.ComputerSessionID = &computerSessionID
-			}
-			data, _ := json.MarshalIndent(withAppliedDefaults(cmd, output), "", "  ")
+			data, _ := json.MarshalIndent(withAppliedDefaults(cmd, session), "", "  ")
 			fmt.Println(string(data))
 		} else {
 			devMode, _ := cmd.Flags().GetBool("dev")
@@ -3817,7 +3809,7 @@ func init() {
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
-	deviceStartCmd.Flags().String("computer", "", "Run inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device")
+	deviceStartCmd.Flags().String("computer", "", "Run inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device. Experimental")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")

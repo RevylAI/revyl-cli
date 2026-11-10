@@ -7,8 +7,8 @@ skills: `revyl-cloud-app`, `revyl-dev-loop`, `revyl-proof-ci`, and
 in the host's cloud coding workspace, while connected MCP tools provide
 embedded views and explicitly requested service operations.
 Its technical package name is `revyl-workspace`, distinct from the existing
-`revyl` package, because OpenAI's directory lists it separately rather than as
-an MCP upgrade of the skills-only listing. Its display name remains Revyl.
+`revyl` package, so it can become a new submission rather than an attempted
+MCP upgrade of the skills-only listing. Its display name remains Revyl.
 
 The packager reuses the launchers, runtime pin, branding, references, and two CLI
 skills from `revyl-cli/plugins/revyl/`. It adds this directory's portable

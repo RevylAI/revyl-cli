@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,7 +11,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-func TestWorkflowConfigSetRejectsOutOfRangeRetries(t *testing.T) {
+func TestWorkflowConfigSetAcceptsDeprecatedRetries(t *testing.T) {
 	for _, input := range []int{0, -3, 6} {
 		t.Run(strconv.Itoa(input), func(t *testing.T) {
 			server := newWorkflowConfigServer(t, storedWorkflowRunConfigJSON)
@@ -20,20 +19,16 @@ func TestWorkflowConfigSetRejectsOutOfRangeRetries(t *testing.T) {
 			var notices strings.Builder
 			cmd.SetErr(&notices)
 			stdout := captureStdout(t, func() {
-				want := fmt.Sprintf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, input)
 				err := cmd.RunE(cmd, []string{"smoke-tests"})
-				if err == nil || err.Error() != want {
-					t.Fatalf("error=%v want=%q", err, want)
-				}
-				if got := reportedFailureClass(t, err); got != string(analytics.FailureClassUsage) {
-					t.Fatalf("failure_class=%s want=usage", got)
+				if err != nil {
+					t.Fatalf("error=%v", err)
 				}
 			})
-			if stdout != "" || notices.String() != "" {
-				t.Fatalf("unexpected new output: stdout=%q stderr=%q", stdout, notices.String())
+			if stdout == "" || !strings.Contains(notices.String(), "Whole-test retries are no longer supported") {
+				t.Fatalf("expected compatibility warning: stdout=%q stderr=%q", stdout, notices.String())
 			}
-			if server.requestCount != 0 {
-				t.Fatal("invalid explicit retries must not contact the backend")
+			if server.requestCount == 0 {
+				t.Fatal("deprecated retries must still update the backend")
 			}
 		})
 	}
@@ -108,7 +103,7 @@ func TestWorkflowConfigShowDefaults(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if output := parseJSON(t, stdout); output["retries"] != float64(1) || !strings.Contains(stdout, "workflow_retries_default") {
+	if output := parseJSON(t, stdout); output["retries"] != float64(1) || strings.Contains(stdout, "workflow_retries_default") {
 		t.Fatalf("output=%s", stdout)
 	}
 }

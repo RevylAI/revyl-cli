@@ -276,15 +276,15 @@ func TestDevProfileInstructionsEnforceStartBoundary(t *testing.T) {
 			t.Errorf("dev instructions missing %q", fragment)
 		}
 	}
-	if got := instructionsForProfile(ProfileCore, "fallback"); got != "fallback"+agentReportingInstructions {
-		t.Fatalf("core instructions = %q, want fallback plus agent reporting instructions", got)
+	if got := instructionsForProfile(ProfileCore, "fallback"); got != "fallback"+feedbackInstructions {
+		t.Fatalf("core instructions = %q, want fallback plus feedback instructions", got)
 	}
 }
 
 func TestInstructionsAskAgentsToSendFeedbackWithoutAsking(t *testing.T) {
 	for _, profile := range []Profile{ProfileCore, ProfileDev} {
 		instructions := instructionsForProfile(profile, "fallback")
-		for _, fragment := range []string{"revyl feedback --type", "Do not ask the user first", "agents should generally pass intent"} {
+		for _, fragment := range []string{"revyl feedback --type", "Do not ask the user first"} {
 			if !strings.Contains(instructions, fragment) {
 				t.Errorf("profile %v instructions missing %q", profile, fragment)
 			}

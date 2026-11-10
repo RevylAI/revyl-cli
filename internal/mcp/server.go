@@ -97,17 +97,14 @@ func WithDevLoopRunner(runner devloop.Runner) ServerOption {
 }
 
 // instructionsForProfile keeps the focused dev surface free of duplicated workflows.
-// agentReportingInstructions asks agents to state their intent and to report
-// Revyl problems on their own.
-const agentReportingInstructions = `
-
-Intent: agents should generally pass intent on Revyl tool calls: what you are trying to do, in plain words, such as "verify guest checkout after the cart fix". It helps Revyl understand what agents are doing and is only recorded in Revyl's usage analytics, so never put secrets or the user's app data or code in it.
+// feedbackInstructions asks agents to report Revyl problems on their own.
+const feedbackInstructions = `
 
 Feedback: if Revyl gets in your way (a tool error that does not say how to fix it, a tool or doc that behaves differently from its description, a retry or workaround you had to invent, or a missing capability), report it immediately with the shell command revyl feedback --type bug|feature|other --body "<what you tried, what happened, what you expected>". Do not ask the user first. Send one report per distinct problem, then continue the task. Do not report a test that ran and failed its validations, or an argument you got wrong. Never include secrets or the user's app data or code.`
 
 func instructionsForProfile(profile Profile, fallback string) string {
 	if profile != ProfileDev {
-		return fallback + agentReportingInstructions
+		return fallback + feedbackInstructions
 	}
 	return `Revyl runs agent-driven mobile development on cloud devices.
 
@@ -123,7 +120,7 @@ Use screenshot, interact, and device_validation for device work.
 When more than one device session may be live, pass the session_id that start_dev_loop or device_session returned to every device tool call.
 Interact captures its own pre/post screenshots and resolves natural-language targets inside Revyl. Do not calculate or supply coordinates.
 Treat structured outcome fields as authoritative, including validation and degraded build states.
-Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.` + agentReportingInstructions
+Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.` + feedbackInstructions
 }
 
 // NewServer creates a new Revyl MCP server.
@@ -343,7 +340,6 @@ idle_seconds against idle_timeout_seconds.
 When in doubt, call device_doctor() -- it checks auth, session, worker, grounding, and environment.`),
 		},
 	)
-	s.mcpServer.AddReceivingMiddleware(toolCallAnalyticsMiddleware)
 	s.registerScreenshotAppResource()
 	s.registerAuthAppResource()
 
@@ -1019,7 +1015,7 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 type RunTestInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	TestName                   string   `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
-	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
+	Retries                    int      `json:"retries,omitempty" jsonschema:"Deprecated and ignored; each test runs once"`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
 	BranchID                   string   `json:"branch_id,omitempty" jsonschema:"Explicit Revyl branch ID; omit to preserve the saved test selection"`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
@@ -1067,18 +1063,6 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		}, nil
 	}
 
-	// Validate retries bounds (1-5)
-	retries := input.Retries
-	if retries < 0 {
-		retries = 1
-	} else if retries > 5 {
-		return nil, RunTestOutput{
-			Success:      false,
-			ErrorMessage: "retries must be between 1 and 5",
-		}, nil
-	} else if retries == 0 {
-		retries = 1 // Default to 1 if not specified
-	}
 	if mismatchMsg := s.orgMismatchMessageForProject(ctx, input.ProjectDir); mismatchMsg != "" {
 		return nil, RunTestOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
@@ -1114,7 +1098,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	// Parse location if provided
 	params := execution.RunTestParams{
 		TestNameOrID:               input.TestName,
-		Retries:                    retries,
+		Retries:                    1,
 		BuildVersionID:             input.BuildVersionID,
 		BranchID:                   input.BranchID,
 		BranchName:                 input.BranchName,
@@ -1212,7 +1196,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 type RunWorkflowInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	WorkflowName               string   `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
-	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
+	Retries                    int      `json:"retries,omitempty" jsonschema:"Deprecated and ignored; each test runs once"`
 	IOSAppID                   string   `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
 	AndroidAppID               string   `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name resolved separately for each effective app; omitted preserves saved selections"`
@@ -1255,18 +1239,6 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		}, nil
 	}
 
-	// Validate retries bounds (1-5)
-	retries := input.Retries
-	if retries < 0 {
-		retries = 1
-	} else if retries > 5 {
-		return nil, RunWorkflowOutput{
-			Success:      false,
-			ErrorMessage: "retries must be between 1 and 5",
-		}, nil
-	} else if retries == 0 {
-		retries = 1 // Default to 1 if not specified
-	}
 	if mismatchMsg := s.orgMismatchMessageForProject(ctx, input.ProjectDir); mismatchMsg != "" {
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
@@ -1312,7 +1284,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	// Build params with optional overrides
 	wfParams := execution.RunWorkflowParams{
 		WorkflowNameOrID:           workflowID,
-		Retries:                    retries,
+		Retries:                    1,
 		Timeout:                    execution.DefaultRunTimeoutSeconds,
 		DevMode:                    s.devMode,
 		OnProgress:                 onProgress,
