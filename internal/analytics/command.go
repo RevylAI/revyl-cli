@@ -19,6 +19,7 @@ const (
 	CliCommandCompletedEvent = "cli_command_completed"
 	CliCommandFailedEvent    = "cli_command_failed"
 	McpToolCalledEvent       = "mcp_tool_called"
+	FeedbackHintShownEvent   = "cli_feedback_hint_shown"
 
 	// Output is buffered but never streamed: only a failing command attaches
 	// its tail, so successful runs contribute no output volume at all.
@@ -249,6 +250,20 @@ func RecordMCPToolCall(ctx context.Context, tool string, duration time.Duration,
 	}
 	run.capture(McpToolCalledEvent, props)
 	run.rec.flushInBackground()
+}
+
+// RecordFeedbackHintShown captures that a detected agent saw a `revyl
+// feedback` invitation of kind ("friction" or "failure") after the command
+// identified by commandID, and hands it to the best-effort sender. A command
+// without telemetry has no commandID and records nothing.
+func (r *Recorder) RecordFeedbackHintShown(cmd *cobra.Command, commandID, kind string) {
+	if !r.Enabled() || cmd == nil || commandID == "" {
+		return
+	}
+	run := &CommandRun{rec: r, commandID: commandID}
+	run.props = r.commandProps(cmd, nil, commandID)
+	run.capture(FeedbackHintShownEvent, map[string]interface{}{"feedback_hint_kind": kind})
+	r.Flush()
 }
 
 func (r *CommandRun) setCompletion(completion CommandCompletion) {

@@ -222,7 +222,26 @@ func TestPrintInitNextStepsAsksForAPreviewRecipeWhenNoneIsRunnable(t *testing.T)
 	)
 }
 
+func TestInitNextStepsAsksOnlyAgentsToReportSetupProblems(t *testing.T) {
+	cfg := &initConfigDraft{Project: initProjectDraft{Name: "app"}}
+
+	human := strings.Join(captureInitNextSteps(t, cfg, false), "\n")
+	if strings.Contains(human, "revyl feedback") {
+		t.Fatalf("human next steps mention feedback:\n%s", human)
+	}
+
+	t.Setenv("REVYL_AGENT", "my-agent")
+	agent := strings.Join(captureInitNextStepsInCurrentEnvironment(t, cfg, false), "\n")
+	assertOrderedSubstrings(t, agent, "revyl device start", "revyl feedback --type bug", "revyl feedback --type friction")
+}
+
 func captureInitNextSteps(t *testing.T, cfg *initConfigDraft, includeAuthLogin bool) []string {
+	t.Helper()
+	clearAgentEnvironment(t)
+	return captureInitNextStepsInCurrentEnvironment(t, cfg, includeAuthLogin)
+}
+
+func captureInitNextStepsInCurrentEnvironment(t *testing.T, cfg *initConfigDraft, includeAuthLogin bool) []string {
 	t.Helper()
 	quiet := ui.IsQuietMode()
 	ui.SetQuietMode(false)

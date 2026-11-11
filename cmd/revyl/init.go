@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/agentinfo"
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
@@ -4569,6 +4570,9 @@ func printInitNextSteps(cfg *initConfigDraft, includeAuthLogin bool) {
 	printStep("%s", cliRecoveryCommand("config", "push"))
 	printStep("%s", cliRecoveryCommand("build", "--profile", profile, "--platform", platformArgument, "--remote"))
 	printStep("%s", cliRecoveryCommand("device", "start", "--app-id", "<app-id>"))
+	if agentinfo.Detect().Name != "" {
+		ui.PrintInfo("If a setup step fails, report it with `revyl feedback --type bug`; if it works but is harder than it should be, use `revyl feedback --type friction`. Name the step and what blocked it.")
+	}
 }
 
 // initNextStepsProfile selects the profile the setup flow builds and publishes:

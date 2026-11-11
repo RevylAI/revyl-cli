@@ -3611,9 +3611,10 @@ func (e SupportContextSurface) Valid() bool {
 
 // Defines values for SupportRequestType.
 const (
-	SupportRequestTypeBug     SupportRequestType = "bug"
-	SupportRequestTypeFeature SupportRequestType = "feature"
-	SupportRequestTypeOther   SupportRequestType = "other"
+	SupportRequestTypeBug      SupportRequestType = "bug"
+	SupportRequestTypeFeature  SupportRequestType = "feature"
+	SupportRequestTypeFriction SupportRequestType = "friction"
+	SupportRequestTypeOther    SupportRequestType = "other"
 )
 
 // Valid indicates whether the value is a known member of the SupportRequestType enum.
@@ -3622,6 +3623,8 @@ func (e SupportRequestType) Valid() bool {
 	case SupportRequestTypeBug:
 		return true
 	case SupportRequestTypeFeature:
+		return true
+	case SupportRequestTypeFriction:
 		return true
 	case SupportRequestTypeOther:
 		return true
@@ -3872,9 +3875,10 @@ func (e ListAtlasAnnotationFeedbackParamsSeverity) Valid() bool {
 
 // Defines values for CreateSupportRequestMultipartBodyType.
 const (
-	CreateSupportRequestMultipartBodyTypeBug     CreateSupportRequestMultipartBodyType = "bug"
-	CreateSupportRequestMultipartBodyTypeFeature CreateSupportRequestMultipartBodyType = "feature"
-	CreateSupportRequestMultipartBodyTypeOther   CreateSupportRequestMultipartBodyType = "other"
+	CreateSupportRequestMultipartBodyTypeBug      CreateSupportRequestMultipartBodyType = "bug"
+	CreateSupportRequestMultipartBodyTypeFeature  CreateSupportRequestMultipartBodyType = "feature"
+	CreateSupportRequestMultipartBodyTypeFriction CreateSupportRequestMultipartBodyType = "friction"
+	CreateSupportRequestMultipartBodyTypeOther    CreateSupportRequestMultipartBodyType = "other"
 )
 
 // Valid indicates whether the value is a known member of the CreateSupportRequestMultipartBodyType enum.
@@ -3883,6 +3887,8 @@ func (e CreateSupportRequestMultipartBodyType) Valid() bool {
 	case CreateSupportRequestMultipartBodyTypeBug:
 		return true
 	case CreateSupportRequestMultipartBodyTypeFeature:
+		return true
+	case CreateSupportRequestMultipartBodyTypeFriction:
 		return true
 	case CreateSupportRequestMultipartBodyTypeOther:
 		return true
@@ -7582,6 +7588,18 @@ type DeviceSessionStopResponse struct {
 	Status        SessionStatus `json:"status"`
 	Success       bool          `json:"success"`
 	WorkflowRunId *string       `json:"workflow_run_id,omitempty"`
+}
+
+// DeviceStartRejection defines model for DeviceStartRejection.
+type DeviceStartRejection struct {
+	Code               *string             `json:"code,omitempty"`
+	RequestedSessionId *openapi_types.UUID `json:"requested_session_id,omitempty"`
+}
+
+// DeviceStartUnavailableResponse defines model for DeviceStartUnavailableResponse.
+type DeviceStartUnavailableResponse struct {
+	Detail    string                `json:"detail"`
+	Rejection *DeviceStartRejection `json:"rejection,omitempty"`
 }
 
 // DevinConnectionType defines model for DevinConnectionType.

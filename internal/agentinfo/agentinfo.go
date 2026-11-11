@@ -9,6 +9,7 @@ package agentinfo
 
 import (
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -26,13 +27,33 @@ type AgentInfo struct {
 	Remote bool
 }
 
+// EnvironmentVariables lists every variable Detect reads, so callers that must
+// run without agent attribution can clear them all.
+var EnvironmentVariables = []string{
+	"REVYL_AGENT",
+	"CODEX_SHELL", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+	"CURSOR_AGENT", "CURSOR_EXTENSION_HOST_ROLE",
+	"CLAUDE_CODE_REMOTE", "CLAUDECODE",
+	"GEMINI_CLI",
+	"OPENCODE", "OPENCODE_SESSION_ID",
+	"COPILOT_AGENT",
+	"CLINE_ACTIVE",
+}
+
+// declaredAgentNamePattern bounds a self-declared REVYL_AGENT name, which is
+// sent as a header and an analytics property.
+var declaredAgentNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,39}$`)
+
 // Detect inspects the process environment and returns the detected agent.
 //
 // Returns an AgentInfo whose Name is empty when no known agent runtime is
-// detected (e.g. a human running the CLI directly in a terminal).
+// detected (e.g. a human running the CLI directly in a terminal). A runtime
+// marker wins over a self-declared REVYL_AGENT name, except REVYL_AGENT=revyl,
+// which Revyl's own agent sets to override the markers it inherits.
 func Detect() AgentInfo {
+	declared := strings.ToLower(strings.TrimSpace(os.Getenv("REVYL_AGENT")))
 	switch {
-	case strings.EqualFold(strings.TrimSpace(os.Getenv("REVYL_AGENT")), "revyl"):
+	case declared == "revyl":
 		return AgentInfo{Name: "revyl"}
 	case os.Getenv("CODEX_SHELL") != "" || os.Getenv("CODEX_CI") != "" || strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")) != "":
 		return AgentInfo{
@@ -49,6 +70,16 @@ func Detect() AgentInfo {
 		return AgentInfo{Name: "claude_code", Remote: true}
 	case os.Getenv("CLAUDECODE") != "":
 		return AgentInfo{Name: "claude_code"}
+	case os.Getenv("GEMINI_CLI") == "1":
+		return AgentInfo{Name: "gemini_cli"}
+	case os.Getenv("OPENCODE") == "1":
+		return AgentInfo{Name: "opencode", SessionID: strings.TrimSpace(os.Getenv("OPENCODE_SESSION_ID"))}
+	case os.Getenv("COPILOT_AGENT") == "1":
+		return AgentInfo{Name: "copilot"}
+	case os.Getenv("CLINE_ACTIVE") == "true":
+		return AgentInfo{Name: "cline"}
+	case declaredAgentNamePattern.MatchString(declared):
+		return AgentInfo{Name: declared}
 	default:
 		return AgentInfo{}
 	}

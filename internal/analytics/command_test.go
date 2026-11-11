@@ -469,3 +469,36 @@ func TestCommandEventsCarryTheSanitizedIntent(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordFeedbackHintShownSendsOneBoundedFactForTheCommand(t *testing.T) {
+	var sent []TelemetryPayload
+	rec := &Recorder{
+		enabled:   true,
+		flush:     func(payload TelemetryPayload) { sent = append(sent, payload) },
+		baseProps: map[string]interface{}{"service": "revyl-cli", "agent": "codex"},
+	}
+	command := &cobra.Command{Use: "list"}
+	(&cobra.Command{Use: "revyl"}).AddCommand(command)
+
+	rec.RecordFeedbackHintShown(command, "", "friction")
+	rec.RecordFeedbackHintShown(command, "command-9", "friction")
+
+	if len(sent) != 1 || len(sent[0].Events) != 1 {
+		t.Fatalf("sent = %#v, want one payload with one event", sent)
+	}
+	event := sent[0].Events[0]
+	if event.Event != FeedbackHintShownEvent {
+		t.Fatalf("event = %q", event.Event)
+	}
+	for key, want := range map[string]interface{}{
+		"feedback_hint_kind": "friction",
+		"command_id":         "command-9",
+		"command":            "revyl list",
+		"agent":              "codex",
+		"positional_count":   0,
+	} {
+		if got := event.Properties[key]; got != want {
+			t.Fatalf("%s = %#v, want %#v", key, got, want)
+		}
+	}
+}

@@ -16,7 +16,7 @@ import (
 )
 
 func TestResolveFeedbackTypeRejectsUnknownValues(t *testing.T) {
-	if _, err := resolveFeedbackType("blocker"); err == nil || !strings.Contains(err.Error(), "bug, feature, or other") {
+	if _, err := resolveFeedbackType("blocker"); err == nil || !strings.Contains(err.Error(), "bug, friction, feature, or other") {
 		t.Fatalf("error = %v, want local type rejection", err)
 	}
 	got, err := resolveFeedbackType(" feature ")
@@ -265,5 +265,92 @@ func TestFeedbackRefCountsTowardMessageLimit(t *testing.T) {
 	root.SetArgs([]string{"feedback", "--type", "bug", "--ref", "run-1", strings.Repeat("x", feedbackBodyLimit)})
 	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "characters") {
 		t.Fatalf("error = %v, want length rejection", err)
+	}
+}
+
+func newFrictionFeedbackRoot(t *testing.T, handle func(requestType string) int) (*cobra.Command, *[]map[string]any) {
+	t.Helper()
+	var requests []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var captured map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, captured)
+		w.Header().Set("Content-Type", "application/json")
+		status := handle(captured["type"].(string))
+		w.WriteHeader(status)
+		if status != http.StatusOK {
+			_ = json.NewEncoder(w).Encode(map[string]any{"detail": []map[string]any{{"loc": []string{"body", "type"}, "msg": "Input should be 'bug', 'feature' or 'other'"}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"sent": true, "attachments_uploaded": true})
+	}))
+	t.Cleanup(server.Close)
+	original := feedbackSetupClient
+	feedbackSetupClient = func(*cobra.Command) (*api.Client, error) {
+		return api.NewClientWithBaseURL("test-key", server.URL), nil
+	}
+	t.Cleanup(func() { feedbackSetupClient = original })
+
+	root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().Bool("json", false, "")
+	root.PersistentFlags().Bool("dev", false, "")
+	root.AddCommand(newFeedbackCommand())
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	return root, &requests
+}
+
+func TestFrictionFeedbackSendsFrictionToACurrentBackend(t *testing.T) {
+	root, requests := newFrictionFeedbackRoot(t, func(string) int { return http.StatusOK })
+	root.SetArgs([]string{"feedback", "--type", "friction", "had to guess the build flag"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if len(*requests) != 1 || (*requests)[0]["type"] != "friction" || (*requests)[0]["message"] != "had to guess the build flag" {
+		t.Fatalf("requests = %#v", *requests)
+	}
+}
+
+func TestFrictionFeedbackFallsBackToOtherOnABackendWithoutFriction(t *testing.T) {
+	root, requests := newFrictionFeedbackRoot(t, func(requestType string) int {
+		if requestType == "friction" {
+			return http.StatusUnprocessableEntity
+		}
+		return http.StatusOK
+	})
+	root.SetArgs([]string{"feedback", "--type", "friction", "--ref", "run-1", "had to guess the build flag"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if len(*requests) != 2 {
+		t.Fatalf("requests = %#v, want the friction attempt and one fallback", *requests)
+	}
+	fallback := (*requests)[1]
+	if fallback["type"] != "other" || fallback["message"] != "[friction] had to guess the build flag\n\nRef: run-1" {
+		t.Fatalf("fallback = %#v", fallback)
+	}
+}
+
+func TestFeedbackFallbackOnlyAppliesToFriction(t *testing.T) {
+	root, requests := newFrictionFeedbackRoot(t, func(string) int { return http.StatusUnprocessableEntity })
+	root.SetArgs([]string{"feedback", "--type", "bug", "broken"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected the rejection to surface")
+	}
+	if len(*requests) != 1 {
+		t.Fatalf("requests = %#v, want no retry", *requests)
+	}
+}
+
+func TestFrictionFallbackPrefixFitsTheMessageLimit(t *testing.T) {
+	root, requests := newFrictionFeedbackRoot(t, func(string) int { return http.StatusOK })
+	root.SetArgs([]string{"feedback", "--type", "friction", strings.Repeat("x", feedbackBodyLimit-len(frictionFallbackPrefix)+1)})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "characters") {
+		t.Fatalf("error = %v, want length rejection", err)
+	}
+	if len(*requests) != 0 {
+		t.Fatalf("requests = %#v", *requests)
 	}
 }

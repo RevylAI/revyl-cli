@@ -55,6 +55,9 @@ type updateNoticeState struct {
 	UpcomingMinimumShownAt            time.Time `json:"upcoming_minimum_shown_at"`
 	UncommittedConfigMigrationShownAt time.Time `json:"uncommitted_config_migration_shown_at"`
 	FeedbackHintShownAt               time.Time `json:"feedback_hint_shown_at"`
+	// FrictionHintSessions maps each recently active agent conversation to its
+	// last command, to detect a conversation's start for the friction hint.
+	FrictionHintSessions map[string]time.Time `json:"friction_hint_sessions,omitempty"`
 }
 
 func updateAvailableShownAt(state *updateNoticeState) *time.Time {
@@ -319,6 +322,21 @@ func claimUpdateNotice(now time.Time, shownAt func(*updateNoticeState) *time.Tim
 // whether the caller may print, which is only when that notice was not shown
 // within interval on this machine.
 func claimNotice(now time.Time, interval time.Duration, shownAt func(*updateNoticeState) *time.Time) bool {
+	return updateNoticeStateLocked(now, func(state *updateNoticeState) (bool, bool) {
+		lastShown := shownAt(state)
+		if elapsed := now.Sub(*lastShown); elapsed >= 0 && elapsed < interval {
+			return false, false
+		}
+		*lastShown = now
+		return true, true
+	})
+}
+
+// updateNoticeStateLocked applies update to the persisted notice state under
+// the notice lock, saving the state when update reports a change. It returns
+// update's answer, or false when the state could not be locked or saved, so a
+// contended or unwritable state directory keeps every notice silent.
+func updateNoticeStateLocked(now time.Time, update func(*updateNoticeState) (answer bool, changed bool)) bool {
 	statePath := revylStateFilePath(updateNoticeFile)
 	if statePath == "" {
 		return false
@@ -336,16 +354,15 @@ func claimNotice(now time.Time, interval time.Duration, shownAt func(*updateNoti
 			log.Debug("Ignoring unreadable update notice state", "error", err)
 		}
 	}
-	lastShown := shownAt(&state)
-	if elapsed := now.Sub(*lastShown); elapsed >= 0 && elapsed < interval {
-		return false
+	answer, changed := update(&state)
+	if !changed {
+		return answer
 	}
-	*lastShown = now
 	if err := writeStateFileAtomically(statePath, state); err != nil {
-		log.Debug("Failed to record update notice time", "error", err)
+		log.Debug("Failed to record update notice state", "error", err)
 		return false
 	}
-	return true
+	return answer
 }
 
 // lockUpdateNoticeState takes an exclusive lock file without waiting. A lock

@@ -9,6 +9,7 @@ import (
 )
 
 var (
+	lastCommandID       string
 	lastFailedCommandID string
 	commandBodyStarted  bool
 )
@@ -25,6 +26,12 @@ func CommandBodyStarted() bool {
 // disabled or no command failed.
 func LastFailedCommandID() string {
 	return lastFailedCommandID
+}
+
+// LastCommandID returns the analytics command ID of the most recent invocation
+// in this process, or "" when telemetry was disabled or no command body ran.
+func LastCommandID() string {
+	return lastCommandID
 }
 
 func Install(root *cobra.Command, cfg analytics.Config) {
@@ -91,6 +98,7 @@ func completeCommandAnalytics(commandRun *analytics.CommandRun, err error, panic
 	if commandRun == nil {
 		return
 	}
+	lastCommandID = commandRun.CommandID()
 	if err != nil || panicked {
 		lastFailedCommandID = commandRun.CommandID()
 	}

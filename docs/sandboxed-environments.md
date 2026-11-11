@@ -48,16 +48,19 @@ for the current access and credential-storage constraints.
 
 ## Agent attribution
 
-The CLI detects Codex, Cursor, and Claude Code from their runtime environment
-markers. Revyl-owned agent runtimes set `REVYL_AGENT=revyl` on child CLI
-processes. This takes precedence over inherited agent markers and sends
-`X-Revyl-Agent: revyl` through the existing API attribution path. It does not
-reuse an inherited coding-agent session ID.
+The CLI detects Codex, Cursor, Claude Code, Gemini CLI, OpenCode, VS Code
+Copilot agent terminals, and Cline from their runtime environment markers.
+Revyl-owned agent runtimes set `REVYL_AGENT=revyl` on child CLI processes. This
+takes precedence over inherited agent markers and sends `X-Revyl-Agent: revyl`
+through the existing API attribution path. It does not reuse an inherited
+coding-agent session ID.
 
-Only `revyl` is supported for this explicit override, ignoring surrounding
-whitespace and case. Unrecognized values fall back to normal runtime detection;
-manual commands without an agent marker remain unattributed. This is display
-and telemetry metadata, not authentication or an authorization grant.
+Any other agent can declare itself with `REVYL_AGENT=<agent-name>`, ignoring
+surrounding whitespace and case. A detected runtime marker takes precedence
+over a declared name, and a name that is not 1 to 40 lowercase letters, digits,
+`.`, `_`, or `-` is ignored. Manual commands without an agent marker remain
+unattributed. This is display and telemetry metadata, not authentication or an
+authorization grant.
 
 ## Authenticate without a local browser
 

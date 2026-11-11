@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/agentinfo"
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/testutil"
@@ -28,6 +29,9 @@ func prepareUpgradePromptTest(t *testing.T) {
 		"CODEX_SHELL", "CODEX_CI", "CODEX_THREAD_ID", "CURSOR_AGENT", "CLAUDECODE", "CLAUDE_CODE_REMOTE",
 		"REVYL_NO_UPDATE_NOTIFIER",
 	} {
+		t.Setenv(name, "")
+	}
+	for _, name := range agentinfo.EnvironmentVariables {
 		t.Setenv(name, "")
 	}
 	oldTerminal, oldConfirm := upgradeTerminalAvailable, confirmInlineUpgrade
