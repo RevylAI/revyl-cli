@@ -4904,12 +4904,26 @@ type AtlasEdgeRun struct {
 	ReportId          *string    `json:"report_id,omitempty"`
 	SessionId         *string    `json:"session_id,omitempty"`
 	SourceActionIndex *int       `json:"source_action_index,omitempty"`
-	SourceStepIndex   *int       `json:"source_step_index,omitempty"`
-	SourceVideoEnd    *float32   `json:"source_video_end,omitempty"`
-	SourceVideoStart  *float32   `json:"source_video_start,omitempty"`
-	TargetVideoEnd    *float32   `json:"target_video_end,omitempty"`
-	TargetVideoStart  *float32   `json:"target_video_start,omitempty"`
-	TestId            *string    `json:"test_id,omitempty"`
+
+	// SourceScreenshotKey Storage key of the screen the run acted on.
+	SourceScreenshotKey *string  `json:"source_screenshot_key,omitempty"`
+	SourceScreenshotUrl *string  `json:"source_screenshot_url,omitempty"`
+	SourceStepIndex     *int     `json:"source_step_index,omitempty"`
+	SourceVideoEnd      *float32 `json:"source_video_end,omitempty"`
+	SourceVideoStart    *float32 `json:"source_video_start,omitempty"`
+
+	// TapXRatio Where the tap landed, as a fraction of the source screen's width.
+	TapXRatio *float32 `json:"tap_x_ratio,omitempty"`
+
+	// TapYRatio Where the tap landed, as a fraction of the source screen's height.
+	TapYRatio *float32 `json:"tap_y_ratio,omitempty"`
+
+	// TargetScreenshotKey Storage key of the screen the run landed on.
+	TargetScreenshotKey *string  `json:"target_screenshot_key,omitempty"`
+	TargetScreenshotUrl *string  `json:"target_screenshot_url,omitempty"`
+	TargetVideoEnd      *float32 `json:"target_video_end,omitempty"`
+	TargetVideoStart    *float32 `json:"target_video_start,omitempty"`
+	TestId              *string  `json:"test_id,omitempty"`
 }
 
 // AtlasEdgeRunsResponse defines model for AtlasEdgeRunsResponse.
