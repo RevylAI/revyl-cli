@@ -38,9 +38,12 @@ explains how a run picks its files.
     does. When a test's file sets `variables`, their `revyl test push` deletes
     the test's saved secrets and saves the file's variables as plain text.
 
-  Run `revyl upgrade` to update a CLI. The Revyl GitHub Actions install the
-  latest CLI unless their `cli-version` input pins an older one; with an older
-  pin, the step stops before the run starts.
+  While **Run tests from Git** is on, Revyl refuses each test or workflow run
+  that a CLI older than 0.1.234 starts on one of the project's apps, from any
+  folder, with the error `cli_upgrade_required`. Run `revyl upgrade` to
+  update a CLI. The Revyl GitHub Actions install the latest CLI unless their
+  `cli-version` input pins an older one; with an older pin, the step stops
+  before the run starts.
 
 ## Turn on Run tests from Git
 

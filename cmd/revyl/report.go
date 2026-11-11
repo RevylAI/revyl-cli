@@ -588,6 +588,8 @@ var runtimeCheckerKindLabels = map[api.IOSRuntimeCheckerKind]string{
 	api.IOSRuntimeCheckerKindTsanSwiftAccessRace:    "Swift access race",
 	api.IOSRuntimeCheckerKindTsanOther:              "ThreadSanitizer",
 	api.IOSRuntimeCheckerKindMainThreadChecker:      "Main thread",
+	api.IOSRuntimeCheckerKindSwiftuiRuntimeWarning:  "SwiftUI",
+	api.IOSRuntimeCheckerKindUikitRuntimeWarning:    "UIKit",
 }
 
 func printRuntimeCheckerFindings(findings []api.IOSRuntimeCheckerFindingSummary) {
@@ -637,7 +639,7 @@ func printRuntimeCheckerFindings(findings []api.IOSRuntimeCheckerFindingSummary)
 			continue
 		}
 		icon := ui.WarningStyle.Render("⚠")
-		if finding.Kind != api.IOSRuntimeCheckerKindMainThreadChecker {
+		if finding.Kind != api.IOSRuntimeCheckerKindMainThreadChecker && finding.Kind != api.IOSRuntimeCheckerKindSwiftuiRuntimeWarning && finding.Kind != api.IOSRuntimeCheckerKindUikitRuntimeWarning {
 			icon = ui.ErrorStyle.Render("✗")
 		}
 		fmt.Printf("    %s %s  %s  %s\n",

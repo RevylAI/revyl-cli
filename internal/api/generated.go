@@ -2657,9 +2657,11 @@ const (
 	IOSRuntimeCheckerKindAddressSanitizer           IOSRuntimeCheckerKind = "address_sanitizer"
 	IOSRuntimeCheckerKindCoreDataQueueViolation     IOSRuntimeCheckerKind = "core_data_queue_violation"
 	IOSRuntimeCheckerKindMainThreadChecker          IOSRuntimeCheckerKind = "main_thread_checker"
+	IOSRuntimeCheckerKindSwiftuiRuntimeWarning      IOSRuntimeCheckerKind = "swiftui_runtime_warning"
 	IOSRuntimeCheckerKindTsanDataRace               IOSRuntimeCheckerKind = "tsan_data_race"
 	IOSRuntimeCheckerKindTsanOther                  IOSRuntimeCheckerKind = "tsan_other"
 	IOSRuntimeCheckerKindTsanSwiftAccessRace        IOSRuntimeCheckerKind = "tsan_swift_access_race"
+	IOSRuntimeCheckerKindUikitRuntimeWarning        IOSRuntimeCheckerKind = "uikit_runtime_warning"
 	IOSRuntimeCheckerKindUnclassifiedAppCrash       IOSRuntimeCheckerKind = "unclassified_app_crash"
 	IOSRuntimeCheckerKindUndefinedBehaviorSanitizer IOSRuntimeCheckerKind = "undefined_behavior_sanitizer"
 )
@@ -2673,11 +2675,15 @@ func (e IOSRuntimeCheckerKind) Valid() bool {
 		return true
 	case IOSRuntimeCheckerKindMainThreadChecker:
 		return true
+	case IOSRuntimeCheckerKindSwiftuiRuntimeWarning:
+		return true
 	case IOSRuntimeCheckerKindTsanDataRace:
 		return true
 	case IOSRuntimeCheckerKindTsanOther:
 		return true
 	case IOSRuntimeCheckerKindTsanSwiftAccessRace:
+		return true
+	case IOSRuntimeCheckerKindUikitRuntimeWarning:
 		return true
 	case IOSRuntimeCheckerKindUnclassifiedAppCrash:
 		return true
@@ -3626,6 +3632,7 @@ func (e SupportRequestType) Valid() bool {
 
 // Defines values for TestDefinitionRunErrorResponseCode.
 const (
+	TestDefinitionRunErrorResponseCodeCliUpgradeRequired                    TestDefinitionRunErrorResponseCode = "cli_upgrade_required"
 	TestDefinitionRunErrorResponseCodeDuplicateTestDefinitionFile           TestDefinitionRunErrorResponseCode = "duplicate_test_definition_file"
 	TestDefinitionRunErrorResponseCodeInvalidTestDefinitionFile             TestDefinitionRunErrorResponseCode = "invalid_test_definition_file"
 	TestDefinitionRunErrorResponseCodeModuleNotFound                        TestDefinitionRunErrorResponseCode = "module_not_found"
@@ -3638,6 +3645,8 @@ const (
 // Valid indicates whether the value is a known member of the TestDefinitionRunErrorResponseCode enum.
 func (e TestDefinitionRunErrorResponseCode) Valid() bool {
 	switch e {
+	case TestDefinitionRunErrorResponseCodeCliUpgradeRequired:
+		return true
 	case TestDefinitionRunErrorResponseCodeDuplicateTestDefinitionFile:
 		return true
 	case TestDefinitionRunErrorResponseCodeInvalidTestDefinitionFile:

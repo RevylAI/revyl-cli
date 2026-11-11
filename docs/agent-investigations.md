@@ -208,6 +208,23 @@ AddressSanitizer normally terminates the app after a memory violation;
 UndefinedBehaviorSanitizer may report and continue, depending on build and
 runtime options. Findings do not require the test itself to pass.
 
+Experimental simulator sessions with framework-warning capture enabled can also
+return `swiftui_runtime_warning` and `uikit_runtime_warning`. These findings use
+fixed summaries, with a small allowlist of SwiftUI explanations, and contain no
+raw diagnostic excerpt. Available main-app frames carry `app_image` UUID,
+architecture, and relative offset metadata. Available symbols resolve function
+names and source filenames/lines; unresolved frames retain `Symbol unavailable`.
+For source lines, place the matching simulator-build `App.app.dSYM` beside
+`App.app` in the same uploaded ZIP, using your app's bundle name, then rerun.
+Keep the signed app unchanged. Symbols must match the binary UUID and architecture;
+symbols from another build cannot identify the source accurately. Inspect the
+first source-bearing app frame and its callers rather than treating it as a
+confirmed root cause. An empty stack means no verified app frames were available.
+These framework
+warnings currently have null observation times and cannot seek the recording.
+They do not require a sanitizer build, but are not enabled by default and do not
+guarantee coverage of all framework or Auto Layout warnings.
+
 Screenshot and video URLs remain evidence locators. Retrieving a URL does not
 inspect pixels or motion. Shell agents can open selected media with their image
 or video tools; hosted Atlas Chat currently attaches exact Atlas observations,
