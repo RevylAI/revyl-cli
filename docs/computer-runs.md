@@ -239,7 +239,9 @@ outpost stops every session it started outside its computer when it ends.
 
 `--computer` requires computer runs to be enabled for your organization. It
 starts an app session when the running computer's hosting capability lists that
-platform: iOS simulators and Web on macOS. Hosted Web needs
+platform: iOS simulators and Web on macOS. The capability also caps each
+platform (`max_children_by_platform`); a start past that cap is refused with
+`409 computer_platform_at_capacity` before anything runs. Hosted Web needs
 no separate Web enablement and uses a registered deployment URL build, not a
 managed Web bundle. Select an app and one of its builds (`--app`, optionally
 `--build-version-id`); the computer chooses
