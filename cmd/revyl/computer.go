@@ -116,6 +116,8 @@ Add --json to any command for machine-readable output.`,
 					refusal.Message = computerLimitMessage
 				case "computer_not_enabled":
 					refusal.Message = computerNotEnabledMessage
+				case "display_unsupported":
+					refusal.Message = computerDisplayUnsupportedMessage
 				}
 			}
 			if err != nil || !wait {

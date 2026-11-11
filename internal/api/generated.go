@@ -1130,6 +1130,7 @@ const (
 	ComputerAPIErrorDetail1AuthenticationUnavailable ComputerAPIErrorDetail1 = "authentication_unavailable"
 	ComputerAPIErrorDetail1ComputerLimit             ComputerAPIErrorDetail1 = "computer_limit"
 	ComputerAPIErrorDetail1ComputerNotEnabled        ComputerAPIErrorDetail1 = "computer_not_enabled"
+	ComputerAPIErrorDetail1DisplayUnsupported        ComputerAPIErrorDetail1 = "display_unsupported"
 	ComputerAPIErrorDetail1Forbidden                 ComputerAPIErrorDetail1 = "forbidden"
 	ComputerAPIErrorDetail1RuntimeUnavailable        ComputerAPIErrorDetail1 = "runtime_unavailable"
 	ComputerAPIErrorDetail1Unauthenticated           ComputerAPIErrorDetail1 = "unauthenticated"
@@ -1143,6 +1144,8 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 	case ComputerAPIErrorDetail1ComputerLimit:
 		return true
 	case ComputerAPIErrorDetail1ComputerNotEnabled:
+		return true
+	case ComputerAPIErrorDetail1DisplayUnsupported:
 		return true
 	case ComputerAPIErrorDetail1Forbidden:
 		return true
@@ -1179,6 +1182,24 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 	case ComputerAPIErrorDetail2ScreenViewerExpired:
 		return true
 	case ComputerAPIErrorDetail2ScreenViewerLimit:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerAPIErrorMessage.
+const (
+	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800 ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
+	ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64       ComputerAPIErrorMessage = "Plain argv/path are no longer accepted; upgrade your client to send argv_b64/path_b64."
+)
+
+// Valid indicates whether the value is a known member of the ComputerAPIErrorMessage enum.
+func (e ComputerAPIErrorMessage) Valid() bool {
+	switch e {
+	case ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800:
+		return true
+	case ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64:
 		return true
 	default:
 		return false
@@ -6239,7 +6260,7 @@ type CompiledIntentStep struct {
 type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 	Detail         ComputerAPIError_Detail       `json:"detail"`
-	Message        *string                       `json:"message,omitempty"`
+	Message        *ComputerAPIErrorMessage      `json:"message,omitempty"`
 	Phase          *ComputerAPIErrorPhase        `json:"phase,omitempty"`
 	Reason         *string                       `json:"reason,omitempty"`
 }
@@ -6257,6 +6278,9 @@ type ComputerAPIErrorDetail2 string
 type ComputerAPIError_Detail struct {
 	union json.RawMessage
 }
+
+// ComputerAPIErrorMessage defines model for ComputerAPIError.Message.
+type ComputerAPIErrorMessage string
 
 // ComputerAPIErrorPhase defines model for ComputerAPIError.Phase.
 type ComputerAPIErrorPhase string

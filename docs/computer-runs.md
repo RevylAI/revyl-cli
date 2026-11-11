@@ -98,7 +98,9 @@ stop it. `--display WIDTHxHEIGHT` sets the screen size in pixels for the
 computer's lifetime: an even width from 800 to 1920 and an even height from 600
 to 1080, default 1280x800. Pick the size of the pane you view it in to avoid
 letterboxing; a non-default size always boots a fresh VM, so it starts slower
-than the default. `stop` waits up to a minute for a pending release and evidence to
+than the default. When no host can apply a display size yet, create returns
+`display_unsupported` (HTTP 409) without creating anything; omit `--display` to
+start at the default. `stop` waits up to a minute for a pending release and evidence to
 settle, re-reading the computer every second, so stopping a computer that is
 still starting exits 0 once its release is confirmed. A computer stopped
 before it started reads `stopped` with no start time. Other commands require
