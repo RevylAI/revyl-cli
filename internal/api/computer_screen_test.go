@@ -80,6 +80,7 @@ func TestComputerScreenRejectsInvalidInput(t *testing.T) {
 	for _, action := range []ComputerScreenAction{
 		{Action: "click"},
 		{Action: "type"},
+		{Action: "type", Text: "Zo\xeb"},
 		{Action: "key"},
 		{Action: "scroll", Direction: "up", Amount: func() *int { value := 21; return &value }()},
 	} {

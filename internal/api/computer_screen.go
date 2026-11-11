@@ -131,7 +131,7 @@ func ValidateComputerScreenAction(action ComputerScreenAction) error {
 			return errors.New("computer screen action is invalid")
 		}
 	case "type":
-		if utf8.RuneCountInString(action.Text) < 1 || utf8.RuneCountInString(action.Text) > 500 {
+		if !utf8.ValidString(action.Text) || utf8.RuneCountInString(action.Text) < 1 || utf8.RuneCountInString(action.Text) > 500 {
 			return errors.New("computer screen action is invalid")
 		}
 	case "key":

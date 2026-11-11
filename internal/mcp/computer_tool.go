@@ -54,7 +54,7 @@ func (s *Server) registerComputerTool() {
 	tool := &mcp.Tool{
 		Meta:        screenshotAppToolMeta(),
 		Name:        "computer",
-		Description: "Anthropic-style desktop control on an exact computer_session_id. Coordinates use screenshot pixels (1280x720 for 1920x1080), unchanged by zoom. Returns PNG and cursor. Click/scroll text accepts Shift/Control/Option/Command; type accepts ASCII, newline/tab (500 chars). hold_key clamps to 5s and accepts one chord; waits clamp to 10s. Never retry uncertain input; screenshot first.",
+		Description: "Anthropic-style desktop control on an exact computer_session_id. Coordinates use screenshot pixels (1280x720 for 1920x1080), unchanged by zoom. Returns PNG and cursor. Click/scroll text accepts Shift/Control/Option/Command; type accepts any Unicode text up to 500 chars/1500 UTF-8 bytes; newline/tab are the only control chars. hold_key clamps to 5s and accepts one chord; waits clamp to 10s. Never retry uncertain input; screenshot first.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Control Computer Screen",
 			OpenWorldHint:   boolPtr(true),

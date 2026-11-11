@@ -183,8 +183,11 @@ revyl computer key C1 --key cmd+space
 `key --hold 0..5` holds a single chord for that many seconds.
 
 `--text` and `--text-env` are mutually exclusive. The latter reads a local
-environment variable and never prints its value. Text is limited to 500 printable
-ASCII characters, newlines or tabs. Use `--json` for a stable machine-readable
+environment variable and never prints its value. Text may be any Unicode,
+including accented letters, CJK and emoji, up to 500 characters (code points)
+and 1,500 UTF-8 bytes. Newline types Return and tab types Tab; other control
+characters are refused. A refused text, or one the computer cannot type, fails
+with `screen_text_unsupported` and types nothing. Use `--json` for a stable machine-readable
 result: screenshots return `width`, `height`, `observed_at`, `png` and `cursor`;
 actions return `screenshot` (null unless `--out` is set) and `cursor`. The cursor
 is an `{ "x": ..., "y": ... }` point or null. PNG data uses padded URL-safe

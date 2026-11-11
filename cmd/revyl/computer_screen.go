@@ -37,7 +37,7 @@ func addComputerScreenCommands(parent *cobra.Command) {
 				command.Flags().Int(name, 0, "Coordinate in screenshot pixels (required)")
 			}
 		case "type":
-			command.Flags().String("text", "", "Text to type: 1-500 printable ASCII characters, newline, or tab")
+			command.Flags().String("text", "", "Text to type: up to 500 Unicode characters and 1,500 UTF-8 bytes; newline and tab are the only control characters")
 			command.Flags().String("text-env", "", "Local environment variable containing text to type (not printed)")
 		case "key":
 			command.Flags().String("key", "", "Key chords separated by spaces, such as cmd+space (required)")
