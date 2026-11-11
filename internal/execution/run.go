@@ -6,6 +6,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -66,6 +67,9 @@ type RunTestParams struct {
 	// OnDefaultBranchFallback is called with the app's default branch when it
 	// replaced GitBranchName because that Git branch had no usable build.
 	OnDefaultBranchFallback func(branchName string)
+	// OnTestDefinitionGitRead is called before OnBranchSelection with where
+	// the server read the run's test definition files in Git.
+	OnTestDefinitionGitRead func(read api.TestDefinitionGitRead)
 	OnBranchSelection       func(gitBranchName, branchName string, source api.BranchSource, enabled *bool)
 	// NoWait dispatches the run and returns as soon as the task is queued,
 	// skipping the completion monitor. The result carries the TaskID +
@@ -104,6 +108,27 @@ type RunTestParams struct {
 	// VariableOverrides are test variable values applied to this run. They are
 	// referenced as {{name}} and override test/global variables for that run only.
 	VariableOverrides map[string]string
+	// TestDefinitionFiles are the checkout's files the run executes instead of
+	// saved copies; nil runs what the server resolves on its own.
+	TestDefinitionFiles *api.TestDefinitionFiles
+}
+
+// ErrServerCannotRunLocalDefinitions means the server started a run without
+// reporting its test definition source, so it ignored the checkout's files.
+var ErrServerCannotRunLocalDefinitions = errors.New("this Revyl server can't run local definitions yet")
+
+const localDefinitionsRefusalCancelTimeout = 10 * time.Second
+
+// cancelRunThatIgnoredLocalDefinitions cancels a run an older server started
+// with its saved tests instead of the checkout's files, and returns the error
+// the caller exits with.
+func cancelRunThatIgnoredLocalDefinitions(ctx context.Context, taskID string, cancelRun func(context.Context) error) error {
+	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), localDefinitionsRefusalCancelTimeout)
+	defer cancel()
+	if err := cancelRun(cancelCtx); err != nil {
+		return fmt.Errorf("%w: it started run %s with the saved tests and cancelling it failed (%v); rerun with --from-checkout=false to run the saved tests", ErrServerCannotRunLocalDefinitions, taskID, err)
+	}
+	return fmt.Errorf("%w: it started run %s with the saved tests, so the CLI cancelled it; rerun with --from-checkout=false to run the saved tests", ErrServerCannotRunLocalDefinitions, taskID)
 }
 
 // RunTestResult contains the result of a test run.
@@ -132,6 +157,10 @@ type RunTestResult struct {
 	ErrorMessage         string           `json:"error_message,omitempty"`
 	BuildID              string           `json:"build_id,omitempty"`
 	BuildVersion         string           `json:"build_version,omitempty"`
+
+	TestDefinitionSource         api.TestDefinitionSource         `json:"test_definition_source,omitempty"`
+	TestDefinitionFallbackReason api.TestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
+	api.TestDefinitionGitRead
 }
 
 // RunTest executes a test and returns structured results.
@@ -193,20 +222,21 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		return nil, err
 	}
 	req := &api.ExecuteTestRequest{
-		TestID:            testID,
-		Retries:           retries,
-		BuildVersionID:    params.BuildVersionID,
-		BranchID:          params.BranchID,
-		BranchName:        params.BranchName,
-		GitBranchName:     params.GitBranchName,
-		BuildSelection:    api.BuildSelectionMode(params.BuildSelection),
-		LaunchURL:         params.LaunchURL,
-		LaunchEnvVarIds:   launchConfigurationIDs,
-		DeviceModel:       params.DeviceModel,
-		OsVersion:         params.OsVersion,
-		LaunchEnvVars:     params.LaunchEnvVars,
-		LaunchArguments:   params.LaunchArguments,
-		VariableOverrides: params.VariableOverrides,
+		TestID:              testID,
+		Retries:             retries,
+		BuildVersionID:      params.BuildVersionID,
+		BranchID:            params.BranchID,
+		BranchName:          params.BranchName,
+		GitBranchName:       params.GitBranchName,
+		BuildSelection:      api.BuildSelectionMode(params.BuildSelection),
+		LaunchURL:           params.LaunchURL,
+		LaunchEnvVarIds:     launchConfigurationIDs,
+		DeviceModel:         params.DeviceModel,
+		OsVersion:           params.OsVersion,
+		LaunchEnvVars:       params.LaunchEnvVars,
+		LaunchArguments:     params.LaunchArguments,
+		VariableOverrides:   params.VariableOverrides,
+		TestDefinitionFiles: params.TestDefinitionFiles,
 	}
 	if params.HasLocation || params.Orientation != "" || params.FailFast != nil {
 		runCfg := &api.CLIRunConfig{}
@@ -237,6 +267,16 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		}, nil
 	}
 
+	if params.TestDefinitionFiles != nil && resp.TestDefinitionSource == "" {
+		return nil, cancelRunThatIgnoredLocalDefinitions(ctx, resp.TaskID, func(cancelCtx context.Context) error {
+			_, err := client.CancelTest(cancelCtx, resp.TaskID)
+			return err
+		})
+	}
+
+	if params.OnTestDefinitionGitRead != nil {
+		params.OnTestDefinitionGitRead(resp.TestDefinitionGitRead)
+	}
 	if params.OnBranchSelection != nil {
 		params.OnBranchSelection(resp.GitBranchName, resp.BranchName, resp.BranchSource, resp.AutoGitBranchEnabled)
 	}
@@ -261,6 +301,10 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 			TestID:               testID,
 			Status:               "queued",
 			ReportURL:            reportURL,
+
+			TestDefinitionSource:         resp.TestDefinitionSource,
+			TestDefinitionFallbackReason: resp.TestDefinitionFallbackReason,
+			TestDefinitionGitRead:        resp.TestDefinitionGitRead,
 		}, nil
 	}
 
@@ -285,6 +329,10 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 				Duration:             finalStatus.Duration,
 				ReportURL:            reportURL,
 				ErrorMessage:         finalStatus.ErrorMessage,
+
+				TestDefinitionSource:         resp.TestDefinitionSource,
+				TestDefinitionFallbackReason: resp.TestDefinitionFallbackReason,
+				TestDefinitionGitRead:        resp.TestDefinitionGitRead,
 			}
 			attachTestRunBuild(ctx, client, result)
 			return result, nil
@@ -298,6 +346,10 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 			BranchName:           resp.BranchName,
 			Status:               "cancelled",
 			ErrorMessage:         err.Error(),
+
+			TestDefinitionSource:         resp.TestDefinitionSource,
+			TestDefinitionFallbackReason: resp.TestDefinitionFallbackReason,
+			TestDefinitionGitRead:        resp.TestDefinitionGitRead,
 		}, nil
 	}
 
@@ -316,6 +368,10 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		Duration:             finalStatus.Duration,
 		ReportURL:            reportURL,
 		ErrorMessage:         finalStatus.ErrorMessage,
+
+		TestDefinitionSource:         resp.TestDefinitionSource,
+		TestDefinitionFallbackReason: resp.TestDefinitionFallbackReason,
+		TestDefinitionGitRead:        resp.TestDefinitionGitRead,
 	}
 	attachTestRunBuild(ctx, client, result)
 	return result, nil
@@ -391,11 +447,18 @@ type RunWorkflowParams struct {
 	// They override stored launch variables with the same key.
 	LaunchEnvVars   map[string]string
 	LaunchArguments []string
-	MonitoringMode  sse.MonitoringMode
-	OnProgress      func(status *sse.WorkflowStatus)
+	// TestDefinitionFiles are the checkout's files the workflow's tests execute
+	// instead of saved copies; nil runs what the server resolves on its own.
+	TestDefinitionFiles *api.TestDefinitionFiles
+	MonitoringMode      sse.MonitoringMode
+	OnProgress          func(status *sse.WorkflowStatus)
 	// OnTaskStarted is called immediately after the workflow execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
+	// OnTestDefinitionGitRead is called before monitoring with where the server
+	// read the run's test definition files in Git, when every test read from
+	// Git read the same branch.
+	OnTestDefinitionGitRead func(read api.TestDefinitionGitRead)
 }
 
 // WorkflowTestResult contains the result of an individual test within a workflow run.
@@ -456,6 +519,10 @@ type RunWorkflowResult struct {
 	ReportURL      string               `json:"report_url"`
 	ErrorMessage   string               `json:"error_message,omitempty"`
 	Tests          []WorkflowTestResult `json:"tests,omitempty"`
+
+	TestCountByDefinitionSource         map[api.TestDefinitionSource]int         `json:"test_count_by_definition_source,omitempty"`
+	TestCountByDefinitionFallbackReason map[api.TestDefinitionFallbackReason]int `json:"test_count_by_definition_fallback_reason,omitempty"`
+	api.TestDefinitionGitRead
 }
 
 // RunWorkflow executes a workflow and returns structured results.
@@ -573,6 +640,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		BranchName:               params.BranchName,
 		GitBranchName:            params.GitBranchName,
 		BuildSelection:           api.BuildSelectionMode(params.BuildSelection),
+		TestDefinitionFiles:      params.TestDefinitionFiles,
 	}
 	if iosApp != nil || androidApp != nil {
 		req.BuildConfig = &api.WorkflowAppConfig{IosBuild: iosApp, AndroidBuild: androidApp}
@@ -593,10 +661,19 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 			ErrorMessage: err.Error(),
 		}, nil
 	}
+	if params.TestDefinitionFiles != nil && resp.TestCountByDefinitionSource == nil {
+		return nil, cancelRunThatIgnoredLocalDefinitions(ctx, resp.TaskID, func(cancelCtx context.Context) error {
+			_, err := client.CancelWorkflow(cancelCtx, resp.TaskID)
+			return err
+		})
+	}
 
 	// Notify caller of task ID immediately for cancellation support
 	if params.OnTaskStarted != nil {
 		params.OnTaskStarted(resp.TaskID)
+	}
+	if params.OnTestDefinitionGitRead != nil {
+		params.OnTestDefinitionGitRead(resp.TestDefinitionGitRead)
 	}
 	if params.NoWait {
 		return &RunWorkflowResult{
@@ -605,6 +682,10 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 			WorkflowID: workflowID,
 			Status:     "queued",
 			ReportURL:  fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID)),
+
+			TestCountByDefinitionSource:         resp.TestCountByDefinitionSource,
+			TestCountByDefinitionFallbackReason: resp.TestCountByDefinitionFallbackReason,
+			TestDefinitionGitRead:               resp.TestDefinitionGitRead,
 		}, nil
 	}
 
@@ -629,6 +710,10 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 				Duration:       finalStatus.Duration,
 				ReportURL:      reportURL,
 				ErrorMessage:   finalStatus.ErrorMessage,
+
+				TestCountByDefinitionSource:         resp.TestCountByDefinitionSource,
+				TestCountByDefinitionFallbackReason: resp.TestCountByDefinitionFallbackReason,
+				TestDefinitionGitRead:               resp.TestDefinitionGitRead,
 			}
 			result.Tests = workflowStatusTests(finalStatus)
 			enrichWithTestResults(context.Background(), client, result)
@@ -649,6 +734,10 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 				Duration:       finalStatus.Duration,
 				ReportURL:      reportURL,
 				ErrorMessage:   err.Error(),
+
+				TestCountByDefinitionSource:         resp.TestCountByDefinitionSource,
+				TestCountByDefinitionFallbackReason: resp.TestCountByDefinitionFallbackReason,
+				TestDefinitionGitRead:               resp.TestDefinitionGitRead,
 			}
 			result.Tests = workflowStatusTests(finalStatus)
 			enrichWithTestResults(context.Background(), client, result)
@@ -659,6 +748,10 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 			TaskID:       resp.TaskID,
 			Status:       "cancelled",
 			ErrorMessage: err.Error(),
+
+			TestCountByDefinitionSource:         resp.TestCountByDefinitionSource,
+			TestCountByDefinitionFallbackReason: resp.TestCountByDefinitionFallbackReason,
+			TestDefinitionGitRead:               resp.TestDefinitionGitRead,
 		}, nil
 	}
 
@@ -677,6 +770,10 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		Duration:       finalStatus.Duration,
 		ReportURL:      reportURL,
 		ErrorMessage:   finalStatus.ErrorMessage,
+
+		TestCountByDefinitionSource:         resp.TestCountByDefinitionSource,
+		TestCountByDefinitionFallbackReason: resp.TestCountByDefinitionFallbackReason,
+		TestDefinitionGitRead:               resp.TestDefinitionGitRead,
 	}
 	result.Tests = workflowStatusTests(finalStatus)
 	enrichWithTestResults(ctx, client, result)

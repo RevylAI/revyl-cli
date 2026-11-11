@@ -20,6 +20,8 @@ var (
 	moduleDeleteForce bool
 
 	moduleRestoreVersion int
+
+	modulePullForce bool
 )
 
 // moduleCmd is the parent command for module operations.
@@ -39,6 +41,7 @@ COMMANDS:
   update  - Update an existing module
   delete  - Delete a module
   insert  - Output a module_import YAML snippet for pasting into tests
+  pull    - Write saved modules to .revyl/modules as files
 
 EXAMPLES:
   revyl module list
@@ -47,7 +50,26 @@ EXAMPLES:
   revyl module create login-flow --from-file blocks.yaml --description "Standard login"
   revyl module update login-flow --name "new-name"
   revyl module delete login-flow
-  revyl module insert login-flow`,
+  revyl module insert login-flow
+  revyl module pull login-flow`,
+}
+
+// modulePullCmd writes saved modules out as files in the project.
+var modulePullCmd = &cobra.Command{
+	Use:   "pull [name|id]",
+	Short: "Write saved modules to .revyl/modules as files",
+	Long: `Write saved modules to .revyl/modules/<module name>.yaml as a top-level
+blocks: list, the format revyl module create --from-file reads. Without a
+name, every saved module is written.
+
+A module whose name can't be a file name, such as one containing "/", is
+skipped with a warning. A file whose content differs is kept unless --force
+is set.`,
+	Example: `  revyl module pull
+  revyl module pull login-flow
+  revyl module pull login-flow --force`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runModulePull,
 }
 
 // moduleListCmd lists all modules.
@@ -192,6 +214,7 @@ func init() {
 	moduleCmd.AddCommand(moduleDeleteCmd)
 	moduleCmd.AddCommand(moduleInsertCmd)
 	moduleCmd.AddCommand(moduleVersionsCmd, moduleRestoreCmd, moduleUsageCmd)
+	moduleCmd.AddCommand(modulePullCmd)
 
 	// module list flags
 	moduleListCmd.Flags().BoolVar(&moduleListJSON, "json", false, "Output results as JSON")
@@ -213,4 +236,6 @@ func init() {
 	// module restore flags
 	moduleRestoreCmd.Flags().IntVar(&moduleRestoreVersion, "version", 0, "Version number to restore to")
 	_ = moduleRestoreCmd.MarkFlagRequired("version")
+
+	modulePullCmd.Flags().BoolVar(&modulePullForce, "force", false, "Overwrite module files with local changes")
 }

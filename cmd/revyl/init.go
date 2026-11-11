@@ -1288,19 +1288,8 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 	// Create .gitignore for .revyl directory (allowlist approach: ignore
 	// everything by default, then unignore only the shared project files).
 	gitignorePath := filepath.Join(revylDir, ".gitignore")
-	gitignoreContent := `# Most files in .revyl are local runtime state.
-# Only the shared project config and test definitions belong in git.
-*
-
-# Keep this file itself.
-!.gitignore
-
-# Shared Revyl project files.
-!config.yaml
-!tests/
-!tests/**
-`
-	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+	// #nosec G306 -- .revyl/.gitignore is a committed project file with no secrets, readable like the rest of the checkout.
+	if err := os.WriteFile(gitignorePath, []byte(revylDefinitionGitignoreContent), 0644); err != nil {
 		ui.PrintWarning("Failed to create .gitignore: %v", err)
 	}
 
@@ -4652,6 +4641,11 @@ func syncTestYAML(ctx context.Context, client *api.Client, cfg *config.ProjectCo
 	resolver := syncpkg.NewResolver(client, cfg, localTests)
 	results, pullErr := resolver.PullFromRemote(ctx, testName, testsDir, true)
 	if pullErr == nil && len(results) > 0 && results[0].Error == nil {
+		if project, resolveErr := config.ResolveProjectContext(cwd, ""); resolveErr == nil {
+			if visibilityErr := ensureDefinitionFilesAreGitVisible(project, filepath.Join(testsDir, results[0].Name+".yaml")); visibilityErr != nil {
+				ui.PrintWarning("Could not check Git visibility for definition files: %v", visibilityErr)
+			}
+		}
 		cfg.MarkSynced()
 		// Persist the updated LastSyncedAt timestamp to disk.
 		cwd2, _ := os.Getwd()
@@ -4673,7 +4667,7 @@ func printCreatedFiles() {
 	ui.PrintInfo("  .revyl/tests/         - Local test definitions")
 	ui.PrintInfo("  .revyl/.gitignore     - Git ignore rules")
 	ui.Println()
-	ui.PrintDim("Commit .revyl/config.yaml and .revyl/tests/; other .revyl files are local-only.")
+	ui.PrintDim("Commit .revyl/config.yaml, .revyl/tests/, .revyl/modules/ and .revyl/scripts/; other .revyl files are local-only.")
 	ui.Println()
 }
 
@@ -4801,6 +4795,11 @@ func syncInitTestYAML(ctx context.Context, client *api.Client, cfg *initConfigDr
 	resolver := syncpkg.NewResolver(client, nil, localTests)
 	results, pullErr := resolver.PullFromRemote(ctx, testName, testsDir, true)
 	if pullErr == nil && len(results) > 0 && results[0].Error == nil {
+		if project, resolveErr := config.ResolveProjectContext(cwd, ""); resolveErr == nil {
+			if visibilityErr := ensureDefinitionFilesAreGitVisible(project, filepath.Join(testsDir, results[0].Name+".yaml")); visibilityErr != nil {
+				ui.PrintWarning("Could not check Git visibility for definition files: %v", visibilityErr)
+			}
+		}
 		// The canonical contract does not author synchronization timestamps. Only
 		// persist other in-memory changes while this helper is running in init.
 		cwd2, _ := os.Getwd()

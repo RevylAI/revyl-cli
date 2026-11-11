@@ -65,6 +65,7 @@ build, upload, and run the resulting artifact.
   revyl test run login-flow --branch staging
   revyl test run login-flow --all-branches
   revyl test run login-flow --build
+  revyl test run login-flow --from-checkout
   revyl test run login-flow --json --no-wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
@@ -195,7 +196,7 @@ func init() {
 	testCmd.AddCommand(testVersionsCmd)
 	testCmd.AddCommand(testRestoreCmd)
 
-	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for this run (overrides saved selection; default: Git when enabled in app settings, else app default)")
+	testRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Branch this run takes its build and, for a test in Git, its file from (overrides the saved branch; default: your Git branch when the app follows Git branches, else the app's default branch)")
 	testRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin); exact build: --build-id")
 	testRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	testCreateCmd.Flags().StringVar(&createTestBranch, "branch", "", "Save this Revyl branch for future runs")
@@ -228,6 +229,8 @@ func init() {
 	testRunCmd.Flags().StringArrayVar(&runLaunchArguments, "launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")
 	testRunCmd.Flags().BoolVar(&runDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	testRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override as key=value (repeatable, referenced as {{key}})")
+	testRunCmd.Flags().BoolVar(&runFromCheckout, fromCheckoutFlagName, false, fromCheckoutFlagUsage)
+	analytics.MarkFlagValue(testRunCmd, fromCheckoutFlagName)
 	analytics.MarkFlagValue(testRunCmd, "retries")
 	analytics.MarkFlagValue(testRunCmd, "no-wait")
 	analytics.MarkFlagValue(testRunCmd, "open")

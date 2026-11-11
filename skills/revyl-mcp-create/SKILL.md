@@ -19,6 +19,13 @@ Use this skill when tests should be authored and managed through MCP tools.
    - `run_test(test_name="...")`
    - `get_test_status(task_id="...")`
 
+When the project's `.revyl/config.yaml` sets `run_test_definitions_from_git: true`,
+runs use the test's file in `.revyl/tests/`, not the test saved in Revyl, so
+`update_test` only changes the saved fallback copy and says so in its
+`notice`. Edit the test's file instead: `run_test` sends this checkout's
+test, module and script files, uncommitted changes included, and
+`test_definition_summary` in its result names the files the run used.
+
 ## Authoring Rules
 
 1. One action per instruction step.

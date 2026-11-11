@@ -2502,6 +2502,51 @@ func (e DevinConnectionType) Valid() bool {
 	}
 }
 
+// Defines values for ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason.
+const (
+	ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonForkPullRequest                ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason = "fork_pull_request"
+	ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonMissingGitBranch               ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason = "missing_git_branch"
+	ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonMissingTestFile                ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason = "missing_test_file"
+	ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonMissingTestFileOnDefaultBranch ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason = "missing_test_file_on_default_branch"
+)
+
+// Valid indicates whether the value is a known member of the ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason enum.
+func (e ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason) Valid() bool {
+	switch e {
+	case ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonForkPullRequest:
+		return true
+	case ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonMissingGitBranch:
+		return true
+	case ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonMissingTestFile:
+		return true
+	case ExecuteTestAsyncAPIResponseTestDefinitionFallbackReasonMissingTestFileOnDefaultBranch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExecuteTestAsyncAPIResponseTestDefinitionSource.
+const (
+	ExecuteTestAsyncAPIResponseTestDefinitionSourceCliUpload     ExecuteTestAsyncAPIResponseTestDefinitionSource = "cli_upload"
+	ExecuteTestAsyncAPIResponseTestDefinitionSourceGitCommitRead ExecuteTestAsyncAPIResponseTestDefinitionSource = "git_commit_read"
+	ExecuteTestAsyncAPIResponseTestDefinitionSourceSavedTest     ExecuteTestAsyncAPIResponseTestDefinitionSource = "saved_test"
+)
+
+// Valid indicates whether the value is a known member of the ExecuteTestAsyncAPIResponseTestDefinitionSource enum.
+func (e ExecuteTestAsyncAPIResponseTestDefinitionSource) Valid() bool {
+	switch e {
+	case ExecuteTestAsyncAPIResponseTestDefinitionSourceCliUpload:
+		return true
+	case ExecuteTestAsyncAPIResponseTestDefinitionSourceGitCommitRead:
+		return true
+	case ExecuteTestAsyncAPIResponseTestDefinitionSourceSavedTest:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FallbackTrigger.
 const (
 	FallbackTriggerFinalFail FallbackTrigger = "final_fail"
@@ -3573,6 +3618,39 @@ func (e SupportRequestType) Valid() bool {
 	case SupportRequestTypeFeature:
 		return true
 	case SupportRequestTypeOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TestDefinitionRunErrorResponseCode.
+const (
+	TestDefinitionRunErrorResponseCodeDuplicateTestDefinitionFile           TestDefinitionRunErrorResponseCode = "duplicate_test_definition_file"
+	TestDefinitionRunErrorResponseCodeInvalidTestDefinitionFile             TestDefinitionRunErrorResponseCode = "invalid_test_definition_file"
+	TestDefinitionRunErrorResponseCodeModuleNotFound                        TestDefinitionRunErrorResponseCode = "module_not_found"
+	TestDefinitionRunErrorResponseCodeScriptNotFound                        TestDefinitionRunErrorResponseCode = "script_not_found"
+	TestDefinitionRunErrorResponseCodeTestDefinitionFilesTooLarge           TestDefinitionRunErrorResponseCode = "test_definition_files_too_large"
+	TestDefinitionRunErrorResponseCodeTestDefinitionGitProjectLimitExceeded TestDefinitionRunErrorResponseCode = "test_definition_git_project_limit_exceeded"
+	TestDefinitionRunErrorResponseCodeTestDefinitionGitReadUnavailable      TestDefinitionRunErrorResponseCode = "test_definition_git_read_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the TestDefinitionRunErrorResponseCode enum.
+func (e TestDefinitionRunErrorResponseCode) Valid() bool {
+	switch e {
+	case TestDefinitionRunErrorResponseCodeDuplicateTestDefinitionFile:
+		return true
+	case TestDefinitionRunErrorResponseCodeInvalidTestDefinitionFile:
+		return true
+	case TestDefinitionRunErrorResponseCodeModuleNotFound:
+		return true
+	case TestDefinitionRunErrorResponseCodeScriptNotFound:
+		return true
+	case TestDefinitionRunErrorResponseCodeTestDefinitionFilesTooLarge:
+		return true
+	case TestDefinitionRunErrorResponseCodeTestDefinitionGitProjectLimitExceeded:
+		return true
+	case TestDefinitionRunErrorResponseCodeTestDefinitionGitReadUnavailable:
 		return true
 	default:
 		return false
@@ -6035,9 +6113,12 @@ type ChildTaskReportInfo struct {
 	StepsCompleted *int     `json:"steps_completed,omitempty"`
 	Success        *bool    `json:"success,omitempty"`
 	TaskId         string   `json:"task_id"`
-	TestId         *string  `json:"test_id,omitempty"`
-	TestName       *string  `json:"test_name,omitempty"`
-	TotalSteps     *int     `json:"total_steps,omitempty"`
+
+	// TestDefinitionGitBranchName The Git branch this test's definition file was read from, when the run read it from Git.
+	TestDefinitionGitBranchName *string `json:"test_definition_git_branch_name,omitempty"`
+	TestId                      *string `json:"test_id,omitempty"`
+	TestName                    *string `json:"test_name,omitempty"`
+	TotalSteps                  *int    `json:"total_steps,omitempty"`
 }
 
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
@@ -7602,7 +7683,31 @@ type ExecuteTestAsyncAPIResponse struct {
 
 	// TaskId Alias for id, for backwards compatibility with older clients.
 	TaskId *string `json:"task_id,omitempty"`
+
+	// TestDefinitionFallbackReason Why the run did not use its own branch's test definition file
+	TestDefinitionFallbackReason *ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
+
+	// TestDefinitionGitBranchName The Git branch this run's test definition file was read from; null when it wasn't read from Git
+	TestDefinitionGitBranchName *string `json:"test_definition_git_branch_name,omitempty"`
+
+	// TestDefinitionGitCommitSha The commit this run's test definition file was read at; null when it wasn't read from Git
+	TestDefinitionGitCommitSha *string `json:"test_definition_git_commit_sha,omitempty"`
+
+	// TestDefinitionMissingGitBranchName The run's Git branch, which the repository doesn't have; set only when test_definition_fallback_reason is missing_git_branch
+	TestDefinitionMissingGitBranchName *string `json:"test_definition_missing_git_branch_name,omitempty"`
+
+	// TestDefinitionSnapshotId The immutable test definition snapshot this run executes
+	TestDefinitionSnapshotId *openapi_types.UUID `json:"test_definition_snapshot_id,omitempty"`
+
+	// TestDefinitionSource Where this run's test definition came from: cli_upload, git_commit_read, or saved_test when no snapshot was made
+	TestDefinitionSource *ExecuteTestAsyncAPIResponseTestDefinitionSource `json:"test_definition_source,omitempty"`
 }
+
+// ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason Why the run did not use its own branch's test definition file
+type ExecuteTestAsyncAPIResponseTestDefinitionFallbackReason string
+
+// ExecuteTestAsyncAPIResponseTestDefinitionSource Where this run's test definition came from: cli_upload, git_commit_read, or saved_test when no snapshot was made
+type ExecuteTestAsyncAPIResponseTestDefinitionSource string
 
 // ExecuteWorkflowAsyncAPIResponse Response for async workflow execution start.
 type ExecuteWorkflowAsyncAPIResponse struct {
@@ -7613,6 +7718,21 @@ type ExecuteWorkflowAsyncAPIResponse struct {
 
 	// TaskId Alias for id, for backwards compatibility with older clients.
 	TaskId *string `json:"task_id,omitempty"`
+
+	// TestCountByDefinitionFallbackReason How many tests of this run fell back, by reason
+	TestCountByDefinitionFallbackReason *map[string]int `json:"test_count_by_definition_fallback_reason,omitempty"`
+
+	// TestCountByDefinitionSource How many tests of this run use each test definition source
+	TestCountByDefinitionSource *map[string]int `json:"test_count_by_definition_source,omitempty"`
+
+	// TestDefinitionGitBranchName The Git branch the run's test definition files were read from, when every test read from Git read the same branch and commit
+	TestDefinitionGitBranchName *string `json:"test_definition_git_branch_name,omitempty"`
+
+	// TestDefinitionGitCommitSha The commit the run's test definition files were read at, when every test read from Git read the same branch and commit
+	TestDefinitionGitCommitSha *string `json:"test_definition_git_commit_sha,omitempty"`
+
+	// TestDefinitionMissingGitBranchName The run's Git branch, which the repository doesn't have, when every missing_git_branch fallback of the run names the same branch
+	TestDefinitionMissingGitBranchName *string `json:"test_definition_missing_git_branch_name,omitempty"`
 }
 
 // ExecutionModeConfig Configuration for execution modes and features.
@@ -9876,9 +9996,12 @@ type StartDeviceInfo struct {
 
 	// StorekitConfig Resolved iOS StoreKit config snapshot carried to worker launch.
 	StorekitConfig *IosStoreKitConfigSnapshot `json:"storekit_config,omitempty"`
-	TestId         *openapi_types.UUID        `json:"test_id,omitempty"`
-	TestInfo       *Test                      `json:"test_info,omitempty"`
-	UserId         *openapi_types.UUID        `json:"user_id,omitempty"`
+
+	// TestDefinitionSnapshotId A snapshot of `test_id`'s definition, made for this session. The session boots with the snapshot's device, launch variables, orientation, location and build selection, and its steps run the snapshot's modules, scripts and variables.
+	TestDefinitionSnapshotId *openapi_types.UUID `json:"test_definition_snapshot_id,omitempty"`
+	TestId                   *openapi_types.UUID `json:"test_id,omitempty"`
+	TestInfo                 *Test               `json:"test_info,omitempty"`
+	UserId                   *openapi_types.UUID `json:"user_id,omitempty"`
 
 	// Viewport Model for viewport dimensions used in browser sessions.
 	Viewport       *Viewport           `json:"viewport,omitempty"`
@@ -10080,9 +10203,12 @@ type TaskID struct {
 	SessionId *openapi_types.UUID `json:"session_id,omitempty"`
 
 	// Source Execution source: ui, cli, api, ci_cd, or workflow. Defaults to 'api' for direct API calls.
-	Source         *string            `json:"source,omitempty"`
-	TestEntrypoint *string            `json:"test_entrypoint,omitempty"`
-	TestId         openapi_types.UUID `json:"test_id"`
+	Source *string `json:"source,omitempty"`
+
+	// TestDefinitionFiles The checkout a run executes its test definitions from.
+	TestDefinitionFiles *TestDefinitionFilesRequest `json:"test_definition_files,omitempty"`
+	TestEntrypoint      *string                     `json:"test_entrypoint,omitempty"`
+	TestId              openapi_types.UUID          `json:"test_id"`
 
 	// VariableOverrides Runtime variable overrides. These take highest priority over local and global variables.
 	VariableOverrides *map[string]string `json:"variable_overrides,omitempty"`
@@ -10215,6 +10341,44 @@ type TestCreationResponse struct {
 
 	// TestId Generated test ID
 	TestId string `json:"test_id"`
+}
+
+// TestDefinitionFilesRequest The checkout a run executes its test definitions from.
+type TestDefinitionFilesRequest struct {
+	Files *[]TestDefinitionUploadedFile `json:"files,omitempty"`
+
+	// GitCommitSha HEAD of the checkout
+	GitCommitSha *string `json:"git_commit_sha,omitempty"`
+
+	// HasUncommittedDefinitionChanges Whether the three definition folders differ from HEAD
+	HasUncommittedDefinitionChanges *bool `json:"has_uncommitted_definition_changes,omitempty"`
+
+	// ProjectId Project id from the checkout's config.yaml
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
+}
+
+// TestDefinitionRunErrorResponse Why a run could not resolve its test definition.
+type TestDefinitionRunErrorResponse struct {
+	Code TestDefinitionRunErrorResponseCode `json:"code"`
+
+	// Line The line of that file the error is on
+	Line    *int   `json:"line,omitempty"`
+	Message string `json:"message"`
+
+	// Path The definition file the error is in
+	Path *string `json:"path,omitempty"`
+}
+
+// TestDefinitionRunErrorResponseCode defines model for TestDefinitionRunErrorResponse.Code.
+type TestDefinitionRunErrorResponseCode string
+
+// TestDefinitionUploadedFile One test, module or script file read from the caller's checkout.
+type TestDefinitionUploadedFile struct {
+	// Content UTF-8 text of the file
+	Content string `json:"content"`
+
+	// ProjectRelativePath Path relative to the project root, under .revyl/tests, .revyl/modules or .revyl/scripts
+	ProjectRelativePath string `json:"project_relative_path"`
 }
 
 // TestDeleteResponse Response model for test deletion.
@@ -10919,8 +11083,11 @@ type WorkflowChildExecutionResponse struct {
 	SessionId     *openapi_types.UUID `json:"session_id,omitempty"`
 	Status        *string             `json:"status,omitempty"`
 	Success       *bool               `json:"success,omitempty"`
-	TestId        openapi_types.UUID  `json:"test_id"`
-	WorkflowRunId *string             `json:"workflow_run_id,omitempty"`
+
+	// TestDefinitionGitBranchName The Git branch this test's definition file was read from, when the run read it from Git.
+	TestDefinitionGitBranchName *string            `json:"test_definition_git_branch_name,omitempty"`
+	TestId                      openapi_types.UUID `json:"test_id"`
+	WorkflowRunId               *string            `json:"workflow_run_id,omitempty"`
 }
 
 // WorkflowData defines model for WorkflowData.
@@ -11227,6 +11394,9 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 
 	// RunConfig Complete configuration for a test run.
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+
+	// TestDefinitionFiles The checkout a run executes its test definitions from.
+	TestDefinitionFiles *TestDefinitionFilesRequest `json:"test_definition_files,omitempty"`
 
 	// VariableOverrides Runtime variable overrides applied to every child test in this workflow execution
 	VariableOverrides *map[string]string `json:"variable_overrides,omitempty"`

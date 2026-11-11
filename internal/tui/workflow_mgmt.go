@@ -7,6 +7,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
@@ -165,16 +167,49 @@ func executeWorkflowCmd(client *api.Client, workflowID string, selections ...api
 		if err != nil {
 			return WorkflowExecStartedMsg{Err: err}
 		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return WorkflowExecStartedMsg{Err: fmt.Errorf("get current directory: %w", err)}
+		}
+		var checkoutUpload *checkoutdefinitions.Upload
+		configNotice := ""
+		project, err := config.ResolveProjectContext(cwd, "")
+		var configErr *config.ConfigError
+		switch {
+		case err == nil:
+			if runProject, _ := checkoutdefinitions.RunProject(project, nil); runProject != nil {
+				workflowInfo, err := client.GetWorkflowInfo(ctx, workflowID)
+				if err != nil {
+					return WorkflowExecStartedMsg{Err: fmt.Errorf("read the workflow's tests: %w", err)}
+				}
+				testIDs := make([]string, 0, len(workflowInfo.TestInfo))
+				for _, test := range workflowInfo.TestInfo {
+					testIDs = append(testIDs, test.ID)
+				}
+				if checkoutUpload, err = checkoutdefinitions.CollectUpload(ctx, runProject, testIDs, "run it with revyl workflow run --from-checkout=false"); err != nil {
+					return WorkflowExecStartedMsg{Err: err}
+				}
+			}
+		case !errors.As(err, &configErr) || (configErr.Code != "config_not_found" && configErr.Code != "git_worktree_unavailable"):
+			configNotice = fmt.Sprintf("Running the saved tests, because .revyl/config.yaml can't be read: %v", err)
+		}
+		if selection.GitBranchName == "" && checkoutUpload != nil {
+			selection.GitBranchName = checkoutUpload.GitBranchName
+		}
 		resp, err := client.ExecuteWorkflow(ctx, &api.ExecuteWorkflowRequest{
-			WorkflowID:     workflowID,
-			BranchName:     selection.BranchName,
-			BuildSelection: selection.Mode,
-			GitBranchName:  selection.GitBranchName,
+			WorkflowID:          workflowID,
+			BranchName:          selection.BranchName,
+			BuildSelection:      selection.Mode,
+			GitBranchName:       selection.GitBranchName,
+			TestDefinitionFiles: checkoutUpload.RequestFiles(),
 		})
 		if err != nil {
 			return WorkflowExecStartedMsg{Err: err}
 		}
-		return WorkflowExecStartedMsg{TaskID: resp.TaskID}
+		return WorkflowExecStartedMsg{
+			TaskID: resp.TaskID,
+			Notice: noticeWithTestDefinition(configNotice, checkoutUpload, resp.TestCountByDefinitionSource, resp.TestCountByDefinitionFallbackReason, resp.TestDefinitionGitRead),
+		}
 	}
 }
 
@@ -1277,8 +1312,12 @@ func renderWorkflowExecution(m hubModel) string {
 		b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render(fmt.Sprintf("Elapsed: %s", elapsed))))
 	}
 
+	if m.wfExecNotice != "" {
+		b.WriteString("\n" + lipgloss.NewStyle().Width(innerW).MarginLeft(2).Render(warningStyle.Render(m.wfExecNotice)) + "\n")
+	}
 	notices := &ui.BranchFallbackNotices{}
 	for _, child := range status.ChildTasks {
+		notices.TestDefinitionGitBranchName = child.TestDefinitionGitBranchName
 		if notice := notices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			b.WriteString("\n" + lipgloss.NewStyle().Width(innerW).MarginLeft(2).Render(warningStyle.Render(notice)) + "\n")
 		}

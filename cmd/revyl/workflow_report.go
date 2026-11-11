@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,13 +157,16 @@ func workflowReportURL(devMode bool, executionID string) string {
 }
 
 func printWorkflowBranchFallbacks(notices *ui.BranchFallbackNotices, children []api.CLIWorkflowChildExecution) {
+	runTestDefinitionGitBranchName := notices.TestDefinitionGitBranchName
 	for _, child := range children {
+		notices.TestDefinitionGitBranchName = cmp.Or(child.TestDefinitionGitBranchName, runTestDefinitionGitBranchName)
 		if notice := notices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			// The in-place progress line has no newline yet; the next progress update redraws it.
 			ui.ClearLine()
 			ui.PrintWarning("%s", notice)
 		}
 	}
+	notices.TestDefinitionGitBranchName = runTestDefinitionGitBranchName
 }
 
 func addWorkflowAppIdentity(output map[string]interface{}, appID, appName string, branchSource api.BranchSource, gitBranchName string, autoGitBranchEnabled *bool) {
@@ -689,6 +693,7 @@ func runWorkflowReport(cmd *cobra.Command, args []string) error {
 
 	notices := &ui.BranchFallbackNotices{}
 	for _, child := range report.ChildTasks {
+		notices.TestDefinitionGitBranchName = child.TestDefinitionGitBranchName
 		if notice := notices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 			ui.PrintWarning("%s", notice)
 		}

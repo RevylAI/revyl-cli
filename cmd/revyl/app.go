@@ -576,7 +576,7 @@ func resolveAppNameOrID(cmd *cobra.Command, client *api.Client, nameOrID string)
 	if looksLikeUUID(nameOrID) {
 		app, err := client.GetApp(cmd.Context(), nameOrID)
 		if err == nil {
-			return nameOrID, app.Name, nil
+			return app.ID, app.Name, nil
 		}
 	}
 
@@ -603,7 +603,7 @@ func selectExactNameApp(apps []api.App, name string) (api.App, error) {
 		}
 	}
 	if len(matches) == 0 {
-		return api.App{}, fmt.Errorf("app %q not found", name)
+		return api.App{}, fmt.Errorf("app %q not found; run `revyl app list` to see each app's name and ID", name)
 	}
 	if len(matches) == 1 {
 		return matches[0], nil

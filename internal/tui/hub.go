@@ -290,6 +290,7 @@ type hubModel struct {
 	wfExecTaskID     string
 	wfExecStatus     *api.CLIWorkflowStatusResponse
 	wfExecDone       bool
+	wfExecNotice     string
 	wfExecStartTime  time.Time
 	wfExecReturnView view
 	// Workflow settings screen
@@ -1939,6 +1940,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case WorkflowExecStartedMsg:
+		m.wfExecNotice = msg.Notice
 		if msg.Err != nil {
 			m.wfExecDone = true
 			m.err = msg.Err

@@ -22,6 +22,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/buildselection"
+	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
@@ -67,6 +68,7 @@ var (
 	runLaunchArguments            []string
 	runDisableInheritedLaunchVars bool
 	runVars                       []string
+	runFromCheckout               bool
 )
 
 const (
@@ -326,6 +328,11 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintError("%v", err)
 		return err
 	}
+	checkoutProject, err := resolveFromCheckoutProject(cmd)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 	effectiveOpen := resolveRunOpen(cmd, runOpen)
 	effectiveTimeout := resolveRunTimeout(cmd, nil, runTimeout)
 
@@ -339,6 +346,12 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	validationClient := api.NewClientWithDevMode(apiKey, devMode)
+	if checkoutProject != nil && !looksLikeUUID(testNameOrID) {
+		if err := ensureCheckoutTestFileLinked(cmd, validationClient, checkoutProject, testNameOrID); err != nil {
+			ui.PrintError("%v", err)
+			return err
+		}
+	}
 	testID, resolvedTestName, err := resolveTestID(cmd.Context(), testNameOrID, nil, validationClient)
 	if err != nil {
 		return testLookupFailure(err)
@@ -420,6 +433,14 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 	ui.Println()
 
+	var checkoutUpload *checkoutdefinitions.Upload
+	if checkoutProject != nil {
+		if checkoutUpload, err = collectCheckoutUpload(cmd, checkoutProject, []string{testID}); err != nil {
+			ui.PrintError("%v", err)
+			return err
+		}
+	}
+
 	effectiveBuildVersionID := strings.TrimSpace(runBuildID)
 	effectiveBranchID, effectiveBranchName := "", runBranchName
 
@@ -450,6 +471,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("detect Git branch for test: %w", err)
 		}
 		gitBranchName = gitBranch.Name
+	} else if checkoutUpload != nil {
+		gitBranchName = checkoutUpload.GitBranchName
 	}
 
 	// Use shared execution logic with CLI-specific progress callback
@@ -489,6 +512,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if project != nil {
 		testsDir = project.TestsDir
 	}
+	testDefinitionGitBranchName := ""
 	result, err := runTestExecution(ctx, apiKey, nil, execution.RunTestParams{
 		TestNameOrID:               testID,
 		TestsDir:                   testsDir,
@@ -515,8 +539,12 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		LaunchArgSets:              append([]string(nil), runLaunchArgSets...),
 		LaunchArguments:            append([]string(nil), runLaunchArguments...),
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
+		TestDefinitionFiles:        checkoutUpload.RequestFiles(),
+		OnTestDefinitionGitRead: func(read api.TestDefinitionGitRead) {
+			testDefinitionGitBranchName = read.TestDefinitionGitBranchName
+		},
 		OnBranchSelection: func(gitBranchName, branchName string, source api.BranchSource, enabled *bool) {
-			if notice := ui.BranchSelectionNotice(gitBranchName, branchName, string(source), enabled); notice != "" {
+			if notice := ui.NoticeWithTestDefinitionGitBranch(ui.BranchSelectionNotice(gitBranchName, branchName, string(source), enabled), testDefinitionGitBranchName); notice != "" {
 				ui.PrintWarning("%s", notice)
 			}
 		},
@@ -557,6 +585,14 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 	if strings.TrimSpace(result.TestName) == "" {
 		result.TestName = resolvedTestName
+	}
+	if result.TestDefinitionSource != "" {
+		testCountByFallbackReason := map[api.TestDefinitionFallbackReason]int{}
+		if result.TestDefinitionFallbackReason != "" {
+			testCountByFallbackReason[result.TestDefinitionFallbackReason] = 1
+		}
+		printDefinitionLine(cmd, checkoutUpload, map[api.TestDefinitionSource]int{result.TestDefinitionSource: 1}, testCountByFallbackReason, result.TestDefinitionGitRead)
+		printRunTestDefinitionsFromGitMismatch(cmd, validationClient, checkoutProject)
 	}
 	if result.TaskID == "" && result.ErrorMessage != "" {
 		if runOutputJSON || runGitHubActions {
@@ -705,6 +741,15 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 	}
 	if result.GitBranchName != "" {
 		output["git_branch_name"] = result.GitBranchName
+	}
+	if result.TestDefinitionSource != "" {
+		output["test_definition_source"] = result.TestDefinitionSource
+		var fallbackReason *api.TestDefinitionFallbackReason
+		if result.TestDefinitionFallbackReason != "" {
+			fallbackReason = &result.TestDefinitionFallbackReason
+		}
+		output["test_definition_fallback_reason"] = fallbackReason
+		addTestDefinitionGitRead(output, result.TestDefinitionGitRead)
 	}
 
 	var payload interface{} = output
@@ -962,6 +1007,28 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	checkoutProject, err := resolveFromCheckoutProject(cmd)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+	var checkoutUpload *checkoutdefinitions.Upload
+	if checkoutProject != nil {
+		workflowInfo, err := client.GetWorkflowInfo(cmd.Context(), workflowID)
+		if err != nil {
+			ui.PrintError("could not read workflow '%s' tests: %v", workflowNameOrID, err)
+			return analytics.WithSafeDiagnostic(fmt.Errorf("read workflow tests: %w", err), lookupFailureDiagnostic("workflow", err))
+		}
+		testIDs := make([]string, 0, len(workflowInfo.TestInfo))
+		for _, test := range workflowInfo.TestInfo {
+			testIDs = append(testIDs, test.ID)
+		}
+		if checkoutUpload, err = collectCheckoutUpload(cmd, checkoutProject, testIDs); err != nil {
+			ui.PrintError("%v", err)
+			return err
+		}
+	}
+
 	var buildInvocation *projectBuildInvocation
 	if runWorkflowBuild {
 		invocation, err := resolveBuildContinuation(cwd, runWorkflowProfile, runWorkflowPlatform, runOutputJSON || runGitHubActions)
@@ -1118,6 +1185,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("detect Git branch for workflow: %w", err)
 		}
 		gitBranchName = gitBranch.Name
+	} else if checkoutUpload != nil {
+		gitBranchName = checkoutUpload.GitBranchName
 	}
 
 	if runNoWait {
@@ -1146,6 +1215,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
 			LaunchEnvVars:              launchEnvVars,
 			LaunchArguments:            runLaunchArguments,
+			TestDefinitionFiles:        checkoutUpload.RequestFiles(),
 		})
 		if err != nil {
 			ui.PrintError("Failed to queue workflow: %v", err)
@@ -1154,6 +1224,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		if err := workflowRunNotStarted(queuedResult); err != nil {
 			return err
 		}
+		printDefinitionLine(cmd, checkoutUpload, queuedResult.TestCountByDefinitionSource, queuedResult.TestCountByDefinitionFallbackReason, queuedResult.TestDefinitionGitRead)
 
 		ui.Println()
 		if runOutputJSON || runGitHubActions {
@@ -1219,8 +1290,12 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
 		LaunchEnvVars:              launchEnvVars,
 		LaunchArguments:            runLaunchArguments,
+		TestDefinitionFiles:        checkoutUpload.RequestFiles(),
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
+		},
+		OnTestDefinitionGitRead: func(read api.TestDefinitionGitRead) {
+			fallbackNotices.TestDefinitionGitBranchName = read.TestDefinitionGitBranchName
 		},
 		OnProgress: func(status *sse.WorkflowStatus) {
 			printWorkflowBranchFallbacks(fallbackNotices, status.ChildTasks)
@@ -1277,6 +1352,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if err := workflowRunNotStarted(result); err != nil {
 		return err
 	}
+	printDefinitionLine(cmd, checkoutUpload, result.TestCountByDefinitionSource, result.TestCountByDefinitionFallbackReason, result.TestDefinitionGitRead)
 
 	ui.Println()
 
@@ -1358,6 +1434,15 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 	}
 	if result.Status == "queued" {
 		output["queued"] = true
+	}
+	if result.TestCountByDefinitionSource != nil {
+		testCountByFallbackReason := result.TestCountByDefinitionFallbackReason
+		if testCountByFallbackReason == nil {
+			testCountByFallbackReason = map[api.TestDefinitionFallbackReason]int{}
+		}
+		output["test_count_by_definition_source"] = result.TestCountByDefinitionSource
+		output["test_count_by_definition_fallback_reason"] = testCountByFallbackReason
+		addTestDefinitionGitRead(output, result.TestDefinitionGitRead)
 	}
 
 	tests := make([]map[string]interface{}, 0, len(result.Tests))

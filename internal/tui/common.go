@@ -532,6 +532,9 @@ type WorkflowDeletedMsg struct {
 // WorkflowExecStartedMsg signals that a workflow execution was started.
 type WorkflowExecStartedMsg struct {
 	TaskID string
+	// Notice says what the run executes and any problems with the files it
+	// sent.
+	Notice string
 	Err    error
 }
 

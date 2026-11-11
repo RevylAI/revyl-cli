@@ -80,6 +80,7 @@ Use --build to build and upload before running.
   revyl workflow run smoke-tests --branch staging
   revyl workflow run smoke-tests --all-branches
   revyl workflow run smoke-tests --build
+  revyl workflow run smoke-tests --from-checkout
   revyl workflow run smoke-tests --json --no-wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowExec,
@@ -229,6 +230,8 @@ func init() {
 	workflowRunCmd.Flags().StringArrayVar(&runLaunchArguments, "launch-arg", nil, "Inline non-secret iOS app argument token for iOS tests (repeatable; order preserved)")
 	workflowRunCmd.Flags().BoolVar(&runDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	workflowRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override for all tests as key=value (repeatable, referenced as {{key}})")
+	workflowRunCmd.Flags().BoolVar(&runFromCheckout, fromCheckoutFlagName, false, fromCheckoutFlagUsage)
+	analytics.MarkFlagValue(workflowRunCmd, fromCheckoutFlagName)
 	analytics.MarkFlagValue(workflowRunCmd, "retries")
 	analytics.MarkFlagValue(workflowRunCmd, "no-wait")
 	analytics.MarkFlagValue(workflowRunCmd, "open")
@@ -244,7 +247,7 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "no-inherited-launch-vars")
 	analytics.MarkFlagValue(workflowRunCmd, "var")
 
-	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Revyl branch for each app (overrides saved selection; default: Git when enabled in app settings, else app default)")
+	workflowRunCmd.Flags().StringVar(&runBranchName, "branch", "", "Branch each test takes its build and, when in Git, its file from (overrides saved branches; default: your Git branch when an app follows Git branches, else that app's default branch)")
 	workflowRunCmd.Flags().StringVar(&runBuildSelection, "build-selection", "", "inherit (Automatic) or latest (ignore the branch pin)")
 	workflowRunCmd.Flags().BoolVar(&runAllBranches, allBranchesFlagName, false, allBranchesFlagUsage)
 	analytics.MarkFlagValue(workflowRunCmd, allBranchesFlagName)

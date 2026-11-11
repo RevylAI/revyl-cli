@@ -71,26 +71,37 @@ func Publish(
 	client Client,
 	candidate Candidate,
 ) (*api.ProjectConfigurationReplaceResponse, error) {
+	_, result, err := PublishReturningReplacedConfiguration(ctx, client, candidate)
+	return result, err
+}
+
+// PublishReturningReplacedConfiguration is Publish that also returns the
+// configuration state it observed and replaced.
+func PublishReturningReplacedConfiguration(
+	ctx context.Context,
+	client Client,
+	candidate Candidate,
+) (*api.ProjectConfigurationReadResponse, *api.ProjectConfigurationReplaceResponse, error) {
 	current, err := client.ReadProjectConfiguration(
 		ctx,
 		candidate.ProjectID,
 		api.ProjectConfigurationReadRequest{Locator: candidate.Locator},
 	)
 	if err != nil {
-		return nil, actionableReadError(err)
+		return nil, nil, actionableReadError(err)
 	}
 	if current.State == api.ProjectConfigurationReadResponseStatePresent {
 		if current.Resource == nil {
-			return nil, fmt.Errorf("server returned present configuration without a resource")
+			return nil, nil, fmt.Errorf("server returned present configuration without a resource")
 		}
 		if current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch &&
 			!candidate.AllowGitAuthorityOverride {
-			return nil, gitAuthorityError()
+			return nil, nil, gitAuthorityError()
 		}
 	}
 	precondition, err := projectConfigurationPrecondition(current)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	request := api.ProjectConfigurationReplaceRequest{
 		Locator:       candidate.Locator,
@@ -107,9 +118,9 @@ func Publish(
 		request,
 	)
 	if err != nil {
-		return nil, actionableWriteError(err)
+		return nil, nil, actionableWriteError(err)
 	}
-	return result, nil
+	return current, result, nil
 }
 
 func authoredConfigForAPI(authored config.AuthoredConfig) (api.AuthoredRevylConfig, error) {

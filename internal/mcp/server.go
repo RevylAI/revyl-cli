@@ -24,6 +24,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/execution"
@@ -360,29 +361,11 @@ When in doubt, call device_doctor() -- it checks auth, session, worker, groundin
 	return s, nil
 }
 
-func (s *Server) requireCanonicalProject() (*config.ProjectContext, error) {
-	if s.project != nil {
-		return s.project, nil
-	}
-	status := resolveSetupProjectStateForMode(s.workDir, s.devMode)
-	if !projectStateHasConfig(status.State) {
-		return nil, &projectSetupError{status: status}
-	}
-	project, err := config.ResolveProjectContext(status.ProjectDirectory, "")
-	if err != nil {
-		return nil, &projectSetupError{status: inspectProjectConfigStateForMode(status.ProjectDirectory, s.devMode)}
-	}
-	return project, nil
-}
-
 func (s *Server) resolveOptionalCanonicalProject() (*config.ProjectContext, error) {
 	return s.resolveOptionalCanonicalProjectAt("")
 }
 
 func (s *Server) resolveOptionalCanonicalProjectAt(projectDirectory string) (*config.ProjectContext, error) {
-	if projectDirectory == "" && s.project != nil {
-		return s.project, nil
-	}
 	workDir := s.toolProjectDirectory(projectDirectory)
 	status := resolveSetupProjectStateForMode(workDir, s.devMode)
 	if projectStateHasConfig(status.State) {
@@ -396,8 +379,8 @@ func (s *Server) resolveOptionalCanonicalProjectAt(projectDirectory string) (*co
 }
 
 func (s *Server) resolveCanonicalProject(projectDirectory string) (*config.ProjectContext, error) {
-	if strings.TrimSpace(projectDirectory) == "" || filepath.Clean(projectDirectory) == filepath.Clean(s.workDir) {
-		return s.requireCanonicalProject()
+	if strings.TrimSpace(projectDirectory) == "" {
+		projectDirectory = s.workDir
 	}
 	status := resolveSetupProjectStateForMode(projectDirectory, s.devMode)
 	if !projectStateHasConfig(status.State) {
@@ -1032,6 +1015,7 @@ type RunTestInput struct {
 	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs."`
 	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
+	FromCheckout               *bool    `json:"from_checkout,omitempty" jsonschema:"Run the project checkout's test, module and script files, uncommitted changes included, instead of the files in Git or the saved copies. Omitted, it follows run_test_definitions_from_git in the project's .revyl/config.yaml, as revyl test run does; false runs without the checkout's files"`
 }
 
 // RunTestOutput defines the output for the run_test tool.
@@ -1054,7 +1038,16 @@ type RunTestOutput struct {
 	BranchName           string           `json:"branch_name,omitempty"`
 	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
 	GitBranchName        string           `json:"git_branch_name,omitempty"`
-	NextSteps            []NextStep       `json:"next_steps,omitempty"`
+	// TestDefinitionSource and the fields after it say which definition the
+	// run executed, for a project that runs tests from Git.
+	TestDefinitionSource               api.TestDefinitionSource         `json:"test_definition_source,omitempty"`
+	TestDefinitionFallbackReason       api.TestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
+	TestDefinitionGitBranchName        string                           `json:"test_definition_git_branch_name,omitempty"`
+	TestDefinitionGitCommitSHA         string                           `json:"test_definition_git_commit_sha,omitempty"`
+	TestDefinitionMissingGitBranchName string                           `json:"test_definition_missing_git_branch_name,omitempty"`
+	TestDefinitionSummary              string                           `json:"test_definition_summary,omitempty"`
+	TestDefinitionWarnings             []string                         `json:"test_definition_warnings,omitempty"`
+	NextSteps                          []NextStep                       `json:"next_steps,omitempty"`
 }
 
 // handleRunTest handles the run_test tool call.
@@ -1125,9 +1118,24 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		}
 		return nil, RunTestOutput{Success: false, ErrorMessage: projectErr.Error()}, nil
 	}
+	testID := input.TestName
 	if project != nil {
 		params.TestsDir = project.TestsDir
+		if remoteID, err := config.GetLocalTestRemoteID(project.TestsDir, input.TestName); err == nil && remoteID != "" {
+			testID = remoteID
+		}
 	}
+	runProject, err := checkoutdefinitions.RunProject(project, input.FromCheckout)
+	if err != nil {
+		return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
+	}
+	var checkoutUpload *checkoutdefinitions.Upload
+	if runProject != nil {
+		if checkoutUpload, err = collectCheckoutUpload(ctx, runProject, []string{testID}); err != nil {
+			return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
+		}
+	}
+	params.TestDefinitionFiles = checkoutUpload.RequestFiles()
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)
 		if locErr != nil {
@@ -1145,6 +1153,8 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 			return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
 		}
 		params.GitBranchName = gitBranch
+	} else if checkoutUpload != nil {
+		params.GitBranchName = checkoutUpload.GitBranchName
 	}
 
 	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), nil, params)
@@ -1166,7 +1176,22 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		BuildVersion: result.BuildVersion,
 		BranchName:   result.BranchName,
 		BranchSource: result.BranchSource, GitBranchName: result.GitBranchName,
-		AutoGitBranchEnabled: result.AutoGitBranchEnabled,
+		AutoGitBranchEnabled:               result.AutoGitBranchEnabled,
+		TestDefinitionSource:               result.TestDefinitionSource,
+		TestDefinitionFallbackReason:       result.TestDefinitionFallbackReason,
+		TestDefinitionGitBranchName:        result.TestDefinitionGitBranchName,
+		TestDefinitionGitCommitSHA:         result.TestDefinitionGitCommitSHA,
+		TestDefinitionMissingGitBranchName: result.TestDefinitionMissingGitBranchName,
+	}
+	if result.TestDefinitionSource != "" {
+		testCountByFallbackReason := map[api.TestDefinitionFallbackReason]int{}
+		if result.TestDefinitionFallbackReason != "" {
+			testCountByFallbackReason[result.TestDefinitionFallbackReason] = 1
+		}
+		out.TestDefinitionSummary = testDefinitionSummary(checkoutUpload, map[api.TestDefinitionSource]int{result.TestDefinitionSource: 1}, testCountByFallbackReason, result.TestDefinitionGitRead)
+	}
+	if checkoutUpload != nil {
+		out.TestDefinitionWarnings = checkoutUpload.Warnings
 	}
 	if lastStatus != nil {
 		out.CompletedSteps = lastStatus.CompletedSteps
@@ -1212,6 +1237,7 @@ type RunWorkflowInput struct {
 	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs for iOS child tests."`
 	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens for iOS child tests."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
+	FromCheckout               *bool    `json:"from_checkout,omitempty" jsonschema:"Run the project checkout's test, module and script files, uncommitted changes included, instead of the files in Git or the saved copies. Omitted, it follows run_test_definitions_from_git in the project's .revyl/config.yaml, as revyl test run does; false runs without the checkout's files"`
 }
 
 // RunWorkflowOutput defines the output for the run_workflow tool.
@@ -1230,7 +1256,17 @@ type RunWorkflowOutput struct {
 	CurrentTest    string                         `json:"current_test,omitempty"`
 	ErrorMessage   string                         `json:"error_message,omitempty"`
 	Tests          []execution.WorkflowTestResult `json:"tests,omitempty"`
-	NextSteps      []NextStep                     `json:"next_steps,omitempty"`
+	// TestCountByDefinitionSource and the fields after it say which
+	// definitions the workflow's tests executed, for a project that runs
+	// tests from Git.
+	TestCountByDefinitionSource         map[string]int `json:"test_count_by_definition_source,omitempty"`
+	TestCountByDefinitionFallbackReason map[string]int `json:"test_count_by_definition_fallback_reason,omitempty"`
+	TestDefinitionGitBranchName         string         `json:"test_definition_git_branch_name,omitempty"`
+	TestDefinitionGitCommitSHA          string         `json:"test_definition_git_commit_sha,omitempty"`
+	TestDefinitionMissingGitBranchName  string         `json:"test_definition_missing_git_branch_name,omitempty"`
+	TestDefinitionSummary               string         `json:"test_definition_summary,omitempty"`
+	TestDefinitionWarnings              []string       `json:"test_definition_warnings,omitempty"`
+	NextSteps                           []NextStep     `json:"next_steps,omitempty"`
 }
 
 // handleRunWorkflow handles the run_workflow tool call.
@@ -1264,6 +1300,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 				msg += fmt.Sprintf(" (%s)", status.Duration)
 			}
 			for _, child := range status.ChildTasks {
+				fallbackNotices.TestDefinitionGitBranchName = child.TestDefinitionGitBranchName
 				if notice := fallbackNotices.SelectionNotice(child.AppID, child.AppName, child.BranchID, child.BranchName, child.GitBranchName, string(child.BranchSource), child.AutoGitBranchEnabled); notice != "" {
 					msg += "\n" + notice
 				}
@@ -1303,6 +1340,27 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
+	project, projectErr := s.resolveOptionalCanonicalProjectAt(input.ProjectDir)
+	if projectErr != nil && input.FromCheckout != nil && *input.FromCheckout {
+		return nil, RunWorkflowOutput{Success: false, ErrorMessage: projectErr.Error()}, nil
+	}
+	var checkoutUpload *checkoutdefinitions.Upload
+	if runProject, err := checkoutdefinitions.RunProject(project, input.FromCheckout); err != nil {
+		return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
+	} else if runProject != nil {
+		workflowInfo, err := s.apiClient.GetWorkflowInfo(ctx, workflowID)
+		if err != nil {
+			return nil, RunWorkflowOutput{Success: false, ErrorMessage: fmt.Sprintf("read the workflow's tests: %v", err)}, nil
+		}
+		testIDs := make([]string, 0, len(workflowInfo.TestInfo))
+		for _, test := range workflowInfo.TestInfo {
+			testIDs = append(testIDs, test.ID)
+		}
+		if checkoutUpload, err = collectCheckoutUpload(ctx, runProject, testIDs); err != nil {
+			return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
+		}
+	}
+	wfParams.TestDefinitionFiles = checkoutUpload.RequestFiles()
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)
 		if locErr != nil {
@@ -1320,6 +1378,8 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 			return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
 		}
 		wfParams.GitBranchName = gitBranch
+	} else if checkoutUpload != nil {
+		wfParams.GitBranchName = checkoutUpload.GitBranchName
 	}
 
 	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), nil, wfParams)
@@ -1347,6 +1407,19 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		ViewerURL:    viewerURL,
 		ErrorMessage: result.ErrorMessage,
 		Tests:        result.Tests,
+
+		TestCountByDefinitionSource:         testCountsByName(result.TestCountByDefinitionSource),
+		TestCountByDefinitionFallbackReason: testCountsByName(result.TestCountByDefinitionFallbackReason),
+		TestDefinitionGitBranchName:         result.TestDefinitionGitBranchName,
+		TestDefinitionGitCommitSHA:          result.TestDefinitionGitCommitSHA,
+		TestDefinitionMissingGitBranchName:  result.TestDefinitionMissingGitBranchName,
+		TestDefinitionSummary:               testDefinitionSummary(checkoutUpload, result.TestCountByDefinitionSource, result.TestCountByDefinitionFallbackReason, result.TestDefinitionGitRead),
+	}
+	if projectErr != nil {
+		out.TestDefinitionWarnings = append(out.TestDefinitionWarnings, fmt.Sprintf("Ran without this checkout's test files, because its .revyl/config.yaml can't be read: %v", projectErr))
+	}
+	if checkoutUpload != nil {
+		out.TestDefinitionWarnings = append(out.TestDefinitionWarnings, checkoutUpload.Warnings...)
 	}
 	if lastStatus != nil {
 		out.CompletedTests = lastStatus.CompletedTests
@@ -4158,6 +4231,9 @@ type UpdateTestOutput struct {
 	NewVersion int    `json:"new_version,omitempty"`
 	EditorURL  string `json:"editor_url,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// Notice says that runs ignore the saved copy this updated, in a project
+	// that runs tests from Git.
+	Notice string `json:"notice,omitempty"`
 }
 
 // handleUpdateTest handles the update_test tool call.
@@ -4228,12 +4304,17 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 
 	editorURL := fmt.Sprintf("https://app.revyl.ai/tests/%s/edit", testID)
 
-	return nil, UpdateTestOutput{
+	out := UpdateTestOutput{
 		Success:    true,
 		TestID:     resp.ID,
 		NewVersion: resp.Version,
 		EditorURL:  editorURL,
-	}, nil
+	}
+	project, _ := s.resolveOptionalCanonicalProjectAt("")
+	if runProject, _ := checkoutdefinitions.RunProject(project, nil); runProject != nil {
+		out.Notice = checkoutdefinitions.SavedCopiesNotice(runProject, "update_test") + " To change what runs, edit the test's file in .revyl/tests/, since run_test runs this checkout's files."
+	}
+	return nil, out, nil
 }
 
 // --- Script tool handlers ---

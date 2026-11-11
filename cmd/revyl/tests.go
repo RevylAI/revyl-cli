@@ -3,16 +3,18 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
@@ -30,6 +32,11 @@ var (
 	testsPullDryRun bool
 	testsPullAll    bool
 
+	testsPullAppNamesOrIDs []string
+
+	testsPushIncludeModulesAndScripts bool
+	testsPullIncludeModulesAndScripts bool
+
 	testDuplicateName  string
 	testRestoreVersion int
 )
@@ -38,10 +45,13 @@ func init() {
 	// Configure flags for subcommands
 	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
 	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
+	testsPushCmd.Flags().BoolVar(&testsPushIncludeModulesAndScripts, "include-modules-and-scripts", false, "Also update the saved modules and scripts the pushed tests use to match their files")
 
 	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
 	testsPullCmd.Flags().BoolVar(&testsPullDryRun, "dry-run", false, "Show what would be pulled without pulling")
 	testsPullCmd.Flags().BoolVar(&testsPullAll, "all", false, "Pull all tests from the organization, including those not in local config")
+	testsPullCmd.Flags().StringArrayVar(&testsPullAppNamesOrIDs, "app", nil, "With --all, pull only the tests on this `app`, by name or ID; repeat for several apps")
+	testsPullCmd.Flags().BoolVar(&testsPullIncludeModulesAndScripts, "include-modules-and-scripts", false, "Also write the saved modules and scripts the pulled tests use to .revyl/modules and .revyl/scripts")
 
 	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
 	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios, web)")
@@ -81,13 +91,28 @@ var testsPushCmd = &cobra.Command{
 If a test name is provided, only that test is pushed.
 Otherwise, all modified tests are pushed.
 
+Before writing any test, the push creates the scripts, then the modules, that
+the pushed tests use and that have a file in .revyl/scripts or .revyl/modules
+but no saved copy. It updates an existing script or module only with
+--include-modules-and-scripts: then it also saves each file that differs from
+its saved copy, prints every script and module it changes, and names the other
+saved tests that use one.
+
+When .revyl/config.yaml sets run_test_definitions_from_git, runs use the
+test files in Git and a push only updates the saved fallback copies. To keep
+changes made in Git after turning Run tests from Git off, run
+revyl test push --force --include-modules-and-scripts in a checkout that has
+them.
+
 Examples:
   revyl test push              # Push all modified tests
   revyl test push login-flow   # Push specific test
-  revyl test push --force      # Force overwrite remote`,
+  revyl test push --force      # Force overwrite remote
+  revyl test push --force --include-modules-and-scripts   # Also update modules and scripts`,
 	Example: `  revyl test push
   revyl test push login-flow
   revyl test push login-flow --force
+  revyl test push --force --include-modules-and-scripts
   revyl test push --dry-run`,
 	RunE: runTestsPush,
 }
@@ -103,15 +128,28 @@ Otherwise, pulls all tests that are in your local config.
 
 Use --all to discover and pull ALL tests from your organization,
 including those created in the app UI that aren't in local config yet.
+Add --app to pull only the tests on that app, by app name or ID, and
+repeat it for several apps; revyl app list shows each app's name and ID.
+
+Add --include-modules-and-scripts to also write the saved modules the pulled
+tests use, and the scripts those tests and modules use, to .revyl/modules and
+.revyl/scripts, the files a run from Git reads. Without it, revyl module pull
+and revyl script pull write every saved module and script in the organization.
+A module or script file with other content is kept unless --force is set.
 
 Examples:
-  revyl test pull              # Pull all tests in local config
-  revyl test pull login-flow   # Pull specific test
-  revyl test pull --all        # Pull all org tests (including remote-only)
-  revyl test pull --force      # Force overwrite local`,
+  revyl test pull                        # Pull all tests in local config
+  revyl test pull login-flow             # Pull specific test
+  revyl test pull --all                  # Pull all org tests (including remote-only)
+  revyl test pull --all --app "My App"   # Pull only the tests on My App
+  revyl test pull --all --app "My App" --include-modules-and-scripts   # Plus the modules and scripts they use
+  revyl test pull --force                # Force overwrite local`,
 	Example: `  revyl test pull
   revyl test pull login-flow
+  revyl test pull --all --app "My App" --include-modules-and-scripts
   revyl test pull --all
+  revyl test pull --all --app "My App"
+  revyl test pull --all --app "My iOS App" --app "My Android App"
   revyl test pull --force`,
 	RunE: runTestsPull,
 }
@@ -286,6 +324,14 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		testName = args[0]
 	}
 
+	if project.Context.Authored.RunTestDefinitionsFromGit {
+		ui.PrintInfo("%s", checkoutdefinitions.SavedCopiesNotice(project.Context, "this push"))
+	}
+	pushedTestNames := slices.Sorted(maps.Keys(localTests))
+	if testName != "" {
+		pushedTestNames = []string{testName}
+	}
+
 	// Handle dry-run mode
 	if testsPushDryRun {
 		ui.StartSpinner("Checking what would be pushed...")
@@ -326,6 +372,12 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
+		moduleAndScriptPlan, err := planModuleAndScriptFilePush(cmd.Context(), client, project.Context, localTests, pushedTestNames, testsPushIncludeModulesAndScripts)
+		if err != nil {
+			ui.PrintError("%v", err)
+			return err
+		}
+		printModuleAndScriptFilePushPlan(moduleAndScriptPlan)
 
 		ui.Println()
 		ui.PrintSuccess("Dry-run complete - no changes made")
@@ -353,41 +405,23 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if err := validateYAMLFilesWithBackend(cmd, testsToValidate); err != nil {
-		return err
-	}
-
-	ui.StartSpinner("Pushing tests...")
-	results, err := resolver.SyncToRemote(cmd.Context(), testName, testsDir, testsForce)
-	ui.StopSpinner()
-
+	moduleAndScriptPlan, err := planModuleAndScriptFilePush(cmd.Context(), client, project.Context, localTests, pushedTestNames, testsPushIncludeModulesAndScripts)
 	if err != nil {
-		ui.PrintError("Push failed: %v", err)
+		ui.PrintError("%v", err)
 		return err
 	}
-
-	ui.Println()
-	var failures []error
-	for _, r := range results {
-		if r.Error != nil {
-			ui.PrintError("%s: %v", r.Name, r.Error)
-			failures = append(failures, fmt.Errorf("%s: %w", r.Name, r.Error))
-		} else if r.Conflict {
-			ui.PrintWarning("%s: conflict detected (use --force to overwrite)", r.Name)
-			failures = append(failures, fmt.Errorf("%s: conflict detected (use --force to overwrite)", r.Name))
-		} else {
-			ui.PrintSuccess("%s: pushed to v%d", r.Name, r.NewVersion)
-			if r.TagSyncError != nil {
-				ui.PrintWarning("%s: tags failed to sync: %v", r.Name, r.TagSyncError)
-			}
-		}
-	}
-
-	return errors.Join(failures...)
+	return pushLocalTests(cmd, client, project.Context, resolver, moduleAndScriptPlan, testName, testsToValidate, testsForce)
 }
 
 // runTestsPull pulls remote changes to local.
 func runTestsPull(cmd *cobra.Command, args []string) error {
+	if len(testsPullAppNamesOrIDs) > 0 && len(args) > 0 {
+		return fmt.Errorf("--app can't be combined with a test name; `revyl test pull %s` pulls that test whatever its app", args[0])
+	}
+	if len(testsPullAppNamesOrIDs) > 0 && !testsPullAll {
+		return fmt.Errorf("--app picks which app's tests --all pulls; run `revyl test pull --all --app <app name or ID>`")
+	}
+
 	// Check authentication
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -404,6 +438,11 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return actionableLocalConfigError(err)
 	}
+	if !testsPullDryRun {
+		if err := ensureDefinitionFilesAreGitVisible(project.Context); err != nil {
+			return err
+		}
+	}
 	testsDir := project.TestsDir
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
@@ -413,15 +452,49 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
+	pullLocalTests := localTests
+	var appIDByRemoteTestID map[string]string
+
 	// If --all flag is set, discover remote-only tests and create local YAML stubs
 	if testsPullAll && len(args) == 0 {
+		pickedAppNameByID := make(map[string]string, len(testsPullAppNamesOrIDs))
+		for _, appNameOrID := range testsPullAppNamesOrIDs {
+			appID, appName, err := resolveAppNameOrID(cmd, client, appNameOrID)
+			if err != nil {
+				return err
+			}
+			pickedAppNameByID[appID] = appName
+		}
+		pickedAppNames := slices.Sorted(maps.Values(pickedAppNameByID))
+
 		ui.StartSpinner("Discovering all organization tests...")
-		remoteTests, err := client.ListOrgTests(cmd.Context(), 200, 0)
+		remoteTests, err := client.ListAllOrgTests(cmd.Context(), 200)
 		ui.StopSpinner()
 
+		if err != nil && len(pickedAppNameByID) > 0 {
+			return fmt.Errorf("list your organization's tests to find the ones on %s: %w", strings.Join(pickedAppNames, ", "), err)
+		}
 		if err != nil {
 			ui.PrintWarning("Failed to fetch remote tests: %v", err)
 		} else {
+			appIDByRemoteTestID = make(map[string]string, len(remoteTests))
+			for _, t := range remoteTests {
+				appIDByRemoteTestID[t.ID] = t.AppID
+			}
+			if len(pickedAppNameByID) > 0 {
+				pickedRemoteTests := make([]api.SimpleTest, 0, len(remoteTests))
+				for _, t := range remoteTests {
+					if _, picked := pickedAppNameByID[t.AppID]; picked {
+						pickedRemoteTests = append(pickedRemoteTests, t)
+					}
+				}
+				if len(pickedRemoteTests) == 0 {
+					ui.PrintInfo("No tests in your organization are on %s", strings.Join(pickedAppNames, ", "))
+					return nil
+				}
+				remoteTests = pickedRemoteTests
+			}
+
 			// Build a set of known remote IDs from local YAML files
 			existingIDs := make(map[string]bool)
 			for _, local := range localTests {
@@ -435,7 +508,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 			if mkErr := os.MkdirAll(testsDir, 0755); mkErr != nil {
 				ui.PrintWarning("Failed to create tests directory: %v", mkErr)
 			} else {
-				for _, t := range remoteTests.Tests {
+				for _, t := range remoteTests {
 					if existingIDs[t.ID] {
 						continue
 					}
@@ -452,22 +525,35 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 						Meta: config.TestMeta{RemoteID: t.ID},
 					}
 					testPath := filepath.Join(testsDir, finalName+".yaml")
-					if saveErr := config.SaveLocalTest(testPath, localTest); saveErr != nil {
-						ui.PrintWarning("Failed to save %s: %v", finalName, saveErr)
-						continue
+					if !testsPullDryRun {
+						if saveErr := config.SaveLocalTest(testPath, localTest); saveErr != nil {
+							ui.PrintWarning("Failed to save %s: %v", finalName, saveErr)
+							continue
+						}
 					}
 					localTests[finalName] = localTest
 					newCount++
 				}
 			}
 
-			if newCount > 0 {
+			if newCount > 0 && len(pickedAppNameByID) > 0 {
+				ui.PrintInfo("Discovered %d new test(s) on %s", newCount, strings.Join(pickedAppNames, ", "))
+			} else if newCount > 0 {
 				ui.PrintInfo("Discovered %d new test(s) from organization", newCount)
+			}
+
+			if len(pickedAppNameByID) > 0 {
+				pullLocalTests = make(map[string]*config.LocalTest)
+				for name, local := range localTests {
+					if _, picked := pickedAppNameByID[appIDByRemoteTestID[local.Meta.RemoteID]]; picked {
+						pullLocalTests[name] = local
+					}
+				}
 			}
 		}
 	}
 
-	resolver := sync.NewResolver(client, nil, localTests)
+	resolver := sync.NewResolver(client, nil, pullLocalTests)
 
 	var testName string
 	if len(args) > 0 {
@@ -514,6 +600,28 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
+		if testsPullIncludeModulesAndScripts {
+			ui.StartSpinner("Reading the tests the pull would write...")
+			scriptNames, moduleNames := resolver.FetchNameMappings(cmd.Context())
+			blocksByTest := map[string][]config.TestBlock{}
+			for _, s := range toPull {
+				blocks, err := resolver.RemoteTestBlocks(cmd.Context(), s.RemoteID, scriptNames, moduleNames)
+				if err != nil {
+					ui.StopSpinner()
+					return fmt.Errorf("%s: %w", s.Name, err)
+				}
+				blocksByTest[s.Name] = blocks
+			}
+			ui.StopSpinner()
+			for name, local := range pullLocalTests {
+				if _, pulled := blocksByTest[name]; !pulled && (testName == "" || name == testName) {
+					blocksByTest[name] = local.Test.Blocks
+				}
+			}
+			if err := printModuleAndScriptFilesPullWouldWrite(cmd.Context(), client, project.Context, blocksByTest); err != nil {
+				return err
+			}
+		}
 
 		ui.Println()
 		ui.PrintSuccess("Dry-run complete - no changes made")
@@ -531,6 +639,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 	pulledCount := 0
+	pulledPaths := make([]string, 0, len(results))
 	for _, r := range results {
 		if r.Error != nil {
 			ui.PrintError("%s: %v", r.Name, r.Error)
@@ -539,6 +648,37 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 		} else {
 			ui.PrintSuccess("%s: pulled v%d", r.Name, r.NewVersion)
 			pulledCount++
+			pulledPaths = append(pulledPaths, filepath.Join(testsDir, r.Name+".yaml"))
+		}
+	}
+	if err := ensureDefinitionFilesAreGitVisible(project.Context, pulledPaths...); err != nil {
+		return err
+	}
+	if testsPullIncludeModulesAndScripts {
+		testPaths := make([]string, 0, len(pullLocalTests))
+		for name := range pullLocalTests {
+			if testName == "" || name == testName {
+				testPaths = append(testPaths, filepath.Join(testsDir, name+".yaml"))
+			}
+		}
+		if err := pullModuleAndScriptFilesUsedBy(cmd.Context(), client, project.Context, testPaths, testsForce); err != nil {
+			return err
+		}
+	}
+
+	if len(testsPullAppNamesOrIDs) == 0 && appIDByRemoteTestID != nil {
+		pulledAppIDs := make(map[string]bool)
+		for _, r := range results {
+			if r.Error != nil || r.Conflict {
+				continue
+			}
+			if appID := appIDByRemoteTestID[pullLocalTests[r.Name].Meta.RemoteID]; appID != "" {
+				pulledAppIDs[appID] = true
+			}
+		}
+		if len(pulledAppIDs) > 1 {
+			ui.Println()
+			ui.PrintInfo("These tests are on %d apps. To pull only one app's tests, run `revyl test pull --all --app <app name or ID>` (`revyl app list` shows each app's name and ID).", len(pulledAppIDs))
 		}
 	}
 

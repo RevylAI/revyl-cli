@@ -34,6 +34,7 @@ func IsInputTTY() bool {
 func clearLine() {
 	if isTTY {
 		fmt.Fprint(os.Stderr, "\r\033[K")
+		statusLineOpen = false
 	}
 }
 

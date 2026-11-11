@@ -133,7 +133,7 @@ func TestImportRemoteTest_SavedBuildSelectionRoundTrip(t *testing.T) {
 			}
 			pusher := NewResolver(client, &config.ProjectConfig{}, map[string]*config.LocalTest{"test": local})
 			results, err = pusher.SyncToRemote(context.Background(), "test", testsDir, false)
-			if err != nil || len(results) != 1 || results[0].Error != nil || results[0].TagSyncError != nil || results[0].ConfigSyncError != nil {
+			if err != nil || len(results) != 1 || results[0].Error != nil || results[0].TagSyncError != nil {
 				t.Fatalf("SyncToRemote() results=%+v err=%v", results, err)
 			}
 			var update map[string]any

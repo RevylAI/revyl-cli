@@ -602,8 +602,7 @@ func PrintBasicStatus(statusStr string, progress int, currentStep string, comple
 		displayStatus = "Test timed out"
 	}
 	if displayStatus != "" {
-		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
-		fmt.Fprint(stderrW, statusLine)
+		printStatusLine(fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus)))
 		return
 	}
 
@@ -622,8 +621,42 @@ func PrintBasicStatus(statusStr string, progress int, currentStep string, comple
 		statusLine += DimStyle.Render(fmt.Sprintf(" → %s", currentStep))
 	}
 
-	// Print without newline so it updates in place
-	fmt.Fprint(stderrW, statusLine)
+	printStatusLine(statusLine)
+}
+
+// statusLineOpen reports that the last write to a terminal was an in-place
+// status line with no newline, so the next full line has to end it first.
+var statusLineOpen bool
+
+// lastStatusLine is the status line a pipe or CI log last received, so an
+// unchanged status isn't logged again.
+var lastStatusLine string
+
+// printStatusLine writes a run's current status: in place on a terminal, and
+// as its own line in a pipe or CI log, once per change.
+func printStatusLine(statusLine string) {
+	if isTTY {
+		fmt.Fprint(stderrW, statusLine)
+		statusLineOpen = true
+		return
+	}
+	if statusLine == lastStatusLine {
+		return
+	}
+	fmt.Fprintln(stderrW, statusLine)
+	lastStatusLine = statusLine
+}
+
+// EndStatusLine moves terminal output below the in-place status line, so a
+// line that must stay readable, such as the Definition: line, starts at the
+// left margin instead of running on from the status. No-op when no status
+// line is open.
+func EndStatusLine() {
+	if !statusLineOpen {
+		return
+	}
+	fmt.Fprintln(stderrW)
+	statusLineOpen = false
 }
 
 // ChildTestInfo contains per-test progress data for workflow status display.
@@ -711,6 +744,7 @@ func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int, 
 
 	// Print without newline so it updates in place
 	fmt.Fprint(stderrW, statusLine)
+	statusLineOpen = true
 }
 
 // printChildTestLines renders per-test progress lines below the aggregate status.
@@ -1020,8 +1054,21 @@ func AppBranchSelectionNotice(appName, gitBranchName, defaultBranchName string, 
 	return ""
 }
 
-// BranchFallbackNotices suppresses repeated notices for the same resolved app and branch.
+// NoticeWithTestDefinitionGitBranch adds to a run's branch notice the Git
+// branch its test files were read from, which a build fallback doesn't change.
+func NoticeWithTestDefinitionGitBranch(notice, testDefinitionGitBranchName string) string {
+	if notice == "" || testDefinitionGitBranchName == "" {
+		return notice
+	}
+	return fmt.Sprintf("%s The tests come from Git branch %q.", notice, testDefinitionGitBranchName)
+}
+
+// BranchFallbackNotices suppresses repeated notices for the same resolved app
+// and branch. A run that read its test files from one Git branch sets
+// TestDefinitionGitBranchName, and each notice names that branch.
 type BranchFallbackNotices struct {
+	TestDefinitionGitBranchName string
+
 	seen          map[[2]string]struct{}
 	selectionSeen map[[3]string]struct{}
 }
@@ -1030,7 +1077,7 @@ func (notices *BranchFallbackNotices) SelectionNotice(appID, appName, branchID, 
 	if appName == "" {
 		appName = appID
 	}
-	notice := AppBranchSelectionNotice(appName, gitBranchName, branchName, source, enabled)
+	notice := NoticeWithTestDefinitionGitBranch(AppBranchSelectionNotice(appName, gitBranchName, branchName, source, enabled), notices.TestDefinitionGitBranchName)
 	if notice == "" {
 		return ""
 	}

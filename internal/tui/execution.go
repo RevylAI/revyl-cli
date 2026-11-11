@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -120,7 +121,8 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 		if err != nil {
 			return ExecutionDoneMsg{Err: fmt.Errorf("resolve current project: %w", err)}
 		}
-		if _, err := config.ResolveProjectContext(cwd, ""); err != nil {
+		project, err := config.ResolveProjectContext(cwd, "")
+		if err != nil {
 			return ExecutionDoneMsg{Err: actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))}
 		}
 
@@ -138,14 +140,22 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 		if err != nil {
 			return ExecutionDoneMsg{Err: err}
 		}
+		checkoutUpload, err := collectCheckoutUpload(ctx, project, []string{testID})
+		if err != nil {
+			return ExecutionDoneMsg{Err: err}
+		}
+		if selection.GitBranchName == "" && checkoutUpload != nil {
+			selection.GitBranchName = checkoutUpload.GitBranchName
+		}
 		resp, err := client.ExecuteTest(ctx, &api.ExecuteTestRequest{
-			TestID:         testID,
-			Retries:        1,
-			BranchID:       selection.BranchID,
-			BranchName:     selection.BranchName,
-			BuildSelection: selection.Mode,
-			BuildVersionID: selection.BuildID,
-			GitBranchName:  selection.GitBranchName,
+			TestID:              testID,
+			Retries:             1,
+			BranchID:            selection.BranchID,
+			BranchName:          selection.BranchName,
+			BuildSelection:      selection.Mode,
+			BuildVersionID:      selection.BuildID,
+			GitBranchName:       selection.GitBranchName,
+			TestDefinitionFiles: checkoutUpload.RequestFiles(),
 		})
 		if err != nil {
 			return ExecutionDoneMsg{Err: fmt.Errorf("failed to start test: %w", err)}
@@ -154,6 +164,14 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 		if resolvedNotice := ui.BranchSelectionNotice(resp.GitBranchName, resp.BranchName, string(resp.BranchSource), resp.AutoGitBranchEnabled); resolvedNotice != "" {
 			notice = resolvedNotice
 		}
+		testCountBySource, testCountByFallbackReason := map[api.TestDefinitionSource]int{}, map[api.TestDefinitionFallbackReason]int{}
+		if resp.TestDefinitionSource != "" {
+			testCountBySource[resp.TestDefinitionSource] = 1
+		}
+		if resp.TestDefinitionFallbackReason != "" {
+			testCountByFallbackReason[resp.TestDefinitionFallbackReason] = 1
+		}
+		notice = noticeWithTestDefinition(ui.NoticeWithTestDefinitionGitBranch(notice, resp.TestDefinitionGitBranchName), checkoutUpload, testCountBySource, testCountByFallbackReason, resp.TestDefinitionGitRead)
 		return ExecutionStartedMsg{
 			BranchFallbackNotice: notice,
 			TaskID:               resp.TaskID,
@@ -443,7 +461,7 @@ func (m executionModel) View() string {
 	b.WriteString(header + "\n")
 	b.WriteString(separator(min(w, 60)) + "\n")
 	if m.branchFallbackNotice != "" {
-		b.WriteString("  " + warningStyle.Render(m.branchFallbackNotice) + "\n")
+		b.WriteString(lipgloss.NewStyle().Width(min(w, 60)-2).MarginLeft(2).Render(warningStyle.Render(m.branchFallbackNotice)) + "\n")
 	}
 
 	// Pipeline phase tracker

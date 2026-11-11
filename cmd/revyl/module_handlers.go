@@ -3,20 +3,107 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 )
 
 // moduleBlocksFile represents the structure of a module blocks YAML file.
 type moduleBlocksFile struct {
 	Blocks []interface{} `yaml:"blocks"`
+}
+
+// runModulePull writes saved modules to the project's .revyl/modules folder.
+func runModulePull(cmd *cobra.Command, args []string) error {
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
+	}
+	project, err := resolveSyncProjectFiles(cwd)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	ui.StartSpinner("Fetching modules...")
+	var modules []api.CLIModuleResponse
+	if len(args) == 1 {
+		moduleID, _, resolveErr := resolveModuleNameOrID(cmd, client, args[0])
+		if resolveErr != nil {
+			ui.StopSpinner()
+			ui.PrintError("%v", resolveErr)
+			return resolveErr
+		}
+		resp, getErr := client.GetModule(cmd.Context(), moduleID)
+		if getErr != nil {
+			ui.StopSpinner()
+			ui.PrintError("Failed to get module: %v", getErr)
+			return getErr
+		}
+		modules = []api.CLIModuleResponse{resp.Result}
+	} else {
+		resp, listErr := client.ListModules(cmd.Context())
+		if listErr != nil {
+			ui.StopSpinner()
+			ui.PrintError("Failed to list modules: %v", listErr)
+			return listErr
+		}
+		modules = resp.Result
+	}
+	scriptNames, moduleNames := sync.NewResolver(client, nil, nil).FetchNameMappings(cmd.Context())
+	ui.StopSpinner()
+
+	var failures []error
+	for _, module := range modules {
+		if err := pullModuleFile(project.Context, module, scriptNames, moduleNames, modulePullForce); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+// pullModuleFile writes one saved module to .revyl/modules/<name>.yaml, the
+// way revyl module pull does: a module whose name can't be a file name is
+// skipped with a warning, and a file with other content is kept unless force
+// is set.
+func pullModuleFile(project *config.ProjectContext, module api.CLIModuleResponse, scriptNames, moduleNames map[string]string, force bool) error {
+	if !pullableDefinitionName(module.Name) {
+		ui.PrintWarning("Skipped module %q: its name can't be a file name in .revyl/modules", module.Name)
+		return nil
+	}
+	blocks, err := sync.AuthoredBlocks(module.Blocks, scriptNames, moduleNames)
+	if err != nil {
+		ui.PrintError("module %s: %v", module.Name, err)
+		return fmt.Errorf("module %s: %w", module.Name, err)
+	}
+	content, err := yaml.Marshal(struct {
+		Blocks []config.TestBlock `yaml:"blocks"`
+	}{Blocks: blocks})
+	if err != nil {
+		return fmt.Errorf("module %s: %w", module.Name, err)
+	}
+	path := filepath.Join(filepath.Dir(project.ConfigPath), "modules", module.Name+".yaml")
+	if err := pullDefinitionFile(project, "module", module.Name, path, content, force); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+	return nil
 }
 
 // resolveModuleNameOrID resolves a module name or UUID to a module ID and name.

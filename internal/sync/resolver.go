@@ -115,8 +115,6 @@ type SyncResult struct {
 	Error error
 	// TagSyncError is a non-fatal error from tag synchronization.
 	TagSyncError error
-	// ConfigSyncError is a non-fatal error from variable/env/device config sync.
-	ConfigSyncError error
 }
 
 // Resolver handles test name resolution and sync operations.
@@ -401,7 +399,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	var createOrgIDErr error
 
 	// Fetch module/script name mappings once for name → UUID resolution.
-	pushScriptNames, pushModuleNames := r.fetchNameMappings(ctx)
+	pushScriptNames, pushModuleNames := r.FetchNameMappings(ctx)
 
 	for name, localTest := range testsToSync {
 		result := SyncResult{Name: name}
@@ -451,6 +449,12 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				results = append(results, result)
 				continue
 			}
+			runConfig, err := r.savedRunConfigWithFileLocation(ctx, "", localTest.Test.Location)
+			if err != nil {
+				result.Error = err
+				results = append(results, result)
+				continue
+			}
 
 			// Create new test on remote
 			resp, err := r.client.CreateTest(ctx, &api.CreateTestRequest{
@@ -461,6 +465,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				Tasks:               resolvedBlocks,
 				AppID:               resolvedAppID,
 				OrgID:               createOrgID,
+				RunConfig:           runConfig,
 			})
 			if err != nil {
 				result.Error = err
@@ -476,13 +481,13 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				}
 
 				if cfgErr := r.syncTestConfig(ctx, resp.ID, localTest); cfgErr != nil {
-					result.ConfigSyncError = cfgErr
+					result.Error = fmt.Errorf("saved v%d, but its settings failed to save: %w", resp.Version, cfgErr)
 				}
 
 				sanitized := util.SanitizeForFilename(name)
 				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
-					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
+					result.Error = errors.Join(result.Error, fmt.Errorf("synced but failed to save local file: %w", saveErr))
 				}
 			}
 		} else {
@@ -494,6 +499,12 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 
 			updateBlocks := deepCopyBlocks(localTest.Test.Blocks)
 			if err := resolveBlockNamesForPush(updateBlocks, pushScriptNames, pushModuleNames); err != nil {
+				result.Error = err
+				results = append(results, result)
+				continue
+			}
+			runConfig, err := r.savedRunConfigWithFileLocation(ctx, remoteID, localTest.Test.Location)
+			if err != nil {
 				result.Error = err
 				results = append(results, result)
 				continue
@@ -510,6 +521,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				PinnedVersionID:     localTest.Test.Build.PinnedVersion,
 				ExpectedVersion:     expectedVersion,
 				Force:               force,
+				RunConfig:           runConfig,
 			})
 			if err != nil {
 				if apiErr, ok := err.(*api.APIError); ok && apiErr.IsTestVersionConflict() {
@@ -528,14 +540,14 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				}
 
 				if cfgErr := r.syncTestConfig(ctx, remoteID, localTest); cfgErr != nil {
-					result.ConfigSyncError = cfgErr
+					result.Error = fmt.Errorf("saved v%d, but its settings failed to save: %w", resp.Version, cfgErr)
 				}
 
 				// Save updated local test file
 				sanitized := util.SanitizeForFilename(name)
 				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
-					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
+					result.Error = errors.Join(result.Error, fmt.Errorf("synced but failed to save local file: %w", saveErr))
 				}
 			}
 		}
@@ -597,7 +609,8 @@ func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []st
 // syncTestConfig pushes variables, env vars, and device targets from local YAML
 // to the remote test. Uses delete-then-re-add when the YAML defines the section
 // (even if empty, to clear remote values), skipping only when the section is
-// completely absent (nil map).
+// completely absent (nil map). Saved secret variables are kept, and a file
+// variable with a secret's name is ignored, since files never hold secret values.
 //
 // Returns a joined error of all individual failures so callers can surface
 // partial-sync warnings without aborting the overall operation.
@@ -605,12 +618,27 @@ func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest 
 	var errs []error
 
 	if localTest.Test.Variables != nil {
-		if err := r.client.DeleteAllCustomVariables(ctx, testID); err != nil {
-			errs = append(errs, fmt.Errorf("delete custom vars: %w", err))
-		}
-		for name, value := range localTest.Test.Variables {
-			if _, err := r.client.AddCustomVariable(ctx, testID, name, value); err != nil {
-				errs = append(errs, fmt.Errorf("add var %s: %w", name, err))
+		savedVars, err := r.client.ListCustomVariables(ctx, testID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list custom vars: %w", err))
+		} else {
+			secretNames := make(map[string]bool)
+			for _, v := range savedVars.Result {
+				if v.IsSecret {
+					secretNames[v.VariableName] = true
+					continue
+				}
+				if err := r.client.DeleteCustomVariable(ctx, testID, v.VariableName); err != nil {
+					errs = append(errs, fmt.Errorf("delete var %s: %w", v.VariableName, err))
+				}
+			}
+			for name, value := range localTest.Test.Variables {
+				if secretNames[name] {
+					continue
+				}
+				if _, err := r.client.AddCustomVariable(ctx, testID, name, value); err != nil {
+					errs = append(errs, fmt.Errorf("add var %s: %w", name, err))
+				}
 			}
 		}
 	}
@@ -644,7 +672,7 @@ func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest 
 	}
 
 	if localTest.Test.Device != nil {
-		if localTest.Test.Device.Model != "" || localTest.Test.Device.Orientation != "" {
+		if localTest.Test.Device.Model != "" || localTest.Test.Device.OSVersion != "" || localTest.Test.Device.Orientation != "" {
 			if err := r.client.UpdateDeviceTarget(ctx, testID, localTest.Test.Device.Model, localTest.Test.Device.OSVersion, localTest.Test.Device.Orientation); err != nil {
 				errs = append(errs, fmt.Errorf("update device target: %w", err))
 			}
@@ -652,6 +680,36 @@ func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest 
 	}
 
 	return errors.Join(errs...)
+}
+
+// savedRunConfigWithFileLocation returns the run config to save with a test
+// whose file sets a location: the test's saved run config, every other
+// setting kept, with the file's location. It returns nil when the file sets
+// no location, so the saved run config stays as it is.
+func (r *Resolver) savedRunConfigWithFileLocation(ctx context.Context, testID string, location *config.TestLocation) (map[string]interface{}, error) {
+	if location == nil {
+		return nil, nil
+	}
+	runConfig := map[string]interface{}{}
+	if testID != "" {
+		savedTest, err := r.client.GetTest(ctx, testID)
+		if err != nil {
+			return nil, fmt.Errorf("read the saved run config: %w", err)
+		}
+		if savedTest.RunConfig != nil {
+			runConfig = savedTest.RunConfig
+		}
+	}
+	executionMode, ok := runConfig["execution_mode"].(map[string]interface{})
+	if !ok {
+		executionMode = map[string]interface{}{}
+		runConfig["execution_mode"] = executionMode
+	}
+	executionMode["initial_location"] = map[string]interface{}{
+		"latitude":  location.Latitude,
+		"longitude": location.Longitude,
+	}
+	return runConfig, nil
 }
 
 // PullFromRemote pulls remote changes to local.
@@ -740,14 +798,13 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		return result
 	}
 
-	blocks, err := convertTasksToBlocks(remoteTest.Tasks)
+	blocks, err := authoredBlocksFromTasks(remoteTest.Tasks)
 	if err != nil {
-		result.Error = fmt.Errorf("parse remote test blocks: %w", err)
+		result.Error = err
 		return result
 	}
-	blocks = stripBlockIDs(blocks)
 
-	scriptNames, moduleNames := r.fetchNameMappings(ctx)
+	scriptNames, moduleNames := r.FetchNameMappings(ctx)
 	resolveBlockNames(blocks, scriptNames, moduleNames)
 
 	localTest := &config.LocalTest{
@@ -798,13 +855,17 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		localTest.Test.Metadata.Tags = tagNames
 	}
 
-	// Fetch custom variables
-	if varsResp, err := r.client.ListCustomVariables(ctx, remoteID); err == nil && len(varsResp.Result) > 0 {
+	// Fetch custom variables; secrets stay in Revyl, since the API never returns their values.
+	if varsResp, err := r.client.ListCustomVariables(ctx, remoteID); err == nil {
 		vars := make(map[string]string, len(varsResp.Result))
 		for _, v := range varsResp.Result {
-			vars[v.VariableName] = v.VariableValue
+			if !v.IsSecret {
+				vars[v.VariableName] = v.VariableValue
+			}
 		}
-		localTest.Test.Variables = vars
+		if len(vars) > 0 {
+			localTest.Test.Variables = vars
+		}
 	}
 
 	// Fetch attached org launch vars.
@@ -1130,10 +1191,10 @@ func containsLine(lines []string, target string) bool {
 	return false
 }
 
-// fetchNameMappings fetches script and module name mappings for the org.
+// FetchNameMappings fetches script and module name mappings for the org.
 // Returns two maps: scriptID->name and moduleID->name.
 // Failures are non-fatal; empty maps are returned on error.
-func (r *Resolver) fetchNameMappings(ctx context.Context) (map[string]string, map[string]string) {
+func (r *Resolver) FetchNameMappings(ctx context.Context) (map[string]string, map[string]string) {
 	scriptNames := make(map[string]string)
 	moduleNames := make(map[string]string)
 
@@ -1150,6 +1211,33 @@ func (r *Resolver) fetchNameMappings(ctx context.Context) (map[string]string, ma
 	}
 
 	return scriptNames, moduleNames
+}
+
+// RemoteTestBlocks returns the saved test's blocks as a pull writes them to
+// its file, with module and script references by name. scriptNames and
+// moduleNames come from FetchNameMappings, fetched once for several tests.
+func (r *Resolver) RemoteTestBlocks(ctx context.Context, remoteID string, scriptNames, moduleNames map[string]string) ([]config.TestBlock, error) {
+	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	if err != nil {
+		return nil, err
+	}
+	blocks, err := authoredBlocksFromTasks(remoteTest.Tasks)
+	if err != nil {
+		return nil, err
+	}
+	resolveBlockNames(blocks, scriptNames, moduleNames)
+	return blocks, nil
+}
+
+// authoredBlocksFromTasks converts a saved test's tasks into the blocks its
+// file holds, without server block IDs; the module and script references
+// still carry IDs until resolveBlockNames names them.
+func authoredBlocksFromTasks(tasks interface{}) ([]config.TestBlock, error) {
+	blocks, err := convertTasksToBlocks(tasks)
+	if err != nil {
+		return nil, fmt.Errorf("parse remote test blocks: %w", err)
+	}
+	return stripBlockIDs(blocks), nil
 }
 
 // resolveBlockNames converts pulled internal references into clean authored YAML.
@@ -1231,8 +1319,8 @@ func isDefaultStepType(blockType, stepType string) bool {
 //
 // Parameters:
 //   - blocks: The blocks to resolve (mutated in-place)
-//   - scriptNames: Map of script UUID -> name (from fetchNameMappings)
-//   - moduleNames: Map of module UUID -> name (from fetchNameMappings)
+//   - scriptNames: Map of script UUID -> name (from FetchNameMappings)
+//   - moduleNames: Map of module UUID -> name (from FetchNameMappings)
 func resolveBlockNamesForPush(blocks []config.TestBlock, scriptNames, moduleNames map[string]string) error {
 	scriptByName := make(map[string]string, len(scriptNames))
 	for id, name := range scriptNames {
@@ -1315,10 +1403,16 @@ func convertTasksToBlocks(tasks interface{}) ([]config.TestBlock, error) {
 		return nil, nil
 	}
 
-	// Marshal to JSON then unmarshal to []TestBlock
-	// This handles the type conversion from interface{} to the concrete struct
 	data, err := json.Marshal(tasks)
 	if err != nil {
+		return nil, fmt.Errorf("marshal tasks: %w", err)
+	}
+	var savedBlocks interface{}
+	if err := json.Unmarshal(data, &savedBlocks); err != nil {
+		return nil, fmt.Errorf("unmarshal tasks: %w", err)
+	}
+	nameGlobalVariables(savedBlocks)
+	if data, err = json.Marshal(savedBlocks); err != nil {
 		return nil, fmt.Errorf("marshal tasks: %w", err)
 	}
 
@@ -1327,6 +1421,37 @@ func convertTasksToBlocks(tasks interface{}) ([]config.TestBlock, error) {
 		return nil, fmt.Errorf("unmarshal blocks: %w", err)
 	}
 
+	return blocks, nil
+}
+
+// nameGlobalVariables rewrites each saved block whose variable_scope is
+// global to the "global.<name>" variable_name files use, since TestBlock has
+// no scope field.
+func nameGlobalVariables(savedBlocks interface{}) {
+	switch value := savedBlocks.(type) {
+	case map[string]interface{}:
+		if name, ok := value["variable_name"].(string); ok && name != "" && value["variable_scope"] == "global" && !strings.HasPrefix(name, "global.") {
+			value["variable_name"] = "global." + name
+		}
+		for _, child := range value {
+			nameGlobalVariables(child)
+		}
+	case []interface{}:
+		for _, child := range value {
+			nameGlobalVariables(child)
+		}
+	}
+}
+
+// AuthoredBlocks converts saved blocks into the form local files hold: no
+// server block IDs, and modules and scripts named instead of referenced by ID.
+func AuthoredBlocks(savedBlocks interface{}, scriptNames, moduleNames map[string]string) ([]config.TestBlock, error) {
+	blocks, err := convertTasksToBlocks(savedBlocks)
+	if err != nil {
+		return nil, err
+	}
+	blocks = stripBlockIDs(blocks)
+	resolveBlockNames(blocks, scriptNames, moduleNames)
 	return blocks, nil
 }
 

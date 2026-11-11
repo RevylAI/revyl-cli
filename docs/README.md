@@ -9,6 +9,7 @@ See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the
 - [Use Revyl as device infrastructure](device-infrastructure.md)
 - [Run your app and verify a change](mobile-quickstart.md)
 - [Limit concurrent workflow tests](workflow-concurrency.md)
+- [Run tests from Git](run-tests-from-git.md)
 - [Explore from the CLI](explore.md)
 - [Build with Revyl](builds.md)
 - [Upload existing builds](build-uploads.md)

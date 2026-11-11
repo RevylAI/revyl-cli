@@ -3,13 +3,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/checkoutdefinitions"
+	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -26,6 +30,8 @@ var (
 	scriptUpdateName        string
 
 	scriptDeleteForce bool
+
+	scriptPullForce bool
 )
 
 var scriptCmd = &cobra.Command{
@@ -45,6 +51,7 @@ COMMANDS:
   delete  - Delete a script
   usage   - Show tests that use a script
   insert  - Output a code_execution YAML snippet
+  pull    - Write saved scripts to .revyl/scripts as files
 
 EXAMPLES:
   revyl script list
@@ -54,7 +61,8 @@ EXAMPLES:
   revyl script update my-validator --file validate.py
   revyl script delete my-validator
   revyl script usage my-validator
-  revyl script insert my-validator`,
+  revyl script insert my-validator
+  revyl script pull my-validator`,
 }
 
 var scriptListCmd = &cobra.Command{
@@ -140,6 +148,25 @@ EXAMPLES:
 	RunE: runScriptInsert,
 }
 
+var scriptPullCmd = &cobra.Command{
+	Use:   "pull [name|id]",
+	Short: "Write saved scripts to .revyl/scripts as files",
+	Long: `Write saved scripts to .revyl/scripts/<script name>.<py|js|ts|sh> as raw
+code; the extension follows the runtime. Without a name, every saved script is
+written.
+
+A script whose name can't be a file name, such as one containing "/", is
+skipped with a warning. A file whose content differs is kept unless --force
+is set.
+
+EXAMPLES:
+  revyl script pull
+  revyl script pull my-validator
+  revyl script pull my-validator --force`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runScriptPull,
+}
+
 func init() {
 	scriptCmd.AddCommand(scriptListCmd)
 	scriptCmd.AddCommand(scriptGetCmd)
@@ -148,6 +175,7 @@ func init() {
 	scriptCmd.AddCommand(scriptDeleteCmd)
 	scriptCmd.AddCommand(scriptUsageCmd)
 	scriptCmd.AddCommand(scriptInsertCmd)
+	scriptCmd.AddCommand(scriptPullCmd)
 
 	scriptListCmd.Flags().BoolVar(&scriptListJSON, "json", false, "Output as JSON")
 	scriptListCmd.Flags().StringVar(&scriptListRuntime, "runtime", "", "Filter by runtime (python, javascript, typescript, bash)")
@@ -163,6 +191,100 @@ func init() {
 	scriptUpdateCmd.Flags().StringVar(&scriptUpdateDescription, "description", "", "New script description")
 
 	scriptDeleteCmd.Flags().BoolVarP(&scriptDeleteForce, "force", "f", false, "Skip confirmation prompt")
+
+	scriptPullCmd.Flags().BoolVar(&scriptPullForce, "force", false, "Overwrite script files with local changes")
+}
+
+// runScriptPull writes saved scripts to the project's .revyl/scripts folder.
+func runScriptPull(cmd *cobra.Command, args []string) error {
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
+	}
+	project, err := resolveSyncProjectFiles(cwd)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	ui.StartSpinner("Fetching scripts...")
+	var scripts []api.CLIScriptInfo
+	if len(args) == 1 {
+		scriptID, _, resolveErr := resolveScriptNameOrID(cmd, client, args[0])
+		if resolveErr != nil {
+			ui.StopSpinner()
+			ui.PrintError("%v", resolveErr)
+			return resolveErr
+		}
+		script, getErr := client.GetScript(cmd.Context(), scriptID)
+		if getErr != nil {
+			ui.StopSpinner()
+			ui.PrintError("Failed to get script: %v", getErr)
+			return getErr
+		}
+		scripts = []api.CLIScriptInfo{*script}
+	} else {
+		scripts, err = listAllSavedScripts(cmd.Context(), client)
+		if err != nil {
+			ui.StopSpinner()
+			ui.PrintError("%v", err)
+			return err
+		}
+	}
+	ui.StopSpinner()
+
+	var failures []error
+	for _, script := range scripts {
+		if err := pullScriptFile(project.Context, script, scriptPullForce); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+// pullScriptFile writes one saved script to .revyl/scripts/<name>.<extension>
+// for its runtime, the way revyl script pull does: a script whose name can't
+// be a file name, whose runtime has no file extension, or that another
+// extension's file already defines is skipped with a warning, and a file with
+// other content is kept unless force is set.
+func pullScriptFile(project *config.ProjectContext, script api.CLIScriptInfo, force bool) error {
+	if !pullableDefinitionName(script.Name) {
+		ui.PrintWarning("Skipped script %q: its name can't be a file name in .revyl/scripts", script.Name)
+		return nil
+	}
+	extension := ""
+	for candidate, runtime := range checkoutdefinitions.ScriptRuntimeByFileExtension {
+		if runtime == script.Runtime {
+			extension = candidate
+		}
+	}
+	if extension == "" {
+		ui.PrintWarning("Skipped script %s: runtime %q has no script file extension", script.Name, script.Runtime)
+		return nil
+	}
+	scriptsDir := filepath.Join(filepath.Dir(project.ConfigPath), "scripts")
+	otherPath := ""
+	for candidate := range checkoutdefinitions.ScriptRuntimeByFileExtension {
+		path := filepath.Join(scriptsDir, script.Name+candidate)
+		if _, statErr := os.Stat(path); candidate != extension && statErr == nil {
+			otherPath = path
+		}
+	}
+	if otherPath != "" {
+		ui.PrintWarning("script %s: %s already defines it; delete that file to pull the %s script", script.Name, checkoutdefinitions.ProjectRelativePath(project, otherPath), script.Runtime)
+		return nil
+	}
+	if err := pullDefinitionFile(project, "script", script.Name, filepath.Join(scriptsDir, script.Name+extension), []byte(script.Code), force); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+	return nil
 }
 
 // resolveScriptNameOrID resolves a script name or UUID to a script ID and name.

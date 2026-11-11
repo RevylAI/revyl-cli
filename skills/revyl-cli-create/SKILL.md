@@ -33,6 +33,8 @@ revyl test create <test-name> --from-file ./<test-name>.yaml
 
 # 4) Iterate on .revyl/tests/<test-name>.yaml, then push and run
 revyl test push <test-name> --force
+# Edited its files in .revyl/modules or .revyl/scripts too? Push those with it:
+# revyl test push <test-name> --force --include-modules-and-scripts
 revyl test run <test-name>
 
 # 5) Inspect results and refine

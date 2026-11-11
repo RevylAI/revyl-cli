@@ -13,6 +13,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/gitremote"
 	"github.com/revyl/cli/internal/projectpublication"
@@ -280,6 +281,7 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return actionableLocalConfigError(&os.PathError{Op: "validate", Path: local.ConfigPath, Err: err})
 	}
+	var runTestDefinitionsFromGitMismatch string
 	output := projectConfigurationValidationOutput{
 		Status:                            "valid",
 		Scope:                             "local",
@@ -319,6 +321,9 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 			}
 			if connected.NextAction != "none" && connectedErr == nil {
 				ui.PrintDim("Next: %s", connected.NextAction)
+			}
+			if runTestDefinitionsFromGitMismatch != "" {
+				ui.PrintWarning("%s", runTestDefinitionsFromGitMismatch)
 			}
 			switch publication.Status {
 			case projectPublicationPublished:
@@ -425,6 +430,7 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	if result.Current.Resource != nil {
 		connected.Authority = &result.Current.Resource.Authority
 	}
+	runTestDefinitionsFromGitMismatch = runTestDefinitionsFromGitMismatchLine(cmd.Context(), local, result.Current, false)
 	return complete(connected, projectConfigurationPublication(result.Current, local.Authored, localAggregate.ProjectConfigurationHash), nil)
 }
 
@@ -471,9 +477,10 @@ func projectConfigurationPublication(
 			Explanation: "Revyl runs this exact configuration",
 		}
 	}
+	suggestsProofOfChanges := !localProofOfChangesEnabled(authored) && runsTestDefinitionsFromGit(current.Resource) == authored.RunTestDefinitionsFromGit
 	if current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch {
 		nextAction := fmt.Sprintf("commit the designated .revyl/config.yaml to the default branch; to publish once without changing that management mode, run %q", cliRecoveryCommand("config", "push", "--force"))
-		if !localProofOfChangesEnabled(authored) {
+		if suggestsProofOfChanges {
 			nextAction = enableProofOfChangesStep + ", validate it, then " + nextAction
 		}
 		return projectConfigurationPublicationOutput{
@@ -483,7 +490,7 @@ func projectConfigurationPublication(
 		}
 	}
 	nextAction := fmt.Sprintf("run %q", push)
-	if !localProofOfChangesEnabled(authored) {
+	if suggestsProofOfChanges {
 		nextAction = unpublishedConfigurationNextAction(authored)
 	}
 	return projectConfigurationPublicationOutput{
@@ -952,7 +959,7 @@ func publishResolvedProjectConfiguration(
 	if configPushForce {
 		retryCommand = cliRecoveryCommand("config", "push", "--force")
 	}
-	result, err := projectpublication.Publish(
+	replaced, result, err := projectpublication.PublishReturningReplacedConfiguration(
 		cmd.Context(),
 		client,
 		projectpublication.Candidate{
@@ -984,7 +991,149 @@ func publishResolvedProjectConfiguration(
 	if configPushForce && result.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch {
 		ui.PrintWarning("Default-branch configuration management remains enabled; its next accepted change can replace this publication")
 	}
+	switch wasOn, isOn := runsTestDefinitionsFromGit(replaced.Resource), runsTestDefinitionsFromGit(&result.Resource); {
+	case isOn && !wasOn:
+		ui.PrintInfo("Run tests from Git is on. Runs use the test, module and script files in Git, not the copies saved in Revyl. Edits saved in Revyl that aren't in your files don't run; to bring them into the files, run `revyl test pull --include-modules-and-scripts`.")
+	case wasOn && !isOn:
+		ui.PrintInfo("Run tests from Git is off. Runs use the tests, modules and scripts saved in Revyl again: the versions from before it was turned on, plus anything pushed with `revyl test push` while it was on. Changes made in Git while it was on stay in Git; to use them, run `revyl test push --force --include-modules-and-scripts` in a checkout that has them.")
+	}
 	return nil
+}
+
+// runsTestDefinitionsFromGit reports whether a stored project configuration
+// has Run tests from Git on; a nil resource is a project with none stored.
+func runsTestDefinitionsFromGit(resource *api.ProjectConfigurationResource) bool {
+	return resource != nil && resource.Configuration.RunTestDefinitionsFromGit != nil && *resource.Configuration.RunTestDefinitionsFromGit
+}
+
+// runTestDefinitionsFromGitMismatchLine is one line saying that this checkout's
+// .revyl/config.yaml and the project's stored Run tests from Git setting
+// disagree, what that did to the finished run or does to CLI runs from the
+// checkout, and how to make them match; "" when they agree.
+func runTestDefinitionsFromGitMismatchLine(ctx context.Context, project *config.ProjectContext, current api.ProjectConfigurationReadResponse, describesFinishedRun bool) string {
+	checkoutTurnsItOn := project.Authored.RunTestDefinitionsFromGit
+	if current.State != api.ProjectConfigurationReadResponseStatePresent || runsTestDefinitionsFromGit(current.Resource) == checkoutTurnsItOn {
+		return ""
+	}
+	if checkoutTurnsItOn {
+		effect := "CLI runs from this checkout send its files"
+		if describesFinishedRun {
+			effect = "this run sent the checkout's files"
+		}
+		remedy := "To match, remove `run_test_definitions_from_git: true` from .revyl/config.yaml, or run `revyl config push` to turn it on."
+		if current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch {
+			remedy = defaultBranchMergeRemedy(ctx, project, current.Resource, "on")
+		}
+		return fmt.Sprintf("Run tests from Git is off for this project, but this checkout's .revyl/config.yaml turns it on, so %s. %s", effect, remedy)
+	}
+	effect := "CLI runs from this checkout don't send its files"
+	if describesFinishedRun {
+		effect = "this run didn't send the checkout's files"
+	}
+	remedy := "To match, run `revyl config push` to turn it off, or add `run_test_definitions_from_git: true` to .revyl/config.yaml."
+	if current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch {
+		remedy = defaultBranchMergeRemedy(ctx, project, current.Resource, "off")
+	}
+	return fmt.Sprintf("Run tests from Git is on for this project, but this checkout's .revyl/config.yaml doesn't turn it on, so %s. %s", effect, remedy)
+}
+
+// defaultBranchMergeRemedy names the merge that makes a checkout match a
+// project whose configuration the default branch manages. The stored
+// configuration came from a default-branch commit, so the setting at the merge
+// base of HEAD and that commit says which side changed it since they diverged:
+// this branch, whose merge into the default branch turns the setting on or
+// off (turnsTo) for the project, or the default branch, whose merge into this
+// branch brings its setting here. When Git can't tell, for example in a
+// shallow clone or before that commit is fetched, the remedy names both.
+func defaultBranchMergeRemedy(ctx context.Context, project *config.ProjectContext, resource *api.ProjectConfigurationResource, turnsTo string) string {
+	oppositeChange := "turned on"
+	if turnsTo == "on" {
+		oppositeChange = "turned off"
+	}
+	switch checkoutChangedRunTestDefinitionsFromGit(ctx, project, resource) {
+	case checkoutChangedSetting:
+		return fmt.Sprintf("To match, merge this branch into the default branch, which turns it %s for the project.", turnsTo)
+	case defaultBranchChangedSetting:
+		return "To match, merge the default branch into this branch."
+	default:
+		return fmt.Sprintf("To match, merge this branch into the default branch, which turns it %s for the project; if it was %s on the default branch after this branch was created, merge the default branch into this branch instead.", turnsTo, oppositeChange)
+	}
+}
+
+type settingChangeSide int
+
+const (
+	settingChangeUnknown settingChangeSide = iota
+	checkoutChangedSetting
+	defaultBranchChangedSetting
+)
+
+// checkoutChangedRunTestDefinitionsFromGit reads run_test_definitions_from_git
+// in the project's config at the merge base of HEAD and the default-branch
+// commit the stored configuration came from. A merge-base setting equal to the
+// checkout's means the default branch changed it afterwards; a different one
+// means this checkout did.
+func checkoutChangedRunTestDefinitionsFromGit(ctx context.Context, project *config.ProjectContext, resource *api.ProjectConfigurationResource) settingChangeSide {
+	source, err := resource.Source.AsGitDefaultBranchConfigurationSource()
+	if err != nil || strings.TrimSpace(source.ResolvedConfigCommitSha) == "" {
+		return settingChangeUnknown
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkoutdefinitions.GitTimeout)
+	defer cancel()
+	mergeBase, err := checkoutdefinitions.RunGit(ctx, project.ProjectRoot, "merge-base", "HEAD", source.ResolvedConfigCommitSha)
+	if err != nil {
+		return settingChangeUnknown
+	}
+	configAtMergeBase, err := checkoutdefinitions.RunGit(ctx, project.ProjectRoot, "show", strings.TrimSpace(mergeBase)+":"+resource.RepositoryRelativeConfigPath)
+	if err != nil {
+		return settingChangeUnknown
+	}
+	authoredAtMergeBase, err := config.ParseAuthoredConfig([]byte(configAtMergeBase))
+	if err != nil {
+		return settingChangeUnknown
+	}
+	if authoredAtMergeBase.RunTestDefinitionsFromGit == project.Authored.RunTestDefinitionsFromGit {
+		return defaultBranchChangedSetting
+	}
+	return checkoutChangedSetting
+}
+
+// printRunTestDefinitionsFromGitMismatch writes the mismatch line to stderr,
+// even in quiet and JSON modes, after a run whose files this checkout's
+// .revyl/config.yaml decided to send or not. checkoutProject is the project
+// whose files the run sent, nil when it sent none. A run with an explicit
+// --from-checkout gets no line, and a stored setting that can't be read is
+// only logged.
+func printRunTestDefinitionsFromGitMismatch(cmd *cobra.Command, client projectConfigurationClient, checkoutProject *config.ProjectContext) {
+	if cmd.Flags().Changed(fromCheckoutFlagName) {
+		return
+	}
+	project := checkoutProject
+	if project == nil {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return
+		}
+		if project, err = config.ResolveProjectContext(cwd, ""); err != nil {
+			return
+		}
+	}
+	if strings.TrimSpace(project.Authored.Project.ID) == "" {
+		return
+	}
+	resolved, err := resolveConnectedProjectConfiguration(project)
+	if err != nil {
+		ui.PrintDebug("Run tests from Git setting not checked: %v", err)
+		return
+	}
+	current, err := readRemoteProjectConfiguration(cmd, client, resolved)
+	if err != nil {
+		ui.PrintDebug("Run tests from Git setting not checked: %v", err)
+		return
+	}
+	if line := runTestDefinitionsFromGitMismatchLine(cmd.Context(), project, *current, true); line != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), line)
+	}
 }
 
 func runConfigPull(cmd *cobra.Command, _ []string) error {

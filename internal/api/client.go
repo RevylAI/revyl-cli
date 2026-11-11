@@ -251,6 +251,10 @@ type APIError struct {
 	// RetryAfter is the server's Retry-After delay, or zero when the response
 	// carried none or an unusable value.
 	RetryAfter time.Duration
+	// FilePath and FileLine locate a test definition run error in the
+	// project's .revyl files; empty and zero when the error names no file or line.
+	FilePath string
+	FileLine int
 }
 
 // ParseRetryAfter converts an HTTP Retry-After value, either delay seconds or
@@ -381,6 +385,11 @@ func (e *APIError) Error() string {
 	} else {
 		base = fmt.Sprintf("HTTP %d: %s", e.StatusCode, http.StatusText(e.StatusCode))
 	}
+	if e.FilePath != "" && e.FileLine > 0 {
+		base = fmt.Sprintf("%s:%d: %s", e.FilePath, e.FileLine, base)
+	} else if e.FilePath != "" {
+		base = fmt.Sprintf("%s: %s", e.FilePath, base)
+	}
 
 	if e.Hint != "" && !strings.Contains(base, e.Hint) {
 		return base + "\n" + e.Hint
@@ -491,6 +500,8 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		Error   string          `json:"error"`
 		Detail  json.RawMessage `json:"detail"`
 		Message string          `json:"message"`
+		Path    string          `json:"path"`
+		Line    int             `json:"line"`
 		Errors  []struct {
 			Field   string `json:"field"`
 			Message string `json:"message"`
@@ -612,6 +623,10 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		ValidationIssues: validationIssues,
 		DetailObject:     detailObject,
 		Hint:             authHintForStatus(statusCode, serverReason),
+	}
+	if TestDefinitionRunErrorResponseCode(errResp.Code).Valid() {
+		apiError.FilePath = errResp.Path
+		apiError.FileLine = errResp.Line
 	}
 	if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusConflict) &&
 		(isConcurrencyLimitMessage(message+" "+detail) || isConcurrencyLimitCode(apiError.Code) ||
@@ -961,18 +976,66 @@ type ExecuteTestRequest struct {
 	LaunchArguments []string `json:"launch_arguments,omitempty"`
 	// VariableOverrides are runtime variable overrides for this execution.
 	VariableOverrides map[string]string `json:"variable_overrides,omitempty"`
+	// TestDefinitionFiles are the checkout's files the run executes instead of saved copies.
+	TestDefinitionFiles *TestDefinitionFiles `json:"test_definition_files,omitempty"`
+}
+
+// TestDefinitionFiles carries a checkout's test, module and script files for one run.
+type TestDefinitionFiles struct {
+	ProjectID                       *string              `json:"project_id"`
+	GitCommitSHA                    *string              `json:"git_commit_sha"`
+	HasUncommittedDefinitionChanges bool                 `json:"has_uncommitted_definition_changes"`
+	Files                           []TestDefinitionFile `json:"files"`
+}
+
+// TestDefinitionFile is one file under .revyl/tests, .revyl/modules or .revyl/scripts.
+type TestDefinitionFile struct {
+	ProjectRelativePath string `json:"project_relative_path"`
+	Content             string `json:"content"`
+}
+
+// TestDefinitionSource names where a run's test definition came from.
+type TestDefinitionSource string
+
+const (
+	TestDefinitionSourceCLIUpload     TestDefinitionSource = "cli_upload"
+	TestDefinitionSourceGitCommitRead TestDefinitionSource = "git_commit_read"
+	TestDefinitionSourceSavedTest     TestDefinitionSource = "saved_test"
+)
+
+// TestDefinitionFallbackReason says why a run didn't use its own branch's file.
+type TestDefinitionFallbackReason string
+
+const (
+	TestDefinitionFallbackReasonMissingGitBranch               TestDefinitionFallbackReason = "missing_git_branch"
+	TestDefinitionFallbackReasonForkPullRequest                TestDefinitionFallbackReason = "fork_pull_request"
+	TestDefinitionFallbackReasonMissingTestFile                TestDefinitionFallbackReason = "missing_test_file"
+	TestDefinitionFallbackReasonMissingTestFileOnDefaultBranch TestDefinitionFallbackReason = "missing_test_file_on_default_branch"
+)
+
+// TestDefinitionGitRead says where in Git a run's test definition files were
+// read: the branch and commit, and on a missing_git_branch fallback the run's
+// branch the repository doesn't have. Empty from a backend that doesn't send it.
+type TestDefinitionGitRead struct {
+	TestDefinitionGitBranchName        string `json:"test_definition_git_branch_name,omitempty"`
+	TestDefinitionGitCommitSHA         string `json:"test_definition_git_commit_sha,omitempty"`
+	TestDefinitionMissingGitBranchName string `json:"test_definition_missing_git_branch_name,omitempty"`
 }
 
 // ExecuteTestResponse represents a test execution response.
 type ExecuteTestResponse struct {
-	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
-	BranchSource         BranchSource `json:"branch_source,omitempty"`
-	GitBranchName        string       `json:"git_branch_name,omitempty"`
-	BranchName           string       `json:"branch_name,omitempty"`
-	ID                   string       `json:"id"`
-	TaskID               string       `json:"task_id"`
-	Status               string       `json:"status"`
-	Message              string       `json:"message"`
+	AutoGitBranchEnabled         *bool                        `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource                 BranchSource                 `json:"branch_source,omitempty"`
+	GitBranchName                string                       `json:"git_branch_name,omitempty"`
+	BranchName                   string                       `json:"branch_name,omitempty"`
+	ID                           string                       `json:"id"`
+	TaskID                       string                       `json:"task_id"`
+	Status                       string                       `json:"status"`
+	Message                      string                       `json:"message"`
+	TestDefinitionSource         TestDefinitionSource         `json:"test_definition_source,omitempty"`
+	TestDefinitionFallbackReason TestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
+	TestDefinitionSnapshotID     string                       `json:"test_definition_snapshot_id,omitempty"`
+	TestDefinitionGitRead
 }
 
 // ExecuteTest starts a test execution.
@@ -1060,13 +1123,18 @@ type ExecuteWorkflowRequest struct {
 	LaunchEnvVarIds          []string           `json:"launch_env_var_ids,omitempty"`
 	LaunchEnvVars            map[string]string  `json:"launch_env_vars,omitempty"`
 	LaunchArguments          []string           `json:"launch_arguments,omitempty"`
+	// TestDefinitionFiles are the checkout's files the workflow's tests execute instead of saved copies.
+	TestDefinitionFiles *TestDefinitionFiles `json:"test_definition_files,omitempty"`
 }
 
 // ExecuteWorkflowResponse represents a workflow execution response.
 // Success is not included because it's not known at queue time - it's determined
 // later via SSE monitoring when the workflow completes.
 type ExecuteWorkflowResponse struct {
-	TaskID string `json:"task_id"`
+	TaskID                              string                               `json:"task_id"`
+	TestCountByDefinitionSource         map[TestDefinitionSource]int         `json:"test_count_by_definition_source,omitempty"`
+	TestCountByDefinitionFallbackReason map[TestDefinitionFallbackReason]int `json:"test_count_by_definition_fallback_reason,omitempty"`
+	TestDefinitionGitRead
 }
 
 // ExecuteWorkflow starts a workflow execution.
@@ -2736,6 +2804,8 @@ type CreateTestRequest struct {
 	Tasks           interface{} `json:"tasks"`
 	AppID           string      `json:"app_id,omitempty"`
 	OrgID           string      `json:"org_id,omitempty"`
+	// RunConfig is the new test's run configuration (TestRunConfig).
+	RunConfig map[string]interface{} `json:"run_config,omitempty"`
 }
 
 // CreateTestResponse represents a test creation response.
@@ -5746,22 +5816,23 @@ func (c *Client) GenerateWorkflowShareableLink(ctx context.Context, workflowTask
 
 // CLIWorkflowChildExecution is a resolved child from workflow status and monitor events.
 type CLIWorkflowChildExecution struct {
-	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
-	ID                   string       `json:"id"`
-	TestID               string       `json:"test_id"`
-	SessionID            string       `json:"session_id,omitempty"`
-	Status               string       `json:"status,omitempty"`
-	Success              *bool        `json:"success,omitempty"`
-	ErrorMessage         string       `json:"error_message,omitempty"`
-	ExecutionTimeSeconds *float64     `json:"execution_time_seconds,omitempty"`
-	AppID                string       `json:"app_id,omitempty"`
-	AppName              string       `json:"app_name,omitempty"`
-	BuildID              string       `json:"build_id,omitempty"`
-	BuildVersion         string       `json:"build_version,omitempty"`
-	BranchID             string       `json:"branch_id,omitempty"`
-	BranchName           string       `json:"branch_name,omitempty"`
-	BranchSource         BranchSource `json:"branch_source,omitempty"`
-	GitBranchName        string       `json:"git_branch_name,omitempty"`
+	AutoGitBranchEnabled        *bool        `json:"auto_git_branch_enabled,omitempty"`
+	ID                          string       `json:"id"`
+	TestID                      string       `json:"test_id"`
+	SessionID                   string       `json:"session_id,omitempty"`
+	Status                      string       `json:"status,omitempty"`
+	Success                     *bool        `json:"success,omitempty"`
+	ErrorMessage                string       `json:"error_message,omitempty"`
+	ExecutionTimeSeconds        *float64     `json:"execution_time_seconds,omitempty"`
+	AppID                       string       `json:"app_id,omitempty"`
+	AppName                     string       `json:"app_name,omitempty"`
+	BuildID                     string       `json:"build_id,omitempty"`
+	BuildVersion                string       `json:"build_version,omitempty"`
+	BranchID                    string       `json:"branch_id,omitempty"`
+	BranchName                  string       `json:"branch_name,omitempty"`
+	BranchSource                BranchSource `json:"branch_source,omitempty"`
+	GitBranchName               string       `json:"git_branch_name,omitempty"`
+	TestDefinitionGitBranchName string       `json:"test_definition_git_branch_name,omitempty"`
 }
 
 // CLIWorkflowStatusResponse represents a workflow execution status.
@@ -5823,29 +5894,30 @@ type CLIWorkflowTestInfo struct {
 
 // CLIChildTaskReportInfo contains individual test execution data within a workflow.
 type CLIChildTaskReportInfo struct {
-	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
-	AppID                string       `json:"app_id,omitempty"`
-	AppName              string       `json:"app_name,omitempty"`
-	BranchSource         BranchSource `json:"branch_source,omitempty"`
-	GitBranchName        string       `json:"git_branch_name,omitempty"`
-	BuildID              string       `json:"build_id,omitempty"`
-	BuildVersion         string       `json:"build_version,omitempty"`
-	BranchID             string       `json:"branch_id,omitempty"`
-	BranchName           string       `json:"branch_name,omitempty"`
-	TaskID               string       `json:"task_id"`
-	TestID               string       `json:"test_id,omitempty"`
-	TestName             string       `json:"test_name,omitempty"`
-	Platform             string       `json:"platform,omitempty"`
-	Status               string       `json:"status,omitempty"`
-	Success              *bool        `json:"success,omitempty"`
-	StartedAt            string       `json:"started_at,omitempty"`
-	CompletedAt          string       `json:"completed_at,omitempty"`
-	Duration             *float64     `json:"duration,omitempty"`
-	ExecutionTimeSeconds *float64     `json:"execution_time_seconds,omitempty"`
-	StepsCompleted       *int         `json:"steps_completed,omitempty"`
-	TotalSteps           *int         `json:"total_steps,omitempty"`
-	Progress             *float64     `json:"progress,omitempty"`
-	ErrorMessage         string       `json:"error_message,omitempty"`
+	AutoGitBranchEnabled        *bool        `json:"auto_git_branch_enabled,omitempty"`
+	AppID                       string       `json:"app_id,omitempty"`
+	AppName                     string       `json:"app_name,omitempty"`
+	BranchSource                BranchSource `json:"branch_source,omitempty"`
+	GitBranchName               string       `json:"git_branch_name,omitempty"`
+	TestDefinitionGitBranchName string       `json:"test_definition_git_branch_name,omitempty"`
+	BuildID                     string       `json:"build_id,omitempty"`
+	BuildVersion                string       `json:"build_version,omitempty"`
+	BranchID                    string       `json:"branch_id,omitempty"`
+	BranchName                  string       `json:"branch_name,omitempty"`
+	TaskID                      string       `json:"task_id"`
+	TestID                      string       `json:"test_id,omitempty"`
+	TestName                    string       `json:"test_name,omitempty"`
+	Platform                    string       `json:"platform,omitempty"`
+	Status                      string       `json:"status,omitempty"`
+	Success                     *bool        `json:"success,omitempty"`
+	StartedAt                   string       `json:"started_at,omitempty"`
+	CompletedAt                 string       `json:"completed_at,omitempty"`
+	Duration                    *float64     `json:"duration,omitempty"`
+	ExecutionTimeSeconds        *float64     `json:"execution_time_seconds,omitempty"`
+	StepsCompleted              *int         `json:"steps_completed,omitempty"`
+	TotalSteps                  *int         `json:"total_steps,omitempty"`
+	Progress                    *float64     `json:"progress,omitempty"`
+	ErrorMessage                string       `json:"error_message,omitempty"`
 }
 
 // CLIUnifiedWorkflowReportResponse represents a comprehensive workflow report.
@@ -6507,12 +6579,15 @@ func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScrip
 //   - ID: Unique identifier of the variable
 //   - TestUID: Test UUID this variable belongs to
 //   - VariableName: The variable name
-//   - VariableValue: The variable value (may be empty for extraction-defined vars)
+//   - VariableValue: The variable value (may be empty for extraction-defined vars;
+//     always empty for a secret, whose value never leaves the server)
+//   - IsSecret: Whether the variable is a secret
 type CustomVariable struct {
 	ID            string `json:"id"`
 	TestUID       string `json:"test_uid"`
 	VariableName  string `json:"variable_name"`
 	VariableValue string `json:"variable_value"`
+	IsSecret      bool   `json:"is_secret"`
 }
 
 // CustomVariablesResponse represents the response from listing custom variables.
@@ -6639,7 +6714,7 @@ func (c *Client) RenameCustomVariable(ctx context.Context, testID, variableID, n
 // Returns:
 //   - error: Any error that occurred
 func (c *Client) DeleteCustomVariable(ctx context.Context, testID, name string) error {
-	path := fmt.Sprintf("/api/v1/variables/custom/delete?test_uid=%s&variable_name=%s", testID, name)
+	path := fmt.Sprintf("/api/v1/variables/custom/delete?test_uid=%s&variable_name=%s", url.QueryEscape(testID), url.QueryEscape(name))
 	resp, err := c.doRequest(ctx, "DELETE", path, nil)
 	if err != nil {
 		return err
