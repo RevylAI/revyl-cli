@@ -459,6 +459,52 @@ Showing the newest 2 of 3 computers; use --limit (up to 100) for more.
 	}
 }
 
+func TestComputerHostingAndSessionsShowWhatRunsInside(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	id := "11111111-1111-4111-8111-111111111111"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/computer-runs/" + id + "/hosting":
+			fmt.Fprint(w, `{"platforms":["web","ios"],"max_children":2}`)
+		case "/api/v1/computer-runs/" + id + "/sessions":
+			if r.URL.Query().Get("limit") != "2" {
+				t.Errorf("sessions query = %q", r.URL.RawQuery)
+			}
+			fmt.Fprint(w, `{"total":3,"limit":2,"offset":0,"sessions":[{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01","app_id":null,"app_name":"Demo","platform":"ios","status":"running","created_at":"2026-10-10T00:00:02Z","ended_at":null,"duration_seconds":null,"report_id":null}]}`)
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	t.Setenv("REVYL_API_KEY", "fixture-key")
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"hosting", id}, []string{"Platforms: web, ios", "Max app sessions: 2"}},
+		{[]string{"hosting", id, "--json"}, []string{`"platforms":["web","ios"]`}},
+		{[]string{"sessions", id, "--limit", "2"}, []string{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01", "ios", "running", "Demo", "Showing the newest 1 of 3 sessions"}},
+		{[]string{"sessions", id, "--limit", "2", "--json"}, []string{`"total":3`}},
+	} {
+		root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+		root.AddCommand(newComputerCommand())
+		var output bytes.Buffer
+		root.SetOut(&output)
+		root.SetErr(&bytes.Buffer{})
+		root.SetArgs(append([]string{"computer"}, tc.args...))
+		if err := root.Execute(); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(output.String(), want) {
+				t.Fatalf("%v output %q lacks %q", tc.args, output.String(), want)
+			}
+		}
+	}
+}
+
 func TestComputerGetSaysWhyAStartFailed(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	id := "11111111-1111-4111-8111-111111111111"

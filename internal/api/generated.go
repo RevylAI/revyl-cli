@@ -1560,6 +1560,27 @@ func (e ComputerFileStatSummaryFileKind) Valid() bool {
 	}
 }
 
+// Defines values for ComputerHostingCapabilityPlatforms.
+const (
+	ComputerHostingCapabilityPlatformsAndroid ComputerHostingCapabilityPlatforms = "android"
+	ComputerHostingCapabilityPlatformsIos     ComputerHostingCapabilityPlatforms = "ios"
+	ComputerHostingCapabilityPlatformsWeb     ComputerHostingCapabilityPlatforms = "web"
+)
+
+// Valid indicates whether the value is a known member of the ComputerHostingCapabilityPlatforms enum.
+func (e ComputerHostingCapabilityPlatforms) Valid() bool {
+	switch e {
+	case ComputerHostingCapabilityPlatformsAndroid:
+		return true
+	case ComputerHostingCapabilityPlatformsIos:
+		return true
+	case ComputerHostingCapabilityPlatformsWeb:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerOperationDetailErrorCode.
 const (
 	ComputerOperationDetailErrorCodeAccessDenied          ComputerOperationDetailErrorCode = "access_denied"
@@ -1881,6 +1902,27 @@ func (e ComputerProcessInspectSummaryState) Valid() bool {
 	case ComputerProcessInspectSummaryStateExited:
 		return true
 	case ComputerProcessInspectSummaryStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerRelatedSessionPlatform.
+const (
+	ComputerRelatedSessionPlatformAndroid ComputerRelatedSessionPlatform = "android"
+	ComputerRelatedSessionPlatformIos     ComputerRelatedSessionPlatform = "ios"
+	ComputerRelatedSessionPlatformWeb     ComputerRelatedSessionPlatform = "web"
+)
+
+// Valid indicates whether the value is a known member of the ComputerRelatedSessionPlatform enum.
+func (e ComputerRelatedSessionPlatform) Valid() bool {
+	switch e {
+	case ComputerRelatedSessionPlatformAndroid:
+		return true
+	case ComputerRelatedSessionPlatformIos:
+		return true
+	case ComputerRelatedSessionPlatformWeb:
 		return true
 	default:
 		return false
@@ -6716,6 +6758,16 @@ type ComputerFileWriteSummary struct {
 	Kind      string `json:"kind,omitempty"`
 }
 
+// ComputerHostingCapability defines model for ComputerHostingCapability.
+type ComputerHostingCapability struct {
+	MaxChildren           int                                  `json:"max_children"`
+	MaxChildrenByPlatform *map[string]int                      `json:"max_children_by_platform,omitempty"`
+	Platforms             []ComputerHostingCapabilityPlatforms `json:"platforms"`
+}
+
+// ComputerHostingCapabilityPlatforms defines model for ComputerHostingCapability.Platforms.
+type ComputerHostingCapabilityPlatforms string
+
 // ComputerMemorySample defines model for ComputerMemorySample.
 type ComputerMemorySample struct {
 	AvailableKb int     `json:"available_kb"`
@@ -6947,6 +6999,38 @@ type ComputerProcessTerminateResult struct {
 type ComputerProcessTerminateSummary struct {
 	Kind        string  `json:"kind,omitempty"`
 	Termination *string `json:"termination,omitempty"`
+}
+
+// ComputerRelatedSession defines model for ComputerRelatedSession.
+type ComputerRelatedSession struct {
+	AppId           *openapi_types.UUID            `json:"app_id"`
+	AppName         *string                        `json:"app_name"`
+	CreatedAt       time.Time                      `json:"created_at"`
+	DurationSeconds *float32                       `json:"duration_seconds"`
+	EndedAt         *time.Time                     `json:"ended_at"`
+	Id              openapi_types.UUID             `json:"id"`
+	Platform        ComputerRelatedSessionPlatform `json:"platform"`
+	ReportId        *openapi_types.UUID            `json:"report_id"`
+
+	// Status Device session status - the single source of truth for test execution state.
+	//
+	// Matches the session_status enum in the database.
+	// Note: Ordering matters - follows the typical lifecycle progression.
+	//
+	// Status flow:
+	//     QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
+	Status SessionStatus `json:"status"`
+}
+
+// ComputerRelatedSessionPlatform defines model for ComputerRelatedSession.Platform.
+type ComputerRelatedSessionPlatform string
+
+// ComputerRelatedSessionListResponse defines model for ComputerRelatedSessionListResponse.
+type ComputerRelatedSessionListResponse struct {
+	Limit    int                      `json:"limit"`
+	Offset   int                      `json:"offset"`
+	Sessions []ComputerRelatedSession `json:"sessions"`
+	Total    int                      `json:"total"`
 }
 
 // ComputerReport defines model for ComputerReport.
@@ -11840,6 +11924,12 @@ type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostPara
 type GetComputerPerformanceReportApiV1ComputerRunsComputerSessionIdReportPerformanceGetParams struct {
 	Cursor *int `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetComputerRelatedSessionsApiV1ComputerRunsComputerSessionIdSessionsGetParams defines parameters for GetComputerRelatedSessionsApiV1ComputerRunsComputerSessionIdSessionsGet.
+type GetComputerRelatedSessionsApiV1ComputerRunsComputerSessionIdSessionsGetParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListOrganizationMembersApiV1EntityOrgsMembersGetParams defines parameters for ListOrganizationMembersApiV1EntityOrgsMembersGet.

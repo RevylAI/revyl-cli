@@ -138,6 +138,38 @@ func (c *Client) ListComputerRuns(ctx context.Context, limit int) (*ComputerRunL
 	return &list, nil
 }
 
+// GetComputerHosting reads which app-session platforms a running computer can
+// host now. It is empty until the computer is running.
+func (c *Client) GetComputerHosting(ctx context.Context, id uuid.UUID) (*ComputerHostingCapability, error) {
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/hosting", id))
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, err
+	}
+	var hosting ComputerHostingCapability
+	if response.StatusCode != http.StatusOK || validateComputerResponseSchema(body, "ComputerHostingCapability") != nil || decodeComputerJSON(body, &hosting, "platforms", "max_children") != nil {
+		return nil, errComputerResponse
+	}
+	return &hosting, nil
+}
+
+// ListComputerSessions reads the newest app sessions hosted inside a computer.
+func (c *Client) ListComputerSessions(ctx context.Context, id uuid.UUID, limit int) (*ComputerRelatedSessionListResponse, error) {
+	if limit < 1 || limit > ComputerListMaxLimit {
+		return nil, fmt.Errorf("computer session list limit must be from 1 to %d", ComputerListMaxLimit)
+	}
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/sessions?limit=%d", id, limit))
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, err
+	}
+	var list ComputerRelatedSessionListResponse
+	if response.StatusCode != http.StatusOK || validateComputerResponseSchema(body, "ComputerRelatedSessionListResponse") != nil || decodeComputerJSON(body, &list, "sessions") != nil || list.Limit != limit || list.Offset != 0 || len(list.Sessions) > limit || list.Total < len(list.Sessions) {
+		return nil, errComputerResponse
+	}
+	return &list, nil
+}
+
 func (c *Client) GetComputerReport(ctx context.Context, id uuid.UUID) (*ComputerReport, error) {
 	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/report", id))
 	return readComputerReport(response, err, id)

@@ -20,7 +20,7 @@ const (
 	ComputerMaxCommandBytes = 16_384
 	ComputerMaxItems        = 64
 	ComputerMaxTimeoutMs    = 300_000
-	ComputerMaxResponseJSON = 2 * 1024 * 1024
+	ComputerMaxResponseJSON = 8 * 1024 * 1024
 )
 
 var (

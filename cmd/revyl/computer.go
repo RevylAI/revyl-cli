@@ -53,6 +53,8 @@ in Settings > Experiments.
   revyl computer list                    show your organization's computers
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
+  revyl computer hosting ID              show which app sessions it can host now
+  revyl computer sessions ID             list the app sessions running inside it
   revyl computer export ID               save a Harbor trial bundle
   revyl computer report ID --format performance
   revyl computer stop ID                 stop it
@@ -151,9 +153,15 @@ Add --json to any command for machine-readable output.`,
 		})
 	}
 	command.AddCommand(listComputers)
-	leafShorts := map[string]string{"get": "Show a computer's state and steps", "stop": "Stop a computer", "report": "Print a computer report (JSON, ATIF or performance)"}
-	for _, action := range []string{"get", "stop", "report"} {
+	leafShorts := map[string]string{
+		"get": "Show a computer's state and steps", "stop": "Stop a computer", "report": "Print a computer report (JSON, ATIF or performance)",
+		"hosting": "Show which app-session platforms a running computer can host", "sessions": "List the app sessions hosted inside a computer",
+	}
+	for _, action := range []string{"get", "stop", "report", "hosting", "sessions"} {
 		leaf := &cobra.Command{Use: action + " C1", Short: leafShorts[action]}
+		if action == "sessions" {
+			leaf.Flags().Int("limit", 25, fmt.Sprintf("How many sessions to show (1-%d)", api.ComputerListMaxLimit))
+		}
 		if action == "report" {
 			leaf.Long = `Read a computer report as JSON, ATIF or performance statistics.
 
@@ -192,6 +200,11 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 				switch action {
 				case "get":
 					return client.GetComputerRun(cmd.Context(), id)
+				case "hosting":
+					return client.GetComputerHosting(cmd.Context(), id)
+				case "sessions":
+					limit, _ := cmd.Flags().GetInt("limit")
+					return client.ListComputerSessions(cmd.Context(), id, limit)
 				case "stop":
 					report, err := client.StopComputerRun(cmd.Context(), id)
 					if err != nil || !api.ComputerRunUnsettled(api.InspectComputerReport(*report)) {
@@ -609,6 +622,26 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			}
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "computer_session_id=%s report_id=%s state=%s release=%s evidence=%s\n", result.ComputerSessionId, result.ReportId, status.State, status.Release, status.Evidence)
+		}
+	case *api.ComputerHostingCapability:
+		completion.DomainStatus = "inspected"
+		analytics.SetCommandCompletion(cmd.Context(), completion)
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if err := writeComputerHosting(cmd.OutOrStdout(), result); err != nil {
+			return err
+		}
+	case *api.ComputerRelatedSessionListResponse:
+		completion.DomainStatus = "inspected"
+		analytics.SetCommandCompletion(cmd.Context(), completion)
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if err := writeComputerSessions(cmd.OutOrStdout(), result); err != nil {
+			return err
 		}
 	case *api.ComputerATIFTrajectory:
 		completion.DomainStatus = "inspected"

@@ -28,6 +28,8 @@ def computer_validation_schema(spec: dict[str, Any]) -> dict[str, Any]:
         "ComputerCommandResponse",
         "ComputerRunListResponse",
         "ComputerPerformanceReport",
+        "ComputerHostingCapability",
+        "ComputerRelatedSessionListResponse",
         "ComputerATIFTrajectory",
     ]
     definitions: dict[str, Any] = {}

@@ -132,6 +132,42 @@ func writeComputerList(writer io.Writer, list *api.ComputerRunListResponse) erro
 	return nil
 }
 
+func writeComputerHosting(writer io.Writer, hosting *api.ComputerHostingCapability) error {
+	if len(hosting.Platforms) == 0 {
+		_, err := fmt.Fprintln(writer, "This computer can't host app sessions right now; it may still be starting.")
+		return err
+	}
+	platforms := make([]string, 0, len(hosting.Platforms))
+	for _, platform := range hosting.Platforms {
+		platforms = append(platforms, string(platform))
+	}
+	_, err := fmt.Fprintf(writer, "Platforms: %s\nMax app sessions: %d\n", strings.Join(platforms, ", "), hosting.MaxChildren)
+	return err
+}
+
+func writeComputerSessions(writer io.Writer, list *api.ComputerRelatedSessionListResponse) error {
+	if len(list.Sessions) == 0 {
+		_, err := fmt.Fprintln(writer, "No app sessions in this computer. Start one with: revyl device start --computer ID")
+		return err
+	}
+	rows := [][]string{{"SESSION", "PLATFORM", "STATUS", "APP", "CREATED"}}
+	for _, session := range list.Sessions {
+		app := "-"
+		if session.AppName != nil {
+			app = *session.AppName
+		}
+		rows = append(rows, []string{session.Id.String(), string(session.Platform), string(session.Status), app, computerTime(session.CreatedAt)})
+	}
+	if err := writeComputerTable(writer, rows); err != nil {
+		return err
+	}
+	if list.Total > len(list.Sessions) {
+		_, err := fmt.Fprintf(writer, "Showing the newest %d of %d sessions; use --limit (up to %d) for more.\n", len(list.Sessions), list.Total, api.ComputerListMaxLimit)
+		return err
+	}
+	return nil
+}
+
 func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, status api.ComputerReportStatus) error {
 	rows := [][]string{
 		{"Computer", detail.ComputerSessionId.String()},

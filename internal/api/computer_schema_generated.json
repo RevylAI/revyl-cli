@@ -802,6 +802,51 @@
       "title": "ComputerFileWriteSummary",
       "type": "object"
     },
+    "ComputerHostingCapability": {
+      "properties": {
+        "max_children": {
+          "maximum": 8.0,
+          "minimum": 0.0,
+          "title": "Max Children",
+          "type": "integer"
+        },
+        "max_children_by_platform": {
+          "additionalProperties": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "enum": [
+              "web",
+              "ios",
+              "android"
+            ]
+          },
+          "title": "Max Children By Platform",
+          "type": "object"
+        },
+        "platforms": {
+          "items": {
+            "enum": [
+              "web",
+              "ios",
+              "android"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Platforms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "platforms",
+        "max_children"
+      ],
+      "title": "ComputerHostingCapability",
+      "type": "object"
+    },
     "ComputerMemorySample": {
       "properties": {
         "available_kb": {
@@ -1643,6 +1688,139 @@
       "title": "ComputerProcessTerminateSummary",
       "type": "object"
     },
+    "ComputerRelatedSession": {
+      "properties": {
+        "app_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "App Id"
+        },
+        "app_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "App Name"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Seconds"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ended At"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "ios",
+            "android",
+            "web"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "report_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Report Id"
+        },
+        "status": {
+          "$ref": "#/$defs/SessionStatus"
+        }
+      },
+      "required": [
+        "id",
+        "app_id",
+        "app_name",
+        "platform",
+        "status",
+        "created_at",
+        "ended_at",
+        "duration_seconds",
+        "report_id"
+      ],
+      "title": "ComputerRelatedSession",
+      "type": "object"
+    },
+    "ComputerRelatedSessionListResponse": {
+      "properties": {
+        "limit": {
+          "maximum": 100.0,
+          "minimum": 1.0,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0.0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/ComputerRelatedSession"
+          },
+          "maxItems": 100,
+          "title": "Sessions",
+          "type": "array"
+        },
+        "total": {
+          "minimum": 0.0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sessions",
+        "total",
+        "limit",
+        "offset"
+      ],
+      "title": "ComputerRelatedSessionListResponse",
+      "type": "object"
+    },
     "ComputerReport": {
       "properties": {
         "as_of": {
@@ -2370,6 +2548,23 @@
       ],
       "title": "ComputerUnknown",
       "type": "object"
+    },
+    "SessionStatus": {
+      "description": "Device session status - the single source of truth for test execution state.\n\nMatches the session_status enum in the database.\nNote: Ordering matters - follows the typical lifecycle progression.\n\nStatus flow:\n    QUEUED \u2192 STARTING \u2192 RUNNING \u2192 STOPPING \u2192 COMPLETED/FAILED/TIMEOUT/CANCELLED",
+      "enum": [
+        "queued",
+        "starting",
+        "running",
+        "verifying",
+        "stopping",
+        "validating",
+        "completed",
+        "failed",
+        "cancelled",
+        "timeout"
+      ],
+      "title": "SessionStatus",
+      "type": "string"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema"

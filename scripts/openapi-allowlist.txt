@@ -194,6 +194,8 @@ GET /api/v1/computer-runs/{computer_session_id}/report
 GET /api/v1/computer-runs/{computer_session_id}/report/atif
 GET /api/v1/computer-runs/{computer_session_id}/report/performance
 GET /api/v1/computer-runs/{computer_session_id}/export/harbor
+GET /api/v1/computer-runs/{computer_session_id}/hosting
+GET /api/v1/computer-runs/{computer_session_id}/sessions
 POST /api/v1/computer-runs/{computer_session_id}/stop
 
 GET /api/v1/apps/{app_id}/branches

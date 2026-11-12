@@ -64,6 +64,8 @@ revyl computer create --os macos --id "$C1" --json
 revyl computer create --os macos --display 1440x900 --json
 revyl computer list
 revyl computer get "$C1"
+revyl computer hosting "$C1"
+revyl computer sessions "$C1" --limit 10
 revyl computer get "$C1" --json
 revyl computer exec "$C1" --timeout 30s --request-id "$R1" -- git status
 revyl computer exec "$C1" --stdin input.bin --json -- tool arg
@@ -110,7 +112,10 @@ before structured argv and never invokes a local shell. `--stdin -` and
 
 `list` prints the organization's newest computers with their state, newest
 first (`--limit 1..100`, default 25). `get` prints the computer's state and
-its steps as a table; `--json` prints the full detail instead.
+its steps as a table; `--json` prints the full detail instead. `hosting` prints
+the app-session platforms the computer can host now and how many at once; it is
+empty until the computer is running. `sessions` lists the app sessions hosted
+inside the computer, newest first (`--limit 1..100`, default 25).
 
 There is no active-computer setting, provider/image/TTL/cwd selector,
 interactive SSH/TTY, recursive sync or snapshot in this family. Existing `revyl device` commands still target native session IDs
