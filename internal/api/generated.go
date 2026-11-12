@@ -111,6 +111,24 @@ func (e AppPlatform) Valid() bool {
 	}
 }
 
+// Defines values for AppRepositorySummaryProvider.
+const (
+	AppRepositorySummaryProviderGithub AppRepositorySummaryProvider = "github"
+	AppRepositorySummaryProviderGitlab AppRepositorySummaryProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the AppRepositorySummaryProvider enum.
+func (e AppRepositorySummaryProvider) Valid() bool {
+	switch e {
+	case AppRepositorySummaryProviderGithub:
+		return true
+	case AppRepositorySummaryProviderGitlab:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AsyncStatus.
 const (
 	AsyncStatusCancelled    AsyncStatus = "cancelled"
@@ -3831,6 +3849,24 @@ func (e CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection) Valid() bo
 	}
 }
 
+// Defines values for ListAppsApiV1AppsGetParamsSort.
+const (
+	ListAppsApiV1AppsGetParamsSortName           ListAppsApiV1AppsGetParamsSort = "name"
+	ListAppsApiV1AppsGetParamsSortRecentActivity ListAppsApiV1AppsGetParamsSort = "recent_activity"
+)
+
+// Valid indicates whether the value is a known member of the ListAppsApiV1AppsGetParamsSort enum.
+func (e ListAppsApiV1AppsGetParamsSort) Valid() bool {
+	switch e {
+	case ListAppsApiV1AppsGetParamsSortName:
+		return true
+	case ListAppsApiV1AppsGetParamsSortRecentActivity:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds.
 const (
 	ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKindsWebBundle   ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds = "web_bundle"
@@ -4271,8 +4307,20 @@ type AppPlatformCounts struct {
 	Web *int `json:"web,omitempty"`
 }
 
+// AppRepositorySummary A source repository connected to an app through one of its projects.
+type AppRepositorySummary struct {
+	Namespace      string                       `json:"namespace"`
+	Provider       AppRepositorySummaryProvider `json:"provider"`
+	RepositoryName string                       `json:"repository_name"`
+}
+
+// AppRepositorySummaryProvider defines model for AppRepositorySummary.Provider.
+type AppRepositorySummaryProvider string
+
 // AppResponse Response model for an app.
 type AppResponse struct {
+	// AtlasNeedsLogin Whether the app's latest exploration stopped at a sign-in screen it could not get past. Populated by the app list; null elsewhere.
+	AtlasNeedsLogin            *bool                                     `json:"atlas_needs_login,omitempty"`
 	AttachedTests              *int                                      `json:"attached_tests,omitempty"`
 	AttributionReady           *bool                                     `json:"attribution_ready,omitempty"`
 	AutoGitBranchEnabled       *bool                                     `json:"auto_git_branch_enabled,omitempty"`
@@ -4300,10 +4348,13 @@ type AppResponse struct {
 	PinnedTests      *int                `json:"pinned_tests,omitempty"`
 	Platform         *string             `json:"platform,omitempty"`
 	RecentExecutions *int                `json:"recent_executions,omitempty"`
-	RollingPassRate  *float32            `json:"rolling_pass_rate,omitempty"`
-	StaticUrl        *string             `json:"static_url,omitempty"`
-	SystemPrompt     *string             `json:"system_prompt,omitempty"`
-	VersionsCount    *int                `json:"versions_count,omitempty"`
+
+	// Repository A source repository connected to an app through one of its projects.
+	Repository      *AppRepositorySummary `json:"repository,omitempty"`
+	RollingPassRate *float32              `json:"rolling_pass_rate,omitempty"`
+	StaticUrl       *string               `json:"static_url,omitempty"`
+	SystemPrompt    *string               `json:"system_prompt,omitempty"`
+	VersionsCount   *int                  `json:"versions_count,omitempty"`
 }
 
 // AppStoreConnectDeployInputs Upload the exported IPA to App Store Connect.
@@ -11568,7 +11619,13 @@ type ListAppsApiV1AppsGetParams struct {
 
 	// AttributedToCloudAgentConversationId Show apps directly attributed to this cloud-agent conversation or containing an attributed build/job
 	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+
+	// Sort Order by name (A to Z) or by recent activity: the newest of the app's creation, build upload, device session, and test run
+	Sort *ListAppsApiV1AppsGetParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
 }
+
+// ListAppsApiV1AppsGetParamsSort defines parameters for ListAppsApiV1AppsGet.
+type ListAppsApiV1AppsGetParamsSort string
 
 // CreateAppApiV1AppsPostParams defines parameters for CreateAppApiV1AppsPost.
 type CreateAppApiV1AppsPostParams struct {
