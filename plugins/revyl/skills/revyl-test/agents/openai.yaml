@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Test"
+  short_description: "Build-first device check of this change"
+policy:
+  allow_implicit_invocation: false

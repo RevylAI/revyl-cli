@@ -17,5 +17,14 @@
     "testing",
     "verification"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "privacyPolicyUrl": "https://revyl.com/privacy",
+  "userConfig": {
+    "offer_proof_after_commit": {
+      "type": "boolean",
+      "title": "Offer a device check after commits",
+      "description": "After a commit, push, or new pull request that changes a Revyl app, the agent offers once to check it on a Revyl device. It never starts anything without your yes.",
+      "default": false
+    }
+  }
 }

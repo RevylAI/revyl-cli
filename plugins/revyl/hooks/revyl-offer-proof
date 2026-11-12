@@ -1,0 +1,56 @@
+#!/bin/sh
+# Opt-in PostToolUse hook: after a shell command commits, pushes, or opens a
+# pull request that touches a Revyl app, add one line of context so the agent
+# offers a device check once per commit. It never runs the Revyl CLI and never
+# starts anything; it only returns additionalContext. Always exits 0.
+set -u
+
+case " ${CLAUDE_PLUGIN_OPTION_OFFER_PROOF_AFTER_COMMIT:-} ${REVYL_PLUGIN_OFFER_PROOF:-} " in
+*" true "* | *" 1 "*) ;;
+*) exit 0 ;;
+esac
+
+command=$(tr '\r\n' '  ' | sed -E -n 's/.*"tool_input" *: *[{][^{}]*"command" *: *"(([^"\\]|\\.)*)".*/\1/p')
+command=$(printf '%s' "$command" | sed 's/\\[nrt]/ /g')
+case "$command" in
+"git commit"* | *[\ \;\&\|]"git commit"* | "git push"* | *[\ \;\&\|]"git push"* | "gh pr create"* | *[\ \;\&\|]"gh pr create"*) ;;
+*) exit 0 ;;
+esac
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+head=$(git rev-parse HEAD 2>/dev/null) || exit 0
+CACHE_DIR="${CLAUDE_PLUGIN_DATA:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/revyl/plugin-hooks}"
+marker="$CACHE_DIR/offered-$head"
+[ -f "$marker" ] && exit 0
+
+app=""
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  dir=$(dirname -- "$file")
+  while :; do
+    if [ -f "$top/$dir/.revyl/config.yaml" ]; then
+      app=$dir
+      break 2
+    fi
+    [ "$dir" = . ] && break
+    dir=$(dirname -- "$dir")
+  done
+done <<EOF
+$(git diff-tree --root --no-commit-id --name-only -r -m --first-parent HEAD 2>/dev/null)
+EOF
+[ -n "$app" ] || exit 0
+
+mkdir -p "$CACHE_DIR" 2>/dev/null && : >"$marker"
+
+if [ -z "${CODEX_THREAD_ID:-}${CODEX_SHELL:-}${CODEX_CI:-}" ] && [ -n "${CLAUDECODE:-}" ]; then
+  test_command="/revyl-cli:revyl-test"
+  proof_command="/revyl-cli:revyl-proof"
+else
+  test_command="\$revyl-test"
+  proof_command="\$revyl-proof"
+fi
+[ "$app" = . ] && app="the repository root"
+context="Revyl: this commit changes the Revyl app in $app. Offer once, and start nothing without a yes: a device check of this commit ($test_command), or, after it is pushed to a pull request, proof on that pull request's build ($proof_command)."
+context=$(printf '%s' "$context" | sed 's/\\/\\\\/g; s/"/\\"/g')
+printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$context"
+exit 0

@@ -52,7 +52,7 @@ func TestSyncPluginChecksDriftWithoutWriting(t *testing.T) {
 func TestSyncPluginDerivesClaudeManifestFromCodexManifest(t *testing.T) {
 	root := syncFixture(t)
 	codexPath := filepath.Join(root, "plugins/revyl/.codex-plugin/plugin.json")
-	codexManifest := `{"name":"revyl","version":"0.3.1","description":"Run apps.","license":"MIT","skills":"./skills/","interface":{"displayName":"Revyl"}}`
+	codexManifest := `{"name":"revyl","version":"0.3.1","description":"Run apps.","license":"MIT","skills":"./skills/","interface":{"displayName":"Revyl","privacyPolicyURL":"https://example.com/privacy"}}`
 	if err := os.WriteFile(codexPath, []byte(codexManifest), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,11 @@ func TestSyncPluginDerivesClaudeManifestFromCodexManifest(t *testing.T) {
 	if err := json.Unmarshal(content, &claude); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"name": "revyl-cli", "displayName": "Revyl CLI", "version": "0.3.1", "description": "Run apps.", "license": "MIT", "skills": "./skills/"}
+	var userConfig any
+	if err := json.Unmarshal([]byte(claudeUserConfig), &userConfig); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"name": "revyl-cli", "displayName": "Revyl CLI", "version": "0.3.1", "description": "Run apps.", "license": "MIT", "skills": "./skills/", "privacyPolicyUrl": "https://example.com/privacy", "userConfig": userConfig}
 	if fmt.Sprint(claude) != fmt.Sprint(want) {
 		t.Fatalf("Claude manifest = %v, want %v", claude, want)
 	}
@@ -94,17 +98,79 @@ func TestSyncPluginRejectsIncompatibleRuntime(t *testing.T) {
 	}
 }
 
+func TestSyncPluginPortsSkillsThroughTheLauncher(t *testing.T) {
+	root := syncFixture(t)
+	if err := syncPlugin(root, false, releaseClient(t, "")); err != nil {
+		t.Fatal(err)
+	}
+	read := func(path string) string {
+		t.Helper()
+		content, err := os.ReadFile(filepath.Join(root, "plugins/revyl/skills", path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+	skill := read("revyl-cli-auth-bypass/SKILL.md")
+	if !strings.Contains(skill, "# Auth bypass\n\n## Run Revyl through this plugin\n") {
+		t.Errorf("SKILL.md lacks the launcher section after its title:\n%s", skill)
+	}
+	if !strings.Contains(skill, "```bash\n\"$LAUNCHER\" dev --no-build \\\n  --launch-var revyl-auth\n") || !strings.Contains(skill, "Run `revyl dev`.") {
+		t.Errorf("SKILL.md fences must call the launcher and prose must stay as written:\n%s", skill)
+	}
+	if web := read("revyl-cli-auth-bypass/references/web.md"); !strings.Contains(web, "cd app && \"$LAUNCHER\" device start") || strings.Contains(web, "## Run Revyl") {
+		t.Errorf("references/web.md = %q", web)
+	}
+	if policy := read("revyl-cli-auth-bypass/agents/openai.yaml"); policy != "policy:\n  allow_implicit_invocation: false\n" {
+		t.Errorf("agents/openai.yaml = %q, want a verbatim copy", policy)
+	}
+	if !strings.Contains(read("revyl-ci-sync/SKILL.md"), "## Run Revyl through this plugin") {
+		t.Error("revyl-ci-sync is not ported")
+	}
+}
+
+func TestSyncPluginRemovesPortedFilesWhoseSourceIsGone(t *testing.T) {
+	root := syncFixture(t)
+	client := releaseClient(t, "")
+	if err := syncPlugin(root, false, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "skills/revyl-cli-auth-bypass/references/web.md")); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(root, "plugins/revyl/skills/revyl-cli-auth-bypass/references/web.md")
+	if err := syncPlugin(root, true, client); err == nil || !strings.Contains(err.Error(), "is obsolete") {
+		t.Fatalf("check error = %v, want the removed reference reported", err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("check removed the stale copy: %v", err)
+	}
+	if err := syncPlugin(root, false, client); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("sync kept the stale copy: %v", err)
+	}
+	if err := syncPlugin(root, true, client); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func syncFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	for path, contents := range map[string]string{
-		"plugins/revyl/.codex-plugin/plugin.json": `{"name":"revyl","version":"0.1.0"}`,
-		"plugins/revyl/runtime-version":           "0.1.108\n",
-		"cursor-plugin/hooks/launch-revyl":        "#!/bin/sh\nexit 0\n",
-		"cursor-plugin/hooks/launch-revyl.ps1":    "exit 0\n",
-		"cursor-plugin/hooks/launch-revyl.cmd":    "@echo off\n",
-		"cursor-plugin/assets/icon.svg":           "<svg/>\n",
-		"skills/revyl-cli-dev-loop/SKILL.md":      "# Dev loop\n",
+		"plugins/revyl/.codex-plugin/plugin.json":         `{"name":"revyl","version":"0.1.0"}`,
+		"plugins/revyl/runtime-version":                   "0.1.108\n",
+		"cursor-plugin/hooks/launch-revyl":                "#!/bin/sh\nexit 0\n",
+		"cursor-plugin/hooks/launch-revyl.ps1":            "exit 0\n",
+		"cursor-plugin/hooks/launch-revyl.cmd":            "@echo off\n",
+		"cursor-plugin/assets/icon.svg":                   "<svg/>\n",
+		"skills/revyl-cli-dev-loop/SKILL.md":              "# Dev loop\n",
+		"skills/revyl-cli-auth-bypass/SKILL.md":           "---\nname: revyl-cli-auth-bypass\n---\n\n# Auth bypass\n\nRun `revyl dev`.\n\n```bash\nrevyl dev --no-build \\\n  --launch-var revyl-auth\n```\n",
+		"skills/revyl-cli-auth-bypass/references/web.md":  "# Web\n\n```bash\ncd app && revyl device start --platform web\n```\n",
+		"skills/revyl-cli-auth-bypass/agents/openai.yaml": "policy:\n  allow_implicit_invocation: false\n",
+		"cursor-plugin/skills/revyl-ci-sync/SKILL.md":     "# CI sync\n",
 	} {
 		absolute := filepath.Join(root, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {

@@ -630,6 +630,7 @@ func TestDeviceStopReportsUnsettledAndPartialOutcomes(t *testing.T) {
 			withWorkingDirectory(t, t.TempDir())
 			t.Setenv("REVYL_API_KEY", "test-api-key")
 			t.Setenv(sessionIDEnvVar, "")
+			useFakeDeviceStopClock(t)
 			flow := newInventoryStopAllServer(t)
 			flow.CancelResponse = func(runID string) string {
 				if tc.secondBody != "" && runID == secondFlowWorkflowRunID {

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Device"
+  short_description: "Start a Revyl cloud device for an app build"
+policy:
+  allow_implicit_invocation: false

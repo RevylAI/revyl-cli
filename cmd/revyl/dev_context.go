@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
@@ -1264,13 +1265,22 @@ func stopOneDevContext(cmd *cobra.Command, cwd, name string) error {
 		}
 	}
 
+	sessionStopped := true
 	if ctx.SessionOwned && ctx.SessionID != "" {
 		mgr, mgrErr := getDeviceSessionMgr(cmd)
 		if mgrErr == nil {
 			idx := resolveSessionIndexByID(mgr, ctx.SessionID)
 			if idx >= 0 {
-				if stopErr := mgr.StopSession(cmd.Context(), idx); stopErr != nil {
-					ui.PrintDebug("failed to stop device session: %v", stopErr)
+				var stopErr error
+				waitForDeviceStopToSettle(cmd.Context(), func() bool {
+					stopErr = mgr.StopSession(cmd.Context(), idx)
+					var pending *api.DeviceSessionStopPendingError
+					return errors.As(stopErr, &pending)
+				})
+				if stopErr != nil {
+					sessionStopped = false
+					ui.PrintWarning("Device session %s did not confirm it stopped: %v", ctx.SessionID, stopErr)
+					ui.PrintDim("  Check with 'revyl device list --json' and stop it with 'revyl device stop -s %s'", ctx.SessionID)
 				} else {
 					ui.PrintInfo("Stopped device session %s", ctx.SessionID)
 				}
@@ -1295,7 +1305,7 @@ func stopOneDevContext(cmd *cobra.Command, cwd, name string) error {
 	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
 		data, _ := json.MarshalIndent(withAppliedDefaults(cmd, map[string]interface{}{
 			"context":       name,
-			"stopped":       true,
+			"stopped":       sessionStopped,
 			"session_id":    stoppedSessionID,
 			"session_owned": ctx.SessionOwned,
 		}), "", "  ")
@@ -1304,7 +1314,7 @@ func stopOneDevContext(cmd *cobra.Command, cwd, name string) error {
 	}
 
 	ui.PrintSuccess("Stopped dev context '%s'", name)
-	if ctx.SessionOwned {
+	if ctx.SessionOwned && sessionStopped {
 		ui.PrintDim("Device session was stopped with the context.")
 	}
 	return nil

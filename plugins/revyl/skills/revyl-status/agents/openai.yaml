@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Status"
+  short_description: "Check Revyl sign-in, project, GitHub and sessions"
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Build"
+  short_description: "Build or upload this app to Revyl"
+policy:
+  allow_implicit_invocation: false

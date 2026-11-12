@@ -148,7 +148,7 @@ func EvaluateGuard(input GuardInput) GuardResult {
 		))
 		return GuardResult{ExitCode: 0, Stdout: stdout.String()}
 	}
-	if compare == 0 && input.PluginHost == "codex" && input.BaseRef == "staging" {
+	if compare == 0 && input.BaseRef == "staging" {
 		stdout.WriteString("The staging release workflow will patch-bump this plugin unless the PR opts out.\n")
 		return GuardResult{ExitCode: 0, Stdout: stdout.String()}
 	}

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Proof"
+  short_description: "Prove a PR on the build of its head commit"
+policy:
+  allow_implicit_invocation: false

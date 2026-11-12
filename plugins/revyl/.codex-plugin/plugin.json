@@ -11,14 +11,17 @@
   "license": "MIT",
   "keywords": ["mobile", "ios", "android", "testing", "verification"],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Revyl",
     "shortDescription": "Run and verify mobile apps.",
-    "longDescription": "Use the Revyl CLI to run mobile apps, inspect screenshots, validate behavior, and verify CI-uploaded pull request builds. Requires shell access and Revyl sign-in; does not require MCP or hooks.",
+    "longDescription": "Use the Revyl CLI to run mobile apps, inspect screenshots, validate behavior, and verify CI-uploaded pull request builds. Adds Revyl's hosted workspace tools for finding builds and driving devices, and a session-start check of CLI sign-in, project configuration, and GitHub pull-request builds. Requires shell access and Revyl sign-in; the hosted tools sign in once with OAuth.",
     "developerName": "Revyl",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://revyl.com",
+    "privacyPolicyURL": "https://revyl.com/privacy",
     "composerIcon": "./assets/icon.svg",
     "logo": "./assets/icon.svg",
     "defaultPrompt": [

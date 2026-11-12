@@ -278,7 +278,7 @@ explains how a run picks its files.
    applied the merged file; [Default-branch authority](https://docs.revyl.com/integrations/github#default-branch-authority)
    lists what stops it. Publish the setting from this checkout: run the
    command on its `Next:` line, usually `revyl config push`, or turn it on in
-   the dashboard under **Settings → Integrations → GitHub** (or **GitLab**):
+   the dashboard under **Integrations > GitHub** (or **GitLab**):
    select the repository and project root, then turn on **Run tests from Git**
    in the **Test definitions** card of **Pull requests**, select **Save**, and
    select **Save** again in **Turn on Run tests from Git?**. Then run
@@ -469,7 +469,7 @@ dashboard. Turning the setting off doesn't change the authority.
      `Run tests from Git is on for this project`.
 
      You can turn it off in the dashboard instead: under
-     **Settings → Integrations → GitHub** (or **GitLab**), select the
+     **Integrations > GitHub** (or **GitLab**), select the
      repository and the project root, the folder that holds `.revyl/`, turn off **Run tests from Git** in the
      **Test definitions** card of **Pull requests**, select **Save**, and
      select **Save** again in **Turn off Run tests from Git?**. Still remove

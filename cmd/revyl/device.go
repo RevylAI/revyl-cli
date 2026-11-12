@@ -1281,6 +1281,10 @@ var deviceStopCmd = &cobra.Command{
 	Short: "Stop a device session (-s <index or session ID> or --all)",
 	Long: `Stop a device session and release its device.
 
+The stop waits up to 30 seconds for the session to settle, asking again every
+2 seconds. If cleanup is still pending after that, it reports stopped: false;
+run the stop again.
+
 Without -s, --session-id, REVYL_SESSION_ID, or --all, it stops your only live
 session. When several sessions are live it stops nothing and lists each one
 with the command that stops it, since another agent may still be using it.
@@ -1299,7 +1303,7 @@ or device use. Other sessions stay accessible by --session-id when authorized.`,
 
 		all, _ := cmd.Flags().GetBool("all")
 		if all {
-			result, stopErr := mgr.StopAllSessions(cmd.Context())
+			result, stopErr := stopAllDeviceSessionsUntilSettled(cmd.Context(), mgr)
 			output := map[string]interface{}{
 				"stopped_all":     result.SessionSettled && result.DeviceReleased,
 				"stop_requested":  result.RequestAccepted,
@@ -1369,7 +1373,12 @@ or device use. Other sessions stay accessible by --session-id when authorized.`,
 			ui.PrintInfo("Stopping session %s...", sessionDisplayLabel(session))
 		}
 
-		cancelErr := mgr.StopResolvedSession(cmd.Context(), session)
+		var cancelErr error
+		waitForDeviceStopToSettle(cmd.Context(), func() bool {
+			cancelErr = mgr.StopResolvedSession(cmd.Context(), session)
+			var pending *api.DeviceSessionStopPendingError
+			return errors.As(cancelErr, &pending)
+		})
 		if cancelErr != nil {
 			var pending *api.DeviceSessionStopPendingError
 			if errors.As(cancelErr, &pending) {
@@ -1388,6 +1397,66 @@ or device use. Other sessions stay accessible by --session-id when authorized.`,
 		jsonOrPrint(cmd, map[string]bool{"stopped": true}, "Device session stopped.")
 		return nil
 	},
+}
+
+const (
+	deviceStopSettleTimeout      = 30 * time.Second
+	deviceStopSettlePollInterval = 2 * time.Second
+)
+
+var (
+	deviceStopNow   = time.Now
+	deviceStopSleep = func(ctx context.Context, d time.Duration) error {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
+)
+
+// waitForDeviceStopToSettle asks a stop again while it reports cleanup still
+// pending, within deviceStopSettleTimeout. A device session settles only once
+// its run has ended, and asking again reuses the recorded stop request.
+func waitForDeviceStopToSettle(ctx context.Context, stopIsPending func() bool) {
+	settleBy := deviceStopNow().Add(deviceStopSettleTimeout)
+	for stopIsPending() {
+		remaining := settleBy.Sub(deviceStopNow())
+		if remaining <= 0 || deviceStopSleep(ctx, min(deviceStopSettlePollInterval, remaining)) != nil {
+			return
+		}
+	}
+}
+
+// stopAllDeviceSessionsUntilSettled re-stops the sessions StopAllSessions
+// retained as pending and reports each session's latest outcome.
+func stopAllDeviceSessionsUntilSettled(ctx context.Context, mgr *mcppkg.DeviceSessionManager) (mcppkg.DeviceSessionStopBatchResult, error) {
+	outcomes := []mcppkg.DeviceSessionStopResult{}
+	positionByIndex := map[int]int{}
+	var stopErr error
+	waitForDeviceStopToSettle(ctx, func() bool {
+		var batch mcppkg.DeviceSessionStopBatchResult
+		batch, stopErr = mgr.StopAllSessions(ctx)
+		for _, outcome := range batch.Results {
+			if position, seen := positionByIndex[outcome.SessionIndex]; seen {
+				outcomes[position] = outcome
+				continue
+			}
+			positionByIndex[outcome.SessionIndex] = len(outcomes)
+			outcomes = append(outcomes, outcome)
+		}
+		return stopErr == nil && !(batch.SessionSettled && batch.DeviceReleased)
+	})
+	result := mcppkg.DeviceSessionStopBatchResult{RequestAccepted: true, SessionSettled: true, DeviceReleased: true, Results: outcomes}
+	for _, outcome := range outcomes {
+		result.RequestAccepted = result.RequestAccepted && outcome.RequestAccepted
+		result.SessionSettled = result.SessionSettled && outcome.SessionSettled
+		result.DeviceReleased = result.DeviceReleased && outcome.DeviceReleased
+	}
+	return result, stopErr
 }
 
 // requireSingleLiveSessionForUntargetedStop refuses a stop that names no

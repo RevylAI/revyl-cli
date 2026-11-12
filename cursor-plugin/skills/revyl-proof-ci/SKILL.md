@@ -32,7 +32,10 @@ To **create** the scheduled Automation (CI upload + paste-ready prompt), use
 - **Never claim proof without a device session.** If no matching build exists
   after a brief wait/retry, say so and stop.
 - Prefer `revyl device start --build-version-id <id>`.
-- Stop every session before finishing (`revyl device stop`).
+- Stop every session before finishing (`revyl device stop --json`). A stop is
+  finished only when it says `stopped: true`. Otherwise check
+  `revyl device list --json`; while the session is still listed, wait about
+  ten seconds and stop it once more. Retry once, never more.
 - Comment with Cursor's native **Comment on pull request** tool. Edit an
   existing `## Revyl device proof` comment when present; otherwise create one.
 - Never paste `REVYL_API_KEY`, launch-var values, or tokens into comments.

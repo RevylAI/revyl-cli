@@ -98,7 +98,9 @@ prepare.
 Plugin-owned changes (hooks, skills, rules, assets, generator manifests) must
 increase `plugin.json` version. CI fails the PR otherwise. Run
 `./scripts/bump patch --plugin`, or add the `no-plugin-release` label when the
-PR must not cut a pin.
+PR must not cut a pin. PRs targeting `staging` may leave the version unchanged;
+the release workflow patch-bumps it after merge and keeps the existing runtime
+pin (`docs/runbooks/cli-plugin-versioning.md`).
 
 ### Validate the exact candidate
 

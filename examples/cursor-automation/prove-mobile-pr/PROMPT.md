@@ -80,7 +80,7 @@ revyl session publish <file> --session <session id> --json
 
 ## Always stop sessions
 
-Cloud device sessions outlive this Automation run. Before you finish — success or failure — stop every session you started with `revyl device stop`. Do not leave devices running.
+Cloud device sessions outlive this Automation run. Before you finish — success or failure — stop every session you started with `revyl device stop --json`. Do not leave devices running. A stop is finished only when it says `stopped: true`. Otherwise check `revyl device list --json`; while the session is still listed, wait about ten seconds and stop it once more. Retry once, never more.
 
 ## PR comment (native Comment tool only)
 

@@ -30,7 +30,7 @@ cached binary as the shell command.
 
 ## Session Lifecycle (devices cost money and outlive the VM)
 
-- Cloud device sessions do not die when the VM exits. `revyl dev stop` is mandatory before completion.
+- Cloud device sessions do not die when the VM exits. `revyl dev stop` is mandatory before completion. Then confirm with `revyl device list --json` that the session is gone; while it is still listed, wait about ten seconds and run `revyl device stop -s <session-id> --json` once, which is finished only when it says `stopped: true`. Retry once, never more.
 - At the start of a run, use `revyl dev list` to check for a suitable existing session. Do not stack new devices on stale ones.
 
 ## Bounded Monitoring (never hang the shell)

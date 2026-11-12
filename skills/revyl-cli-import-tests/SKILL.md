@@ -330,7 +330,10 @@ deleting or loosening a validation the source asserted; that hides the
 regression the test exists to catch. For deeper triage use `revyl-cli-analyze`.
 Test runs end their own device sessions; confirm each ended (`session_status`
 in the report, and `revyl device list`) and stop any session you started
-yourself.
+yourself. A `revyl device stop --json` is finished only when it says
+`stopped: true`. Otherwise check `revyl device list --json`; while the session
+is still listed, wait about ten seconds and stop it once more. Retry once,
+never more.
 
 ## Phase 6: Report and REVIEW List
 

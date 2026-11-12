@@ -44,8 +44,8 @@ func TestCodexManifestAndMarketplace(t *testing.T) {
 		Name       string `json:"name"`
 		Version    string `json:"version"`
 		Skills     string `json:"skills"`
-		MCPServers any    `json:"mcpServers"`
-		Hooks      any    `json:"hooks"`
+		MCPServers string `json:"mcpServers"`
+		Hooks      string `json:"hooks"`
 		Apps       any    `json:"apps"`
 		Interface  struct {
 			DisplayName      string   `json:"displayName"`
@@ -61,8 +61,8 @@ func TestCodexManifestAndMarketplace(t *testing.T) {
 	if manifest.Name != "revyl" || manifest.Version == "" || manifest.Skills != "./skills/" || manifest.Interface.DisplayName != "Revyl" || len(manifest.Interface.Prompts) != 2 {
 		t.Fatalf("invalid plugin manifest: %+v", manifest)
 	}
-	if manifest.MCPServers != nil || manifest.Hooks != nil || manifest.Apps != nil {
-		t.Fatal("Codex plugin must not require MCP, apps, or hooks")
+	if manifest.MCPServers != "./.mcp.json" || manifest.Hooks != "./hooks/hooks.json" || manifest.Apps != nil {
+		t.Fatalf("Codex plugin must name the shared .mcp.json and hooks/hooks.json and declare no apps: %+v", manifest)
 	}
 	shortDescription := manifest.Interface.ShortDescription
 	if strings.TrimSpace(shortDescription) == "" || utf8.RuneCountInString(shortDescription) > 30 || strings.ContainsAny(shortDescription, "\r\n") {
@@ -76,7 +76,12 @@ func TestCodexManifestAndMarketplace(t *testing.T) {
 			t.Errorf("interface.%s = %q, want the bundled ./assets/icon.svg", field, path)
 		}
 	}
-	for _, path := range []string{"hooks", ".mcp.json", "mcp.json", ".app.json"} {
+	for _, path := range []string{".mcp.json", "hooks/hooks.json"} {
+		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
+			t.Fatalf("missing shared component %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{"mcp.json", ".app.json", "commands", "bin"} {
 		if _, err := os.Stat(filepath.Join(root, path)); !os.IsNotExist(err) {
 			t.Fatalf("unexpected component %s: %v", path, err)
 		}
@@ -121,6 +126,10 @@ type sharedManifest struct {
 	Version     string `json:"version"`
 	Description string `json:"description"`
 	Skills      string `json:"skills"`
+	Privacy     string `json:"privacyPolicyUrl"`
+	Interface   struct {
+		Privacy string `json:"privacyPolicyURL"`
+	} `json:"interface"`
 }
 
 func readManifest(t *testing.T, path string) (sharedManifest, map[string]json.RawMessage) {
@@ -144,12 +153,12 @@ func TestClaudeManifestAgreesWithCodexManifest(t *testing.T) {
 	if claude.Name != "revyl-cli" {
 		t.Fatalf("Claude plugin name = %q, want revyl-cli", claude.Name)
 	}
-	if claude.Version != codex.Version || claude.Description != codex.Description || claude.Skills != codex.Skills || claude.Skills != "./skills/" {
+	if claude.Version != codex.Version || claude.Description != codex.Description || claude.Skills != codex.Skills || claude.Skills != "./skills/" || claude.Privacy == "" || claude.Privacy != codex.Interface.Privacy {
 		t.Fatalf("Claude manifest %+v diverges from Codex manifest %+v; run make -C revyl-cli sync-codex-plugin", claude, codex)
 	}
 	for _, component := range []string{"hooks", "mcpServers", "commands", "agents", "lspServers", "monitors"} {
 		if _, ok := fields[component]; ok {
-			t.Errorf("Claude manifest must not declare %s", component)
+			t.Errorf("Claude manifest must not declare %s; Claude Code loads the shared components from their default locations", component)
 		}
 	}
 	hosted, _ := readManifest(t, filepath.Join(filepath.Dir(root), "revyl-claude/.claude-plugin/plugin.json"))
@@ -426,15 +435,16 @@ func TestSkillsResolveOnlyBundledLaunchers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("skill count = %d, want 2", len(entries))
+	if len(entries) != len(pluginSkills) {
+		t.Fatalf("skill count = %d, want %d", len(entries), len(pluginSkills))
 	}
 	bareCLI := regexp.MustCompile(`(^|[\s;&|(\x60])revyl(\.exe)?\s`)
-	for _, name := range []string{"revyl-dev-loop", "revyl-proof-ci"} {
+	for name := range pluginSkills {
 		path := filepath.Join(root, "skills", name, "SKILL.md")
 		content := string(readFile(t, path))
-		for _, required := range []string{"name: " + name, "../../scripts/launch-revyl", "launch-revyl.cmd", "${CLAUDE_SKILL_DIR}", "**Claude Code**", "**Codex**"} {
-			if !strings.Contains(content, required) {
+		prose := strings.Join(strings.Fields(content), " ")
+		for _, required := range []string{"name: " + name, "../../scripts/launch-revyl", "launch-revyl.cmd", "${CLAUDE_SKILL_DIR}", "**Claude Code**", "**Codex**", "never from the plugin's own folder"} {
+			if !strings.Contains(prose, required) {
 				t.Errorf("%s is missing %q", name, required)
 			}
 		}

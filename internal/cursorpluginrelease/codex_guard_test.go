@@ -46,6 +46,27 @@ func TestCodexGuardIgnoresOtherHostsAndTestOnlyChanges(t *testing.T) {
 	}
 }
 
+func TestStagingGuardLeavesUnchangedVersionsToReleaseWorkflow(t *testing.T) {
+	for host, path := range map[string]string{
+		"":       "revyl-cli/cursor-plugin/hooks/ensure-revyl",
+		"cursor": "revyl-cli/cursor-plugin/skills/revyl-cli-dev-loop/SKILL.md",
+		"codex":  "revyl-cli/plugins/revyl/skills/revyl-dev-loop/SKILL.md",
+	} {
+		input := GuardInput{PluginHost: host, BaseRef: "staging", ChangedFiles: path, BaseVersion: "0.1.3", HeadVersion: "0.1.3"}
+		if result := EvaluateGuard(input); result.ExitCode != 0 || !strings.Contains(result.Stdout, "staging release workflow will patch-bump") {
+			t.Fatalf("staging PR for host %q rejected: %+v", host, result)
+		}
+		input.HeadVersion = "0.1.2"
+		if result := EvaluateGuard(input); result.ExitCode != 1 {
+			t.Fatalf("staging version decrease for host %q accepted: %+v", host, result)
+		}
+		input.BaseRef, input.HeadVersion = "main", "0.1.3"
+		if result := EvaluateGuard(input); result.ExitCode != 1 {
+			t.Fatalf("unchanged version for host %q accepted outside staging: %+v", host, result)
+		}
+	}
+}
+
 func TestCodexGuardFirstReleaseAndExplicitOptOut(t *testing.T) {
 	input := GuardInput{
 		PluginHost: "codex", ChangedFiles: "revyl-cli/plugins/revyl/runtime-manifest.json",

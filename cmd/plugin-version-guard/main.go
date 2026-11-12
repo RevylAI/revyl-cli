@@ -44,7 +44,7 @@ func usage() string {
 Git mode (CI): BASE_SHA, HEAD_SHA, optional PR_LABELS JSON array.
 Test mode: CHANGED_FILES, BASE_PLUGIN_VERSION, HEAD_PLUGIN_VERSION.
 Plugin selection: PLUGIN_HOST=cursor (default) or codex.
-Staging automation: PLUGIN_BASE_REF=staging permits an unchanged Codex version.
+Staging automation: PLUGIN_BASE_REF=staging permits an unchanged plugin version.
 `
 }
 

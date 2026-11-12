@@ -1,0 +1,199 @@
+#!/bin/sh
+# SessionStart readiness check for the Revyl plugin in Claude Code and Codex.
+# It never signs in, starts a device or build, changes configuration, or issues
+# a GitHub install link. The only thing it may write outside its own cache is
+# the plugin's pinned, checksum-verified CLI, installed on the first session.
+# It prints at most three short lines of context and always exits 0.
+set -u
+
+PLUGIN_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd) || exit 0
+LAUNCHER="$PLUGIN_ROOT/scripts/launch-revyl"
+CACHE_DIR="${CLAUDE_PLUGIN_DATA:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/revyl/plugin-hooks}"
+LATEST_MANIFEST_URL="${REVYL_PLUGIN_LATEST_MANIFEST_URL:-https://raw.githubusercontent.com/RevylAI/revyl-cli/main/plugins/revyl/.codex-plugin/plugin.json}"
+GITHUB_STATUS_MINUTES=1440
+GITHUB_NUDGE_MINUTES=10080
+LATEST_VERSION_MINUTES=1440
+REVYL_TELEMETRY_DISABLED=1
+REVYL_RUNTIME_NO_DOWNLOAD=1
+export REVYL_TELEMETRY_DISABLED REVYL_RUNTIME_NO_DOWNLOAD
+
+host=codex
+if [ -z "${CODEX_THREAD_ID:-}${CODEX_SHELL:-}${CODEX_CI:-}" ] && [ -n "${CLAUDECODE:-}" ]; then
+  host=claude
+fi
+if [ "$host" = claude ]; then
+  setup_hint="/revyl-cli:revyl-setup"
+  test_hint="/revyl-cli:revyl-test"
+  update_hint="claude plugin marketplace update revyl, then claude plugin update revyl-cli@revyl (or turn on auto-update in /plugin)"
+else
+  setup_hint="\$revyl-setup"
+  test_hint="\$revyl-test"
+  update_hint="codex plugin marketplace upgrade revyl"
+fi
+
+mkdir -p "$CACHE_DIR" 2>/dev/null || CACHE_DIR=""
+
+compact() {
+  tr -d '\r\n'
+}
+
+json_field() {
+  sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",} ]*\)\"\{0,1\}.*/\1/p"
+}
+
+bounded() {
+  tenths=$(($1 * 10))
+  shift
+  output_file=$(mktemp 2>/dev/null) || return 0
+  "$@" >"$output_file" 2>/dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$tenths" -le 0 ]; then
+      kill "$pid" 2>/dev/null
+      rm -f "$output_file"
+      return 1
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+    tenths=$((tenths - 1))
+  done
+  compact <"$output_file"
+  rm -f "$output_file"
+}
+
+doctor_check() {
+  sed -n "s/.*\"name\": *\"$1\", *\"status\": *\"\([a-z]*\)\", *\"message\": *\"\([^\"]*\)\".*/\1 \2/p"
+}
+
+fresh() {
+  [ -n "$CACHE_DIR" ] && [ -f "$1" ] && [ -n "$(find "$1" -mmin "-$2" 2>/dev/null)" ]
+}
+
+version_newer() {
+  awk -v current="$1" -v candidate="$2" 'BEGIN {
+    n = split(current, a, "."); m = split(candidate, b, ".")
+    if (n != 3 || m != 3) exit 1
+    for (i = 1; i <= 3; i++) {
+      if (b[i] + 0 > a[i] + 0) exit 0
+      if (b[i] + 0 < a[i] + 0) exit 1
+    }
+    exit 1
+  }'
+}
+
+plugin_version=$(compact <"$PLUGIN_ROOT/.codex-plugin/plugin.json" 2>/dev/null | json_field version)
+runtime_version=$(tr -d ' \r\n' <"$PLUGIN_ROOT/runtime-version" 2>/dev/null)
+
+finished_within() {
+  tenths=$(($1 * 10))
+  while kill -0 "$2" 2>/dev/null; do
+    [ "$tenths" -le 0 ] && return 1
+    sleep 0.1 2>/dev/null || sleep 1
+    tenths=$((tenths - 1))
+  done
+}
+
+first_run=""
+if ! doctor=$(bounded 7 "$LAUNCHER" doctor --json); then
+  echo "Revyl: the readiness check timed out, so Revyl's state is unknown; check it only when the user wants a device check or build."
+  exit 0
+fi
+version_check=$(printf '%s' "$doctor" | doctor_check Version)
+if [ -z "$version_check" ]; then
+  first_run=1
+  REVYL_RUNTIME_NO_DOWNLOAD= "$LAUNCHER" version </dev/null >/dev/null 2>&1 &
+  install_pid=$!
+  if finished_within 4 "$install_pid"; then
+    if ! doctor=$(bounded 4 "$LAUNCHER" doctor --json); then
+      echo "Revyl: the readiness check timed out, so Revyl's state is unknown; check it only when the user wants a device check or build."
+      exit 0
+    fi
+    version_check=$(printf '%s' "$doctor" | doctor_check Version)
+  fi
+fi
+if [ -z "$version_check" ]; then
+  if kill -0 "$install_pid" 2>/dev/null; then
+    echo "Revyl: first session, so the plugin's pinned CLI v$runtime_version is still installing; sign-in, project config, and GitHub state aren't known yet. The next session reports them, and $setup_hint checks them now if the user wants a device check or build."
+  else
+    echo "Revyl: the plugin's pinned CLI v$runtime_version couldn't be installed, so Revyl's state is unknown; $setup_hint retries the install and reports it when the user wants a device check or build."
+  fi
+else
+  auth_status=$(printf '%s' "$doctor" | doctor_check Authentication | cut -d' ' -f1)
+  config_check=$(printf '%s' "$doctor" | doctor_check "Project Config")
+  config_path=""
+  case "$config_check" in
+  "ok Found at "*)
+    config_path=${config_check#ok Found at }
+    top=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    if [ -n "$top" ] && [ "${config_path#"$top"/}" != "$config_path" ]; then
+      config_path=${config_path#"$top"/}
+    else
+      config_path=".revyl/config.yaml"
+    fi
+    ;;
+  esac
+  if [ "$auth_status" = ok ]; then
+    signed_in="signed in"
+  else
+    signed_in="not signed in (sign in only when the user wants a device check or build)"
+  fi
+  if [ -n "$config_path" ]; then
+    echo "Revyl: CLI v$runtime_version ready, $signed_in; project config at $config_path."
+  elif [ "$config_check" = "warning Nested project selection required" ]; then
+    echo "Revyl: CLI v$runtime_version ready, $signed_in; Revyl projects are configured in subdirectories, so run Revyl commands from the app's directory (or with -C <dir>) when the user wants them."
+  else
+    echo "Revyl: CLI v$runtime_version ready, $signed_in; no .revyl/config.yaml applies here, so offer $setup_hint only if the user wants device checks."
+  fi
+
+  origin=$(git config --get remote.origin.url 2>/dev/null || true)
+  case "$origin" in
+  *github.com[:/]*) on_github=1 ;;
+  *) on_github="" ;;
+  esac
+  if [ "$auth_status" = ok ] && [ -n "$config_path" ] && [ -n "$on_github" ]; then
+    key=$(pwd | cksum | cut -d' ' -f1)
+    status_file="$CACHE_DIR/github-status-$key.json"
+    nudge_file="$CACHE_DIR/github-nudge-$key"
+    if fresh "$status_file" "$GITHUB_STATUS_MINUTES"; then
+      github=$(cat "$status_file")
+    else
+      github=$(bounded 4 "$LAUNCHER" github status --json)
+      case "$github" in
+      *'"connected"'*) [ -n "$CACHE_DIR" ] && printf '%s\n' "$github" >"$status_file" ;;
+      *) github="" ;;
+      esac
+    fi
+    connected=$(printf '%s' "$github" | json_field connected)
+    granted=$(printf '%s' "$github" | json_field access_granted)
+    project_status=$(printf '%s' "$github" | json_field status)
+    nudge=""
+    if [ -z "$github" ]; then
+      :
+    elif [ "$connected" != true ]; then
+      nudge="Revyl: GitHub isn't connected for this Revyl organization, so pushes don't get PR-preview builds. When builds or PR checks come up, offer to connect it with $setup_hint; get the install link only after the user says yes."
+    elif [ "$granted" = false ]; then
+      nudge="Revyl: this repository isn't granted to the Revyl GitHub App, so its pull requests don't get PR-preview builds. When builds or PR checks come up, offer $setup_hint to fix that; change nothing without a yes."
+    elif [ "$project_status" = enabled ]; then
+      echo "Revyl: GitHub pull-request automation is on for this project, so a pushed pull request gets a Revyl build, made by Revyl or uploaded by CI depending on the project's setup; look for it before starting a new build ($test_hint does)."
+    elif [ -n "$project_status" ]; then
+      nudge="Revyl: GitHub is connected, but PR-preview builds aren't set up for this project (status: $project_status). When builds or PR checks come up, offer $setup_hint to set them up; change no configuration without a yes."
+    fi
+    if [ -n "$nudge" ] && ! fresh "$nudge_file" "$GITHUB_NUDGE_MINUTES"; then
+      echo "$nudge"
+      [ -n "$CACHE_DIR" ] && : >"$nudge_file"
+    fi
+  fi
+fi
+
+if [ -z "$first_run" ] && [ -n "$plugin_version" ] && command -v curl >/dev/null 2>&1; then
+  latest_file="$CACHE_DIR/latest-plugin-version"
+  if fresh "$latest_file" "$LATEST_VERSION_MINUTES"; then
+    latest=$(cat "$latest_file")
+  else
+    latest=$(curl -fsSL --max-time 2 "$LATEST_MANIFEST_URL" 2>/dev/null | compact | json_field version)
+    [ -n "$CACHE_DIR" ] && [ -n "$latest" ] && printf '%s\n' "$latest" >"$latest_file"
+  fi
+  if [ -n "$latest" ] && version_newer "$plugin_version" "$latest"; then
+    echo "Revyl: plugin $latest is available (this is $plugin_version). If the user wants it: $update_hint."
+  fi
+fi
+exit 0

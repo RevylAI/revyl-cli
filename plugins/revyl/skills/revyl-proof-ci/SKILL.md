@@ -1,6 +1,6 @@
 ---
 name: revyl-proof-ci
-description: Verify a mobile pull request using an exact-SHA match among its app's recent CI-uploaded Revyl builds, collect device evidence, and prepare a proof summary without rebuilding.
+description: Verify a mobile pull request using an exact-SHA match among its app's CI-uploaded Revyl builds, collect device evidence, and prepare a proof summary without rebuilding.
 ---
 
 # Revyl Proof from CI Builds
@@ -29,6 +29,10 @@ Windows it is `../../scripts/launch-revyl.cmd`. Invoke that absolute launcher
 for **every** Revyl command; never use `revyl` from `PATH`, `PLUGIN_ROOT`, or
 another installed CLI. Shell variables do not persist between tool calls in
 either host, so write the resolved absolute launcher path into each command.
+Run each command from the app directory (the one holding `.revyl/config.yaml`),
+never from the plugin's own folder: the CLI reads the current directory's Git
+branch, commit, and config, so a command run inside the plugin resolves the
+wrong build or project.
 
 ```sh
 SKILL_DIR="<absolute directory containing this SKILL.md>"
@@ -72,19 +76,25 @@ file to get past the error.
 ## Proof loop
 
 1. Find a CI-uploaded build whose `metadata.scm_head_sha` exactly equals the
-   full PR SHA. For example:
+   full PR SHA. Narrow the list to the pull request's head Git branch and read
+   it a page at a time, newest first:
 
    ```sh
-   "$LAUNCHER" build list --app <app-id> --json
+   "$LAUNCHER" build list --app <app-id> --branch <pr-head-branch> --limit 100 --page 1 --json
    ```
 
-   This pinned CLI lists only the newest 20 versions and does not expose
-   pagination. A match in this window is usable; no match does not establish
-   that the artifact is absent. While the named CI upload is pending, make at
-   most three retries, ten seconds apart. If no exact match arrives, stop and
-   report **proof not run: recent-build lookup incomplete**. Explain the
-   20-version limit, without claiming a full-history search. Do not invent
-   pagination flags, bypass CLI authentication, rebuild, re-upload, or use an
+   Each page returns `versions` and `has_next`. Read the next page with
+   `--page 2` and so on while `has_next` is true and no exact match has
+   appeared, for at most five pages. Whenever that search ends without an
+   exact match, including after five pages, repeat it without `--branch`,
+   which lists every branch, with the same five-page limit: a CI upload can
+   record a different branch name than the pull request's, for example `HEAD`
+   from a detached checkout. Only if the fifth page of that all-branch search
+   still has more, report **proof not run: build lookup incomplete** rather
+   than claiming the build is absent. While the named CI upload
+   is pending, make at most three retries, ten seconds apart. If no exact
+   match arrives, stop and report **proof not run: no CI build of this
+   commit**. Do not bypass CLI authentication, rebuild, re-upload, or use an
    unrelated artifact as a fallback.
 2. With explicit authorization, start a device on the matching build and save
    its exact session ID:
@@ -102,8 +112,10 @@ file to get past the error.
    Exercise only the changed behavior. Target every device command with
    `-s <session-id>`, save concise screenshots, and open each screenshot before
    describing it. A false or missing semantic verdict is a failed proof, but
-   still stop that exact session with `"$LAUNCHER" device stop -s <session-id>`.
-   Never use global cleanup.
+   still stop that exact session with `"$LAUNCHER" device stop -s <session-id> --json`.
+   Never use global cleanup. A stop is finished only when its JSON says
+   `stopped: true`; otherwise, while `"$LAUNCHER" device list --json` still
+   lists the session, wait about ten seconds and stop it once more.
 3. Obtain a report with `"$LAUNCHER" device report -s <session-id> --json` and
    report success only when a matching device session produced the evidence. A
    missing device session is never a passed proof.

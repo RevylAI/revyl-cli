@@ -7,16 +7,36 @@ description: Run, preview, debug, and verify mobile app changes on a real Revyl 
 
 Use this skill for an authorized CLI development loop in a shell-capable host.
 It behaves the same in Claude Code and Codex; where the hosts differ, each rule
-below names the host it applies to. This workflow does not start an MCP server
-or install hooks. Installation never changes an app's source or
-`.revyl/config.yaml`; later source or configuration work is allowed only when
-the task explicitly requires it and the user authorizes it.
+below names the host it applies to. Installation never changes an app's source
+or `.revyl/config.yaml`; later source or configuration work is allowed only
+when the task explicitly requires it and the user authorizes it.
 
 For a request to browse Atlas or view an existing device, prefer the connected
 Revyl workspace tools when available; do not start a development loop just to
 open a view. Source builds and rebuilds stay on this pinned CLI workflow. If
 the host has no shell, explain that limitation instead of running shell commands
 through another tool or starting a replacement device.
+
+## Hosted Revyl workspace tools
+
+Revyl's hosted workspace tools (the `revyl-workspace` MCP server, which the
+Codex and Claude Code plugin bundles) find builds, show and act on device
+sessions, take screenshots, and read Atlas. They are optional: every step in
+this skill also works through the CLI. They sign in separately from the CLI,
+once per host, with Revyl's OAuth page:
+
+- **Claude Code**: run `/mcp`, select `plugin:revyl-cli:revyl-workspace`, and
+  choose **Authenticate**.
+- **Codex**: run `codex mcp login revyl-workspace` in a terminal.
+
+Only suggest signing in when the user wants something those tools do. Check
+which tools are actually available before naming one; a tool the hosted server
+hasn't deployed yet, such as a build lookup or a device step, is simply absent,
+and the CLI command for the same step still works. The CLI builds, uploads,
+and starts development loops. The hosted tools may act on a session the CLI
+started, by its returned `session_id`. If they cannot see that session, the
+two sign-ins point at different accounts or organizations: say so, and never
+start another device to work around it.
 
 ## Offer a device check before calling mobile work done
 
@@ -45,10 +65,14 @@ to the app directory. Find that directory the way your host provides it:
   path, your host did not substitute it, so use this rule instead.
 
 On POSIX the launcher is `../../scripts/launch-revyl` from that directory; on
-Windows it is `../../scripts/launch-revyl.cmd`. Call that absolute launcher
-for **every** Revyl command; do not use `revyl` from `PATH`, `PLUGIN_ROOT`,
-or another installed CLI. Shell variables do not persist between tool calls in
+Windows it is `../../scripts/launch-revyl.cmd`. Call that absolute launcher for
+**every** Revyl command; do not use `revyl` from `PATH`, `PLUGIN_ROOT`, or
+another installed CLI. Shell variables do not persist between tool calls in
 either host, so write the resolved absolute launcher path into each command.
+Run each command from the app directory (the one holding `.revyl/config.yaml`),
+never from the plugin's own folder: the CLI reads the current directory's Git
+branch, commit, and config, so a command run inside the plugin resolves the
+wrong build or project.
 
 ```sh
 SKILL_DIR="<absolute directory containing this SKILL.md>"
@@ -128,9 +152,10 @@ current build succeeded. Wait for the build to reach its terminal success state
 before claiming a build result.
 
 When the hosted Revyl workspace tools are connected (an `open_revyl_workspace`
-tool, from Revyl's Claude plugin or the Revyl app in Codex), they can display
-the same returned session with `view="device"` and
-`session_id=<returned-session-id>`. Never call `start_device_session` for a
+tool, from this plugin, Revyl's Claude plugin, or the Revyl app in Codex), they
+can display the same returned session with `view="device"` and
+`session_id=<returned-session-id>`, and `screenshot` returns its current
+screen as an image in the conversation. Never call `start_device_session` for a
 session the CLI already created, and never start a second device for it.
 Browser and CLI authentication are separate; inaccessible sessions require the
 user to connect the matching account, not a new session or credential copied
@@ -162,9 +187,9 @@ skill overrides that reference whenever they conflict:
   absolute launcher above.
 - Do not start a local app source/configuration change, a device, build, or
   paid action without the named authorization above.
-- Do not install, enable, configure, or invoke `revyl-cli-auth-bypass`. That
-  skill is not shipped with this plugin, and authentication bypass is never an
-  automatic fallback.
+- Do not invoke `revyl-cli-auth-bypass` yourself. It is an explicit-only
+  command the user starts, and authentication bypass is never an automatic
+  fallback.
 - Use exact resolved profile and platform values, and clean up only the context
   and session created for the authorized request.
 - Skip the reference's "Revyl got in your way" feedback bullet. The pinned

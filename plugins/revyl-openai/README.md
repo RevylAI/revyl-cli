@@ -97,6 +97,17 @@ For client installation and account connection, use the authoritative
 submission, follow [Package your plugin](https://developers.openai.com/plugins/build/plugins)
 and [Submit your plugin](https://developers.openai.com/plugins/deploy/submission).
 
+## Versioning
+
+Changes merged to staging that affect this package's files, its packager, or
+the local package it bundles receive an automatic patch bump of
+`plugin.json` before publication. For a minor or major release, increase the
+version, and update `publication.release_notes`, in the same change; the
+workflow preserves that version. The PR label `skip version` (also
+`skip-version` or `no-plugin-release`), or `[skip version]` in its title,
+skips the automatic bump. The bump never uploads a package; ChatGPT serves a
+new version only after it is uploaded and approved in the OpenAI portal.
+
 ## Public review gates
 
 ZIP generation is not proof of submission readiness. Before submitting:

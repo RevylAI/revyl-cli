@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Setup"
+  short_description: "Sign in, configure, and connect GitHub"
+policy:
+  allow_implicit_invocation: false

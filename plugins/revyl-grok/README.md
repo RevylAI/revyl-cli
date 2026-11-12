@@ -42,6 +42,17 @@ organization's device time, so the skill starts one only when you ask.
 For other editors and the Revyl CLI, see
 [Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp).
 
+## Maintainers
+
+Changes merged to staging receive an automatic patch-version bump before
+publication. For a minor or major release, increase
+`.grok-plugin/plugin.json` in the same change; the workflow preserves that
+version without adding another patch. The PR label `skip version` (also
+`skip-version` or `no-plugin-release`), or `[skip version]` in its title,
+skips the automatic bump but does not prevent publication. README and
+test-only changes do not trigger a bump. xAI's catalog pins a commit, so a new
+version reaches Grok only after that pin is updated.
+
 ## License
 
 MIT

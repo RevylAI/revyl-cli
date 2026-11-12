@@ -121,6 +121,10 @@ retrying. Keep status polling bounded by the build's configured timeout.
 For a "let me see it" handoff, leave the loop running and share the viewer.
 When verification is finished, stop the loop you started with
 `revyl dev stop <context> --json`, unless the user wants it left running.
+The stop is finished only when `revyl device list --json` no longer lists the
+loop's session. While it is still listed, wait about ten seconds and run
+`revyl device stop -s <session-id> --json` once; that stop is finished only
+when it says `stopped: true`. Retry once, never more.
 
 ## Troubleshooting and other workflows
 

@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,6 +34,60 @@ type pluginManifest struct {
 	License     string          `json:"license,omitempty"`
 	Keywords    []string        `json:"keywords,omitempty"`
 	Skills      string          `json:"skills,omitempty"`
+	Privacy     string          `json:"privacyPolicyUrl,omitempty"`
+	UserConfig  json.RawMessage `json:"userConfig,omitempty"`
+}
+
+// claudeUserConfig declares the Claude Code options the plugin's hooks read as
+// CLAUDE_PLUGIN_OPTION_<KEY>. Codex has no equivalent; its users set the
+// environment variable the hook also accepts.
+const claudeUserConfig = `{
+  "offer_proof_after_commit": {
+    "type": "boolean",
+    "title": "Offer a device check after commits",
+    "description": "After a commit, push, or new pull request that changes a Revyl app, the agent offers once to check it on a Revyl device. It never starts anything without your yes.",
+    "default": false
+  }
+}`
+
+// portedSkills are maintained for the CLI or the Cursor plugin and copied into
+// this plugin with their shell commands routed through the bundled launcher.
+var portedSkills = []struct{ source, name string }{
+	{"skills/revyl-cli-auth-bypass", "revyl-cli-auth-bypass"},
+	{"cursor-plugin/skills/revyl-ci-sync", "revyl-ci-sync"},
+}
+
+var fencedRevylCommand = regexp.MustCompile(`(^|[\s;&|(])revyl(\s)`)
+
+//go:embed ported-skill-launcher.md
+var portedSkillLauncher string
+
+// routeThroughLauncher rewrites the Revyl commands in a ported skill's code
+// fences to the bundled launcher and, for SKILL.md, adds the launcher section
+// after the title.
+func routeThroughLauncher(markdown []byte, skill bool) []byte {
+	var lines []string
+	inFence := false
+	addSection := skill
+	for _, line := range strings.Split(string(markdown), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+		} else if inFence {
+			line = fencedRevylCommand.ReplaceAllString(line, `${1}"$$LAUNCHER"${2}`)
+		}
+		lines = append(lines, line)
+		if addSection && strings.HasPrefix(line, "# ") {
+			lines = append(lines, "", strings.TrimSuffix(portedSkillLauncher, "\n"))
+			addSection = false
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+type codexInterface struct {
+	Interface struct {
+		PrivacyPolicyURL string `json:"privacyPolicyURL"`
+	} `json:"interface"`
 }
 
 type generatedFile struct {
@@ -87,9 +143,15 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 	if err != nil {
 		return err
 	}
+	var codexMetadata codexInterface
+	if err := json.Unmarshal(manifestJSON, &codexMetadata); err != nil {
+		return err
+	}
 	claudeManifest := plugin
 	claudeManifest.Name = claudePluginName
 	claudeManifest.DisplayName = "Revyl CLI"
+	claudeManifest.Privacy = codexMetadata.Interface.PrivacyPolicyURL
+	claudeManifest.UserConfig = json.RawMessage(claudeUserConfig)
 	claudeJSON, err := json.MarshalIndent(claudeManifest, "", "  ")
 	if err != nil {
 		return err
@@ -118,6 +180,28 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 		files = append(files, generatedFile{
 			path: filepath.Join(pluginRoot, filepath.FromSlash(copy.destination)), content: content, mode: info.Mode().Perm(),
 		})
+	}
+	for _, port := range portedSkills {
+		err := fs.WalkDir(packageRoot.FS(), port.source, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return err
+			}
+			content, err := fs.ReadFile(packageRoot.FS(), path)
+			if err != nil {
+				return err
+			}
+			relative := strings.TrimPrefix(path, port.source+"/")
+			if strings.HasSuffix(relative, ".md") {
+				content = routeThroughLauncher(content, relative == "SKILL.md")
+			}
+			files = append(files, generatedFile{
+				path: filepath.Join(pluginRoot, "skills", port.name, filepath.FromSlash(relative)), content: content, mode: 0644,
+			})
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("port skill %s: %w", port.source, err)
+		}
 	}
 	for _, file := range files {
 		if check {
@@ -157,6 +241,40 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 			}
 		}
 		if err := output.Close(); err != nil {
+			return err
+		}
+	}
+	return removeObsoletePortedFiles(packageRoot, pluginRoot, files, check)
+}
+
+// removeObsoletePortedFiles deletes, or in check mode rejects, files left in a
+// ported skill's directory after their source was removed or renamed.
+func removeObsoletePortedFiles(packageRoot *os.Root, pluginRoot string, files []generatedFile, check bool) error {
+	generated := make(map[string]bool, len(files))
+	for _, file := range files {
+		generated[filepath.Clean(file.path)] = true
+	}
+	var obsolete []string
+	for _, port := range portedSkills {
+		directory := filepath.ToSlash(filepath.Join(pluginRoot, "skills", port.name))
+		err := fs.WalkDir(packageRoot.FS(), directory, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return err
+			}
+			if !generated[filepath.FromSlash(path)] {
+				obsolete = append(obsolete, filepath.FromSlash(path))
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("scan ported skill %s: %w", port.name, err)
+		}
+	}
+	for _, path := range obsolete {
+		if check {
+			return fmt.Errorf("%s is obsolete; run make sync-codex-plugin", path)
+		}
+		if err := packageRoot.Remove(path); err != nil {
 			return err
 		}
 	}

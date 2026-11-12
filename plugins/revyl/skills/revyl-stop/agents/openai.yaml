@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Stop"
+  short_description: "Stop the Revyl sessions this chat started"
+policy:
+  allow_implicit_invocation: false
