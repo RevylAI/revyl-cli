@@ -215,12 +215,23 @@ physical Mac.
 revyl computer screenshot C1 --out shot.png
 revyl computer screenshot C1 --zoom 100,100,900,600 --out detail.png
 revyl computer click C1 --x 640 --y 360
+revyl computer click C1 --target "the Save button"
 revyl computer move C1 --x 640 --y 360
 revyl computer drag C1 --start-x 100 --start-y 100 --end-x 600 --end-y 400
 revyl computer scroll C1 --x 640 --y 360 --direction down --amount 5
 revyl computer type C1 --text-env PASSWORD
 revyl computer key C1 --key cmd+space
 ```
+
+`click` takes either `--x` and `--y` or `--target "the Save button"`, never both.
+With `--target`, Revyl takes a screenshot, finds the described element on it
+and clicks there through the same click; the result's `point` is where it
+clicked, in screenshot pixels. When the lookup reports no match, the click fails
+with `screen_target_not_found` and nothing is clicked; `screen_target_unavailable`
+means the lookup itself failed, and nothing is clicked either. The lookup can
+still return a point for a look-alike, or for a target that isn't on the screen
+at all, and then that point is clicked, so check `point` or the screenshot
+when it matters.
 
 `click` accepts `--button left|right|middle` (default `left`), `--count 1..3`
 (default 1), and comma-separated `--mods shift,ctrl,alt,cmd`. `scroll` accepts
@@ -234,7 +245,8 @@ and 1,500 UTF-8 bytes. Newline types Return and tab types Tab; other control
 characters are refused. A refused text, or one the computer cannot type, fails
 with `screen_text_unsupported` and types nothing. Use `--json` for a stable machine-readable
 result: screenshots return `width`, `height`, `observed_at`, `png` and `cursor`;
-actions return `screenshot` (null unless `--out` is set) and `cursor`. The cursor
+actions return `screenshot` (null unless `--out` is set), `cursor`, and `point`
+after a click with `--target`. The cursor
 is an `{ "x": ..., "y": ... }` point or null. PNG data uses padded URL-safe
 base64 in CLI JSON output.
 

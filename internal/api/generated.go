@@ -1055,27 +1055,29 @@ func (e CompileSourceType) Valid() bool {
 
 // Defines values for ComputerAPIErrorDetail0.
 const (
-	ComputerAPIErrorDetail0EvidenceConflict       ComputerAPIErrorDetail0 = "evidence_conflict"
-	ComputerAPIErrorDetail0EvidenceUnavailable    ComputerAPIErrorDetail0 = "evidence_unavailable"
-	ComputerAPIErrorDetail0ExecOptionsUnsupported ComputerAPIErrorDetail0 = "exec_options_unsupported"
-	ComputerAPIErrorDetail0Inaccessible           ComputerAPIErrorDetail0 = "inaccessible"
-	ComputerAPIErrorDetail0InvalidHandle          ComputerAPIErrorDetail0 = "invalid_handle"
-	ComputerAPIErrorDetail0InvalidRequest         ComputerAPIErrorDetail0 = "invalid_request"
-	ComputerAPIErrorDetail0OperationLimit         ComputerAPIErrorDetail0 = "operation_limit"
-	ComputerAPIErrorDetail0OperationNotFound      ComputerAPIErrorDetail0 = "operation_not_found"
-	ComputerAPIErrorDetail0OwnerUnavailable       ComputerAPIErrorDetail0 = "owner_unavailable"
-	ComputerAPIErrorDetail0RequestConflict        ComputerAPIErrorDetail0 = "request_conflict"
-	ComputerAPIErrorDetail0RunClosed              ComputerAPIErrorDetail0 = "run_closed"
-	ComputerAPIErrorDetail0RunConflict            ComputerAPIErrorDetail0 = "run_conflict"
-	ComputerAPIErrorDetail0ScreenControlHeld      ComputerAPIErrorDetail0 = "screen_control_held"
-	ComputerAPIErrorDetail0ScreenControlLost      ComputerAPIErrorDetail0 = "screen_control_lost"
-	ComputerAPIErrorDetail0ScreenInputUnavailable ComputerAPIErrorDetail0 = "screen_input_unavailable"
-	ComputerAPIErrorDetail0ScreenInputUncertain   ComputerAPIErrorDetail0 = "screen_input_uncertain"
-	ComputerAPIErrorDetail0ScreenKeyUnsupported   ComputerAPIErrorDetail0 = "screen_key_unsupported"
-	ComputerAPIErrorDetail0ScreenPointOutside     ComputerAPIErrorDetail0 = "screen_point_outside"
-	ComputerAPIErrorDetail0ScreenTextUnsupported  ComputerAPIErrorDetail0 = "screen_text_unsupported"
-	ComputerAPIErrorDetail0ScreenUnavailable      ComputerAPIErrorDetail0 = "screen_unavailable"
-	ComputerAPIErrorDetail0StartFailed            ComputerAPIErrorDetail0 = "start_failed"
+	ComputerAPIErrorDetail0EvidenceConflict        ComputerAPIErrorDetail0 = "evidence_conflict"
+	ComputerAPIErrorDetail0EvidenceUnavailable     ComputerAPIErrorDetail0 = "evidence_unavailable"
+	ComputerAPIErrorDetail0ExecOptionsUnsupported  ComputerAPIErrorDetail0 = "exec_options_unsupported"
+	ComputerAPIErrorDetail0Inaccessible            ComputerAPIErrorDetail0 = "inaccessible"
+	ComputerAPIErrorDetail0InvalidHandle           ComputerAPIErrorDetail0 = "invalid_handle"
+	ComputerAPIErrorDetail0InvalidRequest          ComputerAPIErrorDetail0 = "invalid_request"
+	ComputerAPIErrorDetail0OperationLimit          ComputerAPIErrorDetail0 = "operation_limit"
+	ComputerAPIErrorDetail0OperationNotFound       ComputerAPIErrorDetail0 = "operation_not_found"
+	ComputerAPIErrorDetail0OwnerUnavailable        ComputerAPIErrorDetail0 = "owner_unavailable"
+	ComputerAPIErrorDetail0RequestConflict         ComputerAPIErrorDetail0 = "request_conflict"
+	ComputerAPIErrorDetail0RunClosed               ComputerAPIErrorDetail0 = "run_closed"
+	ComputerAPIErrorDetail0RunConflict             ComputerAPIErrorDetail0 = "run_conflict"
+	ComputerAPIErrorDetail0ScreenControlHeld       ComputerAPIErrorDetail0 = "screen_control_held"
+	ComputerAPIErrorDetail0ScreenControlLost       ComputerAPIErrorDetail0 = "screen_control_lost"
+	ComputerAPIErrorDetail0ScreenInputUnavailable  ComputerAPIErrorDetail0 = "screen_input_unavailable"
+	ComputerAPIErrorDetail0ScreenInputUncertain    ComputerAPIErrorDetail0 = "screen_input_uncertain"
+	ComputerAPIErrorDetail0ScreenKeyUnsupported    ComputerAPIErrorDetail0 = "screen_key_unsupported"
+	ComputerAPIErrorDetail0ScreenPointOutside      ComputerAPIErrorDetail0 = "screen_point_outside"
+	ComputerAPIErrorDetail0ScreenTargetNotFound    ComputerAPIErrorDetail0 = "screen_target_not_found"
+	ComputerAPIErrorDetail0ScreenTargetUnavailable ComputerAPIErrorDetail0 = "screen_target_unavailable"
+	ComputerAPIErrorDetail0ScreenTextUnsupported   ComputerAPIErrorDetail0 = "screen_text_unsupported"
+	ComputerAPIErrorDetail0ScreenUnavailable       ComputerAPIErrorDetail0 = "screen_unavailable"
+	ComputerAPIErrorDetail0StartFailed             ComputerAPIErrorDetail0 = "start_failed"
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorDetail0 enum.
@@ -1116,6 +1118,10 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 	case ComputerAPIErrorDetail0ScreenKeyUnsupported:
 		return true
 	case ComputerAPIErrorDetail0ScreenPointOutside:
+		return true
+	case ComputerAPIErrorDetail0ScreenTargetNotFound:
+		return true
+	case ComputerAPIErrorDetail0ScreenTargetUnavailable:
 		return true
 	case ComputerAPIErrorDetail0ScreenTextUnsupported:
 		return true

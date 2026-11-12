@@ -23,6 +23,9 @@ func addComputerScreenCommands(parent *cobra.Command) {
 			command.Flags().Int("x", 0, "X coordinate in screenshot pixels (required)")
 			command.Flags().Int("y", 0, "Y coordinate in screenshot pixels (required)")
 			if action == "click" {
+				command.Flags().Lookup("x").Usage = "X coordinate in screenshot pixels (or use --target)"
+				command.Flags().Lookup("y").Usage = "Y coordinate in screenshot pixels (or use --target)"
+				command.Flags().String("target", "", "Describe what to click, such as \"the Save button\"; Revyl finds it on the screen instead of --x and --y")
 				command.Flags().String("button", "left", "Mouse button: left, right, or middle")
 				command.Flags().Int("count", 1, "Click count (1-3)")
 				command.Flags().StringSlice("mods", nil, "Modifiers: shift, ctrl, alt (Option), cmd (comma separated)")
@@ -74,9 +77,14 @@ func addComputerScreenCommands(parent *cobra.Command) {
 				if action == "screenshot" {
 					return client.GetComputerScreenshot(cmd.Context(), id, region, "cli")
 				}
-				return client.PerformComputerScreenAction(cmd.Context(), id, api.ComputerScreenActionRequest{
+				result, err := client.PerformComputerScreenAction(cmd.Context(), id, api.ComputerScreenActionRequest{
 					Action: screenAction, Screenshot: out != "", Via: "cli",
 				})
+				var refusal *api.APIError
+				if screenAction.Target != "" && errors.As(err, &refusal) && refusal.Code == "invalid_request" {
+					refusal.Message += "; a backend from before --target refuses it, so use --x and --y there"
+				}
+				return result, err
 			})
 		}
 		parent.AddCommand(command)
@@ -118,6 +126,20 @@ func computerScreenAction(cmd *cobra.Command, kind string) (api.ComputerScreenAc
 	var err error
 	switch kind {
 	case "click", "move", "scroll":
+		if kind == "click" && cmd.Flags().Changed("target") {
+			if cmd.Flags().Changed("x") || cmd.Flags().Changed("y") {
+				return action, errors.New("give either --target or --x and --y, not both")
+			}
+			action.Target, _ = cmd.Flags().GetString("target")
+			action.Button, _ = cmd.Flags().GetString("button")
+			count, _ := cmd.Flags().GetInt("count")
+			action.Count = &count
+			action.Modifiers, _ = cmd.Flags().GetStringSlice("mods")
+			break
+		}
+		if kind == "click" && !cmd.Flags().Changed("x") && !cmd.Flags().Changed("y") {
+			return action, errors.New("give --target, or --x and --y")
+		}
 		action.X, err = coordinate("x")
 		if err != nil {
 			return action, err
@@ -204,6 +226,9 @@ func writeComputerScreenOutput(cmd *cobra.Command, value any, jsonOutput bool) e
 	}
 	if jsonOutput {
 		return writeComputerJSON(cmd.OutOrStdout(), value, api.ComputerScreenMaxResponseJSON)
+	}
+	if result, ok := value.(*api.ComputerScreenActionResult); ok && result.Point != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Clicked the target at (%d, %d)\n", result.Point.X, result.Point.Y)
 	}
 	if cursor != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Cursor (%d, %d)\n", cursor.X, cursor.Y)

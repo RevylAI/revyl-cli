@@ -231,10 +231,13 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 		if decodeComputerJSON(body, &safe, "detail") == nil {
 			code, _ := safe.Detail.AsComputerAPIErrorDetail0()
 			switch string(code) {
-			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "display_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "exec_options_unsupported":
+			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "display_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported":
 				refusal.Code, refusal.Message = string(code), "computer request refused: "+string(code)
 				if refusal.Code == "screen_input_uncertain" {
 					refusal.Message += "; take a screenshot before acting again"
+				}
+				if refusal.Code == "screen_target_not_found" || refusal.Code == "screen_target_unavailable" {
+					refusal.Message += "; nothing was clicked"
 				}
 			}
 		}

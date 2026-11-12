@@ -41,6 +41,7 @@ type ComputerScreenAction struct {
 	Text        string   `json:"text,omitempty"`
 	Keys        string   `json:"keys,omitempty"`
 	HoldSeconds float64  `json:"hold_seconds,omitempty"`
+	Target      string   `json:"target,omitempty"`
 }
 
 type ComputerScreenActionRequest struct {
@@ -75,6 +76,7 @@ func (s ComputerScreenshot) DecodePNG() ([]byte, error) {
 type ComputerScreenActionResult struct {
 	Screenshot *ComputerScreenshot  `json:"screenshot"`
 	Cursor     *ComputerScreenPoint `json:"cursor"`
+	Point      *ComputerScreenPoint `json:"point,omitempty"`
 }
 
 var computerScreenButtons = map[string]struct{}{"left": {}, "right": {}, "middle": {}}
@@ -111,7 +113,8 @@ func ValidateComputerScreenAction(action ComputerScreenAction) error {
 	validPoint := validateScreenPoint(action.X, action.Y)
 	switch action.Action {
 	case "click":
-		if !validPoint || !validateScreenButton(action.Button) || !validateScreenModifiers(action.Modifiers) || action.Count != nil && (*action.Count < 1 || *action.Count > 3) {
+		described := action.Target != "" && action.X == nil && action.Y == nil && strings.TrimSpace(action.Target) != "" && utf8.ValidString(action.Target) && utf8.RuneCountInString(action.Target) <= 1000
+		if !validPoint && !described || validPoint && action.Target != "" || !validateScreenButton(action.Button) || !validateScreenModifiers(action.Modifiers) || action.Count != nil && (*action.Count < 1 || *action.Count > 3) {
 			return errors.New("computer screen action is invalid")
 		}
 	case "move":
@@ -149,6 +152,8 @@ func validateScreenDirections(direction string) bool {
 	return ok
 }
 
+const computerScreenTargetClickTimeout = 90 * time.Second
+
 func (c *Client) PerformComputerScreenAction(ctx context.Context, id uuid.UUID, request ComputerScreenActionRequest) (*ComputerScreenActionResult, error) {
 	if id == uuid.Nil || request.Via != "cli" && request.Via != "mcp" && request.Via != "api" {
 		return nil, errors.New("computer screen request is invalid")
@@ -156,7 +161,11 @@ func (c *Client) PerformComputerScreenAction(ctx context.Context, id uuid.UUID, 
 	if err := ValidateComputerScreenAction(request.Action); err != nil {
 		return nil, err
 	}
-	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/screen/actions", id), request, id.String(), DefaultTimeout)
+	timeout := DefaultTimeout
+	if request.Action.Target != "" {
+		timeout = computerScreenTargetClickTimeout
+	}
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/screen/actions", id), request, id.String(), timeout)
 	body, err := readComputerScreenBody(response, err)
 	if err != nil {
 		return nil, err
@@ -224,7 +233,7 @@ func validComputerScreenActionResult(result ComputerScreenActionResult) bool {
 	if result.Screenshot != nil && !validComputerScreenshot(*result.Screenshot) {
 		return false
 	}
-	return validComputerScreenCursor(result.Cursor)
+	return validComputerScreenCursor(result.Cursor) && validComputerScreenCursor(result.Point)
 }
 
 func validComputerScreenCursor(cursor *ComputerScreenPoint) bool {
