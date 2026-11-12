@@ -3500,7 +3500,7 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 				switch failure.Error {
 				case "input_blocked":
 					code = failure.Error
-				case "stale_target", "not_available_on_platform", "not_ready", "target_not_found", "invalid_request", "invalid_coordinates", "request_timeout", "observer_failed", "report_not_available", "grounding_failed", "connection_closed", "protocol_error", "unauthorized", "internal_error", "invalid_endpoint", "capacity_exhausted", "unsafe_navigation", "invalid_action", "capture_failed", "browser_crashed", "navigation_failed", "step_output_not_available":
+				case "stale_target", "not_available_on_platform", "not_ready", "target_not_found", "no_focused_input", "invalid_request", "invalid_coordinates", "request_timeout", "observer_failed", "report_not_available", "grounding_failed", "connection_closed", "protocol_error", "unauthorized", "internal_error", "invalid_endpoint", "capacity_exhausted", "unsafe_navigation", "invalid_action", "capture_failed", "browser_crashed", "navigation_failed", "step_output_not_available":
 					code = failure.Error
 				}
 			}
