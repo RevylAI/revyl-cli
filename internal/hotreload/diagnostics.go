@@ -2,6 +2,7 @@ package hotreload
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -1322,6 +1323,13 @@ func probeWebSocketUpgradePath(hostPort string, useTLS bool, path string) error 
 	if !strings.Contains(statusLine, "101") {
 		return fmt.Errorf("unexpected response: %s", statusLine)
 	}
+	// A masked client close frame with status 1000. Dropping the socket
+	// without one reaches Metro through the relay as an abnormal closure.
+	normalClosureFrame := []byte{0x88, 0x82, 0, 0, 0, 0, 0x03, 0xe8}
+	_, _ = rand.Read(normalClosureFrame[2:6])
+	normalClosureFrame[6] ^= normalClosureFrame[2]
+	normalClosureFrame[7] ^= normalClosureFrame[3]
+	_, _ = conn.Write(normalClosureFrame)
 	return nil
 }
 

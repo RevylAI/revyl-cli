@@ -130,9 +130,23 @@ func (s *relayWSStream) close(closeCode int) {
 		return
 	}
 	if closeCode != 0 {
-		_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, ""), time.Now().Add(2*time.Second))
+		_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(wireSafeCloseCode(closeCode), ""), time.Now().Add(2*time.Second))
 	}
 	_ = s.conn.Close()
+}
+
+// wireSafeCloseCode maps close codes that RFC 6455 reserves for local
+// reporting, such as 1006 for a connection dropped without a close frame, to
+// codes a peer accepts. Node's ws treats a reserved code as a protocol error.
+func wireSafeCloseCode(code int) int {
+	switch {
+	case code == websocket.CloseNoStatusReceived:
+		return websocket.CloseNormalClosure
+	case code >= 1000 && code <= 1014 && code != 1004 && code != 1005 && code != 1006, code >= 3000 && code <= 4999:
+		return code
+	default:
+		return websocket.CloseGoingAway
+	}
 }
 
 type relayRuntime struct {
@@ -617,7 +631,7 @@ func (r *relayRuntime) runWSStream(ctx context.Context, stream *relayWSStream, e
 			_ = r.sendEnvelope(relayEnvelope{
 				Kind:      "ws.close",
 				StreamID:  env.StreamID,
-				CloseCode: closeCode,
+				CloseCode: wireSafeCloseCode(closeCode),
 			})
 			return
 		}
