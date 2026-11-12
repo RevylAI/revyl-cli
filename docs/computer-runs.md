@@ -47,7 +47,8 @@ The API accepts only this encoded request shape and applies the same decoded
 argument, path and byte limits; an older client sending `argv` or `path` receives
 HTTP 422 with an upgrade message. Update the CLI before running operations.
 Process commands carry only run-owned handles, limits and timeouts, not command
-text. There are no per-command cwd or environment fields.
+text. Exec's optional working directory and environment travel the same way, as
+`cwd_b64` and a map of names to encoded values in `env_b64`.
 
 An HTTP 403 response with `text/html`, a nonempty `cf-ray` header, and a body
 that is not valid JSON is reported as `edge_blocked`, not an authentication
@@ -69,6 +70,7 @@ revyl computer sessions "$C1" --limit 10
 revyl computer get "$C1" --json
 revyl computer exec "$C1" --timeout 30s --request-id "$R1" -- git status
 revyl computer exec "$C1" --stdin input.bin --json -- tool arg
+revyl computer exec "$C1" --timeout 45m --cwd app --env CI=1 --env NPM_TOKEN -- make test
 revyl computer files write "$C1" notes.txt --from local.bin --json
 revyl computer files read "$C1" notes.txt > downloaded.bin
 revyl computer files stat "$C1" notes.txt --json
@@ -117,7 +119,7 @@ the app-session platforms the computer can host now and how many at once; it is
 empty until the computer is running. `sessions` lists the app sessions hosted
 inside the computer, newest first (`--limit 1..100`, default 25).
 
-There is no active-computer setting, provider/image/TTL/cwd selector,
+There is no active-computer setting, provider/image/TTL selector,
 interactive SSH/TTY, recursive sync or snapshot in this family. Existing `revyl device` commands still target native session IDs
 independently.
 
@@ -135,6 +137,44 @@ directory. To use the same files from that Terminal, run
 can still use different state; when needed, run that tool in Terminal with
 `HOME=/Users/computer/workspace`. Changing directory alone does not change
 `HOME`, and changing either value in one `exec` does not persist into the next.
+
+### Working directory, environment and long commands
+
+`--cwd DIR` runs the command in `DIR`, absolute or relative to the workspace.
+`--env NAME=VALUE` sets a variable over the default `PATH` and `HOME`; `--env NAME`
+copies your local `NAME` so its value never appears on your command line. Both
+apply to that one `exec` only. Steps, `get`, reports, logs and analytics record
+neither the directory nor any variable; `command_display` shows argv only.
+
+`exec --timeout` accepts up to `60m`. The CLI waits that long plus 30 seconds.
+If you interrupt it or the connection drops, the command keeps running: read its
+result with `operation get C1 O1` (exit 75 while it is still running), see it
+in `process list` and stop it with `process terminate`. Nothing replays it.
+While it runs, `files read` and `files stat` answer beside it, so you can follow
+a log it writes; other execs and file writes wait until it ends. Exec output
+keeps only the first 1 MiB, so send a long build's output to a file and read the
+end of it, for example `-- /bin/zsh -lc 'make test > test.log 2>&1; status=$?; tail -n 200 test.log; exit $status'`.
+
+Run long work as one long `exec`. Don't rely on a process you start in the
+background with `&` or `nohup` to keep running after its `exec` returns. A
+command still running when the computer reaches its 120-minute end ends
+`timed_out`.
+
+A computer whose host predates these options refuses `--cwd`, `--env` and an
+exec timeout over `5m` with `exec_options_unsupported` (HTTP 409) and runs
+nothing. Run the same command through a shell instead, for example
+`-- /bin/zsh -lc 'cd app && CI=1 make test'`.
+
+`files write` takes 65,536 bytes per call. To upload a larger file, write it in
+parts and join them, then compare checksums:
+
+```sh
+split -b 65536 build.tgz part.
+revyl computer exec "$C1" -- mkdir -p upload
+for part in part.*; do revyl computer files write "$C1" "upload/$part" --from "$part"; done
+revyl computer exec "$C1" -- /bin/sh -c 'cat upload/part.* > build.tgz && rm -r upload && shasum -a 256 build.tgz'
+shasum -a 256 build.tgz
+```
 
 ## Performance reports
 
@@ -267,12 +307,14 @@ app.
 
 The server fixes each new run's lifetime at 120 minutes from creation. The
 returned `expires_at` is authoritative and cannot be extended. Operations accept
-`--timeout 1ms..5m` (default 30s), additionally bounded by run lifetime. Exec accepts
-at most 64 arguments and 16,384 total UTF-8 argv plus stdin bytes. Exec keeps the
+`--timeout 1ms..5m` (`exec` up to `60m`; default 30s), additionally bounded by run
+lifetime. Exec accepts at most 64 arguments, 64 environment variables named
+`[A-Za-z_][A-Za-z0-9_]*`, and 16,384 total UTF-8 bytes of argv, stdin, working
+directory and environment names and values. Exec keeps the
 first 1,048,576 bytes (1 MiB) of combined stdout/stderr; the command still runs to
 completion and reports its real exit code, and later output is dropped. Reads accept
 `--max-bytes 1..1048576`, writes accept at most 65,536 bytes, and process lists
-accept `--max-items 1..64`. Guest paths are
+accept `--max-items 1..64`. Guest paths other than `--cwd` are
 relative, at most 1,024 UTF-8 bytes, without empty/dot/traversal components,
 controls, backslashes or colons. Local inputs must be regular files or stdin;
 symlinks and special files are rejected. Local input acquisition and reads honor

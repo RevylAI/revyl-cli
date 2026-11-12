@@ -1057,6 +1057,7 @@ func (e CompileSourceType) Valid() bool {
 const (
 	ComputerAPIErrorDetail0EvidenceConflict       ComputerAPIErrorDetail0 = "evidence_conflict"
 	ComputerAPIErrorDetail0EvidenceUnavailable    ComputerAPIErrorDetail0 = "evidence_unavailable"
+	ComputerAPIErrorDetail0ExecOptionsUnsupported ComputerAPIErrorDetail0 = "exec_options_unsupported"
 	ComputerAPIErrorDetail0Inaccessible           ComputerAPIErrorDetail0 = "inaccessible"
 	ComputerAPIErrorDetail0InvalidHandle          ComputerAPIErrorDetail0 = "invalid_handle"
 	ComputerAPIErrorDetail0InvalidRequest         ComputerAPIErrorDetail0 = "invalid_request"
@@ -1083,6 +1084,8 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 	case ComputerAPIErrorDetail0EvidenceConflict:
 		return true
 	case ComputerAPIErrorDetail0EvidenceUnavailable:
+		return true
+	case ComputerAPIErrorDetail0ExecOptionsUnsupported:
 		return true
 	case ComputerAPIErrorDetail0Inaccessible:
 		return true
@@ -6611,7 +6614,13 @@ type ComputerDisplaySize struct {
 // ComputerExec defines model for ComputerExec.
 type ComputerExec struct {
 	Argv []string `json:"argv"`
-	Kind string   `json:"kind,omitempty"`
+
+	// Cwd Working directory: absolute, or relative to the computer's workspace.
+	Cwd *string `json:"cwd,omitempty"`
+
+	// Env Variables set over the default PATH and HOME; names match [A-Za-z_][A-Za-z0-9_]* up to 128 characters.
+	Env  *map[string]string `json:"env,omitempty"`
+	Kind string             `json:"kind,omitempty"`
 
 	// Stdin Padded URL-safe base64 bytes; standard base64 input is also accepted. Argv plus decoded stdin is bounded to 16,384 bytes.
 	Stdin     *string `json:"stdin,omitempty"`
@@ -6622,7 +6631,13 @@ type ComputerExec struct {
 type ComputerExecRequest struct {
 	// ArgvB64 Each argument is padded URL-safe base64 of UTF-8 text; standard base64 is also accepted. Decoded argv plus stdin is bounded to 16,384 bytes.
 	ArgvB64 []string `json:"argv_b64"`
-	Kind    string   `json:"kind,omitempty"`
+
+	// CwdB64 Padded URL-safe base64 of the UTF-8 working directory, absolute or relative to the workspace, bounded to 1,024 decoded bytes.
+	CwdB64 *string `json:"cwd_b64,omitempty"`
+
+	// EnvB64 Environment variables by name ([A-Za-z_][A-Za-z0-9_]*, up to 128 characters); each value is padded URL-safe base64 of UTF-8 text. Names, values, argv and stdin share the 16,384-byte bound.
+	EnvB64 *map[string]string `json:"env_b64,omitempty"`
+	Kind   string             `json:"kind,omitempty"`
 
 	// Stdin Padded URL-safe base64 bytes; standard base64 input is also accepted. Argv plus decoded stdin is bounded to 16,384 bytes.
 	Stdin     *string `json:"stdin,omitempty"`

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +33,7 @@ type computerInvocation struct {
 	Error             string `json:"error,omitempty"`
 	waitedForActive   bool
 	createdDisplay    *api.ComputerDisplaySize
+	execOptions       bool
 }
 
 type computerPerformanceResult struct {
@@ -299,6 +302,9 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 	command.AddCommand(operation)
 	exec := newComputerOperationCommand("exec C1 -- PROGRAM [ARG...]", "Execute structured argv inside the selected computer", "exec")
 	exec.Flags().String("stdin", "", "Read bounded stdin from a local file or -")
+	exec.Flags().String("cwd", "", "Working directory: absolute, or relative to /Users/computer/workspace (default)")
+	exec.Flags().StringArray("env", nil, "Set NAME=VALUE in the command's environment, or NAME to copy a local variable without printing it (repeatable)")
+	exec.Flags().Lookup("timeout").Usage = "Command timeout (1ms-60m); timeout does not imply rollback"
 	command.AddCommand(exec)
 	files := &cobra.Command{Use: "files", Short: "Read, write or stat bounded guest-relative files", RunE: computerHelp}
 	read := newComputerOperationCommand("read C1 PATH", "Read bounded file bytes", "file_read")
@@ -344,8 +350,12 @@ func newComputerOperationCommand(use, short, kind string) *cobra.Command {
 			}
 			invocation.RequestID, invocation.OperationID = requestID.String(), api.ComputerOperationID(id, requestID).String()
 			duration, _ := cmd.Flags().GetDuration("timeout")
-			if duration < time.Millisecond || duration > 5*time.Minute || duration%time.Millisecond != 0 {
-				return nil, errors.New("timeout must be an exact number of milliseconds from 1ms to 5m")
+			maxTimeout, maxText := 5*time.Minute, "5m"
+			if kind == "exec" {
+				maxTimeout, maxText = time.Hour, "60m"
+			}
+			if duration < time.Millisecond || duration > maxTimeout || duration%time.Millisecond != 0 {
+				return nil, fmt.Errorf("timeout must be an exact number of milliseconds from 1ms to %s", maxText)
 			}
 			timeoutMs := int(duration / time.Millisecond)
 			request := api.ComputerCommandRequest{ComputerSessionId: id, RequestId: requestID}
@@ -364,6 +374,19 @@ func newComputerOperationCommand(use, short, kind string) *cobra.Command {
 				}
 				encoded := api.EncodeComputerBytes(stdin)
 				exec := api.ComputerExec{Argv: args[1:], Stdin: &encoded, TimeoutMs: &timeoutMs}
+				if cmd.Flags().Changed("cwd") {
+					cwd, _ := cmd.Flags().GetString("cwd")
+					exec.Cwd = &cwd
+				}
+				if cmd.Flags().Changed("env") {
+					entries, _ := cmd.Flags().GetStringArray("env")
+					env, envErr := computerExecEnv(entries)
+					if envErr != nil {
+						return nil, envErr
+					}
+					exec.Env = &env
+				}
+				invocation.execOptions = exec.Cwd != nil || exec.Env != nil || duration > 5*time.Minute
 				if err := api.ValidateComputerExec(exec); err != nil {
 					return nil, err
 				}
@@ -431,6 +454,23 @@ func newComputerOperationCommand(use, short, kind string) *cobra.Command {
 	return command
 }
 
+// computerExecEnv reads --env entries: NAME=VALUE, or NAME to copy that local
+// variable, so a secret need not appear on the local command line.
+func computerExecEnv(entries []string) (map[string]string, error) {
+	env := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		name, value, hasValue := strings.Cut(entry, "=")
+		if !hasValue {
+			var ok bool
+			if value, ok = os.LookupEnv(name); !ok {
+				return nil, fmt.Errorf("--env %s: no local environment variable %s; pass NAME=VALUE or export it first", name, name)
+			}
+		}
+		env[name] = value
+	}
+	return env, nil
+}
+
 func parseComputerUUID(value string) (uuid.UUID, error) {
 	id, err := uuid.Parse(value)
 	if err != nil || id == uuid.Nil || value != id.String() {
@@ -493,6 +533,10 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 	}
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if err != nil {
+		var refusal *api.APIError
+		if invocation.execOptions && errors.As(err, &refusal) && refusal.Code == "invalid_request" {
+			refusal.Hint = "This server may not accept --cwd, --env or an exec --timeout over 5m yet; retry without them, for example -- /bin/zsh -lc 'cd DIR && COMMAND'."
+		}
 		invocation.Error = err.Error()
 		if errors.Is(err, api.ErrComputerOutcomeUnconfirmed) {
 			invocation.Status = "unconfirmed"

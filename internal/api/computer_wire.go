@@ -14,7 +14,19 @@ func encodeComputerOperationRequest(request ComputerCommandRequest) (ComputerOpe
 		for index, argument := range command.Argv {
 			argv[index] = EncodeComputerBytes([]byte(argument))
 		}
-		err = wire.Command.FromComputerExecRequest(ComputerExecRequest{ArgvB64: argv, Stdin: command.Stdin, TimeoutMs: command.TimeoutMs})
+		exec := ComputerExecRequest{ArgvB64: argv, Stdin: command.Stdin, TimeoutMs: command.TimeoutMs}
+		if command.Cwd != nil {
+			cwd := EncodeComputerBytes([]byte(*command.Cwd))
+			exec.CwdB64 = &cwd
+		}
+		if command.Env != nil {
+			env := make(map[string]string, len(*command.Env))
+			for name, value := range *command.Env {
+				env[name] = EncodeComputerBytes([]byte(value))
+			}
+			exec.EnvB64 = &env
+		}
+		err = wire.Command.FromComputerExecRequest(exec)
 	case ComputerFileRead:
 		err = wire.Command.FromComputerFileReadRequest(ComputerFileReadRequest{PathB64: EncodeComputerBytes([]byte(command.Path)), MaxBytes: command.MaxBytes, TimeoutMs: command.TimeoutMs})
 	case ComputerFileWrite:

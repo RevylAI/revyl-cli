@@ -10,6 +10,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -17,10 +18,12 @@ import (
 )
 
 const (
-	ComputerMaxCommandBytes = 16_384
-	ComputerMaxItems        = 64
-	ComputerMaxTimeoutMs    = 300_000
-	ComputerMaxResponseJSON = 8 * 1024 * 1024
+	ComputerMaxCommandBytes  = 16_384
+	ComputerMaxItems         = 64
+	ComputerMaxTimeoutMs     = 300_000
+	ComputerMaxExecTimeoutMs = 3_600_000
+	ComputerMaxEnvVariables  = 64
+	ComputerMaxResponseJSON  = 8 * 1024 * 1024
 )
 
 var (
@@ -91,9 +94,11 @@ func ValidateComputerCommand(request ComputerCommandRequest) error {
 	var timeout *int
 	switch command := command.(type) {
 	case ComputerExec:
-		timeout = command.TimeoutMs
 		if err := ValidateComputerExec(command); err != nil {
 			return err
+		}
+		if command.TimeoutMs != nil && (*command.TimeoutMs < 1 || *command.TimeoutMs > ComputerMaxExecTimeoutMs) {
+			return errors.New("computer exec timeout must be 1 to 3600000 milliseconds")
 		}
 	case ComputerFileRead:
 		timeout = command.TimeoutMs
@@ -140,6 +145,8 @@ func ValidateComputerCommand(request ComputerCommandRequest) error {
 	return nil
 }
 
+var computerEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
 func ValidateComputerExec(command ComputerExec) error {
 	if len(command.Argv) < 1 || len(command.Argv) > ComputerMaxItems || command.Argv[0] == "" {
 		return errors.New("computer exec requires 1 to 64 arguments and a nonempty executable")
@@ -151,6 +158,26 @@ func ValidateComputerExec(command ComputerExec) error {
 		}
 		count += len(arg)
 	}
+	if command.Cwd != nil {
+		if *command.Cwd == "" || len(*command.Cwd) > 1024 || !utf8.ValidString(*command.Cwd) || strings.ContainsRune(*command.Cwd, 0) {
+			return errors.New("computer exec working directory must be 1 to 1024 UTF-8 bytes without NUL")
+		}
+		count += len(*command.Cwd)
+	}
+	if command.Env != nil {
+		if len(*command.Env) > ComputerMaxEnvVariables {
+			return fmt.Errorf("computer exec accepts at most %d environment variables", ComputerMaxEnvVariables)
+		}
+		for name, value := range *command.Env {
+			if !computerEnvName.MatchString(name) {
+				return fmt.Errorf("computer exec environment variable name %q must match [A-Za-z_][A-Za-z0-9_]* (at most 128 characters)", name)
+			}
+			if !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+				return fmt.Errorf("computer exec environment variable %s must be UTF-8 without NUL", name)
+			}
+			count += len(name) + len(value)
+		}
+	}
 	if command.Stdin != nil {
 		data, err := DecodeComputerBytes(*command.Stdin, ComputerMaxCommandBytes)
 		if err != nil {
@@ -159,7 +186,7 @@ func ValidateComputerExec(command ComputerExec) error {
 		count += len(data)
 	}
 	if count > ComputerMaxCommandBytes {
-		return errors.New("computer argv and stdin exceed 16384 bytes")
+		return errors.New("computer argv, stdin, working directory and environment exceed 16384 bytes")
 	}
 	return nil
 }
@@ -191,7 +218,7 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 		if decodeComputerJSON(body, &safe, "detail") == nil {
 			code, _ := safe.Detail.AsComputerAPIErrorDetail0()
 			switch string(code) {
-			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "display_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported":
+			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "display_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "exec_options_unsupported":
 				refusal.Code, refusal.Message = string(code), "computer request refused: "+string(code)
 				if refusal.Code == "screen_input_uncertain" {
 					refusal.Message += "; take a screenshot before acting again"

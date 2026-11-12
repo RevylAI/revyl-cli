@@ -15,6 +15,8 @@ import (
 
 const computerOperationWait = 310 * time.Second
 
+const computerOperationWaitMargin = 30 * time.Second
+
 var ErrComputerExportCutOff = errors.New("computer export was cut off")
 
 var computerOperationPollInterval = 2 * time.Second
@@ -229,7 +231,13 @@ func (c *Client) SubmitComputerOperation(ctx context.Context, request ComputerCo
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, computerOperationWait)
+	wait := computerOperationWait
+	if command, _ := request.Command.ValueByDiscriminator(); command != nil {
+		if exec, ok := command.(ComputerExec); ok && exec.TimeoutMs != nil {
+			wait = max(wait, time.Duration(*exec.TimeoutMs)*time.Millisecond+computerOperationWaitMargin)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	operationID := ComputerOperationID(request.ComputerSessionId, request.RequestId)
 	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/operations", request.ComputerSessionId), wireRequest, request.RequestId.String(), computerOperationWait, map[string]string{"Prefer": "respond-async"})
