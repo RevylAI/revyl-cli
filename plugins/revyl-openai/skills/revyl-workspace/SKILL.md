@@ -1,6 +1,6 @@
 ---
 name: revyl-workspace
-description: Open Revyl Atlas maps and existing device viewers inside a compatible host, or manage an explicitly authorized device session through connected Revyl workspace tools. Use revyl-cloud-app for cloud builds and exploration, or the bundled CI-proof skill for existing artifacts.
+description: Open Revyl Atlas maps and existing device viewers inside a compatible host, manage and act on an explicitly authorized device session, follow the build a pull request produced, start an authorized exploration, or answer from Atlas through connected Revyl workspace tools. Use revyl-cloud-app for cloud builds, or the bundled CI-proof skill for existing artifacts.
 ---
 
 # Revyl Workspace
@@ -17,8 +17,12 @@ authentication flow. Never request API keys, passwords, or login codes in chat.
   to provision a device, build an app, or run a test.
 - For an existing test, use the connected test tools when available; no shell
   is needed to run a saved test against a known build.
-- For a new app, standalone remote build, new persisted test, exploration, or other
-  CLI operation, use `revyl-cloud-app` in a shell-capable cloud workspace.
+- For an exploration, use `start_exploration` when the connected tools offer
+  it; otherwise use `revyl-cloud-app`.
+- To test the build a push to a pull request produced, use `list_builds` and
+  `get_build` when the connected tools offer them; they cannot start a build.
+- For a new app, standalone remote build, new persisted test, or other CLI
+  operation, use `revyl-cloud-app` in a shell-capable cloud workspace.
 - For a continuous development loop in an existing repository, use the bundled
   `revyl-dev-loop` skill in a shell-capable host.
 - For exact-SHA proof of an existing CI artifact, use the bundled
@@ -100,12 +104,86 @@ queued execution is not a passing test. A test execution owns its own device
 lifecycle and does not reuse the manual session. Do not create or change a test
 as a fallback when the named test is missing.
 
+## Test a pull request's build
+
+Revyl builds a pull request after each push when the Revyl project for its
+repository has pull-request builds set up; other builds come from uploads and
+remote builds made outside this connection. These tools find and follow builds
+but cannot start one, so a new build needs a push or an upload.
+
+1. Call `list_builds` with the app's `app_id` and the pull request's head
+   branch as `branch`. Queued and running builds come first, then the newest;
+   each says its `status`, commit, `pr_number` and `source`.
+2. Follow an unfinished build with `get_build`, passing its `id` and
+   `wait_seconds` (at most 45), and call it again while it is `queued` or
+   `running`. Builds usually take several minutes; tell the user it is still
+   building rather than waiting silently. A `failed` build carries a short
+   `failure_reason`; pass it on instead of retrying.
+3. When `ready_for_device_session` is true, start the session the user asked
+   for with `start_device_session` and that build's `build_id`, so it runs
+   exactly the build you followed.
+
+`start_device_session` also takes `branch` with `app_id` to install that
+branch's newest completed build; `build_id` wins when both are given. A branch
+with no completed build starts nothing and never falls back to another branch:
+check it with `list_builds`. If no build exists for the branch, say so and
+explain that pull-request builds must be set up for the project. When
+`list_apps` or `list_builds` finds nothing to run, relay the next steps its
+message gives: upload a build in the dashboard, build or upload one with the
+Revyl CLI or dev-loop plugin, or finish GitHub setup for pull-request preview
+builds.
+
+When the user asks you to build their app, say these tools cannot start a
+build and offer the newest existing build. The `list_apps` and `list_builds`
+messages also say when GitHub setup is missing even though builds exist, because
+those builds may not include the user's latest changes; pass that on too.
+
+When a message says the organization has no GitHub connection, offer to
+connect it, and call `connect_github` only after the user agrees: it records a
+GitHub App install request and returns an `install_url`. Give the user that
+link to open themselves; it is a single-use install link for their
+organization, so present it as a link, not as a token, and do not share it
+elsewhere. Once they have installed the app, call `connect_github` again to
+check. When GitHub is already connected it returns status and no link; relay
+its next step, such as Connect repository under the app's App settings > Build profiles, without
+inventing a link.
+
+## Act on and check a running session
+
+On a running iOS, Android or Web session, `device_instruction` carries out one
+plain-language step, such as "tap Sign in and enter the test account", and
+`device_validation` checks one statement against the screen, such as "the cart
+shows 2 items". Run them only for work the user asked for, one step per call,
+with the session's `session_id`. A result with `status="running"` carries a
+`step_id`: wait for it with `get_device_step` instead of sending the step
+again. Treat `passed=false` or a missing `passed` as not done or not
+verified, and pass on `reason`. Take a `screenshot` to show the screen after
+an instruction.
+
+## Explore an app only when asked
+
+`start_exploration` sends explorer agents through an app, each on its own
+cloud device for several minutes, and adds the screens they find to Atlas.
+Start one only when the user asks, with one explorer unless they ask for more
+(at most three), and pass `focus` when they name an area. It returns at once:
+say it is running, and check it with `get_exploration` when the user asks or
+after a few minutes. Cancel an exploration with `cancel_exploration` only when
+the user asks. When it finishes, share its `atlas_url` or open its Atlas with
+`open_revyl_workspace`.
+
+## Answer from Atlas
+
+`atlas_graph` summarizes an app's screens and flows, and `atlas_search` finds
+screens by name or description. Both start nothing. Use them to answer how the
+app works before starting a device, and link the `atlas_url` they return.
+
 When the authorized work ends, stop only the owned session with
 `stop_device_session(session_id=...)`; for an older index-only tool, recheck
 the ID-to-index mapping first. Never set `all=true`. A successful
-request to stop is not the same as a released device: check the terminal result
-and the active-session list. Use bounded polling, and report pending cleanup
-without claiming that it completed.
+request to stop is not the same as a released device: the tool waits for the
+session to end, and when the result still says `stopped: false`, call it once
+more with the same `session_id` and check the active-session list. Report
+pending cleanup without claiming that it completed.
 
 Do not create, modify, or publish tests, builds, workflows, shares, or reports
 unless the user requested that particular action. Keep signed media URLs,

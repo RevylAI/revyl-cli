@@ -118,10 +118,11 @@ ZIP generation is not proof of submission readiness. Before submitting:
    enforcement. Verify browser sign-in, expiry, account isolation, mobile
    layouts, WebRTC reconnects, and cleanup. Exclude development tools and
    unrelated admin or purchase flows from the submitted UI.
-5. Run all five positive and three negative cases in `plugin.json` on the
+5. Run every positive and negative case in `plugin.json` on the
    release deployment. The supplied cases are a test plan, not recorded passes.
    Provide a dedicated reviewer account with sample data and a working fixture
-   build. The cases use only the hosted MCP tools, so a reviewer needs no cloud
+   build, including one built from a pull request branch for the build case.
+   The cases use only the hosted MCP tools, so a reviewer needs no cloud
    workspace, repository, or CLI sign-in to run them.
 6. Add an accessible demonstration recording to the review metadata and enter
    reviewer credentials only in the portal's private fields. Confirm publisher

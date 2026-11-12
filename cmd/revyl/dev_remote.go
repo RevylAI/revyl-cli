@@ -666,11 +666,16 @@ func triggerRemoteDevBuild(
 		State: devloop.BuildStatePreparing, Phase: "packaging", Message: "Packaging current working tree",
 	})
 
+	headBeforePackaging := committedArchiveHead(ctx, invocation.ProjectRoot, true)
 	archivePath, err := createSourceArchiveIncludingWorkingTree(invocation.ProjectRoot, invocation.ProjectRoot, false)
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("failed to package current working tree: %w", err)
 	}
 	defer os.Remove(archivePath)
+	var sourceCommitSHA string
+	if headBeforePackaging != "" && committedArchiveHead(ctx, invocation.ProjectRoot, true) == headBeforePackaging {
+		sourceCommitSHA = headBeforePackaging
+	}
 
 	archiveInfo, err := os.Stat(archivePath)
 	if err != nil {
@@ -699,7 +704,7 @@ func triggerRemoteDevBuild(
 	}
 
 	versionStr := build.GenerateVersionStringForWorkDir(invocation.ProjectRoot)
-	triggerReq, err := remoteDevTriggerRequestFromProject(parsedAppID, uploadResp.SourceKey, versionStr, invocation)
+	triggerReq, err := remoteDevTriggerRequestFromProject(parsedAppID, uploadResp.SourceKey, sourceCommitSHA, versionStr, invocation)
 	if err != nil {
 		return remoteDevBuildJob{}, err
 	}
@@ -791,10 +796,11 @@ func runRemoteDevBuild(
 func remoteDevTriggerRequestFromProject(
 	appID uuid.UUID,
 	sourceKey string,
+	sourceCommitSHA string,
 	version string,
 	invocation projectDevInvocation,
 ) (*api.RemoteBuildRequest, error) {
-	source, err := remoteBuildRequestSource(nil, sourceKey, "")
+	source, err := remoteBuildRequestSource(nil, sourceKey, "", sourceCommitSHA)
 	if err != nil {
 		return nil, err
 	}
@@ -967,7 +973,7 @@ func installAndLaunchRemoteDevBuild(
 }
 
 func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version string, platCfg config.BuildPlatform, buildCaches []config.BuildCache) (*api.RemoteBuildRequest, error) {
-	source, err := remoteBuildRequestSource(nil, sourceKey, "")
+	source, err := remoteBuildRequestSource(nil, sourceKey, "", "")
 	if err != nil {
 		return nil, err
 	}

@@ -289,7 +289,7 @@ func TestManagedWebRemoteJobUsesExistingBuildPipeline(t *testing.T) {
 		t.Fatalf("runtime names/hash missing: %#v", request)
 	}
 	source, sourceErr := request.Source.AsRemoteBuildArchiveSource()
-	if sourceErr != nil || source.CommitSha == nil || !webBuildCommitSHA.MatchString(*source.CommitSha) {
+	if sourceErr != nil || source.CommitSha == nil || !sourceCommitSHAPattern.MatchString(*source.CommitSha) {
 		t.Fatalf("source revision missing: %#v", request.Source)
 	}
 	if _, err := os.Stat(filepath.Join(root, "local-must-not-run")); !os.IsNotExist(err) {

@@ -526,7 +526,7 @@ func TestRemoteDevTriggerRequestAllowsFastlane(t *testing.T) {
 func TestRemoteDevBuildsNeverPinTheirBranch(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
 	output := "build/app.apk"
-	fromProject, err := remoteDevTriggerRequestFromProject(appID, "source.tar.gz", "v1", projectDevInvocation{
+	fromProject, err := remoteDevTriggerRequestFromProject(appID, "source.tar.gz", "", "v1", projectDevInvocation{
 		Platform: "android", AppID: appID.String(), BranchID: "00000000-0000-4000-8000-000000000789",
 		Recipe: config.EffectiveBuildRecipe{BuildCommands: config.CommandStepItems([]string{"./gradlew assembleDebug"}), OutputPath: &output},
 	})
@@ -568,7 +568,7 @@ func TestRemoteDevBuildNamesANewBranchUntilItExists(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			invocation := scenario.invocation
 			invocation.Platform, invocation.AppID, invocation.Recipe = "android", appID.String(), recipe
-			request, err := remoteDevTriggerRequestFromProject(appID, "source.tar.gz", "v1", invocation)
+			request, err := remoteDevTriggerRequestFromProject(appID, "source.tar.gz", "", "v1", invocation)
 			if err != nil {
 				t.Fatal(err)
 			}

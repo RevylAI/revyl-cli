@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -736,6 +737,169 @@ func TestGitHubPRRemoteBuildUsesUploadCIIdentity(t *testing.T) {
 				if err != nil || source.Key != "source-key" {
 					t.Fatalf("source archive was lost: %+v, %v", source, err)
 				}
+			}
+		})
+	}
+}
+
+func gitHeadCommitSHA(t *testing.T, dir string) string {
+	t.Helper()
+	command := exec.Command("git", "rev-parse", "HEAD")
+	command.Dir = dir
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func committedSourceRepository(t *testing.T) string {
+	t.Helper()
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	writeFile(t, filepath.Join(repoRoot, "main.txt"), "committed")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
+	return repoRoot
+}
+
+func remoteBuildSubmissionServer(t *testing.T, appID, appPlatform string, submitted **api.RemoteBuildRequest) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/apps/" + appID:
+			_ = json.NewEncoder(w).Encode(api.App{ID: appID, Platform: appPlatform, LatestVersion: "1.0", VersionsCount: 1})
+		case "/api/v1/apps/remote/upload-url":
+			_ = json.NewEncoder(w).Encode(api.RemoteBuildSourceUploadResponse{UploadUrl: server.URL + "/source", SourceKey: "source-key"})
+		case "/source":
+		case "/api/v1/apps/remote":
+			if err := json.NewDecoder(r.Body).Decode(submitted); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write([]byte(`{"build_job_id":"job-1"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	return server
+}
+
+func TestNativeRemoteBuildRecordsHeadOnlyWhenArchiveIsCommittedTree(t *testing.T) {
+	const appID = "00000000-0000-4000-8000-000000000001"
+	for _, test := range []struct {
+		name                               string
+		dirty, includeDirty, onlyCommitted bool
+		wantCommit                         bool
+	}{
+		{name: "clean tree", wantCommit: true},
+		{name: "clean tree with include-dirty", includeDirty: true, wantCommit: true},
+		{name: "dirty tree packaged from HEAD", dirty: true, wantCommit: true},
+		{name: "committed-only overrides include-dirty", dirty: true, includeDirty: true, onlyCommitted: true, wantCommit: true},
+		{name: "include-dirty packages uncommitted changes", dirty: true, includeDirty: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot := committedSourceRepository(t)
+			headSHA := gitHeadCommitSHA(t, repoRoot)
+			if test.dirty {
+				writeFile(t, filepath.Join(repoRoot, "main.txt"), "uncommitted")
+			}
+			var submitted *api.RemoteBuildRequest
+			remoteBuildSubmissionServer(t, appID, "Android", &submitted)
+			captureStdout(t, func() {
+				err := runRemoteBuildWithOptions(newBuildTestCommand(), "test-key", remoteBuildOptions{
+					ProjectRoot: repoRoot, WorktreeRoot: repoRoot, JSON: true,
+					IncludeDirty: test.includeDirty, CommittedOnly: test.onlyCommitted,
+					Resolved: &remoteBuildPlatformConfig{AppID: appID, Platform: "android", Command: "true", Output: "app.apk"},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+			if submitted == nil {
+				t.Fatal("remote build was not submitted")
+			}
+			source, err := submitted.Source.AsRemoteBuildArchiveSource()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if test.wantCommit {
+				want = headSHA
+			}
+			if got := stringValue(source.CommitSha); got != want {
+				t.Fatalf("archive source commit_sha = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRemoteDevBuildRecordsHeadOnlyForCleanProject(t *testing.T) {
+	const appID = "00000000-0000-4000-8000-000000000001"
+	for _, test := range []struct {
+		name       string
+		project    func(t *testing.T) string
+		wantCommit bool
+	}{
+		{name: "clean project", project: committedSourceRepository, wantCommit: true},
+		{name: "dirty project", project: func(t *testing.T) string {
+			root := committedSourceRepository(t)
+			writeFile(t, filepath.Join(root, "untracked.txt"), "uncommitted")
+			return root
+		}},
+		{name: "project outside Git", project: func(t *testing.T) string {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, "main.txt"), "standalone")
+			return root
+		}},
+		{name: "Git-ignored project folder", project: func(t *testing.T) string {
+			repoRoot := committedSourceRepository(t)
+			writeFile(t, filepath.Join(repoRoot, ".gitignore"), "app/\n")
+			runGit(t, repoRoot, "add", ".gitignore")
+			runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-m", "ignore app")
+			appRoot := filepath.Join(repoRoot, "app")
+			if err := os.MkdirAll(appRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(appRoot, "main.txt"), "standalone snapshot")
+			return appRoot
+		}},
+		{name: "untracked file hidden by status config", project: func(t *testing.T) string {
+			root := committedSourceRepository(t)
+			runGit(t, root, "config", "status.showUntrackedFiles", "no")
+			writeFile(t, filepath.Join(root, "untracked.txt"), "uncommitted")
+			return root
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := test.project(t)
+			var submitted *api.RemoteBuildRequest
+			remoteBuildSubmissionServer(t, appID, "Android", &submitted)
+			output := "app.apk"
+			_, err := triggerRemoteDevBuild(context.Background(), api.NewClientWithDevMode("test-key", false), projectDevInvocation{
+				ProjectRoot: root, Platform: "android", AppID: appID,
+				Recipe: config.EffectiveBuildRecipe{BuildCommands: config.CommandStepItems([]string{"./gradlew assembleDebug"}), OutputPath: &output},
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if submitted == nil {
+				t.Fatal("remote build was not submitted")
+			}
+			source, err := submitted.Source.AsRemoteBuildArchiveSource()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if test.wantCommit {
+				want = gitHeadCommitSHA(t, root)
+			}
+			if got := stringValue(source.CommitSha); got != want {
+				t.Fatalf("archive source commit_sha = %q, want %q", got, want)
 			}
 		})
 	}

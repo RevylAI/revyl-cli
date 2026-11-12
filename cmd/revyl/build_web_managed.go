@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,20 +26,33 @@ import (
 const maxWebBundleBytes int64 = 1024 * 1024 * 1024
 const maxWebBundleEntries = 20000
 
-var webBuildCommitSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+var sourceCommitSHAPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
-func webBuildSourceCommitSHA(ctx context.Context, worktreeRoot string) (string, error) {
+var errHeadNotFullGitCommitSHA = errors.New("HEAD did not resolve to a full Git commit SHA")
+
+func resolveHeadCommitSHA(ctx context.Context, worktreeRoot string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD")
 	command.Dir = worktreeRoot
 	output, err := command.Output()
 	if err != nil {
-		return "", fmt.Errorf("Web builds require a source commit; commit the project before building: %w", err)
+		return "", err
 	}
 	commitSHA := strings.TrimSpace(string(output))
-	if !webBuildCommitSHA.MatchString(commitSHA) {
+	if !sourceCommitSHAPattern.MatchString(commitSHA) {
+		return "", errHeadNotFullGitCommitSHA
+	}
+	return commitSHA, nil
+}
+
+func webBuildSourceCommitSHA(ctx context.Context, worktreeRoot string) (string, error) {
+	commitSHA, err := resolveHeadCommitSHA(ctx, worktreeRoot)
+	if errors.Is(err, errHeadNotFullGitCommitSHA) {
 		return "", fmt.Errorf("Web build source revision must be a full 40- or 64-character lowercase Git commit SHA")
+	}
+	if err != nil {
+		return "", fmt.Errorf("Web builds require a source commit; commit the project before building: %w", err)
 	}
 	return commitSHA, nil
 }

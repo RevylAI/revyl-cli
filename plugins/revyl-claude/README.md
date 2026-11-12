@@ -29,6 +29,16 @@ organization's device time, so the skill starts one only when you ask.
 | `start_device_session` | Starts one cloud iOS, Android, Web, or macOS session           |
 | `screenshot`           | Captures the current screen of a running session               |
 | `stop_device_session`  | Stops one device session                                       |
+| `device_instruction`   | Carries out one plain-language step on a running session       |
+| `device_validation`    | Checks one plain-language statement against the screen         |
+| `get_device_step`      | Waits for a step that was still running                        |
+| `start_exploration`    | Sends explorer agents through an app to fill its Atlas         |
+| `get_exploration`      | Reports where an exploration stands                            |
+| `cancel_exploration`   | Cancels an exploration and stops its devices                   |
+| `atlas_search`         | Finds an app's Atlas screens by name or description            |
+| `atlas_graph`          | Summarizes an app's Atlas screens and flows                    |
+| `list_builds`          | Lists an app's builds, optionally one branch's                 |
+| `get_build`            | Reports one build's status and whether a session can use it    |
 
 Claude does not show embedded views that frame another site, so the Atlas and
 device views open from the link each tool returns.

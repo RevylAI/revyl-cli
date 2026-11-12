@@ -177,6 +177,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	var uploadResp *api.RemoteBuildSourceUploadResponse
 	var repoSource *config.BuildSource
 	var sourcePatchKey string
+	var archiveCommitSHA string
 	if remoteBuildUsesGitSource(resolved.Source) {
 		opts.markFailureStage("source_archive")
 		normalized := normalizeRemoteGitSource(resolved.Source)
@@ -239,7 +240,12 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 
 		var archivePath string
 		compressStart := time.Now()
-		if opts.IncludeDirty && !opts.CommittedOnly {
+		archiveIncludesWorkingTree := opts.IncludeDirty && !opts.CommittedOnly
+		var headBeforePackaging string
+		if resolved.Platform != "web" {
+			headBeforePackaging = committedArchiveHead(ctx, worktreeRoot, archiveIncludesWorkingTree)
+		}
+		if archiveIncludesWorkingTree {
 			archivePath, err = createSourceArchiveIncludingWorkingTree(worktreeRoot, projectRoot, true)
 		} else {
 			archivePath, err = createSourceArchive(worktreeRoot, projectRoot)
@@ -251,6 +257,9 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			return fmt.Errorf("failed to package source: %w", err)
 		}
 		defer os.Remove(archivePath)
+		if headBeforePackaging != "" && committedArchiveHead(ctx, worktreeRoot, archiveIncludesWorkingTree) == headBeforePackaging {
+			archiveCommitSHA = headBeforePackaging
+		}
 
 		archiveInfo, err := os.Stat(archivePath)
 		if err != nil {
@@ -309,7 +318,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	} else if interactiveOutput {
 		ui.StartSpinner("Triggering remote build job")
 	}
-	source, err := remoteBuildRequestSource(repoSource, uploadedSourceKey(uploadResp), sourcePatchKey)
+	source, err := remoteBuildRequestSource(repoSource, uploadedSourceKey(uploadResp), sourcePatchKey, archiveCommitSHA)
 	if err != nil {
 		return err
 	}
@@ -1572,7 +1581,7 @@ func boolPtrOrNil(b bool) *bool {
 	return &b
 }
 
-func remoteBuildRequestSource(repoSource *config.BuildSource, sourceKey string, patchKey string) (api.RemoteBuildRequest_Source, error) {
+func remoteBuildRequestSource(repoSource *config.BuildSource, sourceKey string, patchKey string, archiveCommitSHA string) (api.RemoteBuildRequest_Source, error) {
 	var source api.RemoteBuildRequest_Source
 	if repoSource != nil {
 		lfs := repoSource.LFS
@@ -1592,7 +1601,8 @@ func remoteBuildRequestSource(repoSource *config.BuildSource, sourceKey string, 
 		return source, fmt.Errorf("remote build source is required")
 	}
 	if err := source.FromRemoteBuildArchiveSource(api.RemoteBuildArchiveSource{
-		Key: sourceKey,
+		Key:       sourceKey,
+		CommitSha: stringPtrOrNil(archiveCommitSHA),
 	}); err != nil {
 		return source, err
 	}
@@ -1604,6 +1614,36 @@ func uploadedSourceKey(resp *api.RemoteBuildSourceUploadResponse) string {
 		return ""
 	}
 	return strings.TrimSpace(resp.SourceKey)
+}
+
+// committedArchiveHead returns HEAD's full commit SHA when an archive packaged
+// from root holds exactly HEAD's committed files, and "" when it may hold
+// uncommitted changes, came from a folder Git does not track, or HEAD cannot be
+// resolved. Native builds never require a source commit, so an unknown
+// revision is omitted rather than failing. Callers compare the result before
+// and after packaging so a checkout during packaging records nothing.
+func committedArchiveHead(ctx context.Context, root string, archiveIncludesWorkingTree bool) string {
+	if archiveIncludesWorkingTree {
+		gitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		tracked := exec.CommandContext(gitCtx, "git", "ls-files", "--cached", "--", ".")
+		tracked.Dir = root
+		trackedFiles, err := tracked.Output()
+		if err != nil || len(bytes.TrimSpace(trackedFiles)) == 0 {
+			return ""
+		}
+		status := exec.CommandContext(gitCtx, "git", "status", "--porcelain", "--untracked-files=all", "--", ".")
+		status.Dir = root
+		changes, err := status.Output()
+		if err != nil || len(bytes.TrimSpace(changes)) > 0 {
+			return ""
+		}
+	}
+	commitSHA, err := resolveHeadCommitSHA(ctx, root)
+	if err != nil {
+		return ""
+	}
+	return commitSHA
 }
 
 // checkDirtyTree reports whether the git working tree has uncommitted

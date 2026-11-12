@@ -53,6 +53,8 @@ const sessionTicketTimeoutMs = 60000;
 // Inline, a host sizes the frame to this page, which would otherwise measure
 // as whatever height the host started the frame at.
 const inlineHeight = 720;
+// Enough for the browser card that replaces a frame the host refuses.
+const blockedFrameHeight = 160;
 // A server that signs its own callers in turns this on when it serves the page.
 const sessionTicketsOffered = false;
 let initialized = false;
@@ -70,6 +72,7 @@ let hostDimensions = null;
 let sentHeight = null;
 let resultTimer = null;
 let toolCallUnderway = false;
+let frameBlocked = false;
 function send(message) { window.parent.postMessage(message, "*"); }
 // A host refuses a request either with a JSON-RPC error or with an error result.
 function hostRefused(message) { return !!message.error || message.result?.isError === true; }
@@ -138,8 +141,9 @@ function applyHostLayout(context) {
   if (context?.containerDimensions) hostDimensions = context.containerDimensions;
   if (!hostDimensions) return;
   const maxHeight = hostDimensions.maxHeight;
+  const preferredHeight = frameBlocked ? blockedFrameHeight : inlineHeight;
   const height = hostDisplayMode === "fullscreen" || typeof hostDimensions.height === "number" ? null
-    : typeof maxHeight === "number" && maxHeight > 0 ? Math.min(maxHeight, inlineHeight) : inlineHeight;
+    : typeof maxHeight === "number" && maxHeight > 0 ? Math.min(maxHeight, preferredHeight) : preferredHeight;
   document.documentElement.style.height = height === null ? "" : height + "px";
   const changed = height !== sentHeight;
   sentHeight = height;
@@ -188,11 +192,32 @@ function showError(message, fallbackURL = externalURL) {
   external.disabled = !externalURL || !!pendingLink;
   status.textContent = message;
 }
+function showFrameBlocked(url = externalURL) {
+  showError("This host does not allow the Revyl workspace inside the chat. Open it in your browser instead.", url);
+}
+// A host whose own policy forbids frames, as Claude's does, blocks this one
+// without telling the page, which would otherwise show the browser's error.
+function handleFrameBlocked(event) {
+  if (event.disposition === "report") return;
+  if (!/^(?:frame|child)-src/.test(event.effectiveDirective || event.violatedDirective || "")) return;
+  let blockedOrigin = "";
+  try { blockedOrigin = new URL(event.blockedURI).origin; } catch {}
+  if (blockedOrigin !== origin || frameBlocked) return;
+  frameBlocked = true;
+  abandonSessionTicket();
+  abandonFramedLinks();
+  showFrameBlocked();
+  applyHostLayout(null);
+}
 function navigate(raw, viewer = false, explicitNavigation = false) {
   stopAwaitingResult();
   const url = safeURL(raw, viewer);
   if (!url) {
     showError("The host returned an unsupported workspace URL. Open the workspace in your browser instead.");
+    return;
+  }
+  if (frameBlocked) {
+    showFrameBlocked(url);
     return;
   }
   const frameURL = embeddedURL(url);
@@ -243,6 +268,7 @@ function renderDeepLink(context) {
   navigate(typeof path === "string" && path.startsWith("/") ? origin + path : "", false, true);
   return true;
 }
+document.addEventListener("securitypolicyviolation", handleFrameBlocked);
 external.addEventListener("click", () => {
   if (external.hidden || !externalURL || pendingLink) return;
   const id = ++requestId;
