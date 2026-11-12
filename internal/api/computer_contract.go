@@ -213,6 +213,19 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 				Hint:       "Contact Revyl support to review the edge security rule; signing in again will not resolve this block.",
 			}
 		}
+		if response.StatusCode == http.StatusUpgradeRequired {
+			var upgrade struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(body, &upgrade) == nil && upgrade.Code == "cli_upgrade_required" {
+				return nil, &APIError{
+					StatusCode: response.StatusCode,
+					Code:       upgrade.Code,
+					Message:    "this Revyl CLI version is no longer supported",
+					Hint:       "Run 'revyl upgrade', then retry.",
+				}
+			}
+		}
 		refusal := &APIError{StatusCode: response.StatusCode, Message: "computer request was refused"}
 		var safe ComputerAPIError
 		if decodeComputerJSON(body, &safe, "detail") == nil {
