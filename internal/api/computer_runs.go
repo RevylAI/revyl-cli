@@ -74,7 +74,7 @@ func (c *Client) awaitComputerRun(ctx context.Context, report *ComputerReport, i
 			report = next
 		case ctx.Err() != nil:
 			return report, nil
-		case errors.Is(err, errComputerReadFailed), errors.As(err, &apiErr) && apiErr.Code == "" && apiErr.StatusCode >= 500:
+		case errors.Is(err, errComputerReadFailed), errors.As(err, &apiErr) && (apiErr.Code == "evidence_unavailable" || apiErr.Code == "" && apiErr.StatusCode >= 500):
 		default:
 			return nil, err
 		}

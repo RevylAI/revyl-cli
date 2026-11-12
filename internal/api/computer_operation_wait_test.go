@@ -155,3 +155,40 @@ func TestComputerSubmitWaitReturnsUnrecordedEvidenceAtItsBound(t *testing.T) {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
 }
+
+func TestComputerStartWaitRetriesATransientReadUntilTheComputerIsActive(t *testing.T) {
+	previous := computerStartPollInterval
+	computerStartPollInterval = time.Millisecond
+	t.Cleanup(func() { computerStartPollInterval = previous })
+	id := uuid.New()
+	report := func(state string) string {
+		started := ""
+		if state == "active" {
+			started = `"execution_started_at":"2026-10-10T00:00:01Z",`
+		}
+		return fmt.Sprintf(`{"report_id":%q,"computer_session_id":%q,"org_id":%q,"os":"macos","created_at":"2026-10-10T00:00:00Z","expires_at":"2026-10-10T02:00:00Z","as_of":"2026-10-10T00:00:04Z",%s"state":%q,"release":"pending","steps":[]}`, uuid.New(), id, uuid.New(), started, state)
+	}
+	replies := []computerOperationReply{
+		{status: http.StatusServiceUnavailable, body: `{"detail":"evidence_unavailable"}`},
+		{status: http.StatusOK, body: report("active")},
+	}
+	reads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reply := replies[min(reads, len(replies)-1)]
+		reads++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(reply.status)
+		_, _ = w.Write([]byte(reply.body))
+	}))
+	t.Cleanup(server.Close)
+	var starting ComputerReport
+	if err := json.Unmarshal([]byte(report("starting")), &starting); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := NewClientWithBaseURL("fixture-key", server.URL).AwaitComputerRunStarted(context.Background(), &starting)
+
+	if err != nil || active == nil || InspectComputerReport(*active).State != "active" || reads != 2 {
+		t.Fatalf("report = %+v, err = %v, reads = %d", active, err, reads)
+	}
+}
