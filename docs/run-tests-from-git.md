@@ -138,20 +138,32 @@ explains how a run picks its files.
    means the saved test has edits the file doesn't, and `conflict` means both
    changed. Once the setting is on, a test's file in Git runs as it is, so
    edits saved in Revyl that aren't in the file stop running. For each test
-   that isn't `synced`, compare the file's steps with the saved test's:
+   that isn't `synced`, compare the file with the saved test:
 
    ```bash
    revyl test diff <test-name>
    ```
 
-   Lines that start with `-` come from the file, and lines that start with `+`
-   from the saved test:
+   It compares them as `revyl test pull` would write the file, with the
+   test's steps, variables and other settings. Lines that start with `-` come
+   from the file, and lines that start with `+` from the saved test. Here the
+   file changes a variable:
 
    ```text
    --- local
    +++ remote
-   @@ -1,19 +1,62 @@
+   @@ -6,7 +6,7 @@
+            name: <app-name>
+            build_selection: inherit
+        variables:
+   -        item_name: sourdough bread
+   +        item_name: bread
+        location:
+            latitude: 37.7749
+            longitude: -122.4194
    ```
+
+   When the file and the saved test match, it prints `No differences found`.
 
    To run the saved test instead, write it into the file with
    `revyl test pull <test-name>`. For a `modified` or `conflict` test, add
@@ -179,8 +191,10 @@ explains how a run picks its files.
    ✓ Configuration is valid locally
    ```
 
-   Until the setting is published, it also prints `Not published` and a line
-   that starts `⚠ Run tests from Git is off for this project`. When the
+   Its `Authority:` line says how the project's configuration is managed
+   now, `manual` or `git_default_branch`; step 7 checks it again after the
+   merge. Until the setting is published, it also prints `Not published` and
+   a line that starts `⚠ Run tests from Git is off for this project`. When the
    default branch manages the project's configuration, that line ends with
    `To match, merge this branch into the default branch, which turns it on for the project.`,
    which step 6 does.
@@ -215,7 +229,9 @@ explains how a run picks its files.
 
 6. Commit `.revyl/config.yaml`, `.revyl/tests/`, `.revyl/modules/` and
    `.revyl/scripts/`, and `.revyl/.gitignore` if step 2 changed it, open a
-   pull request, and merge it to the default branch.
+   pull request ready for review, and merge it to the default branch. Revyl
+   PR review skips draft pull requests by default, so a draft gets no review
+   comment.
 
    CI jobs on that pull request already run its files, because the CLI reads
    the setting from the checkout. Revyl PR review keeps the project's published
@@ -236,10 +252,11 @@ explains how a run picks its files.
    ```
 
    When the merge adds or changes the project's `.revyl/config.yaml` on the
-   default branch, Revyl publishes the file, and from then on the default
-   branch manages the configuration, as
+   default branch, Revyl publishes the file, usually within a minute, and from
+   then on the default branch manages the configuration, as
    [Default-branch authority](https://docs.revyl.com/integrations/github#default-branch-authority)
-   describes:
+   describes. A project whose `Authority:` line showed `manual` before the
+   merge now shows `git_default_branch`:
 
    ```text
    ✓ Configuration is valid locally
@@ -248,8 +265,17 @@ explains how a run picks its files.
    ✓ Published: Revyl runs this exact configuration
    ```
 
-   If it prints `Not published` instead, Revyl hasn't applied the merged
-   file; [Default-branch authority](https://docs.revyl.com/integrations/github#default-branch-authority)
+   Until Revyl applies the merged file, `revyl config validate` prints
+   `Not published`. When the default branch already managed the
+   configuration before the merge, it names the commit Revyl hasn't applied:
+   `⚠ Not published: Revyl hasn't applied commit <commit> from the default branch yet`
+   and `Next: wait a minute, then run "revyl config validate" again`. The line
+   that starts `⚠ Run tests from Git is off for this project` ends with
+   `Revyl turns it on for the project when it applies commit <commit> from the default branch.`
+   Wait a minute and run `revyl config validate` again.
+
+   If it still prints `Not published` when you run it again, Revyl hasn't
+   applied the merged file; [Default-branch authority](https://docs.revyl.com/integrations/github#default-branch-authority)
    lists what stops it. Publish the setting from this checkout: run the
    command on its `Next:` line, usually `revyl config push`, or turn it on in
    the dashboard under **Settings → Integrations → GitHub** (or **GitLab**):

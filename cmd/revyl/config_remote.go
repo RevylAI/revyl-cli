@@ -431,7 +431,17 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 		connected.Authority = &result.Current.Resource.Authority
 	}
 	runTestDefinitionsFromGitMismatch = runTestDefinitionsFromGitMismatchLine(cmd.Context(), local, result.Current, false)
-	return complete(connected, projectConfigurationPublication(result.Current, local.Authored, localAggregate.ProjectConfigurationHash), nil)
+	publication := projectConfigurationPublication(result.Current, local.Authored, localAggregate.ProjectConfigurationHash)
+	if publication.Status == projectPublicationDrifted {
+		if commit := unappliedDefaultBranchCommit(cmd.Context(), local, result.Current.Resource); commit != "" {
+			publication = projectConfigurationPublicationOutput{
+				Status:      projectPublicationDrifted,
+				NextAction:  fmt.Sprintf("wait a minute, then run %q again", cliRecoveryCommand("config", "validate")),
+				Explanation: fmt.Sprintf("Revyl hasn't applied commit %s from the default branch yet", commit[:7]),
+			}
+		}
+	}
+	return complete(connected, publication, nil)
 }
 
 const enableProofOfChangesStep = "configure an enabled pr_review block with its build settings and proof_of_changes.enabled: true in .revyl/config.yaml"
@@ -1044,8 +1054,13 @@ func runTestDefinitionsFromGitMismatchLine(ctx context.Context, project *config.
 // this branch, whose merge into the default branch turns the setting on or
 // off (turnsTo) for the project, or the default branch, whose merge into this
 // branch brings its setting here. When Git can't tell, for example in a
-// shallow clone or before that commit is fetched, the remedy names both.
+// shallow clone or before that commit is fetched, the remedy names both. On
+// the default branch ahead of the commit Revyl applied, nothing needs merging:
+// the remedy says Revyl turns the setting on or off when it applies HEAD.
 func defaultBranchMergeRemedy(ctx context.Context, project *config.ProjectContext, resource *api.ProjectConfigurationResource, turnsTo string) string {
+	if commit := unappliedDefaultBranchCommit(ctx, project, resource); commit != "" {
+		return fmt.Sprintf("Revyl turns it %s for the project when it applies commit %s from the default branch.", turnsTo, commit[:7])
+	}
 	oppositeChange := "turned on"
 	if turnsTo == "on" {
 		oppositeChange = "turned off"
@@ -1096,6 +1111,46 @@ func checkoutChangedRunTestDefinitionsFromGit(ctx context.Context, project *conf
 		return defaultBranchChangedSetting
 	}
 	return checkoutChangedSetting
+}
+
+// unappliedDefaultBranchCommit returns the checkout's HEAD commit when Revyl
+// hasn't applied it yet, as right after a merge: the default branch manages the
+// configuration, HEAD is on the remote default branch and newer than the
+// default-branch commit Revyl applied, and the checkout's config file matches
+// the one at the tip of the remote default branch, which Revyl applies next.
+// "" otherwise, including when Git can't tell.
+func unappliedDefaultBranchCommit(ctx context.Context, project *config.ProjectContext, resource *api.ProjectConfigurationResource) string {
+	if resource == nil || resource.Authority != api.ConfigurationAuthorityGitDefaultBranch {
+		return ""
+	}
+	source, err := resource.Source.AsGitDefaultBranchConfigurationSource()
+	if err != nil || strings.TrimSpace(source.ResolvedConfigCommitSha) == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkoutdefinitions.GitTimeout)
+	defer cancel()
+	git := func(args ...string) (string, error) {
+		output, err := checkoutdefinitions.RunGit(ctx, project.WorktreeRoot, args...)
+		return strings.TrimSpace(output), err
+	}
+	defaultBranch, err := git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return ""
+	}
+	head, err := git("rev-parse", "--verify", "HEAD")
+	if err != nil || strings.HasPrefix(head, source.ResolvedConfigCommitSha) {
+		return ""
+	}
+	if _, err := git("merge-base", "--is-ancestor", source.ResolvedConfigCommitSha, head); err != nil {
+		return ""
+	}
+	if _, err := git("merge-base", "--is-ancestor", head, defaultBranch); err != nil {
+		return ""
+	}
+	if _, err := git("diff", "--quiet", defaultBranch, "--", ":(top)"+resource.RepositoryRelativeConfigPath); err != nil {
+		return ""
+	}
+	return head
 }
 
 // printRunTestDefinitionsFromGitMismatch writes the mismatch line to stderr,

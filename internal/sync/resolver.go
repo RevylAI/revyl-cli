@@ -21,6 +21,7 @@ import (
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/util"
+	"gopkg.in/yaml.v3"
 )
 
 // SyncStatus represents the sync status of a test.
@@ -792,106 +793,20 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		}
 	}
 
-	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	remoteVersion, definition, err := r.remoteTestDefinition(ctx, remoteID)
 	if err != nil {
 		result.Error = err
 		return result
 	}
-
-	blocks, err := authoredBlocksFromTasks(remoteTest.Tasks)
-	if err != nil {
-		result.Error = err
-		return result
-	}
-
-	scriptNames, moduleNames := r.FetchNameMappings(ctx)
-	resolveBlockNames(blocks, scriptNames, moduleNames)
 
 	localTest := &config.LocalTest{
 		Meta: config.TestMeta{
 			RemoteID:      remoteID,
-			RemoteVersion: remoteTest.Version,
-			LocalVersion:  remoteTest.Version,
+			RemoteVersion: remoteVersion,
+			LocalVersion:  remoteVersion,
 			LastSyncedAt:  time.Now().Format(time.RFC3339),
 		},
-		Test: config.TestDefinition{
-			Metadata: config.TestMetadata{
-				Name:        remoteTest.Name,
-				Platform:    strings.ToLower(remoteTest.Platform),
-				Description: remoteTest.Description,
-			},
-			Blocks: blocks,
-		},
-	}
-
-	if remoteTest.AppID != "" {
-		app, err := r.client.GetApp(ctx, remoteTest.AppID)
-		if err == nil && app != nil {
-			localTest.Test.Build = config.TestBuildConfig{
-				Name:         app.Name,
-				SystemPrompt: app.SystemPrompt,
-			}
-		}
-	}
-	// With branch reads disabled, the API projects saved pins as inherit plus pinned_version.
-	legacyOnlyPin := remoteTest.PinnedVersion != "" && remoteTest.BranchID == "" && remoteTest.PinnedBuildID == "" &&
-		(remoteTest.BuildSelection == "" || remoteTest.BuildSelection == api.BuildSelectionModeInherit)
-	if legacyOnlyPin {
-		localTest.Test.Build.PinnedVersion = remoteTest.PinnedVersion
-	} else {
-		localTest.Test.Build.BranchID = remoteTest.BranchID
-		if remoteTest.BuildSelection != api.BuildSelectionModeLatestAllBranches {
-			localTest.Test.Build.BuildSelection = string(remoteTest.BuildSelection)
-		}
-		localTest.Test.Build.PinnedBuildID = remoteTest.PinnedBuildID
-	}
-
-	tags, err := r.client.GetTestTags(ctx, remoteID)
-	if err == nil && len(tags) > 0 {
-		tagNames := make([]string, len(tags))
-		for i, t := range tags {
-			tagNames[i] = t.Name
-		}
-		localTest.Test.Metadata.Tags = tagNames
-	}
-
-	// Fetch custom variables; secrets stay in Revyl, since the API never returns their values.
-	if varsResp, err := r.client.ListCustomVariables(ctx, remoteID); err == nil {
-		vars := make(map[string]string, len(varsResp.Result))
-		for _, v := range varsResp.Result {
-			if !v.IsSecret {
-				vars[v.VariableName] = v.VariableValue
-			}
-		}
-		if len(vars) > 0 {
-			localTest.Test.Variables = vars
-		}
-	}
-
-	// Fetch attached org launch vars.
-	if envResp, err := r.client.ListTestLaunchEnvVarAttachments(ctx, remoteID); err == nil && len(envResp.Result) > 0 {
-		envVars := make([]string, 0, len(envResp.Result))
-		for _, ev := range envResp.Result {
-			envVars = append(envVars, ev.Key)
-		}
-		sort.Strings(envVars)
-		localTest.Test.EnvVars = envVars
-	}
-
-	// Parse device targets and orientation from GetTest response
-	if len(remoteTest.MobileTargets) > 0 {
-		mt := remoteTest.MobileTargets[0]
-		if mt.DeviceModel != "" && mt.DeviceModel != "AUTO" {
-			localTest.Test.Device = &config.TestDeviceConfig{
-				Model:       mt.DeviceModel,
-				OSVersion:   mt.OSVersion,
-				Orientation: remoteTest.Orientation,
-			}
-		}
-	} else if remoteTest.Orientation != "" && remoteTest.Orientation != "portrait" {
-		localTest.Test.Device = &config.TestDeviceConfig{
-			Orientation: remoteTest.Orientation,
-		}
+		Test: definition,
 	}
 
 	sanitized := util.SanitizeForFilename(name)
@@ -904,13 +819,129 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		return result
 	}
 
-	result.NewVersion = remoteTest.Version
+	result.NewVersion = remoteVersion
 	r.localTests[sanitized] = localTest
 	if sanitized != name {
 		delete(r.localTests, name)
 	}
 
 	return result
+}
+
+// remoteTestDefinition returns the saved test's version and its definition as
+// a pull writes it to the test's file.
+func (r *Resolver) remoteTestDefinition(ctx context.Context, remoteID string) (int, config.TestDefinition, error) {
+	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	if err != nil {
+		return 0, config.TestDefinition{}, err
+	}
+
+	blocks, err := authoredBlocksFromTasks(remoteTest.Tasks)
+	if err != nil {
+		return 0, config.TestDefinition{}, err
+	}
+
+	scriptNames, moduleNames := r.FetchNameMappings(ctx)
+	resolveBlockNames(blocks, scriptNames, moduleNames)
+
+	definition := config.TestDefinition{
+		Metadata: config.TestMetadata{
+			Name:        remoteTest.Name,
+			Platform:    strings.ToLower(remoteTest.Platform),
+			Description: remoteTest.Description,
+		},
+		Blocks: blocks,
+	}
+
+	if remoteTest.AppID != "" {
+		app, err := r.client.GetApp(ctx, remoteTest.AppID)
+		if err == nil && app != nil {
+			definition.Build = config.TestBuildConfig{
+				Name:         app.Name,
+				SystemPrompt: app.SystemPrompt,
+			}
+		}
+	}
+	// With branch reads disabled, the API projects saved pins as inherit plus pinned_version.
+	legacyOnlyPin := remoteTest.PinnedVersion != "" && remoteTest.BranchID == "" && remoteTest.PinnedBuildID == "" &&
+		(remoteTest.BuildSelection == "" || remoteTest.BuildSelection == api.BuildSelectionModeInherit)
+	if legacyOnlyPin {
+		definition.Build.PinnedVersion = remoteTest.PinnedVersion
+	} else {
+		definition.Build.BranchID = remoteTest.BranchID
+		if remoteTest.BuildSelection != api.BuildSelectionModeLatestAllBranches {
+			definition.Build.BuildSelection = string(remoteTest.BuildSelection)
+		}
+		definition.Build.PinnedBuildID = remoteTest.PinnedBuildID
+	}
+
+	tags, err := r.client.GetTestTags(ctx, remoteID)
+	if err != nil {
+		return 0, config.TestDefinition{}, fmt.Errorf("failed to read the test's tags: %w", err)
+	}
+	if len(tags) > 0 {
+		tagNames := make([]string, len(tags))
+		for i, t := range tags {
+			tagNames[i] = t.Name
+		}
+		definition.Metadata.Tags = tagNames
+	}
+
+	// Secrets stay in Revyl, since the API never returns their values.
+	varsResp, err := r.client.ListCustomVariables(ctx, remoteID)
+	if err != nil {
+		return 0, config.TestDefinition{}, fmt.Errorf("failed to read the test's variables: %w", err)
+	}
+	vars := make(map[string]string, len(varsResp.Result))
+	for _, v := range varsResp.Result {
+		if !v.IsSecret {
+			vars[v.VariableName] = v.VariableValue
+		}
+	}
+	if len(vars) > 0 {
+		definition.Variables = vars
+	}
+
+	envResp, err := r.client.ListTestLaunchEnvVarAttachments(ctx, remoteID)
+	if err != nil {
+		return 0, config.TestDefinition{}, fmt.Errorf("failed to read the test's launch variables: %w", err)
+	}
+	if len(envResp.Result) > 0 {
+		envVars := make([]string, 0, len(envResp.Result))
+		for _, ev := range envResp.Result {
+			envVars = append(envVars, ev.Key)
+		}
+		sort.Strings(envVars)
+		definition.EnvVars = envVars
+	}
+
+	// Parse device targets and orientation from GetTest response
+	if len(remoteTest.MobileTargets) > 0 {
+		mt := remoteTest.MobileTargets[0]
+		if mt.DeviceModel != "" && mt.DeviceModel != "AUTO" {
+			definition.Device = &config.TestDeviceConfig{
+				Model:       mt.DeviceModel,
+				OSVersion:   mt.OSVersion,
+				Orientation: remoteTest.Orientation,
+			}
+		}
+	} else if remoteTest.Orientation != "" && remoteTest.Orientation != "portrait" {
+		definition.Device = &config.TestDeviceConfig{
+			Orientation: remoteTest.Orientation,
+		}
+	}
+
+	if executionMode, ok := remoteTest.RunConfig["execution_mode"].(map[string]interface{}); ok {
+		if location, ok := executionMode["initial_location"].(map[string]interface{}); ok {
+			latitude, hasLatitude := location["latitude"].(float64)
+			longitude, hasLongitude := location["longitude"].(float64)
+			if hasLatitude && hasLongitude {
+				definition.Location = &config.TestLocation{Latitude: latitude, Longitude: longitude}
+			}
+		}
+	}
+
+	return remoteTest.Version, definition, nil
 }
 
 func findAliasByRemoteID(localTests map[string]*config.LocalTest, remoteID string) string {
@@ -976,14 +1007,17 @@ func fallbackTestAlias(remoteID string) string {
 	return "test-" + trimmed
 }
 
-// GetDiff returns a diff between local and remote versions.
+// GetDiff returns a unified diff of the test's file against the saved test as
+// a pull writes it to the file, both without _meta, so variables and the other
+// test settings compare alongside the steps. Lines starting with "-" are the
+// file's and lines starting with "+" the saved test's.
 //
 // Parameters:
 //   - ctx: Context for cancellation
 //   - testName: The test name
 //
 // Returns:
-//   - string: The diff output
+//   - string: The diff output, empty when they match
 //   - error: Any error that occurred
 func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error) {
 	localTest, hasLocal := r.localTests[testName]
@@ -996,25 +1030,23 @@ func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error)
 		return "", fmt.Errorf("no remote ID for test: %s", testName)
 	}
 
-	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	_, remoteDefinition, err := r.remoteTestDefinition(ctx, remoteID)
 	if err != nil {
 		return "", err
 	}
 
-	// Generate diff by comparing local blocks with remote tasks.
-	// Both are marshaled to JSON first to get a canonical representation,
-	// since localTest.Test is a structured TestDefinition while
-	// remoteTest.Tasks is a raw interface{} from the API.
-	localJSON, err := json.MarshalIndent(localTest.Test.Blocks, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal local test blocks: %w", err)
-	}
-	remoteJSON, err := json.MarshalIndent(remoteTest.Tasks, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal remote test tasks: %w", err)
+	var sides [2]string
+	for i, definition := range []config.TestDefinition{localTest.Test, remoteDefinition} {
+		data, err := yaml.Marshal(struct {
+			Test config.TestDefinition `yaml:"test"`
+		}{definition})
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal test definition: %w", err)
+		}
+		sides[i] = string(data)
 	}
 
-	return generateSimpleDiff(string(localJSON), string(remoteJSON)), nil
+	return generateSimpleDiff(sides[0], sides[1]), nil
 }
 
 // formatTimeAgo formats a timestamp as a human-readable "time ago" string.

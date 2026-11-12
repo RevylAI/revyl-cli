@@ -156,9 +156,11 @@ Examples:
 
 // testsDiffCmd shows diff between local and remote.
 var testsDiffCmd = &cobra.Command{
-	Use:     "diff <name>",
-	Short:   "Show diff between local and remote",
-	Long:    `Show the differences between local and remote versions of a test.`,
+	Use:   "diff <name>",
+	Short: "Show diff between local and remote",
+	Long: `Compare a test's file with the test saved in Revyl, as revyl test pull would
+write it: its steps, variables and other settings. Lines that start with - come
+from the file, and lines that start with + from the saved test.`,
 	Example: `  revyl test diff login-flow`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runTestsDiff,
