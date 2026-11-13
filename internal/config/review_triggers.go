@@ -110,6 +110,17 @@ func effectiveReviewPaths(paths []string, projectRoot string) []string {
 }
 
 func authoredReviewTriggersFileProjection(triggers *AuthoredReviewTriggers) map[string]any {
-	drafts := triggers.Drafts != nil && *triggers.Drafts
-	return map[string]any{"paths": nonNilSlice(triggers.Paths), "labels": nonNilSlice(triggers.Labels), "drafts": drafts}
+	projection := authoredReviewBlockTriggersFileProjection(triggers)
+	projection["drafts"] = triggers.Drafts != nil && *triggers.Drafts
+	return projection
+}
+
+// authoredReviewBlockTriggersFileProjection keeps an omitted drafts omitted,
+// because a block that omits it inherits the root's drafts setting.
+func authoredReviewBlockTriggersFileProjection(triggers *AuthoredReviewTriggers) map[string]any {
+	projection := map[string]any{"paths": nonNilSlice(triggers.Paths), "labels": nonNilSlice(triggers.Labels)}
+	if triggers.Drafts != nil {
+		projection["drafts"] = *triggers.Drafts
+	}
+	return projection
 }

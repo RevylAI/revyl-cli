@@ -362,7 +362,7 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 				"workflow_ids": nonNilSlice(workflows.WorkflowIDs),
 			}
 			if workflows.Triggers != nil {
-				workflowProjection["triggers"] = authoredReviewTriggersFileProjection(workflows.Triggers)
+				workflowProjection["triggers"] = authoredReviewBlockTriggersFileProjection(workflows.Triggers)
 			}
 			review["workflows"] = workflowProjection
 		}
@@ -382,7 +382,7 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 				"always_verify": nonNilSlice(authored.PRReview.ProofOfChanges.AlwaysVerify),
 			}
 			if authored.PRReview.ProofOfChanges.Triggers != nil {
-				proof["triggers"] = authoredReviewTriggersFileProjection(authored.PRReview.ProofOfChanges.Triggers)
+				proof["triggers"] = authoredReviewBlockTriggersFileProjection(authored.PRReview.ProofOfChanges.Triggers)
 			}
 			if authored.PRReview.ProofOfChanges.Harness != nil {
 				harness := map[string]any{

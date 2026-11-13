@@ -3504,7 +3504,8 @@ var deviceLogsCmd = &cobra.Command{
 	Long: `Stream live device logs from a device session.
 
 By default, polls continuously (--follow) printing one captured log line per entry
-(logcat on Android, OSLog/NSLog on iOS). Use --no-follow for a single snapshot.`,
+(logcat on Android, OSLog/NSLog on iOS; debug level and above on both).
+Use --no-follow to print everything captured so far, then exit.`,
 	Example: `  revyl device logs
   revyl device logs --no-follow
   revyl device logs --interval 5s --json
@@ -3548,7 +3549,9 @@ By default, polls continuously (--follow) printing one captured log line per ent
 			ui.PrintInfo("Polling session %s (%s)...", sessionDisplayLabel(session), platform)
 		}
 
-		for {
+		const maxNoFollowPages = 500
+		linesPrinted := 0
+		for page := 1; ; page++ {
 			limit := 200
 			if platform == "web" {
 				limit = 100
@@ -3561,6 +3564,7 @@ By default, polls continuously (--follow) printing one captured log line per ent
 				return fmt.Errorf("failed to poll device logs: %w", pollErr)
 			}
 			cursor = resp.NextCursor
+			linesPrinted += len(resp.Items)
 
 			if resp.RuntimeSummary != nil {
 				data, err := json.Marshal(resp.RuntimeSummary)
@@ -3581,7 +3585,14 @@ By default, polls continuously (--follow) printing one captured log line per ent
 			}
 
 			if !follow {
-				return nil
+				if platform == "web" || len(resp.Items) == 0 {
+					return nil
+				}
+				if page >= maxNoFollowPages {
+					ui.PrintWarning("Stopped after %d log lines because the app was still logging; use --follow to stream continuously", linesPrinted)
+					return nil
+				}
+				continue
 			}
 
 			if resp.RuntimeSummary == nil && !resp.CaptureRunning && len(resp.Items) == 0 {

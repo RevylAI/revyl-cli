@@ -136,11 +136,11 @@ func cloneLegacyMigrationDocument(document map[string]any) (map[string]any, erro
 func preserveMixedCanonicalSections(original, translated map[string]any, context CompilationContext, changes *[]LegacyConfigOmission) map[string]struct{} {
 	project := translated["project"]
 	preserved := map[string]struct{}{}
-	trySection := func(section string, value any, dependencies ...string) {
+	trySection := func(section string, base, value any, dependencies ...string) {
 		if value == nil {
 			return
 		}
-		candidateValue := mergeMixedCanonicalValue(translated[section], value, []string{section}, changes)
+		candidateValue := mergeMixedCanonicalValue(base, value, []string{section}, changes)
 		candidate := map[string]any{"project": project, section: candidateValue}
 		for _, dependency := range dependencies {
 			if dependencyValue, exists := translated[dependency]; exists {
@@ -161,16 +161,34 @@ func preserveMixedCanonicalSections(original, translated map[string]any, context
 		addLegacyMigrationChange(changes, "mixed_canonical_section_preserved", []string{section}, "the valid canonical section in a mixed document was preserved")
 	}
 
-	trySection("session", original["session"])
+	trySection("session", translated["session"], original["session"])
 	build := selectLegacyMigrationKeys(stringMap(original["build"]), "framework", "env", "secrets", "caches", "profiles")
 	if len(build) > 0 {
-		trySection("build", build)
+		trySection("build", translated["build"], build)
 	}
 	review := selectLegacyMigrationKeys(stringMap(original["pr_review"]), "enabled", "triggers", "review_triggers", "build", "proof_of_changes", "workflows", "workflow_ids", "strict_ci_check")
 	if len(review) > 0 {
-		trySection("pr_review", review, "build")
+		trySection("pr_review", translatedReviewForCanonicalWorkflows(translated["pr_review"], review), review, "build")
 	}
 	return preserved
+}
+
+// translatedReviewForCanonicalWorkflows moves translated legacy workflow IDs
+// into the workflows block when the canonical review uses that block, because
+// workflow_ids cannot sit beside workflows.
+func translatedReviewForCanonicalWorkflows(translated any, canonical map[string]any) any {
+	review := stringMap(translated)
+	workflowIDs := listDefault(review["workflow_ids"])
+	if _, blockSpelling := canonical["workflows"]; !blockSpelling || len(workflowIDs) == 0 {
+		return translated
+	}
+	moved := make(map[string]any, len(review))
+	for key, value := range review {
+		moved[key] = value
+	}
+	delete(moved, "workflow_ids")
+	moved["workflows"] = map[string]any{"enabled": true, "workflow_ids": workflowIDs}
+	return moved
 }
 
 func removePreservedMixedCanonicalOmissions(canonical []byte, preservedSections map[string]struct{}, changes []LegacyConfigOmission) ([]LegacyConfigOmission, error) {
@@ -622,14 +640,6 @@ func legacyMigrationResultBestEffort(translated map[string]any, context Compilat
 		}
 		result, err := legacyMigrationResult(translatedBytes, context, false)
 		if err == nil {
-			if review := result.Authored.PRReview; review != nil && review.Workflows != nil &&
-				review.Workflows.Enabled != nil && *review.Workflows.Enabled &&
-				review.Workflows.Triggers == nil {
-				review := *review
-				review.WorkflowIDs = append([]string(nil), review.Workflows.WorkflowIDs...)
-				review.Workflows = nil
-				result.Authored.PRReview = &review
-			}
 			return result, nil
 		}
 		var configError *ConfigError

@@ -107,7 +107,7 @@ kind. Validate and publish as in path 1.
 
 - `proof_of_changes.harness.kind` chooses who proves: `revyl` (Revyl's agent),
   `capy`, `cursor` (then run `"$LAUNCHER" config authorize-cursor-proof` after
-  publishing), or `devin` (alpha, enabled per organization). `model_id` is
+  publishing), or `devin`. `model_id` is
   allowed for `capy` and `cursor` only.
 - `proof_of_changes.always_verify` lists checks to make on every pull request
   in addition to what the change touches.

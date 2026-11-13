@@ -31,10 +31,8 @@ when `enabled` is `false` or the triggers don't match. Only
   Capy project that checks out the repository. A pinned project that is no
   longer enabled on the connection, or that does not check out the repository,
   fails the proof instead of falling back to another project.
-- `devin` (alpha) starts a Devin session through the organization's
-  team-default Devin connection. It takes no other fields. Devin is in alpha,
-  and Revyl accepts it only for organizations it has enabled; to add yours,
-  email [support@revyl.ai](mailto:support@revyl.ai). As with `capy`, the
+- `devin` starts a Devin session through the organization's team-default
+  Devin connection. It takes no other fields. As with `capy`, the
   connection is the authorization: set the harness and each run checks that
   the Devin organization can see the repository. CLI 0.1.187 is the first
   release that accepts `devin`; older releases reject it.

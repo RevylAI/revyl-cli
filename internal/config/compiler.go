@@ -1254,9 +1254,7 @@ func TranslateLegacyConfig(document map[string]any) (map[string]any, error) {
 				proof["harness"] = harness
 			}
 			review["proof_of_changes"] = proof
-			if workflowIDs := listDefault(actions["workflows"]); len(workflowIDs) > 0 {
-				review["workflows"] = map[string]any{"enabled": true, "workflow_ids": workflowIDs}
-			}
+			review["workflow_ids"] = listDefault(actions["workflows"])
 		}
 		strictBuildChecks, boolErr := legacyBool(actions, "strict_build_checks", true, []string{"pr_review", "actions", "strict_build_checks"})
 		if boolErr != nil {
