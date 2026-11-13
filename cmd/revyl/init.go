@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
@@ -855,30 +856,22 @@ func (draft *initConfigDraft) canonicalAuthoredConfig() (*config.AuthoredConfig,
 		profiles[profileName] = profile
 	}
 	if len(profiles) > 0 {
+		// A project with both native platforms, such as Kotlin Multiplatform,
+		// uses "ios"; each recipe still builds as its own platform.
 		if framework == "" {
-			uniquePlatforms := map[string]bool{}
+			framework = "android"
 			for _, profile := range profiles {
 				if profile.IOS != nil {
-					uniquePlatforms["ios"] = true
-				}
-				if profile.Android != nil {
-					uniquePlatforms["android"] = true
-				}
-			}
-			if len(uniquePlatforms) == 1 {
-				for platform := range uniquePlatforms {
-					framework = platform
+					framework = "ios"
 				}
 			}
 		}
-		if framework != "" {
-			authored.Build = &config.AuthoredBuild{
-				Framework: framework,
-				Env:       cloneInitStringMap(draft.Build.Env),
-				Secrets:   append([]string(nil), draft.Build.Secrets...),
-				Caches:    append([]config.BuildCache(nil), draft.Build.Caches...),
-				Profiles:  profiles,
-			}
+		authored.Build = &config.AuthoredBuild{
+			Framework: framework,
+			Env:       cloneInitStringMap(draft.Build.Env),
+			Secrets:   append([]string(nil), draft.Build.Secrets...),
+			Caches:    append([]config.BuildCache(nil), draft.Build.Caches...),
+			Profiles:  profiles,
 		}
 	}
 	if err := authored.ValidateContract(); err != nil {
@@ -1130,6 +1123,14 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 	}
 
 	if detected.System != build.SystemUnknown {
+		if overrideOpts != nil {
+			for platformKey, scheme := range overrideOpts.XcodeSchemeOverrides {
+				if platform, ok := detected.Platforms[platformKey]; ok && platform.Command != "" {
+					platform.Command = setBuildPlatformScheme(initBuildRecipeDraft{BuildCommands: []string{platform.Command}}, scheme).primaryBuildCommand()
+					detected.Platforms[platformKey] = platform
+				}
+			}
+		}
 		ui.PrintSuccess("Detected: %s", detected.System.String())
 		if len(detected.Platforms) > 0 {
 			var platNames []string
@@ -1165,15 +1166,10 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 			}
 		}
 		printBuildSystemHints(detected)
-		if initOmitsUnsupportedMixedNativeBuild(detected) {
-			ui.PrintWarning("%s build recipes span iOS and Android, but the project config requires one supported project framework", detected.System.String())
-			ui.PrintDim("Writing project and session configuration only; no build profiles were added.")
-		}
 	} else {
-		ui.PrintWarning("Could not detect build system")
-		ui.PrintInfo("You can configure this manually in .revyl/config.yaml")
-		ui.PrintInfo("Web setup: https://docs.revyl.com/remote-builds/configuration#web-recipes")
-		printNestedMobileAppHints(cwd)
+		if err := reportNoAppDetected(cwd, initForce || initDetect); err != nil {
+			return nil, err
+		}
 	}
 
 	ui.Println()
@@ -1297,20 +1293,6 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 	ui.PrintSuccess("Project config created: .revyl/config.yaml")
 
 	return cfg, nil
-}
-
-func initOmitsUnsupportedMixedNativeBuild(detected *build.DetectedBuild) bool {
-	if detected == nil || (detected.System != build.SystemBazel && detected.System != build.SystemKMP) {
-		return false
-	}
-	hasIOS := false
-	hasAndroid := false
-	for key := range detected.Platforms {
-		lowered := strings.ToLower(key)
-		hasIOS = hasIOS || strings.Contains(lowered, "ios")
-		hasAndroid = hasAndroid || strings.Contains(lowered, "android")
-	}
-	return hasIOS && hasAndroid
 }
 
 // ---------------------------------------------------------------------------
@@ -2424,14 +2406,14 @@ func wizardFirstBuildExpo(
 		options = append(options, ui.SelectOption{
 			Label:       fmt.Sprintf("Build and upload iOS dev stream only (%s)", iosTarget),
 			Value:       "ios",
-			Description: "Builds an iOS simulator app using your development EAS profile",
+			Description: "Builds a Debug iOS simulator app that loads JavaScript from Metro",
 		})
 	}
 	if androidTarget != "" {
 		options = append(options, ui.SelectOption{
 			Label:       fmt.Sprintf("Build and upload Android dev stream only (%s)", androidTarget),
 			Value:       "android",
-			Description: "Builds an Android APK using your development EAS profile",
+			Description: "Builds a Debug Android APK that loads JavaScript from Metro",
 		})
 	}
 	if iosTarget != "" && androidTarget != "" && iosTarget != androidTarget {
@@ -2494,7 +2476,7 @@ func wizardFirstBuildExpo(
 	primaryTarget := selectedTargets[0]
 
 	for {
-		if !uploadOnly {
+		if !uploadOnly && initRecipesUseEASBuild(cfg, pending) {
 			if ready := ensureExpoEASAuth(cwd); !ready {
 				recoveryOptions := []ui.SelectOption{
 					{Label: "Retry EAS auth check now"},
@@ -2550,8 +2532,20 @@ func wizardFirstBuildExpo(
 	}
 }
 
+func initRecipesUseEASBuild(cfg *initConfigDraft, platformKeys []string) bool {
+	for _, platformKey := range platformKeys {
+		if build.UsesEASBuild(cfg.Build.Recipes[platformKey].BuildCommands...) {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureInitExpoDevClientScheme checks the URL scheme revyl dev opens the dev
+// client with. Apps without expo-dev-client need none: revyl dev tells their
+// Debug build where Metro is at launch.
 func ensureInitExpoDevClientScheme(cwd string, cfg *initConfigDraft) error {
-	if cfg == nil || !isExpoBuildSystem(cfg.Build.DetectedSystem.String()) {
+	if cfg == nil || !isExpoBuildSystem(cfg.Build.DetectedSystem.String()) || !build.HasExpoDevClient(cwd) {
 		return nil
 	}
 	native, err := detectExpoNativeScheme(cwd)
@@ -4042,7 +4036,6 @@ func printBuildSystemHints(detected *build.DetectedBuild) {
 		ui.Println()
 		ui.PrintDim("  Kotlin Multiplatform detected: shared KMP logic compiles into native iOS/Android binaries.")
 		ui.PrintDim("  The dev loop uses native build commands (Xcode for iOS, Gradle for Android) underneath.")
-		ui.PrintDim("  Configure each native app as a platform-oriented Revyl project when both platforms are present.")
 		ui.PrintDim("  No separate KMP hot reload runtime is needed.")
 	}
 }
@@ -4056,78 +4049,77 @@ func hasConcreteBuildPlatforms(platforms map[string]build.BuildPlatform) bool {
 	return false
 }
 
-type nestedMobileAppHint struct {
+type nestedAppHint struct {
 	RelativePath string
 	System       build.BuildSystem
 }
 
-func printNestedMobileAppHints(cwd string) {
-	hints := findNestedMobileAppHints(cwd)
+// maxNestedAppHints caps how many apps below the current folder init suggests.
+const maxNestedAppHints = 3
+
+// reportNoAppDetected explains that init found no app in cwd and suggests the
+// folders below it that hold one, each with the command that sets it up. When
+// it finds one and setUpHere is false, it returns an error so init writes no
+// config here; with no app anywhere below, init writes a config without build
+// profiles, which Web projects complete by hand.
+func reportNoAppDetected(cwd string, setUpHere bool) error {
+	hints := findNestedAppHints(cwd)
 	if len(hints) == 0 {
-		return
-	}
-
-	ui.Println()
-	ui.PrintWarning("This looks like a workspace root rather than the actual mobile app directory.")
-	for _, hint := range hints {
-		ui.PrintDim("  Found %s app at %s", hint.System.String(), hint.RelativePath)
-	}
-	ui.PrintDim("  Run revyl init from the app directory to configure the right dev loop.")
-}
-
-func findNestedMobileAppHints(cwd string) []nestedMobileAppHint {
-	if !looksLikeWorkspaceRoot(cwd) {
+		ui.PrintWarning("No app found in this folder, so no build profiles were added")
+		ui.PrintInfo("Run revyl init from your app's folder: the one with app.json, pubspec.yaml, an .xcodeproj, or build.gradle.")
+		ui.PrintDim("Web apps are configured by hand: https://docs.revyl.com/remote-builds/configuration#web-recipes")
 		return nil
 	}
 
-	baseDirs := []string{"apps", "packages"}
-	var hints []nestedMobileAppHint
-
-	for _, base := range baseDirs {
-		basePath := filepath.Join(cwd, base)
-		entries, err := os.ReadDir(basePath)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			appDir := filepath.Join(basePath, entry.Name())
-			detected, err := build.Detect(appDir)
-			if err != nil {
-				continue
-			}
-			if detected.System != build.SystemExpo && detected.System != build.SystemReactNative {
-				continue
-			}
-			hints = append(hints, nestedMobileAppHint{
-				RelativePath: filepath.ToSlash(filepath.Join(base, entry.Name())),
-				System:       detected.System,
-			})
-		}
+	if setUpHere {
+		ui.PrintWarning("No app found in this folder, so no build profiles were added")
+	} else {
+		ui.PrintWarning("No app found in this folder")
 	}
-
-	sort.Slice(hints, func(i, j int) bool {
-		return hints[i].RelativePath < hints[j].RelativePath
-	})
-	return hints
+	ui.PrintInfo("Found an app in a subfolder. Run revyl init there:")
+	for i, hint := range hints {
+		if i == maxNestedAppHints {
+			ui.PrintDim("  …and %d more", len(hints)-maxNestedAppHints)
+			break
+		}
+		ui.PrintDim("  cd %s && revyl init    (%s)", quoteCLIRecoveryArgument(hint.RelativePath), hint.System.String())
+	}
+	if setUpHere {
+		return nil
+	}
+	ui.PrintDim("Use --force to set up this folder anyway.")
+	return errors.New("no app in this folder; run revyl init from the app's folder")
 }
 
-func looksLikeWorkspaceRoot(cwd string) bool {
-	packageJSONPath := filepath.Join(cwd, "package.json")
-	if data, err := os.ReadFile(packageJSONPath); err == nil && strings.Contains(string(data), "\"workspaces\"") {
-		return true
-	}
-
-	for _, marker := range []string{"pnpm-workspace.yaml", "turbo.json", "nx.json"} {
-		if _, err := os.Stat(filepath.Join(cwd, marker)); err == nil {
-			return true
+// findNestedAppHints returns the apps build detection recognizes in folders up
+// to three levels below cwd, shallowest first. It skips dependency, build, and
+// hidden folders, does not look inside a found app, and leaves out folders
+// with no buildable platform, such as shared packages and Swift packages.
+func findNestedAppHints(cwd string) []nestedAppHint {
+	const maxDepth = 3
+	skippedDirs := map[string]bool{"node_modules": true, "Pods": true, "build": true, "DerivedData": true, "vendor": true, "dist": true}
+	var hints []nestedAppHint
+	_ = filepath.WalkDir(cwd, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || !entry.IsDir() || path == cwd {
+			return nil
 		}
-	}
-
-	return false
+		name := entry.Name()
+		relative, _ := filepath.Rel(cwd, path)
+		depth := strings.Count(filepath.ToSlash(relative), "/") + 1
+		if skippedDirs[name] || strings.HasPrefix(name, ".") || depth > maxDepth {
+			return filepath.SkipDir
+		}
+		detected, detectErr := build.Detect(path)
+		if detectErr != nil || len(detected.Platforms) == 0 {
+			return nil
+		}
+		hints = append(hints, nestedAppHint{RelativePath: filepath.ToSlash(relative), System: detected.System})
+		return filepath.SkipDir
+	})
+	sort.SliceStable(hints, func(i, j int) bool {
+		return strings.Count(hints[i].RelativePath, "/") < strings.Count(hints[j].RelativePath, "/")
+	})
+	return hints
 }
 
 // selectHotReloadDetection chooses which detected provider to configure.
@@ -4480,8 +4472,9 @@ func printBuildSystemExplanation(system string) {
 		ui.PrintDim("  a standalone simulator .app and APK for revyl build, test runs, and pull")
 		ui.PrintDim("  requests. It needs no Metro server or Expo credentials.")
 		ui.PrintDim("")
-		ui.PrintDim("  The \"development\" profile builds the Expo dev client with EAS for hot")
-		ui.PrintDim("  reload (revyl dev), where JS/TS changes reflect instantly on a cloud device.")
+		ui.PrintDim("  The \"development\" profile makes the same build in Debug, which loads")
+		ui.PrintDim("  JavaScript from Metro for hot reload (revyl dev), where JS/TS changes")
+		ui.PrintDim("  reflect instantly on a cloud device.")
 		ui.PrintDim("")
 		ui.PrintDim("  Dev loop:  revyl dev             JS changes hot reload instantly")
 		ui.PrintDim("             press [r]             rebuild native code + reinstall")
@@ -4698,6 +4691,9 @@ func describeDevLoop(cwd string, cfg *initConfigDraft) (bool, string) {
 
 // printHotReloadInfo checks for hot-reload-compatible providers and prints info.
 func printHotReloadInfo(cwd string, cfg *initConfigDraft) {
+	if cfg == nil || len(cfg.Build.Recipes) == 0 {
+		return
+	}
 	registry := hotreload.DefaultRegistry()
 	detections := registry.DetectAllProviders(cwd)
 

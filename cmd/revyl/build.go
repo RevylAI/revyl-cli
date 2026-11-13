@@ -1432,7 +1432,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	var buildDuration time.Duration
 
-	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
+	if !buildSkip && isExpoBuildSystem(cfg.Build.System) && build.UsesEASBuild(buildCommands...) {
 		if ready := ensureExpoEASAuth(cwd); !ready {
 			return formatEASLoginRequiredError()
 		}

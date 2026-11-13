@@ -15,7 +15,7 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-func TestRunInitNonInteractiveExpoWritesNativePreviewAndDevClientDevelopmentProfiles(t *testing.T) {
+func TestRunInitNonInteractiveExpoWritesNativeDevelopmentAndPreviewProfiles(t *testing.T) {
 	resetInitGlobals(t)
 	initNonInteractive = true
 	stubInitHasLocalCredentials(t, true)
@@ -55,32 +55,31 @@ func TestRunInitNonInteractiveExpoWritesNativePreviewAndDevClientDevelopmentProf
 	if authored.Build == nil || authored.Build.Framework != "expo" {
 		t.Fatalf("build = %+v, want expo framework", authored.Build)
 	}
+	iosSetup := []string{"npm install", "if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; fi"}
+	androidSetup := []string{"npm install", "if [ ! -d android ]; then npx expo prebuild --platform android --no-install; fi"}
+	iosCommand := func(configuration string) []string {
+		return []string{`cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && xcodebuild -workspace "$WS" -scheme "${WS%.xcworkspace}" -configuration ` + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"}
+	}
 	preview := authored.Build.Profiles["preview"]
-	assertInitRecipe(t, "preview.ios", preview.IOS,
-		[]string{"npm install", "if [ ! -d ios ]; then npx expo prebuild --platform ios; fi"},
-		[]string{"cd ios && if [ ! -d Pods ] || [ ! -d RevylExpoMinimal.xcworkspace ]; then pod install; fi && xcodebuild -workspace RevylExpoMinimal.xcworkspace -scheme 'RevylExpoMinimal' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build"},
-		"ios/build/Build/Products/Release-iphonesimulator/*.app")
-	assertInitRecipe(t, "preview.android", preview.Android,
-		[]string{"npm install", "if [ ! -d android ]; then npx expo prebuild --platform android; fi"},
-		[]string{"cd android && ./gradlew assembleRelease"},
+	assertInitRecipe(t, "preview.ios", preview.IOS, iosSetup, iosCommand("Release"), "ios/build/Build/Products/Release-iphonesimulator/*.app")
+	assertInitRecipe(t, "preview.android", preview.Android, androidSetup,
+		[]string{"cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64"},
 		"android/app/build/outputs/apk/release/app-release.apk")
 	development := authored.Build.Profiles["development"]
-	assertInitRecipe(t, "development.ios", development.IOS, nil,
-		[]string{"npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz"},
-		"build/app.tar.gz")
-	assertInitRecipe(t, "development.android", development.Android, nil,
-		[]string{"npx --yes eas-cli build --platform android --profile development --local --output build/app.apk"},
-		"build/app.apk")
+	assertInitRecipe(t, "development.ios", development.IOS, iosSetup, iosCommand("Debug"), "ios/build/Build/Products/Debug-iphonesimulator/*.app")
+	assertInitRecipe(t, "development.android", development.Android, androidSetup,
+		[]string{"cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64"},
+		"android/app/build/outputs/apk/debug/app-debug.apk")
 	if len(authored.Build.Profiles) != 2 {
 		t.Fatalf("profiles = %v, want only preview and development", authored.Build.Profiles)
+	}
+	if strings.Contains(string(data), "eas-cli") {
+		t.Fatalf("default Expo recipes must not use EAS:\n%s", data)
 	}
 	if strings.Contains(string(data), "EXPO_TOKEN") {
 		t.Fatalf("native Expo recipes must not reference EXPO_TOKEN:\n%s", data)
 	}
 
-	if !strings.Contains(stderr, `Xcode scheme "RevylExpoMinimal" is the project name expo prebuild generates from app.json expo.name`) {
-		t.Fatalf("init output must say where the Xcode scheme came from:\n%s", stderr)
-	}
 	assertOrderedSubstrings(t, stderr,
 		"Next steps:",
 		"1. Create an app per platform and put its ID in build.profiles.preview.<platform>.app_id:",
@@ -143,7 +142,7 @@ func TestPrintInitNextStepsBuildsTheOnlyRunnableProfilePlatform(t *testing.T) {
 	cfg := &initConfigDraft{
 		Project: initProjectDraft{Name: "rn-app"},
 		Build: initBuildDraft{Recipes: map[string]initBuildRecipeDraft{
-			"android": {Profile: "development", Platform: "android", BuildCommands: []string{"cd android && ./gradlew assembleDebug"}, OutputPath: "android/app/build/outputs/apk/debug/app-debug.apk"},
+			"android": {Profile: "development", Platform: "android", BuildCommands: []string{"cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64"}, OutputPath: "android/app/build/outputs/apk/debug/app-debug.apk"},
 			"ios":     {Profile: "development", Platform: "ios", IncompleteDetectorPlaceholder: true},
 		}},
 	}
@@ -288,6 +287,7 @@ func assertOrderedSubstrings(t *testing.T, output string, substrings ...string) 
 func TestEnsureInitExpoDevClientSchemeKeepsDetectedSchemeTransient(t *testing.T) {
 	dir := t.TempDir()
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo","scheme":"demo-dev"}}`)
+	writeExpoPreflightFile(t, dir, "package.json", `{"dependencies":{"expo-dev-client":"*"}}`)
 	cfg := &initConfigDraft{
 		Project: initProjectDraft{ID: "11111111-1111-4111-8111-111111111111"},
 		Build:   initBuildDraft{DetectedSystem: build.SystemExpo},

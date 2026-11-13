@@ -741,8 +741,12 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		strings.TrimSpace(buildDetail.PackageName),
 	)
 
+	packagerHostLaunch := devLaunchesWithPackagerHost(provider.Name(), cwd, externalTunnel.tunnelURL != "")
+	if packagerHostLaunch && provider.Name() == "expo" && devicePlatform != "ios" {
+		return fmt.Errorf("hot reload for Expo apps without expo-dev-client supports iOS only; add it with npx expo install expo-dev-client, rebuild, and rerun revyl dev")
+	}
 	providerCfg = &config.ProviderConfig{}
-	if provider.Name() == "expo" && !externalTunnel.fromDeepLink {
+	if provider.Name() == "expo" && !externalTunnel.fromDeepLink && !packagerHostLaunch {
 		providerCfg, err = expoProviderConfigFromBuildVersionDetail(buildDetail)
 		if err != nil {
 			return fmt.Errorf("read selected build's Expo metadata: %w", err)
@@ -995,7 +999,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		launchPayload := map[string]string{
 			"bundle_id": bundleID,
 		}
-		if provider.Name() == "react-native" && devicePlatform == "ios" {
+		if packagerHostLaunch && devicePlatform == "ios" {
 			if host, scheme := metroPackagerAddressFromTunnelURL(startResult.TunnelURL); host != "" {
 				launchPayload["packager_host"] = host
 				launchPayload["packager_scheme"] = scheme
@@ -1019,16 +1023,14 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 
 	deepLinkURL := strings.TrimSpace(startResult.DeepLinkURL)
 	manualDeepLinkRequired := false
-	isBareRN := provider.Name() == "react-native"
-
-	if isBareRN {
-		// Bare React Native does not have a deep-link contract like Expo's
-		// dev client. On iOS the packager host was injected into NSUserDefaults
-		// via the /launch packager_host parameter. On Android the relay tunnel
-		// handles port forwarding. Skip the open_url step.
+	if packagerHostLaunch {
+		// Without a dev client there is no deep link to open. On iOS the
+		// packager host was injected into NSUserDefaults via the /launch
+		// packager_host parameter. On Android the relay tunnel handles port
+		// forwarding. Skip the open_url step.
 		ui.PrintInfo("Metro tunnel: %s", startResult.TunnelURL)
-		ui.PrintDim("  Bare React Native hot reload is active. The app loads its JS bundle")
-		ui.PrintDim("  from the Metro server via the relay tunnel.")
+		ui.PrintDim("  Hot reload is active. The app loads its JS bundle from the Metro")
+		ui.PrintDim("  server via the relay tunnel.")
 	} else {
 		deepLinkFailureHint := "hint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true"
 		if externalTunnel.fromDeepLink {
@@ -1082,7 +1084,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	// app fetches its JS bundle from the relay tunnel instead of localhost.
 	hrPackagerHost := ""
 	hrPackagerScheme := ""
-	if isBareRN && devicePlatform == "ios" {
+	if packagerHostLaunch && devicePlatform == "ios" {
 		hrPackagerHost, hrPackagerScheme = metroPackagerAddressFromTunnelURL(startResult.TunnelURL)
 	}
 
@@ -1152,7 +1154,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		defer cockpit.Close(context.Background())
 	}
 
-	printDevReadyFooter(cockpitURL, viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, isBareRN, noBuild, ctxName, session.Index)
+	printDevReadyFooter(cockpitURL, viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, packagerHostLaunch, noBuild, ctxName, session.Index)
 
 	if openBrowser {
 		_ = ui.OpenBrowser(devBrowserOpenTarget(cockpitURL, viewerURL))
@@ -1215,7 +1217,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 						manager,
 						deviceMgr,
 						session,
-						provider.Name(),
+						packagerHostLaunch,
 						devicePlatform,
 						bundleID,
 					)
@@ -1229,7 +1231,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 						devCtx.LastActivity = time.Now()
 						_ = saveDevContext(cwd, devCtx)
 						updateDevStatusHotReloadURLs(hrStatusPath, recovered)
-						if isBareRN && devicePlatform == "ios" {
+						if packagerHostLaunch && devicePlatform == "ios" {
 							hrPackagerHost, hrPackagerScheme = metroPackagerAddressFromTunnelURL(recovered.TunnelURL)
 						}
 						ui.PrintSuccess("Hot reload relay recovered")
@@ -1567,7 +1569,7 @@ func recoverHotReloadRelayForDevLoop(
 	manager *hotreload.Manager,
 	requester workerSessionRequester,
 	session *mcppkg.DeviceSession,
-	providerName string,
+	packagerHostLaunch bool,
 	devicePlatform string,
 	bundleID string,
 ) (*hotreload.StartResult, error) {
@@ -1575,17 +1577,20 @@ func recoverHotReloadRelayForDevLoop(
 	if err != nil {
 		return nil, err
 	}
-	if err := retargetHotReloadDevice(ctx, requester, session, providerName, devicePlatform, bundleID, recovered); err != nil {
+	if err := retargetHotReloadDevice(ctx, requester, session, packagerHostLaunch, devicePlatform, bundleID, recovered); err != nil {
 		return nil, err
 	}
 	return recovered, nil
 }
 
+// retargetHotReloadDevice points the running app at a replacement relay: a
+// dev client opens the new deep link, and an app launched with a packager host
+// relaunches with the new one.
 func retargetHotReloadDevice(
 	ctx context.Context,
 	requester workerSessionRequester,
 	session *mcppkg.DeviceSession,
-	providerName string,
+	packagerHostLaunch bool,
 	devicePlatform string,
 	bundleID string,
 	recovered *hotreload.StartResult,
@@ -1593,8 +1598,7 @@ func retargetHotReloadDevice(
 	if recovered == nil {
 		return fmt.Errorf("replacement relay result is empty")
 	}
-	switch strings.TrimSpace(providerName) {
-	case "expo":
+	if !packagerHostLaunch {
 		deepLink := strings.TrimSpace(recovered.DeepLinkURL)
 		if deepLink == "" {
 			return fmt.Errorf("replacement Expo deep link is empty")
@@ -1604,30 +1608,27 @@ func retargetHotReloadDevice(
 			return err
 		}
 		return ensureWorkerActionSucceeded(resp, "open_url")
-	case "react-native":
-		if strings.TrimSpace(devicePlatform) != "ios" {
-			return fmt.Errorf("bare React Native relay re-acquire currently supports iOS only")
-		}
-		identifier := strings.TrimSpace(bundleID)
-		if identifier == "" {
-			return fmt.Errorf("bundle id is required to relaunch bare React Native after relay recovery")
-		}
-		packagerHost, packagerScheme := metroPackagerAddressFromTunnelURL(recovered.TunnelURL)
-		if packagerHost == "" {
-			return fmt.Errorf("replacement relay URL is not a valid Metro packager host")
-		}
-		resp, err := requester.WorkerRequestOnSession(ctx, session, "/launch", map[string]string{
-			"bundle_id":       identifier,
-			"packager_host":   packagerHost,
-			"packager_scheme": packagerScheme,
-		})
-		if err != nil {
-			return err
-		}
-		return ensureWorkerActionSucceeded(resp, "launch")
-	default:
-		return fmt.Errorf("relay re-acquire retarget is not supported for provider %q", providerName)
 	}
+	if strings.TrimSpace(devicePlatform) != "ios" {
+		return fmt.Errorf("relay re-acquire without a dev client currently supports iOS only")
+	}
+	identifier := strings.TrimSpace(bundleID)
+	if identifier == "" {
+		return fmt.Errorf("bundle id is required to relaunch the app after relay recovery")
+	}
+	packagerHost, packagerScheme := metroPackagerAddressFromTunnelURL(recovered.TunnelURL)
+	if packagerHost == "" {
+		return fmt.Errorf("replacement relay URL is not a valid Metro packager host")
+	}
+	resp, err := requester.WorkerRequestOnSession(ctx, session, "/launch", map[string]string{
+		"bundle_id":       identifier,
+		"packager_host":   packagerHost,
+		"packager_scheme": packagerScheme,
+	})
+	if err != nil {
+		return err
+	}
+	return ensureWorkerActionSucceeded(resp, "launch")
 }
 
 // printNewTerminalHints prints session management and device interaction commands

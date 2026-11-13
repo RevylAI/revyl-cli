@@ -423,6 +423,9 @@ func TestRunInitDetectRefreshesDetectedFieldsAndPreservesUnrelatedCanonicalState
 	if err := os.WriteFile(filepath.Join(workDir, "package.json"), []byte(`{"dependencies":{"expo":"latest"}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(package.json) error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(workDir, "app.json"), []byte(`{"expo":{}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(app.json) error = %v", err)
+	}
 
 	idleTimeout := 55
 	beforeScriptPath := "scripts/before-session.sh"
@@ -526,10 +529,13 @@ func TestRunInitDetectRefreshesDetectedFieldsAndPreservesUnrelatedCanonicalState
 	if ios == nil || ios.BuildCommands == nil || len(*ios.BuildCommands) != 1 || (*ios.BuildCommands)[0].Command == "old-ios-build" {
 		t.Fatalf("detected iOS build command was not refreshed: %+v", ios)
 	}
-	if ios.OutputPath == nil || *ios.OutputPath != "build/app.tar.gz" {
-		t.Fatalf("detected iOS output path = %+v, want build/app.tar.gz", ios.OutputPath)
+	if ios.OutputPath == nil || *ios.OutputPath != "ios/build/Build/Products/Debug-iphonesimulator/*.app" {
+		t.Fatalf("detected iOS output path = %+v, want the Debug simulator app", ios.OutputPath)
 	}
-	if ios.AppID == nil || *ios.AppID != iosAppID || !reflect.DeepEqual(ios.SetupCommands, config.CommandStepItems([]string{"npm ci"})) || ios.Image == nil || *ios.Image != image || ios.TimeoutSeconds == nil || *ios.TimeoutSeconds != buildTimeout || !reflect.DeepEqual(ios.Env, map[string]string{"PLATFORM_ENV": "kept"}) || !reflect.DeepEqual(ios.Secrets, []string{"MATCH_PASSWORD"}) || !reflect.DeepEqual(ios.Caches, []config.BuildCache{{Key: "ios", Paths: []string{"ios/Pods"}}}) {
+	if len(ios.SetupCommands) == 0 || ios.SetupCommands[0].Command != "npm install" {
+		t.Fatalf("detected iOS setup commands were not refreshed: %+v", ios.SetupCommands)
+	}
+	if ios.AppID == nil || *ios.AppID != iosAppID || ios.Image == nil || *ios.Image != image || ios.TimeoutSeconds == nil || *ios.TimeoutSeconds != buildTimeout || !reflect.DeepEqual(ios.Env, map[string]string{"PLATFORM_ENV": "kept"}) || !reflect.DeepEqual(ios.Secrets, []string{"MATCH_PASSWORD"}) || !reflect.DeepEqual(ios.Caches, []config.BuildCache{{Key: "ios", Paths: []string{"ios/Pods"}}}) {
 		t.Fatalf("unrelated iOS recipe state changed: %+v", ios)
 	}
 	if authored.Build.Profiles["development"].Android == nil {
@@ -624,7 +630,7 @@ func TestRunInitDetectIncompletePlaceholderPreservesCollidingBuildCommandsAndExa
 	if development.IOS == nil || development.IOS.BuildCommands == nil || !reflect.DeepEqual(*development.IOS.BuildCommands, iosCommands) {
 		t.Fatalf("incomplete iOS detection changed build commands: %+v", development.IOS)
 	}
-	wantAndroidCommands := config.CommandStepItems([]string{"cd android && ./gradlew assembleDebug"})
+	wantAndroidCommands := config.CommandStepItems([]string{"cd android && gradle assembleDebug -PreactNativeArchitectures=x86_64"})
 	if development.Android == nil || development.Android.BuildCommands == nil || !reflect.DeepEqual(*development.Android.BuildCommands, wantAndroidCommands) {
 		t.Fatalf("complete Android detection did not replace build commands: %+v", development.Android)
 	}
@@ -649,6 +655,9 @@ func TestRunInitIncompletePlaceholderWritesEmptyBuildCommandsForNewProject(t *te
 	withWorkingDir(t, workDir)
 	if err := os.WriteFile(filepath.Join(workDir, "package.json"), []byte(`{"dependencies":{"react-native":"latest"}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(package.json) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "app.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(app.json) error = %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(workDir, "ios"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(ios) error = %v", err)

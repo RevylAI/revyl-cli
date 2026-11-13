@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 )
 
@@ -58,7 +59,8 @@ func (w *boundedCommandOutput) Write(data []byte) (int, error) {
 }
 
 // deriveExpoBuildMetadata resolves the exact Expo dev-client URL scheme
-// for a canonical project. Non-Expo projects do not receive Expo metadata.
+// for a canonical project. Projects without expo-dev-client, Expo or not, do
+// not receive Expo metadata.
 func deriveExpoBuildMetadata(
 	ctx context.Context,
 	projectRoot string,
@@ -81,6 +83,9 @@ func deriveExpoBuildMetadataWithResolver(
 	projectRoot = strings.TrimSpace(projectRoot)
 	if projectRoot == "" {
 		return nil, fmt.Errorf("project root is required to resolve Expo build metadata")
+	}
+	if !build.HasExpoDevClient(projectRoot) {
+		return nil, nil
 	}
 
 	native, err := detectExpoNativeScheme(projectRoot)

@@ -248,3 +248,14 @@ func IsIOSPlatformKey(key string) bool {
 	lower := strings.ToLower(strings.TrimSpace(key))
 	return strings.Contains(lower, "ios")
 }
+
+// UsesEASBuild reports whether any command runs an EAS build, which needs an
+// Expo account.
+func UsesEASBuild(commands ...string) bool {
+	for _, command := range commands {
+		if strings.Contains(command, "eas build") || strings.Contains(command, "eas-cli build") {
+			return true
+		}
+	}
+	return false
+}

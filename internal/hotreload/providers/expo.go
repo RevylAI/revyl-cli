@@ -359,8 +359,14 @@ func BuildExpoDeepLinkURL(appScheme string, useExpPrefix bool, tunnelURL string)
 //   - tunnelURL: The public relay URL
 //
 // Returns:
-//   - string: The deep link URL for launching the dev client
+//   - string: The deep link URL for launching the dev client, or the tunnel
+//     URL when the app has no dev-client scheme
 func (e *ExpoDevServer) GetDeepLinkURL(tunnelURL string) string {
+	if e.AppScheme == "" {
+		// An app without expo-dev-client has no dev-client scheme: its Debug
+		// build loads JavaScript from Metro, like bare React Native.
+		return tunnelURL
+	}
 	// URL encode the tunnel URL
 	encodedURL := url.QueryEscape(tunnelURL)
 

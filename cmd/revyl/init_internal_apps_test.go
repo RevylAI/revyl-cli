@@ -12,12 +12,12 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-func TestWorkspaceRootHintsForExpoMonorepo(t *testing.T) {
+func TestNestedAppHintsForExpoMonorepo(t *testing.T) {
 	root := copyInternalAppFixture(t, filepath.Join(repoRootForInitFixtureTests(t), "internal-apps", "expo-monorepo-hoisted"), false)
 
-	hints := findNestedMobileAppHints(root)
+	hints := findNestedAppHints(root)
 	if len(hints) != 1 {
-		t.Fatalf("findNestedMobileAppHints(root) = %v, want exactly one Expo app hint", hints)
+		t.Fatalf("findNestedAppHints(root) = %v, want exactly one Expo app hint", hints)
 	}
 	if hints[0].RelativePath != "apps/mobile" {
 		t.Fatalf("hint path = %q, want %q", hints[0].RelativePath, "apps/mobile")
@@ -26,8 +26,76 @@ func TestWorkspaceRootHintsForExpoMonorepo(t *testing.T) {
 		t.Fatalf("hint system = %v, want %v", hints[0].System, build.SystemExpo)
 	}
 
-	if got := findNestedMobileAppHints(filepath.Join(root, "apps", "mobile")); len(got) != 0 {
-		t.Fatalf("findNestedMobileAppHints(app dir) = %v, want no root hint", got)
+	if got := findNestedAppHints(filepath.Join(root, "apps", "mobile")); len(got) != 0 {
+		t.Fatalf("findNestedAppHints(app dir) = %v, want no hint inside the app", got)
+	}
+}
+
+func TestInitAtWorkspaceRootWritesNoConfigUnlessForced(t *testing.T) {
+	root := copyInternalAppFixture(t, filepath.Join(repoRootForInitFixtureTests(t), "internal-apps", "expo-monorepo-hoisted"), true)
+	revylDir := filepath.Join(root, ".revyl")
+	configPath := filepath.Join(revylDir, "config.yaml")
+	originalForce := initForce
+	t.Cleanup(func() { initForce = originalForce })
+
+	initForce = false
+	var err error
+	output := captureStdoutAndStderr(t, func() {
+		_, err = wizardProjectSetup(root, revylDir, configPath, nil)
+	})
+	if err == nil {
+		t.Fatal("wizardProjectSetup(workspace root) error = nil, want an error that points at the app folder")
+	}
+	if !strings.Contains(output, "cd apps/mobile && revyl init") {
+		t.Fatalf("output does not suggest the app folder:\n%s", output)
+	}
+	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml stat error = %v, want no config written at the workspace root", statErr)
+	}
+
+	initForce = true
+	captureStdoutAndStderr(t, func() {
+		_, err = wizardProjectSetup(root, revylDir, configPath, nil)
+	})
+	if err != nil {
+		t.Fatalf("wizardProjectSetup(workspace root, --force) error = %v", err)
+	}
+	if _, statErr := os.Stat(configPath); statErr != nil {
+		t.Fatalf("config.yaml stat error = %v, want a config written with --force", statErr)
+	}
+}
+
+func TestNestedAppHintsFindNativeAppsShallowestFirst(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{
+		"a/b/c/Deep.xcodeproj",
+		"z/Shallow.xcodeproj",
+		"a/b/c/d/TooDeep.xcodeproj",
+		"node_modules/lib/Lib.xcodeproj",
+		"z/Shallow.xcodeproj/Nested.xcodeproj",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "a", "Package.swift"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flutterPackage := filepath.Join(root, "packages", "analytics")
+	if err := os.MkdirAll(flutterPackage, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(flutterPackage, "pubspec.yaml"), []byte("dependencies:\n  flutter:\n    sdk: flutter\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hints := findNestedAppHints(root)
+	var got []string
+	for _, hint := range hints {
+		got = append(got, hint.RelativePath+"="+hint.System.String())
+	}
+	if want := []string{"z=Xcode", "a/b/c=Xcode"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("findNestedAppHints() = %v, want %v", got, want)
 	}
 }
 
@@ -43,11 +111,11 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 	}
 
 	tests := []struct {
-		path                      string
-		wantBuildSystem           string
-		wantPlatforms             []string
-		wantConcreteBuild         []string
-		wantCanonicalBuildOmitted bool
+		path                 string
+		wantBuildSystem      string
+		wantPlatforms        []string
+		wantConcreteBuild    []string
+		wantMixedNativeBuild bool
 	}{
 		{
 			path:              "bug-bazaar",
@@ -92,18 +160,18 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 			wantConcreteBuild: []string{"ios"},
 		},
 		{
-			path:                      "bazel-minimal",
-			wantBuildSystem:           "Bazel",
-			wantPlatforms:             []string{"android", "ios"},
-			wantConcreteBuild:         []string{"android", "ios"},
-			wantCanonicalBuildOmitted: true,
+			path:                 "bazel-minimal",
+			wantBuildSystem:      "Bazel",
+			wantPlatforms:        []string{"android", "ios"},
+			wantConcreteBuild:    []string{"android", "ios"},
+			wantMixedNativeBuild: true,
 		},
 		{
-			path:                      "kmp-minimal",
-			wantBuildSystem:           "Kotlin Multiplatform",
-			wantPlatforms:             []string{"android", "ios"},
-			wantConcreteBuild:         []string{"android", "ios"},
-			wantCanonicalBuildOmitted: true,
+			path:                 "kmp-minimal",
+			wantBuildSystem:      "Kotlin Multiplatform",
+			wantPlatforms:        []string{"android", "ios"},
+			wantConcreteBuild:    []string{"android", "ios"},
+			wantMixedNativeBuild: true,
 		},
 	}
 
@@ -116,19 +184,13 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 			configPath := filepath.Join(revylDir, "config.yaml")
 
 			var cfg *initConfigDraft
-			output := captureStdoutAndStderr(t, func() {
+			captureStdoutAndStderr(t, func() {
 				cfg, err = wizardProjectSetup(workDir, revylDir, configPath, overrideOpts)
 			})
 			if err != nil {
 				t.Fatalf("wizardProjectSetup(%s) error = %v", tt.path, err)
 			}
-			if tt.wantCanonicalBuildOmitted {
-				if !strings.Contains(output, "Writing project and session configuration only; no build profiles were added.") {
-					t.Fatalf("missing unsupported-framework guidance:\n%s", output)
-				}
-				if strings.Contains(output, "build.platforms") || !strings.Contains(output, "project config") {
-					t.Fatalf("mixed native guidance must use project/profile terminology:\n%s", output)
-				}
+			if tt.wantMixedNativeBuild {
 				data, readErr := os.ReadFile(configPath)
 				if readErr != nil {
 					t.Fatalf("ReadFile(config.yaml) error = %v", readErr)
@@ -137,8 +199,9 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 				if parseErr != nil {
 					t.Fatalf("ParseAuthoredConfig() error = %v", parseErr)
 				}
-				if authored.Build != nil {
-					t.Fatalf("canonical build = %+v, want omitted", authored.Build)
+				development := authored.Build.Profiles["development"]
+				if authored.Build.Framework != "ios" || development.IOS == nil || development.Android == nil {
+					t.Fatalf("canonical build = %+v, want one ios-framework project with iOS and Android recipes", authored.Build)
 				}
 			}
 

@@ -261,6 +261,12 @@ func requireProjectConfigurationToken() (string, error) {
 	return token, nil
 }
 
+func printConfigAdvisories(authored config.AuthoredConfig) {
+	if authored.PRReview != nil && authored.PRReview.TracksUnionOfBlocks() {
+		ui.PrintInfo("%s", config.CIUploadBlockTriggersMessage)
+	}
+}
+
 func printProjectConfigurationJSON(value any) error {
 	return json.NewEncoder(os.Stdout).Encode(value)
 }
@@ -281,6 +287,7 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return actionableLocalConfigError(&os.PathError{Op: "validate", Path: local.ConfigPath, Err: err})
 	}
+	printConfigAdvisories(*local.Authored)
 	var runTestDefinitionsFromGitMismatch string
 	output := projectConfigurationValidationOutput{
 		Status:                            "valid",
@@ -540,6 +547,7 @@ func runConfigPush(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return actionableLocalConfigError(err)
 	}
+	printConfigAdvisories(*resolved.local.Authored)
 	token, err := requireProjectConfigurationToken()
 	if err != nil {
 		return err

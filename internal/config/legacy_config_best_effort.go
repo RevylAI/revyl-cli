@@ -166,7 +166,7 @@ func preserveMixedCanonicalSections(original, translated map[string]any, context
 	if len(build) > 0 {
 		trySection("build", build)
 	}
-	review := selectLegacyMigrationKeys(stringMap(original["pr_review"]), "enabled", "review_triggers", "build", "proof_of_changes", "workflow_ids", "strict_ci_check")
+	review := selectLegacyMigrationKeys(stringMap(original["pr_review"]), "enabled", "triggers", "review_triggers", "build", "proof_of_changes", "workflows", "workflow_ids", "strict_ci_check")
 	if len(review) > 0 {
 		trySection("pr_review", review, "build")
 	}
@@ -622,6 +622,14 @@ func legacyMigrationResultBestEffort(translated map[string]any, context Compilat
 		}
 		result, err := legacyMigrationResult(translatedBytes, context, false)
 		if err == nil {
+			if review := result.Authored.PRReview; review != nil && review.Workflows != nil &&
+				review.Workflows.Enabled != nil && *review.Workflows.Enabled &&
+				review.Workflows.Triggers == nil {
+				review := *review
+				review.WorkflowIDs = append([]string(nil), review.Workflows.WorkflowIDs...)
+				review.Workflows = nil
+				result.Authored.PRReview = &review
+			}
 			return result, nil
 		}
 		var configError *ConfigError

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -38,8 +39,10 @@ func printExpoSchemePreflightError(err error) {
 	}
 }
 
+// ensureExpoDevClientSchemeForBuild checks the URL scheme revyl dev opens the
+// dev client with. Apps without expo-dev-client have no dev client to open.
 func ensureExpoDevClientSchemeForBuild(cwd string, cfg *config.ProjectConfig) (bool, error) {
-	if cfg == nil {
+	if cfg == nil || !build.HasExpoDevClient(cwd) {
 		return false, nil
 	}
 	return ensureExpoDevClientScheme(cwd, &cfg.Build, &cfg.HotReload)

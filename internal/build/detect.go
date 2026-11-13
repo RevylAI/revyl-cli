@@ -8,14 +8,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
-	"unicode"
 )
 
 var bazelTargetNamePattern = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
 
-const xcodeSimulatorDestination = "-destination 'generic/platform=iOS Simulator'"
+// reactNativeAndroidArchitecture is the one ABI React Native compiles its
+// native code for, the ABI of Revyl's Android emulators, instead of all four.
+const reactNativeAndroidArchitecture = " -PreactNativeArchitectures=x86_64"
 
 // BuildSystem represents a detected build system type.
 type BuildSystem int
@@ -168,42 +170,54 @@ func Detect(dir string) (*DetectedBuild, error) {
 
 // isExpoProject checks if the directory contains an Expo project.
 func isExpoProject(dir string) bool {
-	// Check for eas.json (definitive Expo indicator)
+	if !isJSApp(dir) {
+		return false
+	}
 	if fileExists(filepath.Join(dir, "eas.json")) || hasExpoDynamicConfig(dir) {
 		return true
 	}
+	return fileContains(filepath.Join(dir, "app.json"), `"expo"`) || fileContains(filepath.Join(dir, "package.json"), `"expo"`)
+}
 
-	// Check for app.json with expo configuration
-	appJsonPath := filepath.Join(dir, "app.json")
-	if fileExists(appJsonPath) {
-		content, err := os.ReadFile(appJsonPath)
-		if err == nil {
-			// Simple check for "expo" key in JSON
-			return strings.Contains(string(content), `"expo"`)
-		}
+// isJSApp reports whether dir is an Expo or React Native app rather than a
+// workspace root, library, or shared package that only depends on one: it has
+// an app config or a native app project.
+func isJSApp(dir string) bool {
+	return fileExists(filepath.Join(dir, "app.json")) ||
+		hasExpoDynamicConfig(dir) ||
+		findXcodeProjectIn(filepath.Join(dir, "ios")) != "" ||
+		findXcodeWorkspaceIn(filepath.Join(dir, "ios")) != "" ||
+		DirExists(filepath.Join(dir, "android", "app"))
+}
+
+func fileContains(path, text string) bool {
+	content, err := os.ReadFile(path) // #nosec G304 -- callers pass a fixed file name inside the local project.
+	return err == nil && strings.Contains(string(content), text)
+}
+
+// HasExpoDevClient reports whether the app in dir depends on expo-dev-client,
+// which lets revyl dev open the app on Metro with a deep link. Without it, a
+// Debug build is told where Metro is when it launches, like bare React Native.
+func HasExpoDevClient(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "package.json")) // #nosec G304 -- the path uses the local project root and a fixed file name.
+	if err != nil {
+		return false
 	}
-
-	packageJsonPath := filepath.Join(dir, "package.json")
-	if content, err := os.ReadFile(packageJsonPath); err == nil {
-		return strings.Contains(string(content), `"expo"`)
+	var manifest struct {
+		Dependencies    map[string]json.RawMessage `json:"dependencies"`
+		DevDependencies map[string]json.RawMessage `json:"devDependencies"`
 	}
-
-	return false
+	if json.Unmarshal(data, &manifest) != nil {
+		return false
+	}
+	_, inDependencies := manifest.Dependencies["expo-dev-client"]
+	_, inDevDependencies := manifest.DevDependencies["expo-dev-client"]
+	return inDependencies || inDevDependencies
 }
 
 // isReactNativeProject checks if the directory contains a React Native project.
 func isReactNativeProject(dir string) bool {
-	packageJsonPath := filepath.Join(dir, "package.json")
-	if !fileExists(packageJsonPath) {
-		return false
-	}
-
-	content, err := os.ReadFile(packageJsonPath)
-	if err != nil {
-		return false
-	}
-
-	return strings.Contains(string(content), `"react-native"`)
+	return isJSApp(dir) && fileContains(filepath.Join(dir, "package.json"), `"react-native"`)
 }
 
 // hasXcodeProject checks if the directory contains an Xcode project.
@@ -237,131 +251,204 @@ func hasXcodeProject(dir string) bool {
 	return false
 }
 
-// detectExpo returns build configuration for an Expo project.
-//
-// The "ios" and "android" platforms are EAS development-client builds for the
-// hot-reload dev loop, which needs expo-dev-client to open Metro. The
-// "ios-preview" and "android-preview" platforms are standalone native builds
-// (expo prebuild, then Xcode or Gradle) that need no Metro server or Expo
-// credentials, for regular builds and pull-request review.
+// detectExpo returns build configuration for an Expo project. Its recipes
+// install dependencies, run expo prebuild when the native project is not
+// committed, and build with Xcode or Gradle, so they need no Expo account.
 func detectExpo(dir string) (*DetectedBuild, error) {
-	devIOSProfile := "development"
-	if easCfg, err := LoadEASConfig(dir); err == nil && easCfg != nil {
-		if profile := easCfg.FindDevSimulatorProfile(); profile != "" {
-			devIOSProfile = profile
+	return detectReactNativeApp(SystemExpo, dir), nil
+}
+
+// detectReactNative returns build configuration for a React Native project
+// without Expo: the same recipes as Expo, without prebuild.
+func detectReactNative(dir string) (*DetectedBuild, error) {
+	return detectReactNativeApp(SystemReactNative, dir), nil
+}
+
+// detectReactNativeApp returns the two profiles every Expo and React Native app
+// gets. The "ios" and "android" platforms are Debug builds that load JavaScript
+// from Metro, for revyl dev. The "ios-preview" and "android-preview" platforms
+// are Release builds with the JavaScript bundled, for revyl build, test runs,
+// and pull requests.
+func detectReactNativeApp(system BuildSystem, dir string) *DetectedBuild {
+	installCommand := JSInstallCommand(dir)
+	detected := &DetectedBuild{System: system, Platforms: make(map[string]BuildPlatform)}
+	for suffix, configuration := range map[string]string{"": "Debug", "-preview": "Release"} {
+		for _, platform := range []string{"ios", "android"} {
+			recipe, ok := reactNativePlatform(system, dir, platform, configuration)
+			if !ok {
+				continue
+			}
+			if recipe.Command != "" {
+				recipe.SetupCommands = []string{installCommand}
+				if system == SystemExpo {
+					recipe.SetupCommands = append(recipe.SetupCommands, expoPrebuildCommand(platform))
+				}
+			}
+			detected.Platforms[platform+suffix] = recipe
 		}
 	}
-
-	installCommand := JSInstallCommand(dir)
-	androidPreview := reactNativeAndroidBuildPlatform("Release")
-	androidPreview.SetupCommands = []string{installCommand, expoPrebuildCommand("android")}
-
-	detected := &DetectedBuild{
-		System: SystemExpo,
-		Platforms: map[string]BuildPlatform{
-			"ios": {
-				Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/app.tar.gz", devIOSProfile),
-				Output:  "build/app.tar.gz",
-			},
-			"android": {
-				Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
-				Output:  "build/app.apk",
-			},
-			"ios-preview":     detectExpoIOSPreviewPlatform(dir, installCommand),
-			"android-preview": androidPreview,
-		},
+	for _, key := range []string{"ios-preview", "android-preview"} {
+		if recipe := detected.Platforms[key]; recipe.Command != "" {
+			detected.Command, detected.Output = recipe.Command, recipe.Output
+			break
+		}
 	}
-	detected.Command = detected.Platforms["ios-preview"].Command
-	detected.Output = detected.Platforms["ios-preview"].Output
+	return detected
+}
 
-	return detected, nil
+// reactNativePlatform returns one platform's recipe in the given build
+// configuration, or false when the app has no project for that platform.
+// Expo generates missing native projects with prebuild, so it always has both.
+func reactNativePlatform(system BuildSystem, dir, platform, configuration string) (BuildPlatform, bool) {
+	nativeDir := filepath.Join(dir, platform)
+	if platform == "android" {
+		if system != SystemExpo && !hasReactNativeAndroidProject(dir) {
+			return BuildPlatform{}, false
+		}
+		gradle := "./gradlew"
+		if DirExists(nativeDir) {
+			gradle = gradleCommand(nativeDir)
+		}
+		output, note := apkOutput(dir, "android/app", strings.ToLower(configuration))
+		return BuildPlatform{
+			Command: "cd android && " + gradle + " assemble" + configuration + reactNativeAndroidArchitecture,
+			Output:  output,
+			Note:    note,
+		}, true
+	}
+
+	output := "ios/build/Build/Products/" + configuration + "-iphonesimulator/*.app"
+	projectFile := findXcodeProjectIn(nativeDir)
+	workspaceFile := findXcodeWorkspaceIn(nativeDir)
+	switch {
+	case projectFile != "" || workspaceFile != "":
+		command := "cd ios && "
+		if fileExists(filepath.Join(nativeDir, "Podfile")) {
+			if workspaceFile == "" {
+				workspaceFile = strings.TrimSuffix(projectFile, ".xcodeproj") + ".xcworkspace"
+			}
+			command += "if [ ! -d Pods ] || [ ! -d " + shellQuote(workspaceFile) + " ]; then pod install; fi && "
+		}
+		container, flag := workspaceFile, "-workspace"
+		if container == "" {
+			container, flag = projectFile, "-project"
+		}
+		return BuildPlatform{
+			Command: command + xcodebuildCommand(flag+" "+shellQuote(container)+" -scheme "+shellQuote(xcodeScheme(nativeDir, container)), configuration),
+			Output:  output,
+		}, true
+	case DirExists(nativeDir):
+		reason := "ios/ exists, but no .xcodeproj or .xcworkspace is present yet"
+		if system == SystemExpo {
+			reason = "ios/ exists without an .xcodeproj, so expo prebuild will not regenerate it; run npx expo prebuild --platform ios, then revyl init --detect"
+		}
+		return BuildPlatform{IncompleteReason: reason}, true
+	case system == SystemExpo:
+		// expo prebuild names the workspace and its app scheme after the app,
+		// which app.config.js/ts can compute, so read the name after prebuild.
+		return BuildPlatform{
+			Command: `cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && ` + xcodebuildCommand(`-workspace "$WS" -scheme "${WS%.xcworkspace}"`, configuration),
+			Output:  output,
+		}, true
+	default:
+		return BuildPlatform{}, false
+	}
+}
+
+// xcodebuildCommand builds target, the container and scheme arguments, for
+// the iOS simulator. ARCHS=arm64 builds only the slice Revyl's Apple silicon
+// simulators run, instead of every simulator architecture.
+func xcodebuildCommand(target, configuration string) string {
+	return "xcodebuild " + target + " -configuration " + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
+}
+
+// gradleCommand returns how to run Gradle in dir: its wrapper, through sh when
+// Git checked the wrapper out without its executable bit, or the gradle on
+// PATH when the project has no wrapper.
+func gradleCommand(dir string) string {
+	info, err := os.Stat(filepath.Join(dir, "gradlew"))
+	switch {
+	case err != nil:
+		return "gradle"
+	case info.Mode()&0o111 == 0:
+		return "sh ./gradlew"
+	default:
+		return "./gradlew"
+	}
+}
+
+// apkOutput returns where Gradle writes the APK of module, a directory
+// relative to dir, for a build type such as debug. A module with product
+// flavors writes one APK per flavor under apk/<flavor>/<type>/, so the path
+// matches any of them and the note says how to build just one.
+func apkOutput(dir, module, buildType string) (output, note string) {
+	outputs := module + "/build/outputs/apk/"
+	moduleDir := filepath.Join(dir, module)
+	if !fileContains(filepath.Join(moduleDir, "build.gradle"), "productFlavors") && !fileContains(filepath.Join(moduleDir, "build.gradle.kts"), "productFlavors") {
+		return outputs + buildType + "/" + filepath.Base(module) + "-" + buildType + ".apk", ""
+	}
+	variant := strings.ToUpper(buildType[:1]) + buildType[1:]
+	return outputs + "*/" + buildType + "/*.apk", fmt.Sprintf("the app has product flavors, so assemble%[1]s builds every flavor; name one to build only it, such as assembleStaging%[1]s", variant)
 }
 
 // expoPrebuildCommand generates a platform's native project only when it is
 // absent, matching `expo run` and EAS Build: committed native directories are
-// never regenerated or overwritten.
+// never regenerated or overwritten. The build command installs CocoaPods.
 func expoPrebuildCommand(platform string) string {
-	return fmt.Sprintf("if [ ! -d %s ]; then npx expo prebuild --platform %s; fi", platform, platform)
+	return fmt.Sprintf("if [ ! -d %s ]; then npx expo prebuild --platform %s --no-install; fi", platform, platform)
 }
 
-// detectExpoIOSPreviewPlatform returns a Release iOS simulator build of the
-// prebuilt Expo project. For a committed ios/ project, the Xcode scheme is its
-// shared scheme or else the project name, and CocoaPods are installed when
-// missing. Without ios/, it is the project name expo prebuild generates from
-// app.json expo.name.
-func detectExpoIOSPreviewPlatform(dir, installCommand string) BuildPlatform {
-	iosDir := filepath.Join(dir, "ios")
-	var platform BuildPlatform
-	if projectFile := findXcodeProjectIn(iosDir); projectFile != "" {
-		projectRef := "ios/" + projectFile
-		platform = buildReactNativeIOSPlatform(projectRef, false, fileExists(filepath.Join(iosDir, "Podfile")), "Release")
-		scheme := sharedXcodeScheme(filepath.Join(dir, projectRef))
-		platform.Note = fmt.Sprintf("Xcode scheme %q is the shared scheme in %s", scheme, projectRef)
-		if scheme == "" {
-			scheme = strings.TrimSuffix(projectFile, ".xcodeproj")
-			platform.Note = fmt.Sprintf("No shared Xcode scheme in %s; using the project name %q, which expo prebuild also gives the app scheme", projectRef, scheme)
-		}
-		platform.Command = ApplySchemeToCommand(platform.Command, scheme)
-	} else if DirExists(iosDir) {
-		return BuildPlatform{
-			IncompleteReason: "ios/ exists without an .xcodeproj, so the preview recipe will not regenerate it; run npx expo prebuild --platform ios, then revyl init --detect",
-		}
-	} else {
-		appName := expoAppJSONName(dir)
-		projectName := sanitizeExpoIOSProjectName(appName)
-		incompleteReason := ""
-		switch {
-		case strings.IndexFunc(appName, func(r rune) bool { return r > unicode.MaxASCII }) >= 0:
-			incompleteReason = fmt.Sprintf("app.json expo.name %q has non-ASCII characters, which Expo versions turn into different Xcode project names", appName)
-		case projectName == "":
-			incompleteReason = "could not derive the Xcode project expo prebuild generates from a static app.json expo.name"
-		}
-		if incompleteReason != "" {
-			return BuildPlatform{
-				IncompleteReason: incompleteReason + "; run npx expo prebuild --platform ios, then revyl init --detect",
+// xcodeScheme returns the scheme to build from the Xcode workspace or project
+// named container in dir: the shared scheme named after the app's project,
+// else the shortest shared scheme that starts with the project name, such as
+// "Holy Book Dev", else the shortest shared scheme, else the project name,
+// which Xcode gives the scheme it creates for the app target. Test schemes are
+// never chosen.
+func xcodeScheme(dir, container string) string {
+	projectName := strings.TrimSuffix(container, filepath.Ext(container))
+	if project := findXcodeProjectIn(dir); project != "" {
+		projectName = strings.TrimSuffix(project, ".xcodeproj")
+	}
+
+	var schemes []string
+	seen := map[string]bool{}
+	for _, pattern := range []string{
+		filepath.Join(dir, container, "xcshareddata", "xcschemes", "*.xcscheme"),
+		filepath.Join(dir, "*.xcodeproj", "xcshareddata", "xcschemes", "*.xcscheme"),
+	} {
+		paths, _ := filepath.Glob(pattern)
+		for _, path := range paths {
+			name := strings.TrimSuffix(filepath.Base(path), ".xcscheme")
+			if seen[name] || strings.HasSuffix(name, "Tests") {
+				continue
 			}
-		}
-		platform = buildReactNativeIOSPlatform("ios/"+projectName+".xcodeproj", false, true, "Release")
-		platform.Command = ApplySchemeToCommand(platform.Command, projectName)
-		platform.Note = fmt.Sprintf("Xcode scheme %q is the project name expo prebuild generates from app.json expo.name; ios/ does not exist yet", projectName)
-		if hasExpoDynamicConfig(dir) {
-			platform.Note += ". Update it if app.config.js/ts changes expo.name"
+			seen[name] = true
+			if strings.EqualFold(name, projectName) {
+				return name
+			}
+			schemes = append(schemes, name)
 		}
 	}
-	platform.SetupCommands = []string{installCommand, expoPrebuildCommand("ios")}
-	return platform
+	if len(schemes) == 0 {
+		return projectName
+	}
+	prefix := strings.ToLower(projectName)
+	sort.Slice(schemes, func(i, j int) bool {
+		iPrefixed, jPrefixed := strings.HasPrefix(strings.ToLower(schemes[i]), prefix), strings.HasPrefix(strings.ToLower(schemes[j]), prefix)
+		if iPrefixed != jPrefixed {
+			return iPrefixed
+		}
+		if len(schemes[i]) != len(schemes[j]) {
+			return len(schemes[i]) < len(schemes[j])
+		}
+		return schemes[i] < schemes[j]
+	})
+	return schemes[0]
 }
 
-// expoAppJSONName returns the static app.json expo.name, or "" when absent.
-func expoAppJSONName(dir string) string {
-	data, err := os.ReadFile(filepath.Join(dir, "app.json")) // #nosec G304 -- the path uses the local project root and a fixed file name.
-	if err != nil {
-		return ""
-	}
-	var appJSON struct {
-		Expo struct {
-			Name string `json:"name"`
-		} `json:"expo"`
-	}
-	if err := json.Unmarshal(data, &appJSON); err != nil {
-		return ""
-	}
-	return appJSON.Expo.Name
-}
-
-// sanitizeExpoIOSProjectName returns the Xcode project name expo prebuild
-// generates from an ASCII expo.name: every character other than a letter or
-// digit is removed, which Expo's IOSConfig.XcodeUtils.sanitizedName does in
-// every version. Versions differ for non-ASCII names, so callers must not
-// derive those.
-func sanitizeExpoIOSProjectName(name string) string {
-	var sanitized strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			sanitized.WriteRune(r)
-		}
-	}
-	return sanitized.String()
+// shellQuote single-quotes a value for a POSIX shell command.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func hasExpoDynamicConfig(dir string) bool {
@@ -373,181 +460,56 @@ func hasExpoDynamicConfig(dir string) bool {
 	return false
 }
 
-// sharedXcodeScheme returns the shared scheme named after the Xcode project,
-// or the only shared scheme, or "" when neither exists.
-func sharedXcodeScheme(xcodeprojPath string) string {
-	schemePaths, err := filepath.Glob(filepath.Join(xcodeprojPath, "xcshareddata", "xcschemes", "*.xcscheme"))
-	if err != nil {
-		return ""
-	}
-	projectName := strings.TrimSuffix(filepath.Base(xcodeprojPath), ".xcodeproj")
-	for _, schemePath := range schemePaths {
-		if strings.TrimSuffix(filepath.Base(schemePath), ".xcscheme") == projectName {
-			return projectName
-		}
-	}
-	if len(schemePaths) == 1 {
-		return strings.TrimSuffix(filepath.Base(schemePaths[0]), ".xcscheme")
-	}
-	return ""
+var lockfilePackageManagers = []struct{ lockfile, manager string }{
+	{"yarn.lock", "yarn"},
+	{"pnpm-lock.yaml", "pnpm"},
+	{"bun.lockb", "bun"},
+	{"bun.lock", "bun"},
+	{"package-lock.json", "npm"},
 }
 
-// JSInstallCommand returns the dependency install command for the package
-// manager whose lockfile is present, defaulting to npm.
+// JSInstallCommand returns the dependency install command for the nearest
+// lockfile in dir or a parent directory up to the repository root, run where
+// the lockfile is so a workspace package installs with its workspace's package
+// manager. Yarn 2 and later, pinned by package.json's packageManager field,
+// enables Corepack first, since build machines ship Yarn 1. Without a
+// lockfile, it installs with npm in dir.
 func JSInstallCommand(dir string) string {
-	switch {
-	case fileExists(filepath.Join(dir, "yarn.lock")):
-		return "yarn install"
-	case fileExists(filepath.Join(dir, "pnpm-lock.yaml")):
-		return "pnpm install"
-	case fileExists(filepath.Join(dir, "bun.lockb")), fileExists(filepath.Join(dir, "bun.lock")):
-		return "bun install"
-	default:
-		return "npm install"
-	}
-}
-
-// detectReactNative returns build configuration for a React Native project.
-func detectReactNative(dir string) (*DetectedBuild, error) {
-	detected := &DetectedBuild{
-		System:    SystemReactNative,
-		Platforms: make(map[string]BuildPlatform),
-	}
-
-	if iosPlatform, ok := detectReactNativeIOSBuildPlatform(dir, "Debug"); ok {
-		detected.Platforms["ios"] = iosPlatform
-	} else if placeholderPlatform, ok := detectReactNativeIOSPlaceholderPlatform(dir); ok {
-		detected.Platforms["ios"] = placeholderPlatform
-	}
-
-	if androidPlatform, ok := detectReactNativeAndroidBuildPlatform(dir); ok {
-		detected.Platforms["android"] = androidPlatform
-	}
-
-	if androidPlatform, ok := detected.Platforms["android"]; ok && strings.TrimSpace(androidPlatform.Command) != "" {
-		detected.Command = androidPlatform.Command
-		detected.Output = androidPlatform.Output
-	} else if iosPlatform, ok := detected.Platforms["ios"]; ok && strings.TrimSpace(iosPlatform.Command) != "" {
-		detected.Command = iosPlatform.Command
-		detected.Output = iosPlatform.Output
-	}
-
-	return detected, nil
-}
-
-// detectReactNativeIOSBuildPlatform returns the buildable iOS platform for a React Native project.
-//
-// Parameters:
-//   - dir: The React Native project directory to inspect
-//   - configuration: The Xcode build configuration, such as Debug or Release
-//
-// Returns:
-//   - BuildPlatform: The resolved iOS build command and output path
-//   - bool: True when a concrete Xcode workspace or project was found
-func detectReactNativeIOSBuildPlatform(dir, configuration string) (BuildPlatform, bool) {
-	workspaceName := findXcodeWorkspace(dir)
-	if strings.TrimSpace(workspaceName) != "" {
-		return buildReactNativeIOSPlatform(workspaceName, true, false, configuration), true
-	}
-
-	projectName := findXcodeProject(dir)
-	if strings.TrimSpace(projectName) != "" {
-		podfilePath := filepath.Join(dir, "ios", "Podfile")
-		return buildReactNativeIOSPlatform(projectName, false, fileExists(podfilePath), configuration), true
-	}
-
-	return BuildPlatform{}, false
-}
-
-// detectReactNativeIOSPlaceholderPlatform returns a placeholder iOS platform for incomplete native setups.
-//
-// Parameters:
-//   - dir: The React Native project directory to inspect
-//
-// Returns:
-//   - BuildPlatform: Placeholder platform metadata with an incomplete reason
-//   - bool: True when an ios/ directory exists but no Xcode project/workspace is buildable yet
-func detectReactNativeIOSPlaceholderPlatform(dir string) (BuildPlatform, bool) {
-	iosDir := filepath.Join(dir, "ios")
-	if !DirExists(iosDir) {
-		return BuildPlatform{}, false
-	}
-
-	return BuildPlatform{
-		IncompleteReason: "ios/ exists, but no .xcodeproj or .xcworkspace is present yet",
-	}, true
-}
-
-// detectReactNativeAndroidBuildPlatform returns the buildable Android platform for a React Native project.
-//
-// Parameters:
-//   - dir: The React Native project directory to inspect
-//
-// Returns:
-//   - BuildPlatform: The resolved Android build command and output path
-//   - bool: True when the expected Android Gradle structure exists
-func detectReactNativeAndroidBuildPlatform(dir string) (BuildPlatform, bool) {
-	if !hasReactNativeAndroidProject(dir) {
-		return BuildPlatform{}, false
-	}
-
-	return reactNativeAndroidBuildPlatform("Debug"), true
-}
-
-// reactNativeAndroidBuildPlatform builds the Gradle APK command/output pair for
-// the android/ project of a React Native or prebuilt Expo app.
-//
-// Parameters:
-//   - variant: The Gradle build variant, such as Debug or Release
-//
-// Returns:
-//   - BuildPlatform: A buildable Android platform configuration
-func reactNativeAndroidBuildPlatform(variant string) BuildPlatform {
-	variantDir := strings.ToLower(variant)
-	return BuildPlatform{
-		Command: "cd android && ./gradlew assemble" + variant,
-		Output:  "android/app/build/outputs/apk/" + variantDir + "/app-" + variantDir + ".apk",
-	}
-}
-
-// buildReactNativeIOSPlatform builds the iOS command/output pair for a React Native project.
-//
-// Parameters:
-//   - projectRef: Relative path to the Xcode workspace or project
-//   - useWorkspace: True when projectRef points to an .xcworkspace, false for .xcodeproj
-//   - installPodsIfNeeded: True when the command should bootstrap CocoaPods before building
-//   - configuration: The Xcode build configuration, such as Debug or Release
-//
-// Returns:
-//   - BuildPlatform: A buildable iOS platform configuration
-func buildReactNativeIOSPlatform(projectRef string, useWorkspace bool, installPodsIfNeeded bool, configuration string) BuildPlatform {
-	buildFlag := "-workspace"
-	if !useWorkspace {
-		buildFlag = "-project"
-	}
-
-	ref := strings.TrimSpace(projectRef)
-	buildSettings := " -scheme * -configuration " + configuration + " -sdk iphonesimulator " + xcodeSimulatorDestination
-	outputPath := "ios/build/Build/Products/" + configuration + "-iphonesimulator/*.app"
-	if strings.HasPrefix(ref, "ios/") {
-		refBase := filepath.Base(ref)
-		if !useWorkspace && installPodsIfNeeded {
-			workspaceName := strings.TrimSuffix(refBase, filepath.Ext(refBase)) + ".xcworkspace"
-			return BuildPlatform{
-				Command: "cd ios && if [ ! -d Pods ] || [ ! -d " + workspaceName + " ]; then pod install; fi && xcodebuild -workspace " + workspaceName + buildSettings + " -derivedDataPath build",
-				Output:  outputPath,
+	for current := dir; ; current = filepath.Dir(current) {
+		for _, candidate := range lockfilePackageManagers {
+			if !fileExists(filepath.Join(current, candidate.lockfile)) {
+				continue
 			}
+			command := candidate.manager + " install"
+			if candidate.manager == "yarn" && usesModernYarn(current) {
+				command = "corepack enable && " + command
+			}
+			if relative, err := filepath.Rel(dir, current); err == nil && relative != "." {
+				command = "cd " + filepath.ToSlash(relative) + " && " + command
+			}
+			return command
 		}
-		return BuildPlatform{
-			Command: "cd ios && xcodebuild " + buildFlag + " " + refBase + buildSettings + " -derivedDataPath build",
-			Output:  outputPath,
+		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil || filepath.Dir(current) == current {
+			return "npm install"
 		}
 	}
+}
 
-	return BuildPlatform{
-		Command: "xcodebuild " + buildFlag + " " + ref + buildSettings + " -derivedDataPath ios/build",
-		Output:  outputPath,
+// usesModernYarn reports whether package.json in dir pins Yarn 2 or later
+// with its packageManager field, such as "yarn@4.10.2".
+func usesModernYarn(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "package.json")) // #nosec G304 -- the path uses a local project directory and a fixed file name.
+	if err != nil {
+		return false
 	}
+	var manifest struct {
+		PackageManager string `json:"packageManager"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return false
+	}
+	version, ok := strings.CutPrefix(manifest.PackageManager, "yarn@")
+	return ok && version != "" && !strings.HasPrefix(version, "1.")
 }
 
 // hasReactNativeAndroidProject checks whether a React Native project has a usable Android Gradle layout.
@@ -580,30 +542,36 @@ func hasReactNativeAndroidProject(dir string) bool {
 	return false
 }
 
-// detectFlutter returns build configuration for a Flutter project.
+// detectFlutter returns build configuration for a Flutter app's ios/ and
+// android/ projects. A Flutter package has neither, so it gets no platforms.
+// The APK holds only the x86_64 code Revyl's Android emulators run.
 func detectFlutter(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemFlutter,
 		Platforms: make(map[string]BuildPlatform),
 	}
 
-	detected.Platforms["ios"] = BuildPlatform{
-		Command: "flutter build ios --simulator",
-		Output:  "build/ios/iphonesimulator/*.app",
+	if DirExists(filepath.Join(dir, "ios")) {
+		detected.Platforms["ios"] = BuildPlatform{
+			Command: "flutter build ios --simulator",
+			Output:  "build/ios/iphonesimulator/*.app",
+		}
+		detected.Command, detected.Output = detected.Platforms["ios"].Command, detected.Platforms["ios"].Output
 	}
-
-	detected.Platforms["android"] = BuildPlatform{
-		Command: "flutter build apk --debug",
-		Output:  "build/app/outputs/flutter-apk/app-debug.apk",
+	if DirExists(filepath.Join(dir, "android")) {
+		detected.Platforms["android"] = BuildPlatform{
+			Command: "flutter build apk --debug --target-platform android-x64",
+			Output:  "build/app/outputs/flutter-apk/app-debug.apk",
+		}
+		detected.Command, detected.Output = detected.Platforms["android"].Command, detected.Platforms["android"].Output
 	}
-
-	detected.Command = detected.Platforms["android"].Command
-	detected.Output = detected.Platforms["android"].Output
 
 	return detected, nil
 }
 
-// detectXcode returns build configuration for an Xcode project.
+// detectXcode returns build configuration for an Xcode project. A Podfile
+// next to the project installs CocoaPods first and builds the workspace that
+// pod install creates.
 func detectXcode(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemXcode,
@@ -611,24 +579,30 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 		Platforms: make(map[string]BuildPlatform),
 	}
 
-	// Find workspace or project
-	workspaceName := findXcodeWorkspace(dir)
-	if workspaceName != "" {
-		detected.Command = "xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build"
-	} else {
-		projectName := findXcodeProject(dir)
-		if projectName != "" {
-			detected.Command = "xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build"
-		} else {
-			detected.Command = "xcodebuild -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build"
+	var setupCommands []string
+	flag, ref := "-workspace", findXcodeWorkspace(dir)
+	if ref == "" {
+		flag, ref = "-project", findXcodeProject(dir)
+	}
+	refDir := filepath.Dir(ref)
+	if fileExists(filepath.Join(dir, refDir, "Podfile")) {
+		setupCommands = []string{"pod install"}
+		if refDir != "." {
+			setupCommands = []string{"cd " + shellQuote(refDir) + " && pod install"}
+		}
+		if flag == "-project" {
+			flag, ref = "-workspace", strings.TrimSuffix(ref, ".xcodeproj")+".xcworkspace"
 		}
 	}
+	scheme := xcodeScheme(filepath.Join(dir, refDir), filepath.Base(ref))
+	detected.Command = xcodebuildCommand(flag+" "+shellQuote(ref)+" -scheme "+shellQuote(scheme), "Debug")
 
 	detected.Output = "build/Build/Products/Debug-iphonesimulator/*.app"
 
 	detected.Platforms["ios"] = BuildPlatform{
-		Command: detected.Command,
-		Output:  detected.Output,
+		SetupCommands: setupCommands,
+		Command:       detected.Command,
+		Output:        detected.Output,
 	}
 
 	return detected, nil
@@ -636,17 +610,19 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 
 // detectGradle returns build configuration for a Gradle/Android project.
 func detectGradle(dir string) (*DetectedBuild, error) {
+	output, note := apkOutput(dir, "app", "debug")
 	detected := &DetectedBuild{
 		System:    SystemGradle,
 		Platform:  "android",
-		Command:   "./gradlew assembleDebug",
-		Output:    "app/build/outputs/apk/debug/app-debug.apk",
+		Command:   gradleCommand(dir) + " assembleDebug",
+		Output:    output,
 		Platforms: make(map[string]BuildPlatform),
 	}
 
 	detected.Platforms["android"] = BuildPlatform{
 		Command: detected.Command,
 		Output:  detected.Output,
+		Note:    note,
 	}
 
 	return detected, nil
@@ -987,64 +963,34 @@ func detectKMP(dir string) (*DetectedBuild, error) {
 		Platforms: make(map[string]BuildPlatform),
 	}
 
-	if DirExists(filepath.Join(dir, "androidApp")) {
-		gradleFile := ""
-		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
-			if fileExists(filepath.Join(dir, "androidApp", name)) {
-				gradleFile = name
-				break
-			}
+	for _, module := range []string{"androidApp", "composeApp"} {
+		if !DirExists(filepath.Join(dir, module)) {
+			continue
 		}
-		if gradleFile != "" {
-			command := "cd androidApp && ./gradlew assembleDebug"
-			if fileExists(filepath.Join(dir, "gradlew")) {
-				command = "./gradlew :androidApp:assembleDebug"
-			}
+		if !fileExists(filepath.Join(dir, module, "build.gradle.kts")) && !fileExists(filepath.Join(dir, module, "build.gradle")) {
 			detected.Platforms["android"] = BuildPlatform{
-				Command: command,
-				Output:  "androidApp/build/outputs/apk/debug/androidApp-debug.apk",
+				IncompleteReason: module + "/ exists but no build.gradle(.kts) found. Configure build command manually.",
 			}
-		} else {
-			detected.Platforms["android"] = BuildPlatform{
-				IncompleteReason: "androidApp/ exists but no build.gradle(.kts) found. Configure build command manually.",
-			}
+			break
 		}
-	} else if DirExists(filepath.Join(dir, "composeApp")) {
-		gradleFile := ""
-		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
-			if fileExists(filepath.Join(dir, "composeApp", name)) {
-				gradleFile = name
-				break
-			}
+		output, note := apkOutput(dir, module, "debug")
+		detected.Platforms["android"] = BuildPlatform{
+			Command: gradleCommand(dir) + " :" + module + ":assembleDebug",
+			Output:  output,
+			Note:    note,
 		}
-		if gradleFile != "" {
-			command := "cd composeApp && ./gradlew assembleDebug"
-			if fileExists(filepath.Join(dir, "gradlew")) {
-				command = "./gradlew :composeApp:assembleDebug"
-			}
-			detected.Platforms["android"] = BuildPlatform{
-				Command: command,
-				Output:  "composeApp/build/outputs/apk/debug/composeApp-debug.apk",
-			}
-		} else {
-			detected.Platforms["android"] = BuildPlatform{
-				IncompleteReason: "composeApp/ exists but no build.gradle(.kts) found. Configure build command manually.",
-			}
-		}
+		break
 	}
 
 	if DirExists(filepath.Join(dir, "iosApp")) {
-		workspaceName := findXcodeWorkspaceIn(filepath.Join(dir, "iosApp"))
-		projectName := findXcodeProjectIn(filepath.Join(dir, "iosApp"))
-
-		if workspaceName != "" {
+		iosAppDir := filepath.Join(dir, "iosApp")
+		flag, container := "-workspace", findXcodeWorkspaceIn(iosAppDir)
+		if container == "" {
+			flag, container = "-project", findXcodeProjectIn(iosAppDir)
+		}
+		if container != "" {
 			detected.Platforms["ios"] = BuildPlatform{
-				Command: "cd iosApp && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
-				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
-			}
-		} else if projectName != "" {
-			detected.Platforms["ios"] = BuildPlatform{
-				Command: "cd iosApp && xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
+				Command: "cd iosApp && " + xcodebuildCommand(flag+" "+shellQuote(container)+" -scheme "+shellQuote(xcodeScheme(iosAppDir, container)), "Debug"),
 				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
 			}
 		} else {
@@ -1469,9 +1415,5 @@ func ApplySchemeToCommand(command, scheme string) string {
 	if !strings.Contains(command, "-scheme *") {
 		return command
 	}
-	// Shell-escape the scheme name to prevent injection via crafted names.
-	// Single-quote the value and escape any embedded single quotes.
-	escaped := strings.ReplaceAll(scheme, "'", "'\\''")
-	escapedScheme := fmt.Sprintf("'%s'", escaped)
-	return strings.Replace(command, "-scheme *", "-scheme "+escapedScheme, 1)
+	return strings.Replace(command, "-scheme *", "-scheme "+shellQuote(scheme), 1)
 }

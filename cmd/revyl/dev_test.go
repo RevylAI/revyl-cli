@@ -1478,6 +1478,36 @@ func (f *fakeWorkerSessionRequester) WorkerRequestOnSession(
 	return f.resp, f.err
 }
 
+func TestDevLaunchesWithPackagerHostOnlyWithoutADevClientDeepLink(t *testing.T) {
+	withDevClient := t.TempDir()
+	if err := os.WriteFile(filepath.Join(withDevClient, "package.json"), []byte(`{"dependencies":{"expo":"*","expo-dev-client":"*"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withoutDevClient := t.TempDir()
+	if err := os.WriteFile(filepath.Join(withoutDevClient, "package.json"), []byte(`{"dependencies":{"expo":"*"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name           string
+		provider       string
+		projectRoot    string
+		externalTunnel bool
+		want           bool
+	}{
+		{name: "Expo with expo-dev-client opens the deep link", provider: "expo", projectRoot: withDevClient},
+		{name: "Expo without expo-dev-client launches with Metro's address", provider: "expo", projectRoot: withoutDevClient, want: true},
+		{name: "a customer-run Expo tunnel opens the deep link", provider: "expo", projectRoot: withoutDevClient, externalTunnel: true},
+		{name: "bare React Native launches with Metro's address", provider: "react-native", projectRoot: withDevClient, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := devLaunchesWithPackagerHost(tt.provider, tt.projectRoot, tt.externalTunnel); got != tt.want {
+				t.Fatalf("devLaunchesWithPackagerHost() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRetargetHotReloadDeviceExpoOpensReplacementDeepLink(t *testing.T) {
 	requester := &fakeWorkerSessionRequester{resp: []byte(`{"success":true,"action":"open_url"}`)}
 	result := &hotreload.StartResult{
@@ -1487,7 +1517,7 @@ func TestRetargetHotReloadDeviceExpoOpensReplacementDeepLink(t *testing.T) {
 		RelayID:     "a-new",
 	}
 
-	if err := retargetHotReloadDevice(context.Background(), requester, testSession(2), "expo", "ios", "com.example.app", result); err != nil {
+	if err := retargetHotReloadDevice(context.Background(), requester, testSession(2), false, "ios", "com.example.app", result); err != nil {
 		t.Fatalf("retargetHotReloadDevice() error = %v", err)
 	}
 	if requester.sessionIndex != 2 || requester.path != "/open_url" {
@@ -1506,7 +1536,7 @@ func TestRetargetHotReloadDeviceBareRNIOSRelaunchesWithPackagerHost(t *testing.T
 		RelayID:   "a-new",
 	}
 
-	if err := retargetHotReloadDevice(context.Background(), requester, testSession(1), "react-native", "ios", "com.example.app", result); err != nil {
+	if err := retargetHotReloadDevice(context.Background(), requester, testSession(1), true, "ios", "com.example.app", result); err != nil {
 		t.Fatalf("retargetHotReloadDevice() error = %v", err)
 	}
 	if requester.sessionIndex != 1 || requester.path != "/launch" {
@@ -1529,7 +1559,7 @@ func TestRetargetHotReloadDeviceBareRNAndroidUnsupported(t *testing.T) {
 		context.Background(),
 		requester,
 		testSession(1),
-		"react-native",
+		true,
 		"android",
 		"com.example.app",
 		&hotreload.StartResult{TunnelURL: "https://hr-a-new.relay.example"},

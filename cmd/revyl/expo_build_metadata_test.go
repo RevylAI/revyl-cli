@@ -18,6 +18,33 @@ func writeExpoMetadataProjectFile(t *testing.T, projectRoot, name, contents stri
 	}
 }
 
+func newExpoDevClientProject(t *testing.T) string {
+	t.Helper()
+	projectRoot := t.TempDir()
+	writeExpoMetadataProjectFile(t, projectRoot, "package.json", `{"dependencies":{"expo":"~54.0.0","expo-dev-client":"~6.0.0"}}`)
+	return projectRoot
+}
+
+func TestDeriveExpoBuildMetadataSkipsAppsWithoutDevClient(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeExpoMetadataProjectFile(t, projectRoot, "package.json", `{"dependencies":{"expo":"~54.0.0"},"devDependencies":{"expo-dev-menu":"*"}}`)
+	writeExpoMetadataProjectFile(t, projectRoot, "app.config.js", `module.exports = {}`)
+
+	metadata, err := deriveExpoBuildMetadataWithResolver(
+		context.Background(),
+		projectRoot,
+		"expo",
+		nil,
+		func(context.Context, string, map[string]string) ([]byte, error) {
+			t.Fatal("dynamic Expo resolver must not run for an app without expo-dev-client")
+			return nil, nil
+		},
+	)
+	if err != nil || metadata != nil {
+		t.Fatalf("deriveExpoBuildMetadataWithResolver() = %#v, %v; want no metadata and no error", metadata, err)
+	}
+}
+
 func TestDeriveExpoBuildMetadataSkipsNonExpoFramework(t *testing.T) {
 	metadata, err := deriveExpoBuildMetadataWithResolver(
 		context.Background(),
@@ -38,7 +65,7 @@ func TestDeriveExpoBuildMetadataSkipsNonExpoFramework(t *testing.T) {
 }
 
 func TestDeriveExpoBuildMetadataUsesStaticAppJSONScheme(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newExpoDevClientProject(t)
 	writeExpoMetadataProjectFile(t, projectRoot, "app.json", `{"expo":{"scheme":"demo-dev","slug":"ignored"}}`)
 
 	metadata, err := deriveExpoBuildMetadataWithResolver(
@@ -60,7 +87,7 @@ func TestDeriveExpoBuildMetadataUsesStaticAppJSONScheme(t *testing.T) {
 }
 
 func TestDeriveExpoBuildMetadataUsesStaticSlugFallback(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newExpoDevClientProject(t)
 	writeExpoMetadataProjectFile(t, projectRoot, "app.json", `{"expo":{"slug":"demo-mobile"}}`)
 
 	metadata, err := deriveExpoBuildMetadata(context.Background(), projectRoot, "expo", nil)
@@ -73,7 +100,7 @@ func TestDeriveExpoBuildMetadataUsesStaticSlugFallback(t *testing.T) {
 }
 
 func TestDeriveExpoBuildMetadataResolvesDynamicConfig(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newExpoDevClientProject(t)
 	writeExpoMetadataProjectFile(t, projectRoot, "app.config.ts", `export default { scheme: "demo-dev" }`)
 
 	metadata, err := deriveExpoBuildMetadataWithResolver(
@@ -126,7 +153,7 @@ func TestProjectRecipeProcessEnvironmentForcesToolingSafetyValues(t *testing.T) 
 }
 
 func TestDeriveExpoBuildMetadataUsesResolvedDynamicSlugFallback(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newExpoDevClientProject(t)
 	writeExpoMetadataProjectFile(t, projectRoot, "app.config.js", `module.exports = { slug: "demo-mobile" }`)
 
 	metadata, err := deriveExpoBuildMetadataWithResolver(
@@ -147,7 +174,7 @@ func TestDeriveExpoBuildMetadataUsesResolvedDynamicSlugFallback(t *testing.T) {
 }
 
 func TestDeriveExpoBuildMetadataRequiresResolvedScheme(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newExpoDevClientProject(t)
 	writeExpoMetadataProjectFile(t, projectRoot, "app.config.js", `module.exports = {}`)
 
 	_, err := deriveExpoBuildMetadataWithResolver(
@@ -163,7 +190,7 @@ func TestDeriveExpoBuildMetadataRequiresResolvedScheme(t *testing.T) {
 }
 
 func TestDeriveExpoBuildMetadataReportsToolingFailure(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newExpoDevClientProject(t)
 	writeExpoMetadataProjectFile(t, projectRoot, "app.config.js", `module.exports = {}`)
 	wantErr := errors.New("tool failed")
 

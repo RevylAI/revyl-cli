@@ -202,6 +202,8 @@ func repositoryRelativePath(worktreeRoot, candidate string) (string, error) {
 
 // MarshalCanonicalConfig renders a validated canonical authored config using
 // stable struct field order, sorted mapping keys, and one trailing newline.
+// It keeps the spellings it was given, so a file that uses only review_triggers
+// and workflow_ids stays readable by CLIs that predate triggers and workflows.
 func MarshalCanonicalConfig(authored AuthoredConfig) ([]byte, error) {
 	if err := authored.ValidateContract(); err != nil {
 		return nil, err

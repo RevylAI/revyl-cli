@@ -210,6 +210,34 @@ func TestMarshalCanonicalConfigIsStableAndStrict(t *testing.T) {
 	}
 }
 
+func TestMarshalCanonicalConfigKeepsSpellingsOlderCLIsRead(t *testing.T) {
+	raw := "project:\n  id: " + projectFileTestProjectID + "\n" +
+		"pr_review:\n" +
+		"  build:\n    kind: ci_upload_to_revyl\n    app_ids: {ios: 22222222-2222-4222-8222-222222222222}\n" +
+		"  review_triggers:\n    labels: [needs-proof]\n" +
+		"  workflow_ids: [33333333-3333-4333-8333-333333333333]\n"
+	authored, err := ParseAuthoredConfig([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canonical, err := MarshalCanonicalConfig(*authored)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"\n    review_triggers:\n", "\n    workflow_ids:\n"} {
+		if !strings.Contains(string(canonical), want) {
+			t.Errorf("canonical config lost %q:\n%s", strings.TrimSpace(want), canonical)
+		}
+	}
+	for _, unwanted := range []string{"\n    triggers:", "\n    workflows:"} {
+		if strings.Contains(string(canonical), unwanted) {
+			t.Errorf("canonical config wrote %q, which older CLIs reject:\n%s", strings.TrimSpace(unwanted), canonical)
+		}
+	}
+}
+
 func TestMarshalCanonicalConfigFallsBackToBoundedJSONCompatibleYAML(t *testing.T) {
 	commands := CommandStepItems([]string{strings.Repeat("x\n", 280_000)})
 	authored := AuthoredConfig{

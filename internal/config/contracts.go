@@ -174,13 +174,27 @@ type AuthoredBuildRecipe struct {
 }
 
 // AuthoredPRReview is the canonical project-scoped review policy.
+// Triggers selects which pull requests Revyl builds, or for CI uploads waits
+// on, and block triggers only narrow it. ReviewTriggers is its deprecated
+// spelling. WorkflowIDs is the deprecated spelling of Workflows; it keeps its
+// original meaning of enabled workflows without narrowing.
 type AuthoredPRReview struct {
 	Enabled        *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Triggers       *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 	ReviewTriggers *AuthoredReviewTriggers `json:"review_triggers,omitempty" yaml:"review_triggers,omitempty"`
 	Build          AuthoredReviewBuild     `json:"build" yaml:"build"`
 	ProofOfChanges *AuthoredProofOfChanges `json:"proof_of_changes,omitempty" yaml:"proof_of_changes,omitempty"`
+	Workflows      *AuthoredWorkflows      `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	WorkflowIDs    []string                `json:"workflow_ids,omitempty" yaml:"workflow_ids,omitempty"`
 	StrictCICheck  *AuthoredStrictCICheck  `json:"strict_ci_check,omitempty" yaml:"strict_ci_check,omitempty"`
+}
+
+// AuthoredWorkflows selects saved workflows run against each eligible
+// pull-request build.
+type AuthoredWorkflows struct {
+	Enabled     *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	WorkflowIDs []string                `json:"workflow_ids,omitempty" yaml:"workflow_ids,omitempty"`
+	Triggers    *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 }
 
 // AuthoredReviewTriggers contains canonical changed-path, label, and draft filters.
@@ -207,10 +221,11 @@ type AuthoredExternalCIAppIDs struct {
 
 // AuthoredProofOfChanges is the canonical proof policy.
 type AuthoredProofOfChanges struct {
-	Enabled      *bool                 `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Harness      *AuthoredProofHarness `json:"harness,omitempty" yaml:"harness,omitempty"`
-	SystemPrompt *string               `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
-	AlwaysVerify []string              `json:"always_verify,omitempty" yaml:"always_verify,omitempty"`
+	Triggers     *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+	Enabled      *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Harness      *AuthoredProofHarness   `json:"harness,omitempty" yaml:"harness,omitempty"`
+	SystemPrompt *string                 `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	AlwaysVerify []string                `json:"always_verify,omitempty" yaml:"always_verify,omitempty"`
 }
 
 // AuthoredProofHarness selects the Revyl, Cursor, Capy, or Devin proof executor.
@@ -326,35 +341,19 @@ func (c AuthoredConfig) ValidateContract() error {
 	if c.PRReview == nil {
 		return nil
 	}
-	if c.PRReview.ReviewTriggers != nil {
-		for index, pathFilter := range c.PRReview.ReviewTriggers.Paths {
-			if err := validateReviewPathFilter(pathFilter); err != nil {
-				return authoredContractError(
-					[]string{"pr_review", "review_triggers", "paths", fmt.Sprintf("%d", index)},
-					err.Error(),
-				)
-			}
-		}
-		seenLabels := make(map[string]struct{}, len(c.PRReview.ReviewTriggers.Labels))
-		for index, labelFilter := range c.PRReview.ReviewTriggers.Labels {
-			if labelFilter == "" || labelFilter == "!" || labelFilter != strings.TrimSpace(labelFilter) {
-				return authoredContractError(
-					[]string{"pr_review", "review_triggers", "labels", fmt.Sprintf("%d", index)},
-					"pr_review.review_triggers.labels must contain trimmed non-empty label names",
-				)
-			}
-			if _, exists := seenLabels[labelFilter]; exists {
-				return authoredContractError(
-					[]string{"pr_review", "review_triggers", "labels", fmt.Sprintf("%d", index)},
-					"pr_review.review_triggers.labels must not contain duplicates",
-				)
-			}
-			seenLabels[labelFilter] = struct{}{}
-		}
+	if err := validateReviewTriggerBlocks(c.PRReview); err != nil {
+		return err
 	}
 	for _, workflowID := range c.PRReview.WorkflowIDs {
 		if _, err := uuid.Parse(workflowID); err != nil {
 			return authoredContractError([]string{"pr_review", "workflow_ids"}, "pr_review.workflow_ids must contain UUIDs")
+		}
+	}
+	if c.PRReview.Workflows != nil {
+		for _, workflowID := range c.PRReview.Workflows.WorkflowIDs {
+			if _, err := uuid.Parse(workflowID); err != nil {
+				return authoredContractError([]string{"pr_review", "workflows", "workflow_ids"}, "pr_review.workflows.workflow_ids must contain UUIDs")
+			}
 		}
 	}
 	if c.PRReview.StrictCICheck != nil && c.PRReview.StrictCICheck.Build == nil {
@@ -422,16 +421,6 @@ func (c AuthoredConfig) ValidateContract() error {
 		if c.PRReview.Build.AppIDs != nil {
 			return authoredContractError([]string{"pr_review", "build", "app_ids"}, "pr_review.build.app_ids is external-CI-only")
 		}
-		if c.Build == nil {
-			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile requires build profiles")
-		}
-		reviewProfile, ok := c.Build.Profiles[*c.PRReview.Build.Profile]
-		if !ok {
-			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile must name a declared profile")
-		}
-		if !reviewProfile.hasPhoneRecipe() && !reviewProfile.Web.HasBuildRecipe() {
-			return newConfigError("contract", "profile_url_only", []string{"pr_review", "build", "profile"}, URLOnlyProfileMessage(*c.PRReview.Build.Profile))
-		}
 	case "ci_upload_to_revyl":
 		if c.PRReview.Build.Profile != nil {
 			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile is managed-build-only")
@@ -458,6 +447,21 @@ func (c AuthoredConfig) ValidateContract() error {
 		}
 	default:
 		return authoredContractError([]string{"pr_review", "build", "kind"}, "pr_review.build.kind is unsupported")
+	}
+	if err := validateDeprecatedSpellings(c.PRReview); err != nil {
+		return err
+	}
+	if c.PRReview.Build.Kind == "revyl" {
+		if c.Build == nil {
+			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile requires build profiles")
+		}
+		reviewProfile, ok := c.Build.Profiles[*c.PRReview.Build.Profile]
+		if !ok {
+			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile must name a declared profile")
+		}
+		if !reviewProfile.hasPhoneRecipe() && !reviewProfile.Web.HasBuildRecipe() {
+			return newConfigError("contract", "profile_url_only", []string{"pr_review", "build", "profile"}, URLOnlyProfileMessage(*c.PRReview.Build.Profile))
+		}
 	}
 	return nil
 }
@@ -664,4 +668,34 @@ func validProjectFramework(framework string) bool {
 	default:
 		return false
 	}
+}
+
+func validateAuthoredReviewTriggers(triggers *AuthoredReviewTriggers, location []string) error {
+	if triggers != nil {
+		for index, pathFilter := range triggers.Paths {
+			if err := validateReviewPathFilter(pathFilter); err != nil {
+				return authoredContractError(
+					append(append([]string{}, location...), "paths", fmt.Sprintf("%d", index)),
+					err.Error(),
+				)
+			}
+		}
+		seenLabels := make(map[string]struct{}, len(triggers.Labels))
+		for index, labelFilter := range triggers.Labels {
+			if labelFilter == "" || labelFilter == "!" || labelFilter != strings.TrimSpace(labelFilter) {
+				return authoredContractError(
+					append(append([]string{}, location...), "labels", fmt.Sprintf("%d", index)),
+					"must be a trimmed non-empty label name",
+				)
+			}
+			if _, exists := seenLabels[labelFilter]; exists {
+				return authoredContractError(
+					append(append([]string{}, location...), "labels", fmt.Sprintf("%d", index)),
+					"must not repeat an earlier label",
+				)
+			}
+			seenLabels[labelFilter] = struct{}{}
+		}
+	}
+	return nil
 }

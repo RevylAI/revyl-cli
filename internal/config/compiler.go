@@ -433,26 +433,14 @@ func validateReviewKeys(review *yaml.Node) error {
 	if err := validateMappingNode(review, path, true); err != nil {
 		return err
 	}
-	if err := validateAllowedKeys(review, path, "enabled", "review_triggers", "build", "proof_of_changes", "workflow_ids", "strict_ci_check"); err != nil {
+	if err := validateAllowedKeys(review, path, "enabled", "triggers", "review_triggers", "build", "proof_of_changes", "workflows", "workflow_ids", "strict_ci_check"); err != nil {
 		return err
 	}
 	if err := validateBooleanNode(mappingValue(review, "enabled"), append(path, "enabled")); err != nil {
 		return err
 	}
-	if triggers := mappingValue(review, "review_triggers"); triggers != nil && !nodeIsNull(triggers) {
-		if err := validateMappingNode(triggers, append(path, "review_triggers"), true); err != nil {
-			return err
-		}
-		if err := validateAllowedKeys(triggers, append(path, "review_triggers"), "paths", "labels", "drafts"); err != nil {
-			return err
-		}
-		if err := validateBooleanNode(mappingValue(triggers, "drafts"), append(path, "review_triggers", "drafts")); err != nil {
-			return err
-		}
-		if err := validateStringSequence(mappingValue(triggers, "paths"), append(path, "review_triggers", "paths")); err != nil {
-			return err
-		}
-		if err := validateStringSequence(mappingValue(triggers, "labels"), append(path, "review_triggers", "labels")); err != nil {
+	for _, key := range []string{"triggers", "review_triggers"} {
+		if err := validateReviewTriggerNode(mappingValue(review, key), append(path, key)); err != nil {
 			return err
 		}
 	}
@@ -497,7 +485,10 @@ func validateReviewKeys(review *yaml.Node) error {
 		if err := validateMappingNode(proof, proofPath, true); err != nil {
 			return err
 		}
-		if err := validateAllowedKeys(proof, proofPath, "enabled", "harness", "system_prompt", "always_verify"); err != nil {
+		if err := validateAllowedKeys(proof, proofPath, "enabled", "harness", "system_prompt", "always_verify", "triggers"); err != nil {
+			return err
+		}
+		if err := validateReviewTriggerNode(mappingValue(proof, "triggers"), append(proofPath, "triggers")); err != nil {
 			return err
 		}
 		if err := validateBooleanNode(mappingValue(proof, "enabled"), append(proofPath, "enabled")); err != nil {
@@ -533,6 +524,24 @@ func validateReviewKeys(review *yaml.Node) error {
 			if err := validateStringNode(mappingValue(harness, "capy_project_id"), append(proofPath, "harness", kind, "capy_project_id"), true); err != nil {
 				return err
 			}
+		}
+	}
+	if workflows := mappingValue(review, "workflows"); workflows != nil && !nodeIsNull(workflows) {
+		workflowsPath := append(append([]string{}, path...), "workflows")
+		if err := validateMappingNode(workflows, workflowsPath, true); err != nil {
+			return err
+		}
+		if err := validateAllowedKeys(workflows, workflowsPath, "enabled", "workflow_ids", "triggers"); err != nil {
+			return err
+		}
+		if err := validateBooleanNode(mappingValue(workflows, "enabled"), append(workflowsPath, "enabled")); err != nil {
+			return err
+		}
+		if err := validateStringSequence(mappingValue(workflows, "workflow_ids"), append(workflowsPath, "workflow_ids")); err != nil {
+			return err
+		}
+		if err := validateReviewTriggerNode(mappingValue(workflows, "triggers"), append(workflowsPath, "triggers")); err != nil {
+			return err
 		}
 	}
 	if err := validateStringSequence(mappingValue(review, "workflow_ids"), append(path, "workflow_ids")); err != nil {
@@ -854,6 +863,15 @@ func canonicalizeAuthoredConfigUUIDs(authored *AuthoredConfig) error {
 		}
 		authored.PRReview.WorkflowIDs[index] = value
 	}
+	if authored.PRReview.Workflows != nil {
+		for index, workflowID := range authored.PRReview.Workflows.WorkflowIDs {
+			value, parseErr := canonicalUUID(workflowID, []string{"pr_review", "workflows", "workflow_ids", strconv.Itoa(index)})
+			if parseErr != nil {
+				return parseErr
+			}
+			authored.PRReview.Workflows.WorkflowIDs[index] = value
+		}
+	}
 	if authored.PRReview.Build.AppIDs != nil {
 		for _, candidate := range []struct {
 			platform string
@@ -1067,7 +1085,7 @@ func ValidatePublication(aggregate NormalizedProjectAggregate, context Publicati
 	if aggregate.ReviewPolicy != nil {
 		for _, workflowID := range aggregate.ReviewPolicy.WorkflowIDs {
 			if _, exists := context.ActiveWorkflowIDs[workflowID]; !exists {
-				return newConfigError("validation", "workflow_not_active_for_organization", []string{"pr_review", "workflow_ids"}, "")
+				return newConfigError("validation", "workflow_not_active_for_organization", []string{"pr_review", "workflows", "workflow_ids"}, "")
 			}
 		}
 		if aggregate.ReviewPolicy.Build.AppIDs != nil {
@@ -1236,7 +1254,9 @@ func TranslateLegacyConfig(document map[string]any) (map[string]any, error) {
 				proof["harness"] = harness
 			}
 			review["proof_of_changes"] = proof
-			review["workflow_ids"] = listDefault(actions["workflows"])
+			if workflowIDs := listDefault(actions["workflows"]); len(workflowIDs) > 0 {
+				review["workflows"] = map[string]any{"enabled": true, "workflow_ids": workflowIDs}
+			}
 		}
 		strictBuildChecks, boolErr := legacyBool(actions, "strict_build_checks", true, []string{"pr_review", "actions", "strict_build_checks"})
 		if boolErr != nil {
@@ -1859,4 +1879,23 @@ func firstNonEmpty(values ...string) string {
 
 func utf8Valid(value []byte) bool {
 	return utf8.Valid(value)
+}
+
+func validateReviewTriggerNode(triggers *yaml.Node, path []string) error {
+	if triggers == nil || nodeIsNull(triggers) {
+		return nil
+	}
+	if err := validateMappingNode(triggers, path, true); err != nil {
+		return err
+	}
+	if err := validateAllowedKeys(triggers, path, "paths", "labels", "drafts"); err != nil {
+		return err
+	}
+	if err := validateBooleanNode(mappingValue(triggers, "drafts"), append(path, "drafts")); err != nil {
+		return err
+	}
+	if err := validateStringSequence(mappingValue(triggers, "paths"), append(path, "paths")); err != nil {
+		return err
+	}
+	return validateStringSequence(mappingValue(triggers, "labels"), append(path, "labels"))
 }

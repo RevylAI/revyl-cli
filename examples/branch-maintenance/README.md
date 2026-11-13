@@ -88,9 +88,3 @@ ambiguous launch. Keep the saved receipt with the job's results.
 Provider details: [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency),
 [scheduled workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
 [Cursor automations](https://cursor.com/docs/cloud-agent/automations).
-
-Local contract checks, without credentials or remote execution:
-
-```bash
-python3 test_maintain_atlas.py
-```

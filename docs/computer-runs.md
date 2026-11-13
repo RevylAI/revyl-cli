@@ -1,10 +1,9 @@
 # Computer runs
 
-`revyl computer` and `revyl device start --computer` require Mac computers to
-be turned on for your organization. Mac computers need a paid plan: an
-organization owner or admin turns them on in **Settings → Experiments**.
-Until they are on, `revyl computer create` returns `computer_not_enabled`
-(HTTP 403) without creating anything.
+`revyl computer` and `revyl device start --computer` need Mac computers, which
+are available to organizations on a current paid plan. Without one,
+`revyl computer create` returns `computer_not_enabled` (HTTP 403) without
+creating anything; an owner or admin can upgrade in **Settings → Plans**.
 
 `revyl computer` addresses an explicit computer-run UUID. It does not select an
 assigned physical Mac or change native device targeting.
@@ -310,6 +309,7 @@ variables, arguments and environment, run options and test-backed starts are
 refused. For hosted iOS starts, `--device-model "iPhone Air"` runs an iPhone
 Air when the computer's image supports it; otherwise the backend refuses the
 start.
+An iOS or Android start with no app selected or configured runs the device with no app.
 The app session has its own session ID, stream, report and `revyl device stop`.
 Stopping it leaves C1 running; stopping C1 ends it. Its report attributes only
 the actions Revyl's driver took, and commands run in C1 can also change the

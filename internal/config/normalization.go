@@ -47,14 +47,19 @@ type NormalizedPlatformConfiguration struct {
 	BuildDefinitionHash string                `json:"build_definition_hash"`
 }
 
+// NormalizedReviewPolicy is the default-materialized review policy.
+// WorkflowsEnabled defaults to true because the deprecated shared workflow_ids
+// spelling always ran its workflows.
 type NormalizedReviewPolicy struct {
-	Enabled          bool                     `json:"enabled"`
-	ReviewTriggers   NormalizedReviewTriggers `json:"review_triggers"`
-	Build            NormalizedReviewBuild    `json:"build"`
-	ProofOfChanges   *NormalizedProof         `json:"proof_of_changes,omitempty"`
-	WorkflowIDs      []string                 `json:"workflow_ids"`
-	StrictBuildCheck bool                     `json:"strict_build_check"`
-	ReviewPolicyHash string                   `json:"review_policy_hash"`
+	Enabled          bool                      `json:"enabled"`
+	ReviewTriggers   NormalizedReviewTriggers  `json:"review_triggers"`
+	Build            NormalizedReviewBuild     `json:"build"`
+	ProofOfChanges   *NormalizedProof          `json:"proof_of_changes,omitempty"`
+	WorkflowIDs      []string                  `json:"workflow_ids"`
+	WorkflowsEnabled bool                      `json:"workflows_enabled"`
+	WorkflowTriggers *NormalizedReviewTriggers `json:"workflow_triggers,omitempty"`
+	StrictBuildCheck bool                      `json:"strict_build_check"`
+	ReviewPolicyHash string                    `json:"review_policy_hash"`
 }
 
 type NormalizedReviewTriggers struct {
@@ -70,10 +75,11 @@ type NormalizedReviewBuild struct {
 }
 
 type NormalizedProof struct {
-	Enabled      bool                    `json:"enabled"`
-	Harness      *NormalizedProofHarness `json:"harness,omitempty"`
-	SystemPrompt *string                 `json:"system_prompt,omitempty"`
-	AlwaysVerify []string                `json:"always_verify"`
+	Triggers     *NormalizedReviewTriggers `json:"triggers,omitempty"`
+	Enabled      bool                      `json:"enabled"`
+	Harness      *NormalizedProofHarness   `json:"harness,omitempty"`
+	SystemPrompt *string                   `json:"system_prompt,omitempty"`
+	AlwaysVerify []string                  `json:"always_verify"`
 }
 
 type NormalizedProofHarness struct {
@@ -234,7 +240,7 @@ func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext
 	}
 
 	if authored.PRReview != nil {
-		aggregate.ReviewPolicy, _, err = normalizeReviewPolicy(*authored.PRReview)
+		aggregate.ReviewPolicy, _, err = normalizeReviewPolicy(*authored.PRReview, root)
 		if err != nil {
 			return nil, err
 		}
@@ -350,16 +356,21 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 			"build":        authoredReviewBuildFileProjection(authored.PRReview.Build),
 			"workflow_ids": nonNilSlice(authored.PRReview.WorkflowIDs),
 		}
+		if workflows := authored.PRReview.Workflows; workflows != nil {
+			workflowProjection := map[string]any{
+				"enabled":      workflows.Enabled != nil && *workflows.Enabled,
+				"workflow_ids": nonNilSlice(workflows.WorkflowIDs),
+			}
+			if workflows.Triggers != nil {
+				workflowProjection["triggers"] = authoredReviewTriggersFileProjection(workflows.Triggers)
+			}
+			review["workflows"] = workflowProjection
+		}
+		if authored.PRReview.Triggers != nil {
+			review["triggers"] = authoredReviewTriggersFileProjection(authored.PRReview.Triggers)
+		}
 		if authored.PRReview.ReviewTriggers != nil {
-			drafts := false
-			if authored.PRReview.ReviewTriggers.Drafts != nil {
-				drafts = *authored.PRReview.ReviewTriggers.Drafts
-			}
-			review["review_triggers"] = map[string]any{
-				"paths":  nonNilSlice(authored.PRReview.ReviewTriggers.Paths),
-				"labels": nonNilSlice(authored.PRReview.ReviewTriggers.Labels),
-				"drafts": drafts,
-			}
+			review["review_triggers"] = authoredReviewTriggersFileProjection(authored.PRReview.ReviewTriggers)
 		}
 		if authored.PRReview.ProofOfChanges != nil {
 			proofEnabled := false
@@ -369,6 +380,9 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 			proof := map[string]any{
 				"enabled":       proofEnabled,
 				"always_verify": nonNilSlice(authored.PRReview.ProofOfChanges.AlwaysVerify),
+			}
+			if authored.PRReview.ProofOfChanges.Triggers != nil {
+				proof["triggers"] = authoredReviewTriggersFileProjection(authored.PRReview.ProofOfChanges.Triggers)
 			}
 			if authored.PRReview.ProofOfChanges.Harness != nil {
 				harness := map[string]any{
@@ -494,11 +508,20 @@ func configCollectionItemCount(authored AuthoredConfig) int {
 	if authored.PRReview != nil {
 		review := authored.PRReview
 		count += len(review.WorkflowIDs)
-		if review.ReviewTriggers != nil {
-			count += len(review.ReviewTriggers.Paths) + len(review.ReviewTriggers.Labels)
+		if rootTriggers := review.RootTriggers(); rootTriggers != nil {
+			count += len(rootTriggers.Paths) + len(rootTriggers.Labels)
 		}
 		if review.ProofOfChanges != nil {
+			if review.ProofOfChanges.Triggers != nil {
+				count += len(review.ProofOfChanges.Triggers.Paths) + len(review.ProofOfChanges.Triggers.Labels)
+			}
 			count += len(review.ProofOfChanges.AlwaysVerify)
+		}
+		if review.Workflows != nil {
+			count += len(review.Workflows.WorkflowIDs)
+			if review.Workflows.Triggers != nil {
+				count += len(review.Workflows.Triggers.Paths) + len(review.Workflows.Triggers.Labels)
+			}
 		}
 	}
 	return count
@@ -518,14 +541,7 @@ func ProjectHashProjection(aggregate NormalizedProjectAggregate) map[string]any 
 	}
 	var policyProjection any
 	if aggregate.ReviewPolicy != nil {
-		policyProjection = map[string]any{
-			"enabled":            aggregate.ReviewPolicy.Enabled,
-			"review_triggers":    aggregate.ReviewPolicy.ReviewTriggers,
-			"build":              aggregate.ReviewPolicy.Build,
-			"proof_of_changes":   aggregate.ReviewPolicy.ProofOfChanges,
-			"workflow_ids":       aggregate.ReviewPolicy.WorkflowIDs,
-			"strict_build_check": aggregate.ReviewPolicy.StrictBuildCheck,
-		}
+		policyProjection = ReviewPolicyHashProjection(*aggregate.ReviewPolicy)
 	}
 	projection := map[string]any{
 		"session": normalizeSessionProjection(aggregate.Session), "framework": nullableString(aggregate.Framework),
@@ -609,17 +625,55 @@ func mergeCaches(inherited, recipe []BuildCache) []BuildCache {
 	return result
 }
 
-func normalizeReviewPolicy(review AuthoredPRReview) (*NormalizedReviewPolicy, map[string]any, error) {
+// ReviewPolicyHashProjection returns the canonical review-policy projection
+// shared with Python. Workflow keys appear only when they differ from the
+// deprecated shared workflow_ids meaning, so those policies keep their hashes.
+func ReviewPolicyHashProjection(policy NormalizedReviewPolicy) map[string]any {
+	projection := map[string]any{
+		"enabled": policy.Enabled, "review_triggers": policy.ReviewTriggers, "build": policy.Build,
+		"proof_of_changes": policy.ProofOfChanges, "workflow_ids": nonNilSlice(policy.WorkflowIDs), "strict_build_check": policy.StrictBuildCheck,
+	}
+	if !policy.WorkflowsEnabled {
+		projection["workflows_enabled"] = false
+	}
+	if policy.WorkflowTriggers != nil {
+		projection["workflow_triggers"] = policy.WorkflowTriggers
+	}
+	return projection
+}
+
+func normalizeReviewPolicy(review AuthoredPRReview, projectRoot string) (*NormalizedReviewPolicy, map[string]any, error) {
 	enabled := true
 	if review.Enabled != nil {
 		enabled = *review.Enabled
 	}
-	triggers := NormalizedReviewTriggers{Paths: []string{}, Labels: []string{}}
-	if review.ReviewTriggers != nil {
-		triggers.Paths = orderedUniqueStrings(review.ReviewTriggers.Paths)
-		triggers.Labels = orderedUniqueStrings(review.ReviewTriggers.Labels)
-		if review.ReviewTriggers.Drafts != nil {
-			triggers.Drafts = *review.ReviewTriggers.Drafts
+	var proofTriggers *AuthoredReviewTriggers
+	proofEnabled := false
+	if review.ProofOfChanges != nil {
+		proofTriggers = review.ProofOfChanges.Triggers
+		proofEnabled = review.ProofOfChanges.Enabled != nil && *review.ProofOfChanges.Enabled
+	}
+	workflowIDs := orderedUniqueStrings(review.WorkflowIDs)
+	workflowsEnabled := true
+	var authoredWorkflowTriggers *AuthoredReviewTriggers
+	if review.Workflows != nil {
+		workflowIDs = orderedUniqueStrings(review.Workflows.WorkflowIDs)
+		workflowsEnabled = review.Workflows.Enabled != nil && *review.Workflows.Enabled
+		authoredWorkflowTriggers = review.Workflows.Triggers
+	}
+	tracksUnionOfBlocks := review.TracksUnionOfBlocks()
+	rootTriggers := review.RootTriggers()
+	if rootTriggers == nil {
+		rootTriggers = &AuthoredReviewTriggers{}
+	}
+	triggers := *normalizeReviewTriggers(rootTriggers)
+	if tracksUnionOfBlocks {
+		triggers = NormalizedReviewTriggers{Paths: []string{"**"}, Labels: []string{}, Drafts: true}
+		if proofEnabled && proofTriggers == nil {
+			proofTriggers = &AuthoredReviewTriggers{}
+		}
+		if workflowsEnabled && len(workflowIDs) > 0 && authoredWorkflowTriggers == nil {
+			authoredWorkflowTriggers = &AuthoredReviewTriggers{}
 		}
 	}
 	build := NormalizedReviewBuild{Kind: review.Build.Kind, Profile: cloneStringPointer(review.Build.Profile)}
@@ -628,31 +682,28 @@ func normalizeReviewPolicy(review AuthoredPRReview) (*NormalizedReviewPolicy, ma
 	}
 	var proof *NormalizedProof
 	if review.ProofOfChanges != nil {
-		proof = &NormalizedProof{AlwaysVerify: orderedUniqueStrings(review.ProofOfChanges.AlwaysVerify), SystemPrompt: cloneStringPointer(review.ProofOfChanges.SystemPrompt)}
-		if review.ProofOfChanges.Enabled != nil {
-			proof.Enabled = *review.ProofOfChanges.Enabled
-		}
+		proof = &NormalizedProof{Triggers: normalizeReviewBlockTriggers(proofTriggers, !tracksUnionOfBlocks, projectRoot), Enabled: proofEnabled, AlwaysVerify: orderedUniqueStrings(review.ProofOfChanges.AlwaysVerify), SystemPrompt: cloneStringPointer(review.ProofOfChanges.SystemPrompt)}
 		if review.ProofOfChanges.Harness != nil {
 			proof.Harness = &NormalizedProofHarness{Kind: review.ProofOfChanges.Harness.Kind, ModelID: cloneStringPointer(review.ProofOfChanges.Harness.ModelID), CapyProjectID: cloneStringPointer(review.ProofOfChanges.Harness.CapyProjectID)}
 		}
 	}
+	workflowTriggers := normalizeReviewBlockTriggers(authoredWorkflowTriggers, !tracksUnionOfBlocks, projectRoot)
 	strict := true
 	if review.StrictCICheck != nil {
 		strict = *review.StrictCICheck.Build
 	}
-	workflowIDs := orderedUniqueStrings(review.WorkflowIDs)
-	projection := map[string]any{
-		"enabled": enabled, "review_triggers": triggers, "build": build,
-		"proof_of_changes": proof, "workflow_ids": workflowIDs, "strict_build_check": strict,
+	policy := &NormalizedReviewPolicy{
+		Enabled: enabled, ReviewTriggers: triggers, Build: build, ProofOfChanges: proof,
+		WorkflowIDs: workflowIDs, WorkflowsEnabled: workflowsEnabled, WorkflowTriggers: workflowTriggers,
+		StrictBuildCheck: strict,
 	}
+	projection := ReviewPolicyHashProjection(*policy)
 	hash, err := HashRevylProjection("review-policy", projection)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &NormalizedReviewPolicy{
-		Enabled: enabled, ReviewTriggers: triggers, Build: build, ProofOfChanges: proof,
-		WorkflowIDs: workflowIDs, StrictBuildCheck: strict, ReviewPolicyHash: hash,
-	}, projection, nil
+	policy.ReviewPolicyHash = hash
+	return policy, projection, nil
 }
 
 func normalizeSessionProjection(session AuthoredSession) map[string]any {

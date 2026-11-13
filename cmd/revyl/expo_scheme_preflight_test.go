@@ -17,6 +17,24 @@ func writeExpoPreflightFile(t *testing.T, dir, name, content string) {
 	}
 }
 
+func newExpoPreflightDevClientDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeExpoPreflightFile(t, dir, "package.json", `{"dependencies":{"expo-dev-client":"*"}}`)
+	return dir
+}
+
+func TestEnsureExpoDevClientSchemeForBuildSkipsAppsWithoutDevClient(t *testing.T) {
+	dir := t.TempDir()
+	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo"}}`)
+	writeExpoPreflightFile(t, dir, "package.json", `{"dependencies":{"expo":"*"}}`)
+
+	changed, err := ensureExpoDevClientSchemeForBuild(dir, expoPreflightConfig())
+	if changed || err != nil {
+		t.Fatalf("ensureExpoDevClientSchemeForBuild() = %v, %v; want no change and no scheme error", changed, err)
+	}
+}
+
 func expoPreflightConfig() *config.ProjectConfig {
 	return &config.ProjectConfig{
 		Build: config.BuildConfig{System: "Expo"},
@@ -24,7 +42,7 @@ func expoPreflightConfig() *config.ProjectConfig {
 }
 
 func TestEnsureExpoDevClientSchemeForBuildDetectsAppJSONScheme(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo","scheme":"demo-dev"}}`)
 	cfg := expoPreflightConfig()
 
@@ -45,7 +63,7 @@ func TestEnsureExpoDevClientSchemeForBuildDetectsAppJSONScheme(t *testing.T) {
 }
 
 func TestEnsureExpoDevClientSchemeForBuildDetectsGeneratedSlugScheme(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo","slug":"brex-mobile"}}`)
 	cfg := expoPreflightConfig()
 
@@ -69,7 +87,7 @@ func TestEnsureExpoDevClientSchemeForBuildDetectsGeneratedSlugScheme(t *testing.
 }
 
 func TestEnsureExpoDevClientSchemeForBuildEnablesExpPrefixForExistingSlugConfig(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo","slug":"brex-mobile"}}`)
 	cfg := expoPreflightConfig()
 	cfg.HotReload.Providers = map[string]*config.ProviderConfig{
@@ -90,7 +108,7 @@ func TestEnsureExpoDevClientSchemeForBuildEnablesExpPrefixForExistingSlugConfig(
 }
 
 func TestEnsureExpoDevClientSchemeForBuildBlocksMissingStaticScheme(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo"}}`)
 	cfg := expoPreflightConfig()
 
@@ -109,7 +127,7 @@ func TestEnsureExpoDevClientSchemeForBuildBlocksMissingStaticScheme(t *testing.T
 }
 
 func TestEnsureExpoDevClientSchemeForBuildBlocksDynamicConfigWithoutRevylScheme(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.config.js", `module.exports = { expo: { name: "Demo" } };`)
 	cfg := expoPreflightConfig()
 
@@ -128,7 +146,7 @@ func TestEnsureExpoDevClientSchemeForBuildBlocksDynamicConfigWithoutRevylScheme(
 }
 
 func TestEnsureExpoDevClientSchemeForBuildAllowsDynamicConfigWithRevylScheme(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.config.ts", `export default { expo: { name: "Demo", scheme: "demo-dev" } };`)
 	cfg := expoPreflightConfig()
 	cfg.HotReload.Providers = map[string]*config.ProviderConfig{
@@ -145,7 +163,7 @@ func TestEnsureExpoDevClientSchemeForBuildAllowsDynamicConfigWithRevylScheme(t *
 }
 
 func TestEnsureExpoDevClientSchemeForBuildBlocksMismatch(t *testing.T) {
-	dir := t.TempDir()
+	dir := newExpoPreflightDevClientDir(t)
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"scheme":"native-dev"}}`)
 	cfg := expoPreflightConfig()
 	cfg.HotReload.Providers = map[string]*config.ProviderConfig{

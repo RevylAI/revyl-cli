@@ -47,8 +47,7 @@ func newComputerCommand() *cobra.Command {
 		Use: "computer", Short: "Start, use and stop cloud computers",
 		Long: `A computer is a cloud machine you start, run commands on, and stop.
 
-Mac computers need a paid plan: an organization owner or admin turns them on
-in Settings > Experiments.
+Mac computers are available to organizations on a current paid plan.
 
   revyl computer create --os macos       start a computer
   revyl computer create --os macos --wait  start one and wait until it is active

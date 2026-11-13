@@ -96,27 +96,27 @@ func TestApplySchemeToCommand(t *testing.T) {
 	}{
 		{
 			name:     "normal scheme name",
-			command:  "xcodebuild -workspace MyApp.xcworkspace -scheme * -configuration Debug",
+			command:  "xcodebuild -workspace 'MyApp.xcworkspace' -scheme * -configuration Debug",
 			scheme:   "MyApp",
-			expected: "xcodebuild -workspace MyApp.xcworkspace -scheme 'MyApp' -configuration Debug",
+			expected: "xcodebuild -workspace 'MyApp.xcworkspace' -scheme 'MyApp' -configuration Debug",
 		},
 		{
 			name:     "scheme with spaces gets quoted",
-			command:  "xcodebuild -workspace MyApp.xcworkspace -scheme * -configuration Debug",
+			command:  "xcodebuild -workspace 'MyApp.xcworkspace' -scheme * -configuration Debug",
 			scheme:   "My App",
-			expected: "xcodebuild -workspace MyApp.xcworkspace -scheme 'My App' -configuration Debug",
+			expected: "xcodebuild -workspace 'MyApp.xcworkspace' -scheme 'My App' -configuration Debug",
 		},
 		{
 			name:     "scheme with single quote gets escaped",
-			command:  "xcodebuild -workspace MyApp.xcworkspace -scheme * -configuration Debug",
+			command:  "xcodebuild -workspace 'MyApp.xcworkspace' -scheme * -configuration Debug",
 			scheme:   "My'App",
-			expected: "xcodebuild -workspace MyApp.xcworkspace -scheme 'My'\\''App' -configuration Debug",
+			expected: "xcodebuild -workspace 'MyApp.xcworkspace' -scheme 'My'\\''App' -configuration Debug",
 		},
 		{
 			name:     "empty scheme is no-op",
-			command:  "xcodebuild -workspace MyApp.xcworkspace -scheme * -configuration Debug",
+			command:  "xcodebuild -workspace 'MyApp.xcworkspace' -scheme * -configuration Debug",
 			scheme:   "",
-			expected: "xcodebuild -workspace MyApp.xcworkspace -scheme * -configuration Debug",
+			expected: "xcodebuild -workspace 'MyApp.xcworkspace' -scheme * -configuration Debug",
 		},
 		{
 			name:     "command without -scheme * is no-op",
@@ -142,14 +142,18 @@ func TestApplySchemeToCommand(t *testing.T) {
 	}
 }
 
-func TestDetectReactNative_FullProjectUsesPodBootstrapForFreshIOSClone(t *testing.T) {
+func TestDetectReactNative_BuildsDebugAndReleaseProfiles(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"name":"rn-bare-minimal","dependencies":{"react-native":"0.74.0"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "yarn.lock"), "")
 	writeDetectTestFile(t, filepath.Join(dir, "android", "app", "build.gradle"), "apply plugin: \"com.android.application\"\n")
-	writeDetectTestFile(t, filepath.Join(dir, "ios", "Podfile"), "platform :ios, '13.4'\n")
-	if err := os.MkdirAll(filepath.Join(dir, "ios", "RnBareMinimal.xcodeproj"), 0755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
+	writeDetectTestFile(t, filepath.Join(dir, "android", "gradlew"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(dir, "android", "gradlew"), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	writeDetectTestFile(t, filepath.Join(dir, "ios", "Podfile"), "platform :ios, '13.4'\n")
+	writeDetectTestFile(t, filepath.Join(dir, "ios", "Shop.xcodeproj", "xcshareddata", "xcschemes", "shop.xcscheme"), "")
+	writeDetectTestFile(t, filepath.Join(dir, "ios", "Shop.xcodeproj", "xcshareddata", "xcschemes", "shop-staging.xcscheme"), "")
 
 	detected, err := Detect(dir)
 	if err != nil {
@@ -158,33 +162,17 @@ func TestDetectReactNative_FullProjectUsesPodBootstrapForFreshIOSClone(t *testin
 	if detected.System != SystemReactNative {
 		t.Fatalf("System = %v, want %v", detected.System, SystemReactNative)
 	}
-
-	iosPlatform, ok := detected.Platforms["ios"]
-	if !ok {
-		t.Fatal("expected ios platform to be detected")
+	iosCommand := func(configuration string) string {
+		return "cd ios && if [ ! -d Pods ] || [ ! -d 'Shop.xcworkspace' ]; then pod install; fi && xcodebuild -workspace 'Shop.xcworkspace' -scheme 'shop' -configuration " + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
 	}
-	if !strings.Contains(iosPlatform.Command, "pod install") {
-		t.Fatalf("ios command = %q, want pod install bootstrap", iosPlatform.Command)
+	want := map[string]BuildPlatform{
+		"ios":             {SetupCommands: []string{"yarn install"}, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app"},
+		"ios-preview":     {SetupCommands: []string{"yarn install"}, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app"},
+		"android":         {SetupCommands: []string{"yarn install"}, Command: "cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
+		"android-preview": {SetupCommands: []string{"yarn install"}, Command: "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
 	}
-	if !strings.Contains(iosPlatform.Command, "-workspace RnBareMinimal.xcworkspace") {
-		t.Fatalf("ios command = %q, want workspace build after pod install", iosPlatform.Command)
-	}
-	if !strings.Contains(iosPlatform.Command, "-destination 'generic/platform=iOS Simulator'") {
-		t.Fatalf("ios command = %q, want explicit generic simulator destination", iosPlatform.Command)
-	}
-	if iosPlatform.Output != "ios/build/Build/Products/Debug-iphonesimulator/*.app" {
-		t.Fatalf("ios output = %q, want standard RN ios output", iosPlatform.Output)
-	}
-
-	androidPlatform, ok := detected.Platforms["android"]
-	if !ok {
-		t.Fatal("expected android platform to be detected")
-	}
-	if androidPlatform.Command != "cd android && ./gradlew assembleDebug" {
-		t.Fatalf("android command = %q, want gradle debug build", androidPlatform.Command)
-	}
-	if detected.Command != androidPlatform.Command {
-		t.Fatalf("default command = %q, want android default %q", detected.Command, androidPlatform.Command)
+	if !reflect.DeepEqual(detected.Platforms, want) {
+		t.Fatalf("Platforms =\n%#v\nwant\n%#v", detected.Platforms, want)
 	}
 }
 
@@ -197,44 +185,35 @@ func TestDetectReactNative_AndroidOnlyProjectSkipsIOSPlatform(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	if _, ok := detected.Platforms["ios"]; ok {
-		t.Fatal("did not expect ios platform for Android-only RN project")
-	}
-	if _, ok := detected.Platforms["android"]; !ok {
-		t.Fatal("expected android platform for Android-only RN project")
+	if got := keysOf(detected.Platforms); len(got) != 2 || detected.Platforms["android"].Command == "" || detected.Platforms["android-preview"].Command == "" {
+		t.Fatalf("Platforms = %v, want only android and android-preview", got)
 	}
 }
 
 func TestDetectReactNative_IncompleteIOSKeepsPlaceholderPlatform(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"name":"rn-bare-minimal","dependencies":{"react-native":"0.74.0"}}`)
-	writeDetectTestFile(t, filepath.Join(dir, "android", "app", "build.gradle"), "apply plugin: \"com.android.application\"\n")
-	if err := os.MkdirAll(filepath.Join(dir, "ios"), 0755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"name":"rn-bare-minimal"}`)
+	writeDetectTestFile(t, filepath.Join(dir, "ios", ".gitkeep"), "")
 
 	detected, err := Detect(dir)
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-
-	iosPlatform, ok := detected.Platforms["ios"]
-	if !ok {
-		t.Fatal("expected placeholder ios platform to be detected")
-	}
-	if iosPlatform.Command != "" || iosPlatform.Output != "" {
-		t.Fatalf("placeholder ios platform = %+v, want empty command/output", iosPlatform)
-	}
-	if !strings.Contains(iosPlatform.IncompleteReason, "no .xcodeproj or .xcworkspace") {
-		t.Fatalf("ios incomplete reason = %q, want placeholder guidance", iosPlatform.IncompleteReason)
+	for _, key := range []string{"ios", "ios-preview"} {
+		platform := detected.Platforms[key]
+		if platform.Command != "" || len(platform.SetupCommands) != 0 || !strings.Contains(platform.IncompleteReason, "no .xcodeproj or .xcworkspace") {
+			t.Fatalf("%s = %+v, want placeholder guidance", key, platform)
+		}
 	}
 }
 
-func TestDetectExpo_PreviewRecipesBuildNativelyWithSchemeFromAppJSON(t *testing.T) {
+func TestDetectExpo_BuildsNativelyWithoutEAS(t *testing.T) {
 	dir := t.TempDir()
-	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Revyl Expo Minimal","slug":"revyl-playground"}}`)
-	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"dependencies":{"expo":"~50.0.0"}}`)
-	writeDetectTestFile(t, filepath.Join(dir, "yarn.lock"), "")
+	writeDetectTestFile(t, filepath.Join(dir, "app.config.ts"), "export default { name: process.env.APP_NAME };\n")
+	writeDetectTestFile(t, filepath.Join(dir, "eas.json"), `{"build":{"development":{"developmentClient":true,"ios":{"simulator":true}}}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"dependencies":{"expo":"~54.0.0"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "bun.lock"), "")
 
 	detected, err := Detect(dir)
 	if err != nil {
@@ -243,89 +222,43 @@ func TestDetectExpo_PreviewRecipesBuildNativelyWithSchemeFromAppJSON(t *testing.
 	if detected.System != SystemExpo {
 		t.Fatalf("System = %v, want %v", detected.System, SystemExpo)
 	}
-
+	iosCommand := func(configuration string) string {
+		return `cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && xcodebuild -workspace "$WS" -scheme "${WS%.xcworkspace}" -configuration ` + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
+	}
+	iosSetup := []string{"bun install", "if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; fi"}
+	androidSetup := []string{"bun install", "if [ ! -d android ]; then npx expo prebuild --platform android --no-install; fi"}
 	want := map[string]BuildPlatform{
-		"ios-preview": {
-			SetupCommands: []string{"yarn install", "if [ ! -d ios ]; then npx expo prebuild --platform ios; fi"},
-			Command:       "cd ios && if [ ! -d Pods ] || [ ! -d RevylExpoMinimal.xcworkspace ]; then pod install; fi && xcodebuild -workspace RevylExpoMinimal.xcworkspace -scheme 'RevylExpoMinimal' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build",
-			Output:        "ios/build/Build/Products/Release-iphonesimulator/*.app",
-			Note:          `Xcode scheme "RevylExpoMinimal" is the project name expo prebuild generates from app.json expo.name; ios/ does not exist yet`,
-		},
-		"android-preview": {
-			SetupCommands: []string{"yarn install", "if [ ! -d android ]; then npx expo prebuild --platform android; fi"},
-			Command:       "cd android && ./gradlew assembleRelease",
-			Output:        "android/app/build/outputs/apk/release/app-release.apk",
-		},
-		"ios": {
-			Command: "npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz",
-			Output:  "build/app.tar.gz",
-		},
-		"android": {
-			Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
-			Output:  "build/app.apk",
-		},
+		"ios":             {SetupCommands: iosSetup, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app"},
+		"ios-preview":     {SetupCommands: iosSetup, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app"},
+		"android":         {SetupCommands: androidSetup, Command: "cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
+		"android-preview": {SetupCommands: androidSetup, Command: "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
 	}
 	if !reflect.DeepEqual(detected.Platforms, want) {
 		t.Fatalf("Platforms =\n%#v\nwant\n%#v", detected.Platforms, want)
-	}
-	for key, platform := range detected.Platforms {
-		if strings.Contains(platform.Command, "-scheme *") || strings.Contains(strings.Join(platform.SetupCommands, " "), "EXPO_TOKEN") {
-			t.Fatalf("%s recipe must name a real scheme and need no Expo credentials: %+v", key, platform)
-		}
 	}
 	if detected.Command != want["ios-preview"].Command || detected.Output != want["ios-preview"].Output {
 		t.Fatalf("default build = %q -> %q, want the iOS preview recipe", detected.Command, detected.Output)
 	}
 }
 
-func TestDetectExpo_PreviewRecipeForCommittedIOSProject(t *testing.T) {
-	tests := []struct {
-		name        string
-		files       []string
-		wantCommand string
-		wantNote    string
-	}{
-		{
-			name: "installs gitignored pods and uses the shared scheme",
-			files: []string{
-				"ios/Podfile",
-				"ios/Shop.xcworkspace/contents.xcworkspacedata",
-				"ios/Shop.xcodeproj/xcshareddata/xcschemes/ShopApp.xcscheme",
-			},
-			wantCommand: "cd ios && if [ ! -d Pods ] || [ ! -d Shop.xcworkspace ]; then pod install; fi && xcodebuild -workspace Shop.xcworkspace -scheme 'ShopApp' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build",
-			wantNote:    `Xcode scheme "ShopApp" is the shared scheme in ios/Shop.xcodeproj`,
-		},
-		{
-			name:        "falls back to the project name without a shared scheme",
-			files:       []string{"ios/Podfile", "ios/Shop.xcodeproj/project.pbxproj"},
-			wantCommand: "cd ios && if [ ! -d Pods ] || [ ! -d Shop.xcworkspace ]; then pod install; fi && xcodebuild -workspace Shop.xcworkspace -scheme 'Shop' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build",
-			wantNote:    `No shared Xcode scheme in ios/Shop.xcodeproj; using the project name "Shop", which expo prebuild also gives the app scheme`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Renamed Later"}}`)
-			for _, file := range tt.files {
-				writeDetectTestFile(t, filepath.Join(dir, filepath.FromSlash(file)), "")
-			}
+func TestDetectExpo_CommittedIOSProjectUsesItsScheme(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Renamed Later"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "ios", "Podfile"), "")
+	writeDetectTestFile(t, filepath.Join(dir, "ios", "Shop.xcworkspace", "contents.xcworkspacedata"), "")
+	writeDetectTestFile(t, filepath.Join(dir, "ios", "Shop.xcodeproj", "xcshareddata", "xcschemes", "ShopApp.xcscheme"), "")
 
-			detected, err := Detect(dir)
-			if err != nil {
-				t.Fatalf("Detect() error = %v", err)
-			}
-			preview := detected.Platforms["ios-preview"]
-			if preview.Command != tt.wantCommand {
-				t.Fatalf("ios-preview command = %q, want %q", preview.Command, tt.wantCommand)
-			}
-			if preview.Note != tt.wantNote {
-				t.Fatalf("ios-preview note = %q, want %q", preview.Note, tt.wantNote)
-			}
-		})
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	want := "cd ios && if [ ! -d Pods ] || [ ! -d 'Shop.xcworkspace' ]; then pod install; fi && xcodebuild -workspace 'Shop.xcworkspace' -scheme 'ShopApp' -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
+	if got := detected.Platforms["ios-preview"].Command; got != want {
+		t.Fatalf("ios-preview command = %q, want %q", got, want)
 	}
 }
 
-func TestDetectExpo_PreviewIOSDirectoryWithoutProjectIsPlaceholder(t *testing.T) {
+func TestDetectExpo_IOSDirectoryWithoutProjectIsPlaceholder(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Shop"}}`)
 	writeDetectTestFile(t, filepath.Join(dir, "ios", ".gitkeep"), "")
@@ -340,66 +273,124 @@ func TestDetectExpo_PreviewIOSDirectoryWithoutProjectIsPlaceholder(t *testing.T)
 	}
 }
 
-func TestDetectExpo_PreviewIOSWithoutStaticNameIsPlaceholder(t *testing.T) {
+func TestDetectXcode_NamesSchemeAndInstallsPods(t *testing.T) {
 	dir := t.TempDir()
-	writeDetectTestFile(t, filepath.Join(dir, "app.config.ts"), "export default { name: process.env.APP_NAME };\n")
-	writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"dependencies":{"expo":"latest"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "Podfile"), "")
+	writeDetectTestFile(t, filepath.Join(dir, "Juice.xcodeproj", "xcshareddata", "xcschemes", "Juice.xcscheme"), "")
 
 	detected, err := Detect(dir)
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	preview := detected.Platforms["ios-preview"]
-	if preview.Command != "" || len(preview.SetupCommands) != 0 || !strings.Contains(preview.IncompleteReason, "expo.name") {
-		t.Fatalf("ios-preview = %+v, want placeholder explaining the missing expo.name", preview)
+	want := BuildPlatform{
+		SetupCommands: []string{"pod install"},
+		Command:       "xcodebuild -workspace 'Juice.xcworkspace' -scheme 'Juice' -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build",
+		Output:        "build/Build/Products/Debug-iphonesimulator/*.app",
 	}
-	if detected.Platforms["android-preview"].Command != "cd android && ./gradlew assembleRelease" {
-		t.Fatalf("android-preview = %+v, want Gradle release build", detected.Platforms["android-preview"])
+	if got := detected.Platforms["ios"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ios = %#v, want %#v", got, want)
 	}
 }
 
-func TestDetectExpo_DevelopmentIOSUsesEASDevSimulatorProfile(t *testing.T) {
+func TestDetectXcode_QuotesProjectPathAndPrefersSchemesNamedAfterIt(t *testing.T) {
 	dir := t.TempDir()
-	writeDetectTestFile(t, filepath.Join(dir, "eas.json"), `{"build":{"development":{"developmentClient":true},"development-simulator":{"developmentClient":true,"ios":{"simulator":true}}}}`)
+	for _, scheme := range []string{"CommonUI", "Holy Book Beta", "Holy Book Dev"} {
+		writeDetectTestFile(t, filepath.Join(dir, "Holy Book.xcodeproj", "xcshareddata", "xcschemes", scheme+".xcscheme"), "")
+	}
 
 	detected, err := Detect(dir)
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	want := "npx --yes eas-cli build --platform ios --profile development-simulator --local --output build/app.tar.gz"
+	want := "xcodebuild -project 'Holy Book.xcodeproj' -scheme 'Holy Book Dev' -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
 	if got := detected.Platforms["ios"].Command; got != want {
 		t.Fatalf("ios command = %q, want %q", got, want)
 	}
 }
 
-func TestDetectExpo_PreviewIOSWithNonASCIINameIsPlaceholder(t *testing.T) {
-	dir := t.TempDir()
-	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{"name":"Skráning"}}`)
-
-	detected, err := Detect(dir)
-	if err != nil {
-		t.Fatalf("Detect() error = %v", err)
+func TestDetectGradle_RunsTheWrapperItHasAndFindsFlavoredAPKs(t *testing.T) {
+	tests := []struct {
+		name        string
+		wrapperMode os.FileMode
+		flavors     bool
+		wantCommand string
+		apk         string
+	}{
+		{name: "executable wrapper", wrapperMode: 0o755, wantCommand: "./gradlew assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
+		{name: "wrapper without its executable bit", wrapperMode: 0o644, wantCommand: "sh ./gradlew assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
+		{name: "no wrapper", wantCommand: "gradle assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
+		{name: "product flavors", wrapperMode: 0o755, flavors: true, wantCommand: "./gradlew assembleDebug", apk: "app/build/outputs/apk/staging/debug/app-staging-debug.apk"},
 	}
-	preview := detected.Platforms["ios-preview"]
-	want := `app.json expo.name "Skráning" has non-ASCII characters, which Expo versions turn into different Xcode project names; run npx expo prebuild --platform ios, then revyl init --detect`
-	if preview.Command != "" || preview.IncompleteReason != want {
-		t.Fatalf("ios-preview = %+v, want placeholder %q", preview, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			appGradle := "android {}\n"
+			if tt.flavors {
+				appGradle = "android {\n  flavorDimensions 'env'\n  productFlavors {\n    staging {}\n    production {}\n  }\n}\n"
+			}
+			writeDetectTestFile(t, filepath.Join(dir, "build.gradle"), "")
+			writeDetectTestFile(t, filepath.Join(dir, "app", "build.gradle"), appGradle)
+			if tt.wrapperMode != 0 {
+				writeDetectTestFile(t, filepath.Join(dir, "gradlew"), "#!/bin/sh\n")
+				if err := os.Chmod(filepath.Join(dir, "gradlew"), tt.wrapperMode); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			detected, err := Detect(dir)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			android := detected.Platforms["android"]
+			if android.Command != tt.wantCommand {
+				t.Fatalf("command = %q, want %q", android.Command, tt.wantCommand)
+			}
+			if tt.flavors != (android.Note != "") {
+				t.Fatalf("note = %q, want a note only for product flavors", android.Note)
+			}
+			writeDetectTestFile(t, filepath.Join(dir, tt.apk), "")
+			if got, err := ResolveArtifactPath(dir, android.Output); err != nil || got != filepath.Join(dir, tt.apk) {
+				t.Fatalf("ResolveArtifactPath(%q) = %q, %v; want the built %s", android.Output, got, err, tt.apk)
+			}
+		})
 	}
 }
 
-func TestSanitizeExpoIOSProjectNameMatchesExpoPrebuild(t *testing.T) {
-	for name, want := range map[string]string{
-		"Revyl Expo Minimal": "RevylExpoMinimal",
-		"my-app_2":           "myapp2",
-		"!!!":                "",
-	} {
-		if got := sanitizeExpoIOSProjectName(name); got != want {
-			t.Errorf("sanitizeExpoIOSProjectName(%q) = %q, want %q", name, got, want)
-		}
+func TestXcodeScheme(t *testing.T) {
+	tests := []struct {
+		name      string
+		container string
+		schemes   []string
+		want      string
+	}{
+		{name: "shared scheme named after the project, any case", container: "UCTRL.xcworkspace", schemes: []string{"UCTRL.xcodeproj/uctrl-staging", "UCTRL.xcodeproj/uctrl"}, want: "uctrl"},
+		{name: "only app scheme", container: "Shop.xcodeproj", schemes: []string{"Shop.xcodeproj/ShopApp", "Shop.xcodeproj/ShopAppTests"}, want: "ShopApp"},
+		{name: "shortest of several app schemes", container: "Shop.xcodeproj", schemes: []string{"Shop.xcodeproj/Matiks Dev", "Shop.xcodeproj/Matiks", "Shop.xcodeproj/MatiksWidget"}, want: "Matiks"},
+		{name: "workspace with only test schemes uses its project's name", container: "AppWorkspace.xcworkspace", schemes: []string{"AppWorkspace.xcworkspace/AuthUnitTests", "Headway.xcodeproj/"}, want: "Headway"},
+		{name: "no shared schemes uses the project name", container: "Shop.xcodeproj", want: "Shop"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, scheme := range tt.schemes {
+				container, name := filepath.Split(scheme)
+				path := filepath.Join(dir, container, "xcshareddata", "xcschemes", name+".xcscheme")
+				if name == "" {
+					path = filepath.Join(dir, container, "project.pbxproj")
+				}
+				writeDetectTestFile(t, path, "")
+			}
+			if err := os.MkdirAll(filepath.Join(dir, tt.container), 0755); err != nil {
+				t.Fatalf("MkdirAll() error = %v", err)
+			}
+			if got := xcodeScheme(dir, tt.container); got != tt.want {
+				t.Fatalf("xcodeScheme() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestJSInstallCommandFollowsLockfile(t *testing.T) {
+func TestJSInstallCommandUsesNearestLockfile(t *testing.T) {
 	for lockfile, want := range map[string]string{
 		"":                  "npm install",
 		"package-lock.json": "npm install",
@@ -409,11 +400,53 @@ func TestJSInstallCommandFollowsLockfile(t *testing.T) {
 		"bun.lockb":         "bun install",
 	} {
 		dir := t.TempDir()
+		writeDetectTestFile(t, filepath.Join(dir, ".git", "HEAD"), "")
 		if lockfile != "" {
 			writeDetectTestFile(t, filepath.Join(dir, lockfile), "")
 		}
 		if got := JSInstallCommand(dir); got != want {
 			t.Errorf("JSInstallCommand(%q) = %q, want %q", lockfile, got, want)
+		}
+	}
+}
+
+func TestJSInstallCommandInstallsWorkspacePackagesFromTheWorkspaceRoot(t *testing.T) {
+	outside := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(outside, "yarn.lock"), "")
+	repository := filepath.Join(outside, "repository")
+	writeDetectTestFile(t, filepath.Join(repository, ".git", "HEAD"), "")
+	writeDetectTestFile(t, filepath.Join(repository, "pnpm-lock.yaml"), "")
+	app := filepath.Join(repository, "apps", "mobile")
+	writeDetectTestFile(t, filepath.Join(app, "package.json"), "{}")
+
+	if got, want := JSInstallCommand(app), "cd ../.. && pnpm install"; got != want {
+		t.Fatalf("JSInstallCommand(workspace package) = %q, want %q", got, want)
+	}
+	if err := os.Remove(filepath.Join(repository, "pnpm-lock.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := JSInstallCommand(app), "npm install"; got != want {
+		t.Fatalf("JSInstallCommand(no lockfile in repository) = %q, want %q; lockfiles outside the repository must be ignored", got, want)
+	}
+}
+
+func TestJSInstallCommandEnablesCorepackForModernYarn(t *testing.T) {
+	for packageManager, want := range map[string]string{
+		"yarn@4.10.2":  "cd ../.. && corepack enable && yarn install",
+		"yarn@3.6.1":   "cd ../.. && corepack enable && yarn install",
+		"yarn@1.22.22": "cd ../.. && yarn install",
+		"pnpm@10.0.0":  "cd ../.. && yarn install",
+		"":             "cd ../.. && yarn install",
+	} {
+		repository := t.TempDir()
+		writeDetectTestFile(t, filepath.Join(repository, ".git", "HEAD"), "")
+		writeDetectTestFile(t, filepath.Join(repository, "yarn.lock"), "")
+		writeDetectTestFile(t, filepath.Join(repository, "package.json"), `{"packageManager": "`+packageManager+`"}`)
+		app := filepath.Join(repository, "apps", "mobile")
+		writeDetectTestFile(t, filepath.Join(app, "package.json"), `{"packageManager": "yarn@4.0.0"}`)
+
+		if got := JSInstallCommand(app); got != want {
+			t.Errorf("JSInstallCommand(root packageManager %q) = %q, want %q", packageManager, got, want)
 		}
 	}
 }
@@ -600,6 +633,7 @@ func TestDetectBazel_ExpoTakesPrecedenceOverBazel(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "MODULE.bazel"), "")
 	writeDetectTestFile(t, filepath.Join(dir, "eas.json"), "{}")
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{}}`)
 
 	detected, err := Detect(dir)
 	if err != nil {
@@ -755,6 +789,7 @@ func TestDetectKMP_SharedAndAndroidAppWithoutKMPMarkerIsGradle(t *testing.T) {
 func TestDetectKMP_ExpoProjectIsNotKMP(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "eas.json"), "{}")
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"expo":{}}`)
 	if err := os.MkdirAll(filepath.Join(dir, "shared"), 0755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -780,6 +815,7 @@ func TestDetectKMP_ReactNativeIsNotKMP(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "package.json"),
 		`{"dependencies":{"react-native":"0.74.0"}}`)
+	writeDetectTestFile(t, filepath.Join(dir, "app.json"), `{"name":"rn"}`)
 	if err := os.MkdirAll(filepath.Join(dir, "shared"), 0755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -1083,6 +1119,7 @@ func TestDogfoodMatrix(t *testing.T) {
 			dirs: []string{"shared", "androidApp"},
 			files: map[string]string{
 				"package.json":                `{"dependencies":{"react-native":"0.74.0"}}`,
+				"app.json":                    `{"name":"rn"}`,
 				"settings.gradle.kts":         `id("org.jetbrains.kotlin.multiplatform")`,
 				"androidApp/build.gradle.kts": "android {}",
 			},
@@ -1117,6 +1154,7 @@ func TestDogfoodMatrix(t *testing.T) {
 			name: "expo-guardrail",
 			files: map[string]string{
 				"eas.json": "{}",
+				"app.json": `{"expo":{}}`,
 			},
 			wantSystem: SystemExpo,
 		},
@@ -1124,8 +1162,24 @@ func TestDogfoodMatrix(t *testing.T) {
 			name: "react-native-guardrail",
 			files: map[string]string{
 				"package.json": `{"dependencies":{"react-native":"0.74.0"}}`,
+				"app.json":     `{"name":"rn"}`,
 			},
 			wantSystem: SystemReactNative,
+		},
+		{
+			name: "js-workspace-root-is-not-an-expo-app",
+			files: map[string]string{
+				"package.json": `{"workspaces":["apps/*"],"devDependencies":{"expo":"~54.0.0","react-native":"0.81.5"}}`,
+				"eas.json":     "{}",
+			},
+			notWantSystem: SystemExpo,
+		},
+		{
+			name: "js-workspace-root-is-not-a-react-native-app",
+			files: map[string]string{
+				"package.json": `{"workspaces":["apps/*"],"devDependencies":{"react-native":"0.81.5"}}`,
+			},
+			notWantSystem: SystemReactNative,
 		},
 		{
 			name:       "xcode-guardrail",

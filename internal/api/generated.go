@@ -2514,6 +2514,24 @@ func (e DashboardMetricsDashboardState) Valid() bool {
 	}
 }
 
+// Defines values for DeviceFoldState.
+const (
+	DeviceFoldStateFolded   DeviceFoldState = "folded"
+	DeviceFoldStateUnfolded DeviceFoldState = "unfolded"
+)
+
+// Valid indicates whether the value is a known member of the DeviceFoldState enum.
+func (e DeviceFoldState) Valid() bool {
+	switch e {
+	case DeviceFoldStateFolded:
+		return true
+	case DeviceFoldStateUnfolded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceSessionDetailResponseViewerKind.
 const (
 	DeviceSessionDetailResponseViewerKindNone DeviceSessionDetailResponseViewerKind = "none"
@@ -5332,11 +5350,19 @@ type AuthoredManagedReviewBuild struct {
 }
 
 // AuthoredPRReview Authored project-scoped pull-request automation policy.
+//
+// “triggers“ selects which pull requests Revyl builds, or for CI uploads
+// tracks, and block “triggers“ only narrow it. “review_triggers“ is its
+// older spelling, and the older “workflow_ids“ means enabled workflows
+// without narrowing; CLIs before 0.2.11 read only the older spellings.
 type AuthoredPRReview struct {
 	Build   AuthoredPRReview_Build `json:"build"`
 	Enabled *bool                  `json:"enabled,omitempty"`
 
 	// ProofOfChanges Authored proof-of-changes policy.
+	//
+	// ``enabled`` and ``triggers`` decide only when proof starts by itself. A
+	// person's ``@revyl proof`` or Run proof always builds and proves the head.
 	ProofOfChanges *AuthoredProofOfChanges `json:"proof_of_changes,omitempty"`
 
 	// ReviewTriggers Authored changed-path, label, and draft review filters.
@@ -5347,7 +5373,16 @@ type AuthoredPRReview struct {
 
 	// StrictCiCheck Authored strict build-check behavior.
 	StrictCiCheck *AuthoredStrictCICheck `json:"strict_ci_check,omitempty"`
-	WorkflowIds   *[]openapi_types.UUID  `json:"workflow_ids,omitempty"`
+
+	// Triggers Authored changed-path, label, and draft review filters.
+	//
+	// Explicit ``paths`` globs match repository-root-relative provider paths.
+	// When omitted, repository-bound selection defaults to the project root.
+	Triggers    *AuthoredReviewTriggers `json:"triggers,omitempty"`
+	WorkflowIds *[]openapi_types.UUID   `json:"workflow_ids,omitempty"`
+
+	// Workflows Authored saved workflows run against each eligible pull-request build.
+	Workflows *AuthoredWorkflows `json:"workflows,omitempty"`
 }
 
 // AuthoredPRReview_Build defines model for AuthoredPRReview.Build.
@@ -5361,11 +5396,20 @@ type AuthoredProject struct {
 }
 
 // AuthoredProofOfChanges Authored proof-of-changes policy.
+//
+// “enabled“ and “triggers“ decide only when proof starts by itself. A
+// person's “@revyl proof“ or Run proof always builds and proves the head.
 type AuthoredProofOfChanges struct {
 	AlwaysVerify *[]string                       `json:"always_verify,omitempty"`
 	Enabled      *bool                           `json:"enabled,omitempty"`
 	Harness      *AuthoredProofOfChanges_Harness `json:"harness,omitempty"`
 	SystemPrompt *string                         `json:"system_prompt,omitempty"`
+
+	// Triggers Authored changed-path, label, and draft review filters.
+	//
+	// Explicit ``paths`` globs match repository-root-relative provider paths.
+	// When omitted, repository-bound selection defaults to the project root.
+	Triggers *AuthoredReviewTriggers `json:"triggers,omitempty"`
 }
 
 // AuthoredProofOfChanges_Harness defines model for AuthoredProofOfChanges.Harness.
@@ -5389,6 +5433,11 @@ type AuthoredRevylConfig struct {
 	Build *AuthoredBuild `json:"build,omitempty"`
 
 	// PrReview Authored project-scoped pull-request automation policy.
+	//
+	// ``triggers`` selects which pull requests Revyl builds, or for CI uploads
+	// tracks, and block ``triggers`` only narrow it. ``review_triggers`` is its
+	// older spelling, and the older ``workflow_ids`` means enabled workflows
+	// without narrowing; CLIs before 0.2.11 read only the older spellings.
 	PrReview *AuthoredPRReview `json:"pr_review,omitempty"`
 
 	// Project Authored stable project identity.
@@ -5487,6 +5536,18 @@ type AuthoredWebRun struct {
 	SecretNames         *[]string `json:"secret_names,omitempty"`
 	Start               *string   `json:"start,omitempty"`
 	StartTimeoutSeconds *int      `json:"start_timeout_seconds,omitempty"`
+}
+
+// AuthoredWorkflows Authored saved workflows run against each eligible pull-request build.
+type AuthoredWorkflows struct {
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Triggers Authored changed-path, label, and draft review filters.
+	//
+	// Explicit ``paths`` globs match repository-root-relative provider paths.
+	// When omitted, repository-bound selection defaults to the project root.
+	Triggers    *AuthoredReviewTriggers `json:"triggers,omitempty"`
+	WorkflowIds *[]openapi_types.UUID   `json:"workflow_ids,omitempty"`
 }
 
 // BatchTestInfoRequest Batch request for test metadata lookups.
@@ -7575,6 +7636,9 @@ type DeviceCleanupConfig struct {
 	UninstallNewApps *bool `json:"uninstall_new_apps,omitempty"`
 }
 
+// DeviceFoldState Value of a “set_fold_state“ step: which panel of a foldable is lit.
+type DeviceFoldState string
+
 // DeviceLogsDownloadResponse Response model for device logs download URL.
 type DeviceLogsDownloadResponse struct {
 	Compressed    bool   `json:"compressed"`
@@ -7952,6 +8016,12 @@ type ExecutionModeConfig struct {
 	// - AUTO: Use GROUNDER_TYPE env var to determine grounder
 	// - NULL: Skip grounding (for testing/debugging)
 	GrounderType *GrounderType `json:"grounder_type,omitempty"`
+
+	// InitialFoldState Value of a ``set_fold_state`` step: which panel of a foldable is lit.
+	InitialFoldState *DeviceFoldState `json:"initial_fold_state,omitempty"`
+
+	// InitialFontSize Initial device font size: a numeric scale between 0.5 and 2.0, or on iOS a content size code (xs, s, m, l, xl, xxl, xxxl, ax-m to ax-xxxl). Stored as text, for example '1.3' or 'xl'.
+	InitialFontSize *string `json:"initial_font_size,omitempty"`
 
 	// InitialLocale Initial device locale identifier, for example 'en_US' or 'fr_FR'
 	InitialLocale *string `json:"initial_locale,omitempty"`

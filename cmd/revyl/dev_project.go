@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devloop"
@@ -109,6 +110,22 @@ func devHotReloadProvider(framework string) string {
 		return "react-native"
 	default:
 		return ""
+	}
+}
+
+// devLaunchesWithPackagerHost reports whether revyl dev starts the app with
+// Metro's address instead of opening a dev-client deep link: bare React Native,
+// and Expo apps without expo-dev-client, whose Debug builds load JavaScript
+// from the packager host they launch with. A customer-run Expo tunnel always
+// uses the deep link.
+func devLaunchesWithPackagerHost(providerName, projectRoot string, externalTunnel bool) bool {
+	switch providerName {
+	case "react-native":
+		return true
+	case "expo":
+		return !externalTunnel && !build.HasExpoDevClient(projectRoot)
+	default:
+		return false
 	}
 }
 
