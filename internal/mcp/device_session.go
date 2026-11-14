@@ -79,9 +79,13 @@ const (
 	// Interactive device tasks may wait in Hatchet for up to 30 minutes. Keep
 	// the client alive through that queue SLA plus terminal-state propagation.
 	deviceWorkerReadyTimeout = 35 * time.Minute
+	deviceStopReasonMaxRunes = 200
 )
 
-var deviceHealthPollDelay = 2 * time.Second
+var (
+	deviceHealthPollDelay        = 2 * time.Second
+	deviceSessionStateCheckDelay = 5 * time.Second
+)
 
 func boolPointer(value bool) *bool { return &value }
 
@@ -727,7 +731,7 @@ func (m *DeviceSessionManager) StartSession(
 		return index, session, nil
 	}
 
-	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, deviceWorkerReadyTimeout)
+	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, sessionID, deviceWorkerReadyTimeout)
 	if err != nil {
 		startErr := m.workerStartFailureError(ctx, sessionID, err)
 		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
@@ -1777,9 +1781,14 @@ func (m *DeviceSessionManager) resetIdleTimerForSessionLocked(index int, ctx con
 	})
 }
 
-// waitForWorkerURL polls the backend until the worker URL is available.
-func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRunID string, timeout time.Duration) (string, error) {
+// waitForWorkerURL polls the backend until the worker URL is available. It also
+// reads the session every deviceSessionStateCheckDelay and gives up once the
+// session is stopping with a recorded stop request: the backend never lets such
+// a session start again, while the worker-connection endpoint keeps reporting
+// it as not ready.
+func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRunID, sessionID string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
+	nextSessionCheck := time.Now()
 
 	for time.Now().Before(deadline) {
 		resp, err := m.apiClient.GetWorkerWSURL(ctx, workflowRunID)
@@ -1799,6 +1808,21 @@ func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRun
 					message = fmt.Sprintf("worker connection status is %s", status)
 				}
 				return "", fmt.Errorf("%s", message)
+			}
+		}
+		if sessionID != "" && !time.Now().Before(nextSessionCheck) {
+			nextSessionCheck = time.Now().Add(deviceSessionStateCheckDelay)
+			if detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID); err == nil && strings.EqualFold(detail.Status, "stopping") {
+				if stop, ok := detail.SourceMetadata["stop_request"].(map[string]interface{}); ok {
+					reason := "the session was stopped before its device became ready"
+					if message, ok := stop["error_message"].(string); ok && strings.TrimSpace(message) != "" {
+						reason = strings.Join(strings.Fields(analytics.SanitizeDiagnostic(message)), " ")
+						if runes := []rune(reason); len(runes) > deviceStopReasonMaxRunes {
+							reason = string(runes[:deviceStopReasonMaxRunes]) + "..."
+						}
+					}
+					return "", errors.New(reason)
+				}
 			}
 		}
 

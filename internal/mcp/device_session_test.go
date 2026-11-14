@@ -121,7 +121,7 @@ func TestWaitForWorkerURLReturnsTerminalStatus(t *testing.T) {
 	}
 
 	started := time.Now()
-	_, err := mgr.waitForWorkerURL(context.Background(), workflowRunID, 5*time.Second)
+	_, err := mgr.waitForWorkerURL(context.Background(), workflowRunID, "", 5*time.Second)
 	if err == nil {
 		t.Fatal("expected terminal session status error")
 	}
