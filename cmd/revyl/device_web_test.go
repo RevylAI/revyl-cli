@@ -34,7 +34,7 @@ func TestWebStartCLIValidatesBeforeTransport(t *testing.T) {
 		want  string
 	}{
 		{"no app", map[string]string{"url": "https://example.test/"}, "requires an app"},
-		{"empty URL", map[string]string{"url": ""}, "requires an HTTPS URL"},
+		{"empty URL", map[string]string{"url": ""}, "requires a website URL"},
 		{"viewport", map[string]string{"viewport": "1x1"}, "WIDTHxHEIGHT"},
 		{"conflicting apps", map[string]string{"app": "one", "app-id": "two"}, "same app"},
 	} {
@@ -165,9 +165,9 @@ func TestWebStartCLIReadsAppFromWebProfile(t *testing.T) {
 	writeProjectBuildConfig(t, repository, "project: {id: 33333333-3333-4333-8333-333333333333}\nbuild:\n  profiles:\n    preview:\n      web:\n        app_id: 11111111-1111-4111-8111-111111111111\n")
 	withWorkingDirectory(t, repository)
 	cmd := newWebStartCommand()
-	_ = cmd.Flags().Set("url", "http://example.test/")
+	_ = cmd.Flags().Set("url", "localhost:3000")
 	err := deviceStartCmd.RunE(cmd, nil)
-	if err == nil || !strings.Contains(err.Error(), "HTTPS URL") {
+	if err == nil || !strings.Contains(err.Error(), "private addresses") {
 		t.Fatalf("error = %v, want URL validation after the configured app resolved", err)
 	}
 }

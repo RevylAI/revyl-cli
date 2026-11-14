@@ -3873,7 +3873,7 @@ func init() {
 	// Start
 	deviceStartCmd.Flags().String("platform", "", "Platform: ios, android, or web (inferred from --app-id or --build-version-id when omitted)")
 	deviceStartCmd.Flags().String("app", "", "App UUID (alias for --app-id); required for Web")
-	deviceStartCmd.Flags().String("url", "", "Create or reuse an HTTPS URL build on --app before starting Web")
+	deviceStartCmd.Flags().String("url", "", "Create or reuse a URL build for this website on --app before starting Web, such as example.com")
 	deviceStartCmd.Flags().String("commit", "", "Commit SHA identity for --url on platform web")
 	deviceStartCmd.Flags().String("viewport", "1280x800", "Web viewport WIDTHxHEIGHT (width 320–3840, height 240–2160)")
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")

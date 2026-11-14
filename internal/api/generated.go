@@ -11216,7 +11216,9 @@ type WebExternalBuildRequest struct {
 
 	// Metadata Free-form build annotations, including CI metadata, as for artifact uploads
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
-	Url      string                  `json:"url"`
+
+	// Url Website address a Web session opens, such as example.com. A missing scheme becomes https and http is upgraded; the address is stored in canonical form. Credentials, query strings, fragments, localhost, single-label hosts, and private network addresses are rejected.
+	Url string `json:"url"`
 }
 
 // WebSessionOptions defines model for WebSessionOptions.

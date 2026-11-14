@@ -14,7 +14,11 @@ pr_review:
 `enabled` and `triggers` only decide when proof starts by itself. Commenting
 `@revyl proof` on a pull request, or clicking **Run proof** in Revyl's pull
 request comment, always builds the current commit if needed and proves it, even
-when `enabled` is `false` or the triggers don't match. Only
+when `enabled` is `false`, the proof triggers don't match, or the PR lacks the
+labels or draft state `pr_review.triggers` asks for. It still only reaches
+projects the pull request changes: a file in the project's own folder or in its
+`pr_review.triggers.paths`. A project at the repository root has no folder of
+its own, so only its `paths` count (all files when it lists none). Only
 `pr_review.enabled: false` turns Revyl off for the project.
 
 `harness.kind` accepts `revyl`, `cursor`, `capy`, or `devin`:
@@ -137,8 +141,9 @@ of the first line and optional guidance after it:
 ```
 
 `@revyl proof [ios|android|web] [guidance]` builds the current head when its
-build is missing, then starts the proof for that platform. Omit the platform to
-start every configured platform. Guidance applies to this proof only.
+build is missing, then starts the proof for that platform in each project the
+pull request changes. Omit the platform to start every configured platform of
+those projects. Guidance applies to this proof only.
 
 `@revyl rerun [ios|android|web] [guidance]` and
 `@revyl retry [ios|android|web] [guidance]` are reserved for finished proofs and

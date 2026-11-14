@@ -24,14 +24,13 @@ func TestWebStartRejectsInvalidOptionsBeforeTransport(t *testing.T) {
 		{"invalid app", func(o *StartSessionOptions) { o.AppID = "not-an-id" }},
 		{"invalid build", func(o *StartSessionOptions) { o.BuildVersionID = "not-an-id" }},
 		{"URL and build", func(o *StartSessionOptions) { o.WebURL = "https://example.test/" }},
-		{"insecure URL", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "http://example.test/" }},
 		{"URL userinfo", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://private:secret@example.test/" }},
 		{"URL query", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://example.test/?private=value" }},
 		{"URL fragment", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://example.test/#private" }},
 		{"URL control", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://example.test/\nprivate" }},
 		{"URL backslash", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://example.test/\\private" }},
 		{"URL invalid port", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://example.test:65536/" }},
-		{"URL whitespace", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = " https://example.test/" }},
+		{"URL whitespace", func(o *StartSessionOptions) { o.BuildVersionID = ""; o.WebURL = "https://example .test/" }},
 		{"commit without URL", func(o *StartSessionOptions) { o.WebCommitSHA = "abcdef1" }},
 		{"invalid commit", func(o *StartSessionOptions) {
 			o.BuildVersionID = ""
@@ -56,6 +55,46 @@ func TestWebStartRejectsInvalidOptionsBeforeTransport(t *testing.T) {
 				t.Fatalf("invalid input was not rejected safely: %v", err)
 			}
 		})
+	}
+}
+
+func TestNormalizeWebURLAddsHTTPSAndRejectsHostsACloudBrowserCannotReach(t *testing.T) {
+	for typed, want := range map[string]string{
+		"example.com":              "https://example.com",
+		"  www.example.com/app ":   "https://www.example.com/app",
+		"HTTPS://Example.COM/Path": "https://example.com/Path",
+		"http://example.com/a/":    "https://example.com/a/",
+		"example.com:443/a":        "https://example.com/a",
+		"example.com:8443":         "https://example.com:8443",
+		"medium.com/@revyl":        "https://medium.com/@revyl",
+		"8.8.8.8":                  "https://8.8.8.8",
+		"10.com":                   "https://10.com",
+		"192.168.example.com":      "https://192.168.example.com",
+		"[2001:4860::8888]:8443":   "https://[2001:4860::8888]:8443",
+	} {
+		if got, err := NormalizeWebURL(typed); err != nil || got != want {
+			t.Errorf("NormalizeWebURL(%q) = %q, %v; want %q", typed, got, err, want)
+		}
+	}
+	for typed, want := range map[string]string{
+		"localhost:3000":        "can't reach localhost or private addresses",
+		"https://app.localhost": "can't reach localhost or private addresses",
+		"printer.local":         "can't reach localhost or private addresses",
+		"10.0.0.1":              "can't reach localhost or private addresses",
+		"192.168.1.5:8080":      "can't reach localhost or private addresses",
+		"100.64.0.1":            "can't reach localhost or private addresses",
+		"[::1]:3000":            "can't reach localhost or private addresses",
+		"[::ffff:8.8.8.8]":      "can't reach localhost or private addresses",
+		"example":               "Enter the full domain, such as example.com.",
+		"user:pw@example.com":   "Remove the username and password from the address.",
+		"example.com/?x=1":      "Remove the part after ? or # from the address.",
+		"ftp://example.com":     "Enter a website address, such as example.com.",
+		"example.com:65536":     "Enter a website address, such as example.com.",
+		"exa mple.com":          "Enter a website address, such as example.com.",
+	} {
+		if got, err := NormalizeWebURL(typed); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("NormalizeWebURL(%q) = %q, %v; want error %q", typed, got, err, want)
+		}
 	}
 }
 
@@ -98,7 +137,7 @@ func TestWebStartResolvesOnlyURLBuildsAndSendsCanonicalRequest(t *testing.T) {
 					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 						t.Fatal(err)
 					}
-					if r.Method != http.MethodPost || len(body) != 2 || body["url"] != "https://EXAMPLE.test:8443/private-path%2F/" || body["commit_sha"] != "abcdef1" {
+					if r.Method != http.MethodPost || len(body) != 2 || body["url"] != "https://example.test:8443/private-path%2F/" || body["commit_sha"] != "abcdef1" {
 						t.Errorf("incorrect URL build request: %#v", body)
 					}
 					_ = json.NewEncoder(w).Encode(map[string]any{"id": webFixtureBuildID, "app_id": webFixtureAppID, "artifact_kind": "web_external", "was_reused": mode == "reused"})

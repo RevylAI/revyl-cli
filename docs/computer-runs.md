@@ -124,7 +124,7 @@ independently.
 
 ### Command user and home directory
 
-On macOS, commands run as the non-admin `computer` account, not root. Each
+On macOS, commands run as the `computer` account, not root. Each
 `exec` starts in `/Users/computer/workspace` with `HOME` set to that same
 directory. Relative file-operation paths also start there: `notes.txt` means
 `/Users/computer/workspace/notes.txt`, not `/Users/computer/notes.txt`.
@@ -136,6 +136,21 @@ directory. To use the same files from that Terminal, run
 can still use different state; when needed, run that tool in Terminal with
 `HOME=/Users/computer/workspace`. Changing directory alone does not change
 `HOME`, and changing either value in one `exec` does not persist into the next.
+
+### Administrator access
+
+On macOS the `computer` account is an administrator with the password `revyl`.
+Enter `computer` and `revyl` when macOS asks for an administrator's name and
+password, for example to allow Screen & System Audio Recording or Accessibility
+for an app in System Settings, or to install a package. `exec` has no
+terminal, so give `sudo -S` the password on stdin:
+
+```bash
+printf 'revyl\n' | revyl computer exec "$C1" --stdin - -- sudo -S installer -pkg MyApp.pkg -target /
+```
+
+Each computer is a fresh copy of the image and is deleted when it stops, so
+administrator changes never carry over to another computer.
 
 ### Working directory, environment and long commands
 

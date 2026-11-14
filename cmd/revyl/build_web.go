@@ -40,15 +40,16 @@ type webURLUploadJSON struct {
 // commit returns the existing build and makes it the app's latest.
 func runWebURLUpload(cmd *cobra.Command, apiKey string) error {
 	if uploadURLFlag == "" || uploadFileFlag != "" {
-		return usageErrorf("--platform web registers a deployment URL; pass --url https://... instead of --file")
+		return usageErrorf("--platform web registers a deployment URL; pass --url example.com instead of --file")
 	}
 	for _, name := range []string{"header", "version", buildPinFlagName, buildSetCurrentFlagName, buildNoSetCurrentFlagName, "preview", "name"} {
 		if cmd.Flags().Changed(name) {
 			return usageErrorf("--%s is not available with --platform web", name)
 		}
 	}
-	if err := mcppkg.ValidateWebURL(uploadURLFlag); err != nil {
-		return usageErrorf("--%s", err)
+	webURL, err := mcppkg.NormalizeWebURL(uploadURLFlag)
+	if err != nil {
+		return usageErrorf("--url: %v", err)
 	}
 	branchName := commandBuildBranch(cmd)
 	if cmd.Flags().Changed("branch") {
@@ -64,7 +65,7 @@ func runWebURLUpload(cmd *cobra.Command, apiKey string) error {
 		return err
 	}
 
-	request := &api.ExternalURLBuildRequest{BranchName: branchName, URL: uploadURLFlag, Metadata: build.CIMetadata(cmd.Context(), "web")}
+	request := &api.ExternalURLBuildRequest{BranchName: branchName, URL: webURL, Metadata: build.CIMetadata(cmd.Context(), "web")}
 	ci, hasCI := build.CIContextFromContext(cmd.Context())
 	if commitSHA := strings.ToLower(strings.TrimSpace(ci.CommitSHA)); hasCI && fullGitCommitSHA.MatchString(commitSHA) {
 		request.CommitSHA = commitSHA
@@ -90,7 +91,7 @@ func runWebURLUpload(cmd *cobra.Command, apiKey string) error {
 			Version:   result.Version,
 			VersionID: result.ID,
 			WasReused: result.WasReused,
-			SourceURL: uploadURLFlag,
+			SourceURL: webURL,
 			CommitSHA: request.CommitSHA,
 			Review:    review,
 		}

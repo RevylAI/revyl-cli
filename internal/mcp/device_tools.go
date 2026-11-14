@@ -613,7 +613,7 @@ type StartDeviceSessionInput struct {
 	BranchName                 string                 `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
 	BuildSelection             string                 `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, latest_all_branches (the newest build across all of the app's branches; no branch_name; ignores the project's Git branch), or pinned with build_version_id."`
 	Platform                   string                 `json:"platform" jsonschema:"Target platform: ios, android, or web (REQUIRED)"`
-	URL                        string                 `json:"url,omitempty" jsonschema:"HTTPS URL build to create or reuse on app_id before starting Web; mutually exclusive with build_version_id."`
+	URL                        string                 `json:"url,omitempty" jsonschema:"Website URL build to create or reuse on app_id before starting Web, such as example.com; https is added and localhost or private addresses are rejected. Mutually exclusive with build_version_id."`
 	Commit                     string                 `json:"commit,omitempty" jsonschema:"Optional commit SHA identifying the URL build."`
 	Viewport                   *api.DeviceWebViewport `json:"viewport,omitempty" jsonschema:"Web viewport width 320–3840, height 240–2160, device_scale_factor 1–3."`
 	AppID                      string                 `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`

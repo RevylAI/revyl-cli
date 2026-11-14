@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -21,20 +23,71 @@ import (
 
 var webCommitPattern = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
-// ValidateWebURL accepts only the URL builds the backend registers: HTTPS,
-// no credentials, query strings, or fragments.
-func ValidateWebURL(raw string) error {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed == nil || len(raw) > 2048 || !strings.HasPrefix(raw, "https://") || parsed.Hostname() == "" || parsed.User != nil || strings.ContainsAny(raw, "?#\\") || strings.IndexFunc(raw, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return fmt.Errorf("url must be an HTTPS URL without credentials, query strings, fragments, backslashes, or whitespace")
+var (
+	webURLSchemePattern       = regexp.MustCompile(`(?i)^([a-z][a-z\d+.-]*)://`)
+	webURLNonPublicSuffixes   = []string{".localhost", ".local", ".internal", ".home.arpa"}
+	webURLSharedAddressPrefix = netip.MustParsePrefix("100.64.0.0/10")
+	errWebURLInvalid          = errors.New("Enter a website address, such as example.com.")
+	errWebURLNonPublic        = errors.New("Revyl can't reach localhost or private addresses.")
+)
+
+// NormalizeWebURL returns the website URL a Web URL build registers, following
+// the backend's normalize_website_url: a missing scheme becomes https, http is
+// upgraded, and credentials, query strings, fragments, localhost, single-label
+// hosts, and private addresses are rejected. The backend still canonicalizes
+// internationalized hosts and alternate IP spellings itself.
+func NormalizeWebURL(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > 2048 || strings.ContainsRune(trimmed, '\\') || strings.IndexFunc(trimmed, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return "", errWebURLInvalid
 	}
-	if port := parsed.Port(); port != "" {
-		number, err := strconv.Atoi(port)
-		if err != nil || number > 65535 {
-			return fmt.Errorf("url must have a valid port")
+	rest := trimmed
+	if scheme := webURLSchemePattern.FindStringSubmatch(trimmed); scheme != nil {
+		if name := strings.ToLower(scheme[1]); name != "http" && name != "https" {
+			return "", errWebURLInvalid
+		}
+		rest = trimmed[len(scheme[0]):]
+	}
+	authority, path := rest, ""
+	if index := strings.IndexAny(rest, "/?#"); index >= 0 {
+		authority, path = rest[:index], rest[index:]
+	}
+	if strings.Contains(authority, "@") {
+		return "", errors.New("Remove the username and password from the address.")
+	}
+	if strings.ContainsAny(path, "?#") {
+		return "", errors.New("Remove the part after ? or # from the address.")
+	}
+	parsed, err := url.Parse("https://" + authority)
+	if err != nil || parsed.Hostname() == "" {
+		return "", errWebURLInvalid
+	}
+	port := parsed.Port()
+	if port != "" {
+		if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+			return "", errWebURLInvalid
+		} else if number == 443 {
+			port = ""
 		}
 	}
-	return nil
+	host := strings.ToLower(parsed.Hostname())
+	name := strings.TrimSuffix(host, ".")
+	if address, err := netip.ParseAddr(host); err == nil {
+		if address.Is4In6() || !address.IsGlobalUnicast() || address.IsPrivate() || webURLSharedAddressPrefix.Contains(address) {
+			return "", errWebURLNonPublic
+		}
+		if address.Is6() {
+			host = "[" + host + "]"
+		}
+	} else if name == "localhost" || slices.ContainsFunc(webURLNonPublicSuffixes, func(suffix string) bool { return strings.HasSuffix(name, suffix) }) {
+		return "", errWebURLNonPublic
+	} else if !strings.Contains(name, ".") {
+		return "", errors.New("Enter the full domain, such as example.com.")
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return "https://" + host + path, nil
 }
 
 var webLaunchEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
@@ -147,7 +200,7 @@ func ValidateWebSessionStartOptions(opts StartSessionOptions) error {
 		if opts.BuildVersionID != "" {
 			return fmt.Errorf("provide only one of url or build_version_id")
 		}
-		if err := ValidateWebURL(opts.WebURL); err != nil {
+		if _, err := NormalizeWebURL(opts.WebURL); err != nil {
 			return err
 		}
 	} else if opts.WebCommitSHA != "" {
@@ -218,7 +271,11 @@ func (m *DeviceSessionManager) resolveWebStartBuild(ctx context.Context, appID s
 	var build *api.WebBuild
 	artifact := startdevice.ResolvedStartArtifact{AppID: appID}
 	if opts.WebURL != "" {
-		build, err = m.apiClient.CreateExternalURLBuild(ctx, appID, &api.ExternalURLBuildRequest{BranchID: opts.BranchID, BranchName: opts.BranchName, URL: opts.WebURL, CommitSHA: opts.WebCommitSHA})
+		webURL, urlErr := NormalizeWebURL(opts.WebURL)
+		if urlErr != nil {
+			return startdevice.ResolvedStartArtifact{}, urlErr
+		}
+		build, err = m.apiClient.CreateExternalURLBuild(ctx, appID, &api.ExternalURLBuildRequest{BranchID: opts.BranchID, BranchName: opts.BranchName, URL: webURL, CommitSHA: opts.WebCommitSHA})
 	} else {
 		if buildID == "" {
 			latest, err := m.apiClient.GetLatestWebBuild(ctx, appID, api.BuildSelection{

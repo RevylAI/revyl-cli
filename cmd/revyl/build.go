@@ -251,7 +251,7 @@ func init() {
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
 	buildUploadCmd.Flags().BoolVar(&uploadPreviewFlag, "preview", false, "Print a URL that starts a simulator with this build when opened")
 	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
-	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions), or the HTTPS deployment URL with --platform web")
+	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions), or the website deployment URL with --platform web, such as example.com")
 	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
 	registerBuildUploadSCMFlags(buildUploadCmd)
 	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on Revyl's cloud build runners")

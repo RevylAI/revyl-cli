@@ -59,7 +59,7 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	webURL, _ := cmd.Flags().GetString("url")
 	commit, _ := cmd.Flags().GetString("commit")
 	if cmd.Flags().Changed("url") && strings.TrimSpace(webURL) == "" {
-		return fmt.Errorf("--url requires an HTTPS URL")
+		return fmt.Errorf("--url requires a website URL, such as example.com")
 	}
 	viewportFlag, _ := cmd.Flags().GetString("viewport")
 	viewport, err := parseWebViewport(viewportFlag)

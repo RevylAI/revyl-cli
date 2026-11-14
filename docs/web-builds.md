@@ -152,8 +152,11 @@ revyl build upload --platform web --url https://pr-42.example.dev --json
 - **App.** `--app <name-or-id>` selects the Web app. Without it, the command reads
   `build.profiles.<name>.web.app_id`. Profiles that name different Web apps need
   `--app`.
-- **URL.** Must be HTTPS, with no credentials, query string or fragment. Revyl
-  never fetches anything when it registers the URL.
+- **URL.** A public address such as `pr-42.example.dev`. Revyl adds `https://`
+  when the scheme is missing and upgrades `http://`. It rejects credentials, a
+  query string or fragment, `localhost`, single-label hosts, and private network
+  addresses, because the browser runs in Revyl's cloud. Revyl never fetches
+  anything when it registers the URL.
 - **Pull-request identity.** The command stores the same CI metadata on the build
   as phone uploads do. GitHub Actions and Buildkite are detected automatically.
   On any other runner, pass `--repo owner/name --commit <full PR head SHA>`, and

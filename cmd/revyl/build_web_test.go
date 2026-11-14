@@ -179,10 +179,10 @@ func TestWebURLUploadRejectsInvalidInputBeforeTransport(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"missing url", webUploadTestAppID, "", nil, "pass --url https://"},
-		{"http url", webUploadTestAppID, "http://example.test", nil, "HTTPS URL"},
-		{"query string", webUploadTestAppID, "https://example.test/?token=x", nil, "query strings"},
-		{"credentials", webUploadTestAppID, "https://user:pass@example.test", nil, "credentials"},
+		{"missing url", webUploadTestAppID, "", nil, "pass --url example.com"},
+		{"localhost", webUploadTestAppID, "localhost:3000", nil, "--url: Revyl can't reach localhost"},
+		{"query string", webUploadTestAppID, "https://example.test/?token=x", nil, "Remove the part after ? or #"},
+		{"credentials", webUploadTestAppID, "https://user:pass@example.test", nil, "Remove the username and password"},
 		{"header", webUploadTestAppID, "https://example.test", []string{"--header", "A: b"}, "--header is not available with --platform web"},
 		{"version", webUploadTestAppID, "https://example.test", []string{"--version", "1"}, "--version is not available with --platform web"},
 		{"pin", webUploadTestAppID, "https://example.test", []string{"--pin"}, "--pin is not available with --platform web"},
