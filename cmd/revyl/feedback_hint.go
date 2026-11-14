@@ -194,7 +194,7 @@ func feedbackHintApplies(cmd *cobra.Command, err error) bool {
 		}
 	}
 	switch analytics.FailureClassForError(err) {
-	case analytics.FailureClassCancelled, analytics.FailureClassAuth, analytics.FailureClassQuota:
+	case analytics.FailureClassCancelled, analytics.FailureClassAuth, analytics.FailureClassQuota, analytics.FailureClassBilling:
 		return false
 	}
 	return true

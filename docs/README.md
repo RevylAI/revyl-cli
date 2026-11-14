@@ -2,12 +2,13 @@
 
 # Revyl CLI
 
-AI-powered mobile testing from your terminal. Create, run, and manage end-to-end tests for iOS and Android apps without leaving your development environment.
+AI-powered testing from your terminal. Create, run, and manage end-to-end tests for iOS, Android and web apps without leaving your development environment.
 
 See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the Revyl CLI.
 
 - [Use Revyl as device infrastructure](device-infrastructure.md)
 - [Run your app and verify a change](mobile-quickstart.md)
+- [See usage and upgrade to Pro](billing.md)
 - [Limit concurrent workflow tests](workflow-concurrency.md)
 - [Run tests from Git](run-tests-from-git.md)
 - [Explore from the CLI](explore.md)

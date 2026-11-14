@@ -91,6 +91,9 @@ type devDetachHandshake struct {
 	// user's browser. When false (headless VM, --no-open), whoever consumes
 	// this handshake should present viewer_url as a clickable link instead.
 	OpenedBrowser bool `json:"opened_browser"`
+	// BillingNotice is the usage notice from the session start, which the
+	// detached child could only write to its log.
+	BillingNotice *api.UsageNotice `json:"billing_notice,omitempty"`
 }
 
 // shouldAutoOpenViewer reports whether the detach parent can open the live viewer.
@@ -351,6 +354,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 			handshake.AuthBypass = ds.AuthBypass
 			handshake.SeededVersion = ds.SeededVersion
 			handshake.InstalledSeed = ds.InstalledSeed
+			handshake.BillingNotice = ds.BillingNotice
 			if ds.State == "building" {
 				handshake.State = "building"
 			}
@@ -365,6 +369,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 		}
 	}
 
+	printBillingNotice(handshake.BillingNotice)
 	if devStartJSON {
 		data, _ := json.MarshalIndent(handshake, "", "  ")
 		fmt.Println(string(data))

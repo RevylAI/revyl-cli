@@ -1,6 +1,6 @@
 // Package main provides the entry point for the Revyl CLI.
 //
-// The Revyl CLI is an AI-powered mobile app testing tool that enables
+// The Revyl CLI is an AI-powered app testing tool that enables
 // developers to run tests, manage builds, and create tests interactively.
 package main
 
@@ -32,7 +32,7 @@ var (
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:   "revyl",
-	Short: "Proactive reliability for mobile apps",
+	Short: "Proactive reliability for your apps",
 	Long:  ui.GetHelpText(),
 	// Never dump usage/help after a runtime error: agents parse output, and a
 	// help dump buries the actual error. `revyl <cmd> --help` still works.
@@ -137,6 +137,8 @@ func Execute() {
 
 func executeWithNotices(root *cobra.Command) error {
 	cmd, err := root.ExecuteC()
+	writeBillingErrorJSON(root.OutOrStdout(), cmd, err)
+	printBillingRefusalGuidance(root.ErrOrStderr(), cmd, err)
 	printVersionWarning(cmd)
 	printUncommittedConfigMigrationReminder(cmd)
 	printAgentFrictionHint(root.ErrOrStderr(), cmd)
@@ -170,11 +172,12 @@ func init() {
 	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(authCmd)
+	rootCmd.AddCommand(billingCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(appCmd)
 	rootCmd.AddCommand(exploreCmd)
 	rootCmd.AddCommand(atlasCmd)
-	atlasCmd.AddCommand(newAtlasReportsCommand(), newAtlasCompareCommand())
+	atlasCmd.AddCommand(newAtlasReportsCommand(), newAtlasCompareCommand(), newAtlasDiffCommand())
 	rootCmd.AddCommand(buildCmd)
 	buildCmd.AddCommand(newBuildRunsCommand())
 	rootCmd.AddCommand(cacheCmd)

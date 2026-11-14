@@ -587,6 +587,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 	for _, warning := range result.Warnings {
 		ui.PrintWarning("%s", warning)
 	}
+	printBillingNotice(result.UsageNotice)
 	previewURL := applyUploadPreview(cmd, result.VersionID)
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)
@@ -1066,19 +1067,20 @@ func createNewApp(cmd *cobra.Command, client *api.Client, projectName, platform 
 
 // BuildUploadJSONBuild represents one uploaded build in machine-readable output.
 type BuildUploadJSONBuild struct {
-	BranchID             string   `json:"branch_id,omitempty"`
-	BranchName           string   `json:"branch_name,omitempty"`
-	Profile              string   `json:"profile,omitempty"`
-	PlatformKey          string   `json:"platform_key"`
-	Platform             string   `json:"platform"`
-	AppID                string   `json:"app_id"`
-	BuildVersion         string   `json:"build_version"`
-	BuildID              string   `json:"build_id"`
-	ArtifactPath         string   `json:"artifact_path"`
-	BuildDurationSeconds float64  `json:"build_duration_seconds,omitempty"`
-	PackageID            string   `json:"package_id,omitempty"`
-	Warnings             []string `json:"warnings,omitempty"`
-	PreviewURL           string   `json:"preview_url,omitempty"`
+	BranchID             string           `json:"branch_id,omitempty"`
+	BranchName           string           `json:"branch_name,omitempty"`
+	Profile              string           `json:"profile,omitempty"`
+	PlatformKey          string           `json:"platform_key"`
+	Platform             string           `json:"platform"`
+	AppID                string           `json:"app_id"`
+	BuildVersion         string           `json:"build_version"`
+	BuildID              string           `json:"build_id"`
+	ArtifactPath         string           `json:"artifact_path"`
+	BuildDurationSeconds float64          `json:"build_duration_seconds,omitempty"`
+	PackageID            string           `json:"package_id,omitempty"`
+	Warnings             []string         `json:"warnings,omitempty"`
+	PreviewURL           string           `json:"preview_url,omitempty"`
+	UsageNotice          *api.UsageNotice `json:"billing_notice,omitempty"`
 }
 
 // BuildUploadJSONOutput is the machine-readable payload for build uploads.
@@ -1110,6 +1112,7 @@ func newBuildUploadJSONBuild(
 		build.BranchName = uploadResult.BranchName
 		build.PackageID = uploadResult.PackageID
 		build.Warnings = uploadResult.Warnings
+		build.UsageNotice = uploadResult.UsageNotice
 	}
 	if buildDuration > 0 {
 		build.BuildDurationSeconds = buildDuration.Seconds()
@@ -1604,6 +1607,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	for _, warning := range result.Warnings {
 		ui.PrintWarning("%s", warning)
 	}
+	printBillingNotice(result.UsageNotice)
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)
 

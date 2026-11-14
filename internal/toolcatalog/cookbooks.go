@@ -42,19 +42,19 @@ func Cookbooks() []Cookbook {
 		}, Boundaries: []string{"Stop when the claim has supporting evidence or the selected evidence is insufficient.", "Do not crawl diagnostic artifacts across the organization.", "Use tools call --view on the supported read to produce a replayable native view recipe."}},
 		{Name: "atlas-drilldown", Goal: "Start from an app or flow question and trace exact observations into originating reports.", Steps: []CookbookStep{
 			{"apps.list", "Resolve the app UUID by name and platform, preserving pagination."},
-			{"atlas.brief", "Orient on graph anchors; these are suggestions, not a hierarchy."},
+			{"atlas.brief", "Orient on graph anchors; these are suggestions, not a hierarchy. Its inline filters list the builds, branches, devices, OS versions and launch keys to scope later reads with; call atlas.filters only for tests, reports, workflow executions or launch values."},
 			{"atlas.search", "Find candidate screens in the requested build/time scope."},
 			{"atlas.observation", "Retrieve the exact observation with screenshots=true and open its image before making visual claims."},
 			{"atlas.edge", "Check observed transitions and runs before claiming an executed flow. Inspect decisive video intervals."},
 			{"atlas.report", "Retrieve the source report for the exact observation. Preserve report, execution and session references."},
 			{"reports.logs", "Inspect device logs only for the selected source execution, if that provenance exists."},
 		}, Boundaries: []string{"Generated names and OCR are navigation aids, not visual verification.", "Unobserved behavior is not a missing feature.", "If evidence belongs only to a session, use sessions.report and sessions.logs/network/performance/state with session_id."}},
-		{Name: "compare-builds", Goal: "Compare the observed Atlas evidence supported by two builds.", Steps: []CookbookStep{
-			{"builds.list", "Resolve two exact build UUIDs belonging to the same app."},
-			{"atlas.compare_builds", "Compare screen and transition identity sets, retaining both graph scopes and partial status."},
-			{"atlas.observations", "Inspect captures for question-relevant screens within each build scope."},
-			{"atlas.observation", "Open exact screenshots from both builds. First verify they represent the same logical screen, then describe any visual drift. Atlas identities can over-group distinct screens."},
-		}, Boundaries: []string{"Shared identities are comparison candidates, not verified semantic or pixel matches.", "Observed only in one build does not prove introduction or removal.", "Do not compare run metrics as screen metrics.", "Return the comparison with --view for a native comparison recipe."}},
+		{Name: "compare-builds", Goal: "Compare the observed Atlas evidence of two builds, or of any two filter scopes (device, OS, branch, test, report or launch value), or find screens seen under only one value of a filter, in one or two calls.", Steps: []CookbookStep{
+			{"atlas.brief", "Start here unless the filter values are already known; its inline filters list the exact build, branch, device and OS values with run counts. Use atlas.filters with group runs for test or report values, and builds.list only when a build is not listed."},
+			{"atlas.diff", "Pass a and b terms (for example a=[\"build=<UUID>\"], b=[\"build=<UUID>\"] or device_model terms) for screens and relationships only in A, only in B and in both. For \"seen on only one device/OS/build\" questions pass partition_by instead; it reads up to 8 values in one call. Do not confirm screens one by one; check partial and values_truncated before claiming absence."},
+			{"atlas.observations", "When the question needs visuals, inspect captures for question-relevant screens within each scope."},
+			{"atlas.observation", "Open exact screenshots from both scopes. First verify they represent the same logical screen, then describe any visual drift. Atlas identities can over-group distinct screens."},
+		}, Boundaries: []string{"Shared identities are comparison candidates, not verified semantic or pixel matches.", "Observed only in one scope does not prove introduction or removal.", "Diff counts are observations, not runs or user traffic.", "Do not compare run metrics as screen metrics.", "atlas.compare_builds returns both full build graphs and supports --view for a native comparison recipe."}},
 		{Name: "annotate-evidence", Goal: "Write a user-requested grounded annotation on an inspected capture.", Steps: []CookbookStep{
 			{"atlas.observation", "Retrieve and open the exact capture; do not ground against a screen representative substituted for it."},
 			{"annotations.create", "Only after a requested write, supply app, observation, visually concrete target, body and a stable client_request_id."},

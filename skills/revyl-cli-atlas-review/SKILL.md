@@ -129,6 +129,17 @@ are `open`, `resolved`, or `dismissed`; `closed` aggregates the latter two.
 Deleting always requires `--yes`. Before deleting, remember that deleting a
 root comment removes the full thread from internal and public-share surfaces.
 
+## Map structure
+
+This skill does not change the map's structure. When the user asks to merge,
+split, hide, or pin Atlas screens, tell them to make that change in the Atlas
+web UI.
+
+Share links are credentials. Do not create, refresh, or revoke one unless the
+user asks for that exact action, never repeat a link in summaries or
+artifacts, and use `revyl atlas share status` to check a link without
+printing it.
+
 Return the focused Atlas URL after a successful mutation. Keep customer
 screenshots and marked previews temporary and never expose signed URLs, bodies,
 targets, or request IDs in committed artifacts.

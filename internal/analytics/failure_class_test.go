@@ -30,7 +30,7 @@ func TestClassifyFailure(t *testing.T) {
 		{name: "deadline", err: fmt.Errorf("poll: %w", context.DeadlineExceeded), want: FailureClassTimeout},
 		{name: "unauthorized", err: &api.APIError{StatusCode: 401}, want: FailureClassAuth},
 		{name: "forbidden", err: fmt.Errorf("list apps: %w", &api.APIError{StatusCode: 403}), want: FailureClassAuth},
-		{name: "allowance", err: &api.APIError{StatusCode: 402}, want: FailureClassQuota},
+		{name: "billing denial", err: &api.APIError{StatusCode: 402}, want: FailureClassBilling},
 		{name: "rate limited", err: &api.APIError{StatusCode: 429}, want: FailureClassQuota},
 		{name: "server error", err: &api.APIError{StatusCode: 503}, want: FailureClassServer},
 		{name: "not found", err: &api.APIError{StatusCode: 404}, want: FailureClassUsage},
@@ -127,8 +127,8 @@ func TestFailedEventCarriesOnlyTheBoundedFailureClass(t *testing.T) {
 	if event.Event != CliCommandFailedEvent {
 		t.Fatalf("event = %q, want %q", event.Event, CliCommandFailedEvent)
 	}
-	if got := event.Properties["failure_class"]; got != string(FailureClassQuota) {
-		t.Fatalf("failure_class = %v, want %q", got, FailureClassQuota)
+	if got := event.Properties["failure_class"]; got != string(FailureClassBilling) {
+		t.Fatalf("failure_class = %v, want %q", got, FailureClassBilling)
 	}
 }
 

@@ -1,9 +1,9 @@
 # Computer runs
 
 `revyl computer` and `revyl device start --computer` need Mac computers, which
-are available to organizations on a current paid plan. Without one,
-`revyl computer create` returns `computer_not_enabled` (HTTP 403) without
-creating anything; an owner or admin can upgrade in **Settings → Plans**.
+are available on request from support@revyl.ai; organizations on a paid plan,
+Pro included, already have them. Without access, `revyl computer create`
+returns `computer_not_enabled` (HTTP 403) without creating anything.
 
 `revyl computer` addresses an explicit computer-run UUID. It does not select an
 assigned physical Mac or change native device targeting.
@@ -17,7 +17,9 @@ that computer reads as `failed`. Reading and stopping an existing computer
 still work. A hosted server admits only organizations enabled for computers,
 and only while its device lane has headroom (`computer_limit`): queued work
 counts against that lane, a computer takes one slot of the budget its iOS
-sessions use, and the sessions hosted inside it take none. A computer runs for
+sessions use, and the sessions hosted inside it take none. On Pro, the
+`computer_limit` refusal also names adding a device and links to Billing; see
+[Billing](billing.md). A computer runs for
 up to two hours from creation. Like a device start, create
 also needs the payer's compute credits and fails with a billing error
 (HTTP 402) when they are exhausted or unpaid. Organization Viewers cannot

@@ -23,6 +23,7 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
@@ -1828,6 +1829,13 @@ func startDevSessionWithProgress(
 		platform = "cloud"
 	}
 	spinnerMessage := fmt.Sprintf("Provisioning %s device...", platform)
+	if opts.OnQueued == nil {
+		opts.OnQueued = func(notice *billingstatus.QueueNotice) {
+			resolvedHooks.stopSpinner()
+			printQueueNotice(notice)
+			resolvedHooks.startSpinner("Waiting for a free device...")
+		}
+	}
 	resolvedHooks.startSpinner(spinnerMessage)
 	defer resolvedHooks.stopSpinner()
 
@@ -1844,6 +1852,13 @@ func startDevSessionWithProgress(
 	for {
 		select {
 		case result := <-resultCh:
+			if result.err == nil && result.session != nil && result.session.UsageNotice.Text() != "" {
+				resolvedHooks.stopSpinner()
+				printBillingNotice(result.session.UsageNotice)
+				devStatusWriteMu.Lock()
+				devBillingNotice = result.session.UsageNotice
+				devStatusWriteMu.Unlock()
+			}
 			return result.index, result.session, result.err
 		case <-ticker.C:
 			elapsed := time.Since(startedAt).Round(time.Second)
@@ -3689,8 +3704,9 @@ type devStatus struct {
 	// SeededVersion / InstalledSeed describe a prior build installed
 	// immediately (revyl dev --remote --seed-latest) so the app is interactive
 	// while the fresh remote build is still compiling.
-	SeededVersion string `json:"seeded_version,omitempty"`
-	InstalledSeed bool   `json:"installed_seed,omitempty"`
+	SeededVersion string           `json:"seeded_version,omitempty"`
+	InstalledSeed bool             `json:"installed_seed,omitempty"`
+	BillingNotice *api.UsageNotice `json:"billing_notice,omitempty"`
 }
 
 type devRebuildLogEntry struct {
@@ -3720,6 +3736,11 @@ type devRebuildInfo struct {
 }
 
 var devStatusWriteMu sync.Mutex
+
+// devBillingNotice is the usage notice from this dev loop's session start. It
+// is kept in the status file because a detached loop's own output goes to its
+// log, where the agent that started it never reads it.
+var devBillingNotice *api.UsageNotice
 
 func writeDevStatusIdle(
 	statusPath privateRuntimePath,
@@ -3977,6 +3998,9 @@ func writeDevStatusSnapshotLocked(statusPath privateRuntimePath, ds devStatus) {
 	}
 	if ds.BeforeSession == nil {
 		ds.BeforeSession = devBeforeSession.Status()
+	}
+	if ds.BillingNotice == nil {
+		ds.BillingNotice = devBillingNotice
 	}
 	data, err := json.MarshalIndent(ds, "", "  ")
 	if err != nil {
@@ -5110,7 +5134,7 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		}
 	}
 
-	return map[string]interface{}{
+	output := map[string]interface{}{
 		"running":                  true,
 		"pid":                      pid,
 		"context":                  ctxName,
@@ -5141,6 +5165,10 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"installed_seed":           installedSeed,
 		"build":                    buildStatus,
 	}
+	if ds != nil && ds.BillingNotice != nil {
+		output["billing_notice"] = ds.BillingNotice
+	}
+	return output
 }
 
 func devStatusAuthBypass(ds *devStatus) *authBypassStatus {

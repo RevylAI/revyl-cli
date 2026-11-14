@@ -20,8 +20,11 @@ import (
 type FailureClass string
 
 const (
-	FailureClassAuth      FailureClass = "auth"
-	FailureClassQuota     FailureClass = "quota"
+	FailureClassAuth  FailureClass = "auth"
+	FailureClassQuota FailureClass = "quota"
+	// FailureClassBilling marks a billing denial (HTTP 402), kept apart from
+	// rate limits so billing blocks are countable on their own.
+	FailureClassBilling   FailureClass = "billing"
 	FailureClassConfig    FailureClass = "config"
 	FailureClassUsage     FailureClass = "usage"
 	FailureClassNetwork   FailureClass = "network"
@@ -106,7 +109,9 @@ func classifyFailure(err error, completion CommandCompletion) FailureClass {
 			return FailureClassNetwork
 		case status == http.StatusUnauthorized || status == http.StatusForbidden:
 			return FailureClassAuth
-		case status == http.StatusPaymentRequired || status == http.StatusTooManyRequests:
+		case status == http.StatusPaymentRequired:
+			return FailureClassBilling
+		case status == http.StatusTooManyRequests:
 			return FailureClassQuota
 		case status >= http.StatusInternalServerError:
 			return FailureClassServer

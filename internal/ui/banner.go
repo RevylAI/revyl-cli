@@ -19,7 +19,7 @@ const banner = `
   ╚═╝  ╚═╝╚══════╝  ╚═══╝     ╚═╝   ╚══════╝`
 
 // tagline is the product tagline.
-const tagline = "Proactive Reliability for Mobile Apps"
+const tagline = "Proactive Reliability for Your Apps"
 
 // DocsURL is the canonical public docs entrypoint for CLI users.
 const DocsURL = "https://docs.revyl.com"

@@ -64,7 +64,7 @@ var computerFailureReasons = map[string]string{
 }
 
 const computerLimitMessage = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
-const computerNotEnabledMessage = "Computers aren't available to this organization. Mac computers need a current paid plan; an owner or admin can upgrade in Settings > Plans."
+const computerNotEnabledMessage = "Computers aren't available to this organization. Contact support@revyl.ai to turn Mac computers on."
 const computerDisplayUnsupportedMessage = "No computer host can apply a display size yet. Omit --display to start at the default 1280x800."
 
 func computerStateText(state, release string) string {

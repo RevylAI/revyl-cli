@@ -239,12 +239,24 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 				if refusal.Code == "screen_target_not_found" || refusal.Code == "screen_target_unavailable" {
 					refusal.Message += "; nothing was clicked"
 				}
+				if offer := safe.Offer; refusal.Code == "computer_limit" && offer != nil && offer.Action.Valid() && strings.HasPrefix(offer.BillingUrl, "https://") {
+					refusal.BillingURL = offer.BillingUrl
+					refusal.BillingAction = BillingAction(offer.Action)
+					refusal.Hint = BillingNextStep(refusal.BillingAction, refusal.BillingURL)
+					if step := strings.TrimSpace(offer.Message); step != "" && len(step) <= computerLimitOfferMaxMessage && !strings.ContainsAny(step, "\n\r") {
+						refusal.Hint = step + ": " + refusal.BillingURL
+					}
+				}
 			}
 		}
 		return nil, refusal
 	}
 	return body, nil
 }
+
+// computerLimitOfferMaxMessage bounds the step a computer_limit refusal names;
+// a longer one is replaced by the action's own line.
+const computerLimitOfferMaxMessage = 160
 
 func decodeComputerJSON(body []byte, target any, required ...string) error {
 	var fields map[string]json.RawMessage

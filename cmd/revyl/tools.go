@@ -17,37 +17,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const toolOutputLimitBytes = 120000
+const (
+	toolOutputLimitBytes  = 120000
+	toolSearchSchemaLimit = 6
+)
 
 func newToolsCommand() *cobra.Command {
 	command := &cobra.Command{Use: "tools", Short: "Discover and call composable investigation tools", Long: "Discover tools, inspect their schemas, then call with a JSON object. Use '-' to read private arguments from stdin. Results preserve the underlying CLI JSON contract. No shell code is accepted."}
-	command.AddCommand(&cobra.Command{Use: "search [words]", Short: "Find tools by intent (JSON)", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	command.AddCommand(&cobra.Command{Use: "search [words]", Short: "Find tools by intent (JSON)", Long: "Find tools whose name and description contain every word. When at most 6 tools match, each result includes its input_schema, so a narrow search replaces a separate describe call.", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		catalog, err := toolcatalog.Build(cmd.Root(), investigationToolSpecs())
 		if err != nil {
 			return err
 		}
-		words := []string{}
+		query := ""
 		if len(args) > 0 {
-			words = strings.Fields(strings.ToLower(args[0]))
+			query = args[0]
 		}
-		type summary struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			ReadOnly    bool   `json:"read_only"`
-		}
-		matches := []summary{}
-		for _, tool := range catalog {
-			match := true
-			for _, word := range words {
-				if !strings.Contains(strings.ToLower(tool.Name+" "+tool.Description), word) {
-					match = false
-				}
-			}
-			if match {
-				matches = append(matches, summary{tool.Name, tool.Description, tool.ReadOnly})
-			}
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(matches)
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(searchInvestigationTools(catalog, query))
 	}})
 	command.AddCommand(&cobra.Command{Use: "describe <tool>", Short: "Read a tool's input schema and command mapping", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		tool, err := findInvestigationTool(cmd, args[0])
@@ -116,6 +102,38 @@ func newToolsCommand() *cobra.Command {
 		}
 	}
 	return command
+}
+
+type investigationToolSummary struct {
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	ReadOnly    bool                     `json:"read_only"`
+	InputSchema *toolcatalog.InputSchema `json:"input_schema,omitempty"`
+}
+
+func searchInvestigationTools(catalog []toolcatalog.Definition, query string) []investigationToolSummary {
+	words := strings.Fields(strings.ToLower(query))
+	matched := []toolcatalog.Definition{}
+	for _, tool := range catalog {
+		match := true
+		for _, word := range words {
+			if !strings.Contains(strings.ToLower(tool.Name+" "+tool.Description), word) {
+				match = false
+			}
+		}
+		if match {
+			matched = append(matched, tool)
+		}
+	}
+	matches := make([]investigationToolSummary, len(matched))
+	for index, tool := range matched {
+		matches[index] = investigationToolSummary{Name: tool.Name, Description: tool.Description, ReadOnly: tool.ReadOnly}
+		if len(matched) <= toolSearchSchemaLimit {
+			schema := tool.InputSchema
+			matches[index].InputSchema = &schema
+		}
+	}
+	return matches
 }
 
 func findInvestigationTool(cmd *cobra.Command, name string) (toolcatalog.Definition, error) {
@@ -190,7 +208,7 @@ func executeInvestigationTool(cmd *cobra.Command, tool toolcatalog.Definition, i
 	}
 	argv, err := tool.Arguments(input)
 	if err != nil {
-		return toolFailure(tool, input, "invalid_arguments", "Invalid arguments; use tools describe "+tool.Name+" to check parameter names, types, and limits.")
+		return toolFailure(tool, input, "invalid_arguments", "Invalid arguments: "+err.Error()+". Use tools describe "+tool.Name+" to check parameter names, types, and limits.")
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	if devMode {
@@ -210,6 +228,9 @@ func executeInvestigationTool(cmd *cobra.Command, tool toolcatalog.Definition, i
 			}
 		}
 		child.Stdin = strings.NewReader(body)
+	}
+	if lines, ok := toolcatalog.LaunchStdin(input); ok {
+		child.Stdin = strings.NewReader(lines)
 	}
 	child.WaitDelay = 2 * time.Second
 	child.Env = append(os.Environ(), "REVYL_TELEMETRY_DISABLED=1")

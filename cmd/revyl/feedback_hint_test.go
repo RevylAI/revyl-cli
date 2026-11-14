@@ -320,6 +320,7 @@ func TestAgentFeedbackHintSkipsUserResolvedFailuresAndFeedbackItself(t *testing.
 		"cancelled": {&cobra.Command{Use: "rebuild"}, analytics.WithFailureClass(errors.New("x"), analytics.FailureClassCancelled)},
 		"auth":      {&cobra.Command{Use: "rebuild"}, analytics.WithFailureClass(errors.New("x"), analytics.FailureClassAuth)},
 		"quota":     {&cobra.Command{Use: "rebuild"}, analytics.WithFailureClass(errors.New("x"), analytics.FailureClassQuota)},
+		"billing":   {&cobra.Command{Use: "rebuild"}, analytics.WithFailureClass(errors.New("x"), analytics.FailureClassBilling)},
 		"computer":  {&cobra.Command{Use: "ssh"}, &computerExitError{err: errors.New("exit 2"), code: 2}},
 		"no project": {&cobra.Command{Use: "list"}, &configDiagnosticError{
 			cause:   &config.ConfigError{Stage: "read", Code: "config_not_found"},

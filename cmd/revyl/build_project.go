@@ -691,6 +691,7 @@ func renderLocalBuildResult(ctx context.Context, client *api.Client, result loca
 	for _, warning := range result.Upload.Warnings {
 		ui.PrintWarning("%s", warning)
 	}
+	printBillingNotice(result.Upload.UsageNotice)
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", invocation.AppID)
 	if showNextSteps {

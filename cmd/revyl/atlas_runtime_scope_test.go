@@ -27,7 +27,7 @@ func TestAtlasRuntimeBranchScope(t *testing.T) {
 		{name: "branch exact build", args: []string{"--branch-id=" + branchID, "--build=" + buildID}, branch: branchID, build: buildID},
 		{name: "explicit all", args: []string{"--build=all"}},
 		{name: "invalid branch", args: []string{"--branch-id=feature"}, wantError: true},
-		{name: "conflicting all", args: []string{"--branch-id=" + branchID, "--build=all"}, wantError: true},
+		{name: "branch all builds", args: []string{"--branch-id=" + branchID, "--build=all"}, branch: branchID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requests := 0

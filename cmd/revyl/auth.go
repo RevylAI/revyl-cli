@@ -16,6 +16,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -874,10 +875,11 @@ func printAuthNextSteps(cmd *cobra.Command) {
 // authBillingCmd opens the billing settings page.
 var authBillingCmd = &cobra.Command{
 	Use:   "billing",
-	Short: "Manage billing and payment method",
-	Long: `Open the Revyl billing page in your browser.
+	Short: "Open billing settings",
+	Long: `Open the Revyl billing settings page in your browser.
 
-Use this to add a payment method, choose a plan, or manage billing.
+'revyl billing status' shows usage and rates in the terminal, and
+'revyl billing add-card' opens the add-card dialog directly.
 
 EXAMPLES:
   revyl auth billing          # Open billing page
@@ -908,15 +910,13 @@ EXAMPLES:
 			ui.PrintSuccess("Plan active: Billing Exempt")
 			return nil
 		} else if plan.Plan != "none" && plan.Plan != "" {
-			ui.PrintSuccess("Plan active: %s", plan.DisplayName)
+			ui.PrintSuccess("Plan active: %s", billingstatus.PlanDisplayName(plan.Plan, plan.DisplayName, plan.PaygEnrolled))
 			ui.PrintInfo("Opening billing settings to manage your plan...")
 		} else {
 			ui.PrintInfo("Opening billing page...")
-			ui.PrintInfo("Choose a plan when you need more monthly usage.")
 		}
 
-		appURL := config.GetAppURL(devMode)
-		billingURL := fmt.Sprintf("%s/settings/billing", appURL)
+		billingURL := api.BillingSettingsURL(devMode)
 
 		if openErr := ui.OpenBrowser(billingURL); openErr != nil {
 			ui.PrintInfo("Open this URL in your browser:")

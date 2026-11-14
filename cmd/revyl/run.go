@@ -21,6 +21,7 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
@@ -551,6 +552,10 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
+		OnQueued: func(notice *billingstatus.QueueNotice) {
+			ui.StopSpinner()
+			printQueueNotice(notice)
+		},
 		OnProgress: func(status *sse.TestStatus) {
 			ui.StopSpinner() // Stop spinner on first progress update
 
@@ -598,8 +603,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(cmd, result, false)
 		}
-		return runNotStartedError(result.ErrorMessage)
+		return runNotStartedError(result.ErrorMessage, &api.BillingRefusal{BillingURL: result.BillingURL, BillingAction: result.BillingAction, UpgradeBenefits: result.UpgradeBenefits})
 	}
+	printBillingNotice(result.UsageNotice)
 
 	ui.Println()
 
@@ -730,6 +736,10 @@ func outputTestResultJSON(cmd *cobra.Command, result *execution.RunTestResult, c
 		"duration":    result.Duration,
 		"error":       result.ErrorMessage,
 	}
+	addBillingFields(output, result.BillingURL, result.BillingAction, result.UpgradeBenefits, result.UsageNotice)
+	if result.QueueNotice != nil {
+		output["queue_notice"] = result.QueueNotice
+	}
 	output["branch_name"] = result.BranchName
 	output["build_version"] = result.BuildVersion
 	output["build_id"] = result.BuildID
@@ -846,14 +856,19 @@ func workflowRunNotStarted(result *execution.RunWorkflowResult) error {
 	if runOutputJSON || runGitHubActions {
 		outputWorkflowResultJSON(result)
 	}
-	return runNotStartedError(result.ErrorMessage)
+	return runNotStartedError(result.ErrorMessage, &api.BillingRefusal{BillingURL: result.BillingURL, BillingAction: result.BillingAction, UpgradeBenefits: result.UpgradeBenefits})
 }
 
 // runNotStartedError carries the server's refusal as the command error.
 // Analytics gets a fixed diagnostic: the refusal can name customer apps and
-// branches.
-func runNotStartedError(serverMessage string) error {
-	return analytics.WithSafeDiagnostic(errors.New(serverMessage), "run was not started")
+// branches. A refusal with a billing link counts as a billing failure.
+func runNotStartedError(serverMessage string, refusal *api.BillingRefusal) error {
+	if refusal.BillingURL == "" {
+		return analytics.WithSafeDiagnostic(errors.New(serverMessage), "run was not started")
+	}
+	refusal.Message = serverMessage
+	refusal.Reported = runOutputJSON || runGitHubActions
+	return analytics.WithFailureClass(analytics.WithSafeDiagnostic(refusal, "run was not started"), analytics.FailureClassBilling)
 }
 
 // workflowRunGenericFailure is what the workflow worker records when it knows
@@ -1224,6 +1239,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		if err := workflowRunNotStarted(queuedResult); err != nil {
 			return err
 		}
+		printBillingNotice(queuedResult.UsageNotice)
 		printDefinitionLine(cmd, checkoutUpload, queuedResult.TestCountByDefinitionSource, queuedResult.TestCountByDefinitionFallbackReason, queuedResult.TestDefinitionGitRead)
 
 		ui.Println()
@@ -1352,6 +1368,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if err := workflowRunNotStarted(result); err != nil {
 		return err
 	}
+	printBillingNotice(result.UsageNotice)
 	printDefinitionLine(cmd, checkoutUpload, result.TestCountByDefinitionSource, result.TestCountByDefinitionFallbackReason, result.TestDefinitionGitRead)
 
 	ui.Println()
@@ -1432,6 +1449,7 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 		"duration":        result.Duration,
 		"error":           result.ErrorMessage,
 	}
+	addBillingFields(output, result.BillingURL, result.BillingAction, result.UpgradeBenefits, result.UsageNotice)
 	if result.Status == "queued" {
 		output["queued"] = true
 	}

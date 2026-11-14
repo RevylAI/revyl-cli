@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +33,7 @@ var atlasCmd = &cobra.Command{
 Start with:
   revyl atlas apps
   revyl atlas brief --app "My App"
+  revyl atlas filters --app "My App"
   revyl atlas graph --app "My App"
   revyl atlas search "checkout error" --app "My App"
   revyl atlas screen <screen-id> --app "My App" --screenshots --screenshot-dir /tmp/atlas-shots
@@ -41,8 +44,9 @@ usable build on the selected branch, even when the branch is pinned. With no
 branch, it uses the detected Git branch when automatic Git branch detection is
 enabled in the app's Build branches settings. When detection is disabled or Git
 names no branch with a usable build, it uses the app's default branch.`,
-	Args: cobra.NoArgs,
-	RunE: runAtlasGuide,
+	Args:               cobra.NoArgs,
+	FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
+	RunE:               runAtlasGuide,
 }
 
 var atlasAppsCmd = &cobra.Command{
@@ -180,7 +184,9 @@ func init() {
 		atlasNeighborsCmd,
 		atlasEdgeCmd,
 		atlasSearchCmd,
+		atlasFiltersCmd,
 		newAtlasAnnotationsCommand(),
+		newAtlasShareCommand(),
 	)
 	for _, cmd := range []*cobra.Command{
 		atlasBriefCmd,
@@ -194,7 +200,25 @@ func init() {
 	} {
 		addAtlasScopeFlags(cmd, true)
 		addAtlasOutputFlags(cmd)
+		addAtlasLaunchFlags(cmd)
 	}
+	atlasGraphCmd.Flags().BoolVar(&atlasFlows, "flows", false, "Include the map's observed flows")
+	for _, cmd := range []*cobra.Command{atlasBriefCmd, atlasGraphCmd} {
+		cmd.Flags().BoolVar(&atlasWithFilters, "with-filters", false, "Also return the common build, branch, device and OS values with run counts, and the launch keys, read concurrently with the graph")
+	}
+	atlasScreenCmd.Flags().BoolVar(&atlasScreenDetails, "details", false, "Include the screen's full detail payload: state stacks and observation evidence")
+	addAtlasBranchFlags(atlasFiltersCmd)
+	atlasFiltersCmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
+	atlasFiltersCmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, latest, or all; defaults to all builds in the branch scope")
+	atlasFiltersCmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp with zone)")
+	atlasFiltersCmd.Flags().StringVar(&atlasTo, "to", "", "End time filter (ISO timestamp with zone)")
+	atlasFiltersCmd.Flags().StringVar(&atlasSince, "since", "", "Relative start time, such as 7d")
+	atlasFiltersCmd.Flags().IntVar(&atlasRecentBuildLimit, "recent-build-limit", 0, "Restrict to the latest N builds (1-100); 0 disables")
+	atlasFiltersCmd.Flags().StringVar(&atlasRange, "range", "", "Map time range: recent (latest 20 builds), 1d, 7d, 30d, or all")
+	atlasFiltersCmd.Flags().StringVar(&atlasFilterGroup, "group", "", "Filter group for values: time, device, launch, or runs")
+	atlasFiltersCmd.Flags().StringVar(&atlasFilterKey, "key", "", "Filter key for values, such as build, os, device, report, test, workflow_execution, or a launch-variable key")
+	atlasFiltersCmd.Flags().StringVar(&atlasFilterPrefix, "prefix", "", "Only values starting with this text")
+	atlasFiltersCmd.Flags().BoolVar(&atlasJSON, "json", false, "Output stable JSON")
 	addAtlasScopeFlags(atlasReportCmd, true)
 	atlasReportCmd.Flags().BoolVar(&atlasJSON, "json", false, "Output stable JSON")
 	for _, cmd := range []*cobra.Command{
@@ -206,12 +230,19 @@ func init() {
 	}
 	addAtlasBranchFlags(atlasOpenCmd)
 	atlasOpenCmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
-	atlasOpenCmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, or latest; defaults to all builds in the branch scope")
+	atlasOpenCmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, latest, or all; defaults to all builds in the branch scope")
 	atlasOpenCmd.Flags().StringVar(&atlasSince, "since", "", "Product range: 1d, 7d, or 30d")
 	atlasOpenCmd.Flags().StringVar(&atlasDeviceModel, "device-model", "", "Filter by device model")
 	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "runtime", "", "Filter by OS runtime")
 	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "os-version", "", "Alias for --runtime")
 	atlasOpenCmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Show variant nodes")
+	atlasOpenCmd.Flags().StringVar(&atlasReportID, "report-id", "", "Filter to one report")
+	atlasOpenCmd.Flags().StringVar(&atlasTestID, "test-id", "", "Filter to one test")
+	atlasOpenCmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
+	atlasOpenCmd.Flags().StringVar(&atlasRange, "range", "", "Map time range: recent (latest 20 builds), 1d, 7d, 30d, or all")
+	atlasOpenCmd.Flags().StringVar(&atlasDeviceModel, "device", "", "Alias for --device-model")
+	atlasOpenCmd.Flags().StringVar(&atlasRuntime, "os", "", "Alias for --runtime")
+	addAtlasLaunchFlags(atlasOpenCmd)
 	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios, web)")
 	atlasAppsCmd.Flags().StringVar(&atlasAppsSearch, "search", "", "Search by app name")
 	atlasAppsCmd.Flags().BoolVar(&atlasAppsAll, "all", false, "Include apps without available Atlas data")
@@ -232,12 +263,13 @@ func init() {
 	_ = atlasNeighborsCmd.MarkFlagRequired("app")
 	_ = atlasEdgeCmd.MarkFlagRequired("app")
 	_ = atlasSearchCmd.MarkFlagRequired("app")
+	_ = atlasFiltersCmd.MarkFlagRequired("app")
 }
 
 func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
 	addAtlasBranchFlags(cmd)
 	cmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
-	cmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, or latest; defaults to all builds in the branch scope")
+	cmd.Flags().StringVar(&atlasBuild, "build", "", "Build id, build version, latest, or all; defaults to all builds in the branch scope")
 	cmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp)")
 	cmd.Flags().StringVar(&atlasTo, "to", "", "End time filter (ISO timestamp)")
 	cmd.Flags().StringVar(&atlasSince, "since", "", "Relative start time, such as 7d")
@@ -254,8 +286,9 @@ func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
 	cmd.Flags().StringVar(&atlasRuntime, "runtime", "", "Filter by OS runtime")
 	cmd.Flags().StringVar(&atlasRuntime, "os-version", "", "Alias for --runtime")
 	cmd.Flags().StringVar(&atlasVisibility, "visibility", "included", "Visibility: included or included+excluded_debug")
-	cmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Include variant nodes")
+	cmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Add state-variant nodes, which are not separate screens; leave false to count or list screens unless variants are asked for")
 	cmd.Flags().IntVar(&atlasLimit, "limit", atlasGraphFetchLimit, "Maximum results to return")
+	addAtlasFilterFlags(cmd)
 }
 
 func addAtlasOutputFlags(cmd *cobra.Command) {
@@ -268,6 +301,7 @@ func runAtlasGuide(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Start with one of these:")
 	ui.PrintDim("  revyl atlas apps")
 	ui.PrintDim("  revyl atlas brief --app \"My App\"")
+	ui.PrintDim("  revyl atlas filters --app \"My App\"")
 	ui.PrintDim("  revyl atlas graph --app \"My App\"")
 	ui.PrintDim("  revyl atlas search \"checkout error\" --app \"My App\"")
 	ui.Println()
@@ -356,9 +390,8 @@ func resolveAtlasScope(cmd *cobra.Command, client *api.Client, app *api.App) (st
 		return "", "", fmt.Errorf("--all-branches cannot be combined with a specific --build")
 	}
 	if explicitBuild && atlasBuild == "all" && explicitBranch {
-		return "", "", fmt.Errorf("--build all cannot be combined with a branch; omit --build to show that branch")
-	}
-	if all || (explicitBuild && atlasBuild == "all") {
+		explicitBuild = false
+	} else if all || (explicitBuild && atlasBuild == "all") {
 		return "", "", nil
 	}
 	if id != "" {
@@ -433,7 +466,13 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 		fromTime = atlasSinceToTime(atlasSince)
 	}
 	includeVariants := atlasIncludeVariants
-	return api.AtlasQuery{
+	var launchTerms []string
+	if cmd.Flags().Lookup("launch") != nil {
+		if launchTerms, err = atlasLaunchFilterTerms(cmd); err != nil {
+			return api.AtlasQuery{}, nil, err
+		}
+	}
+	query := api.AtlasQuery{
 		AppID:               app.ID,
 		BranchID:            branchID,
 		BuildID:             buildID,
@@ -450,7 +489,12 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 		IncludeVariants:     &includeVariants,
 		Limit:               atlasLimit,
 		IncludeScreenshots:  atlasScreenshots || atlasScreenshotDir != "",
-	}, app, nil
+		LaunchTerms:         launchTerms,
+	}
+	if err := applyAtlasRange(cmd, &query, time.Now()); err != nil {
+		return api.AtlasQuery{}, nil, err
+	}
+	return query, app, nil
 }
 
 func atlasSinceToTime(value string) string {
@@ -858,6 +902,10 @@ func runAtlasApps(cmd *cobra.Command, args []string) error {
 		)
 		ui.PrintDim("    revyl atlas brief --app %s", atlasString(app, "id"))
 	}
+	scanned, total := len(atlasSlice(result["apps"])), atlasInt(result["total"])
+	if next := atlasAppsOffset + scanned; next < total {
+		ui.PrintInfo("Listed apps %d-%d of %d. More exist: rerun with --offset %d, or narrow with --search NAME.", atlasAppsOffset+1, next, total, next)
+	}
 	return nil
 }
 
@@ -893,16 +941,37 @@ func atlasIndexAppContract(item map[string]interface{}, includeDetails bool) (ma
 }
 
 func fetchAtlasAgentGraph(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api.App, api.AtlasResponse, error) {
+	query, app, graph, _, err := fetchAtlasAgentGraphAndFilters(cmd, client, false)
+	return query, app, graph, err
+}
+
+func fetchAtlasAgentGraphAndFilters(cmd *cobra.Command, client *api.Client, withFilters bool) (api.AtlasQuery, *api.App, api.AtlasResponse, map[string]interface{}, error) {
 	query, app, err := atlasQueryFor(cmd, client)
 	if err != nil {
-		return api.AtlasQuery{}, nil, nil, err
+		return api.AtlasQuery{}, nil, nil, nil, err
 	}
 	query = atlasKnowledgeGraphQuery(query)
-	graph, err := client.GetAtlasGraph(cmd.Context(), query)
-	if err != nil {
-		return api.AtlasQuery{}, nil, nil, err
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+	var filters map[string]interface{}
+	var wait sync.WaitGroup
+	if withFilters {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			filters = readAtlasInlineFilters(ctx, client, query)
+		}()
 	}
-	return query, app, graph, nil
+	graph, err := client.GetAtlasGraph(ctx, query)
+	if err != nil {
+		cancel()
+	}
+	wait.Wait()
+	if err != nil {
+		return api.AtlasQuery{}, nil, nil, nil, err
+	}
+	recordAtlasGraphRead(cmd, query, graph)
+	return query, app, graph, filters, nil
 }
 
 func runAtlasBrief(cmd *cobra.Command, args []string) error {
@@ -910,11 +979,14 @@ func runAtlasBrief(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
+	_, app, graph, filters, err := fetchAtlasAgentGraphAndFilters(cmd, client, atlasWithFilters)
 	if err != nil {
 		return err
 	}
 	result := buildAtlasBrief(app, graph)
+	if filters != nil {
+		result["filters"] = filters
+	}
 	if err := materializeAtlasScreenshots(result["visual_sample"]); err != nil {
 		return err
 	}
@@ -934,11 +1006,14 @@ func runAtlasKnowledgeGraph(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
+	_, app, graph, filters, err := fetchAtlasAgentGraphAndFilters(cmd, client, atlasWithFilters)
 	if err != nil {
 		return err
 	}
 	result := buildAtlasKnowledgeGraph(app, graph)
+	if filters != nil {
+		result["filters"] = filters
+	}
 	if err := materializeAtlasScreenshots(result); err != nil {
 		return err
 	}
@@ -969,7 +1044,7 @@ func atlasKnowledgeGraphQuery(query api.AtlasQuery) api.AtlasQuery {
 		query.Limit = atlasGraphFetchLimit
 	}
 	includeDetails := false
-	includeFlows := false
+	includeFlows := atlasFlows
 	query.IncludeDetails = &includeDetails
 	query.IncludeFlows = &includeFlows
 	return query
@@ -995,8 +1070,12 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 	}
 	if query.BuildID != "" {
 		params.Set("buildId", query.BuildID)
+	} else if strings.EqualFold(strings.TrimSpace(atlasBuild), "all") && query.BranchID != "" {
+		params.Set("buildId", "all")
 	}
-	if atlasSince != "" {
+	if atlasRange != "" {
+		params.Set("range", strings.ToLower(atlasRange))
+	} else if atlasSince != "" {
 		rangeValue := strings.ToLower(strings.TrimSpace(atlasSince))
 		if rangeValue != "1d" && rangeValue != "7d" && rangeValue != "30d" {
 			return fmt.Errorf("--since must be 1d, 7d, or 30d when opening the Atlas product")
@@ -1012,6 +1091,40 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 	if query.DeviceRuntime != "" {
 		params.Set("deviceRuntime", query.DeviceRuntime)
 	}
+	for name, value := range map[string]string{
+		"testId":              query.TestID,
+		"reportId":            query.ReportID,
+		"workflowExecutionId": query.WorkflowExecutionID,
+	} {
+		if value != "" {
+			params.Set(name, value)
+		}
+	}
+	secretKeys := map[string]bool{}
+	for _, term := range query.LaunchTerms {
+		key, _, valued := strings.Cut(term, ":")
+		if _, checked := secretKeys[key]; checked || !valued {
+			continue
+		}
+		options, err := client.GetAtlasGraphFilters(cmd.Context(), api.AtlasFilterQuery{
+			AppID:    query.AppID,
+			Group:    "launch",
+			Key:      key,
+			BranchID: query.BranchID,
+			BuildID:  query.BuildID,
+		})
+		if err != nil {
+			return err
+		}
+		secretKeys[key] = atlasBool(options["secret"])
+	}
+	for _, term := range query.LaunchTerms {
+		key, _, valued := strings.Cut(term, ":")
+		if valued && secretKeys[key] {
+			return fmt.Errorf("launch key %s is secret; secret launch variables can be filtered only by whether they were set, so pass --launch %s with no value", key, key)
+		}
+		params.Add("launch", term)
+	}
 	if encoded := params.Encode(); encoded != "" {
 		viewerURL += "?" + encoded
 	}
@@ -1020,11 +1133,16 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 }
 
 func runAtlasScreen(cmd *cobra.Command, args []string) error {
+	if atlasScreenDetails {
+		if err := refuseAtlasLaunchFilter("atlas screen --details"); err != nil {
+			return err
+		}
+	}
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err
 	}
-	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
+	query, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
@@ -1033,6 +1151,18 @@ func runAtlasScreen(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	result := buildAtlasScreen(app, graph, node)
+	if atlasScreenDetails {
+		nodeID := atlasString(node, "id")
+		details, err := client.GetAtlasNodeDetails(cmd.Context(), query, nodeID)
+		if err != nil {
+			return err
+		}
+		for _, detailNode := range atlasMaps(details["nodes"]) {
+			if atlasString(detailNode, "id") == nodeID {
+				result["details"] = detailNode
+			}
+		}
+	}
 	if err := materializeAtlasScreenshots(result); err != nil {
 		return err
 	}
@@ -1257,6 +1387,11 @@ func runAtlasSearch(cmd *cobra.Command, args []string) error {
 }
 
 func runAtlasEdge(cmd *cobra.Command, args []string) error {
+	if atlasEdgeRuns {
+		if err := refuseAtlasLaunchFilter("atlas edge --runs"); err != nil {
+			return err
+		}
+	}
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err
@@ -1374,10 +1509,16 @@ func buildAtlasBrief(app *api.App, graph api.AtlasResponse) map[string]interface
 	if name == "" {
 		name = atlasString(graph, "app_id")
 	}
+	summary := fmt.Sprintf("%s has %d screens connected by %d observed relationships across %d product areas.", name, atlasInt(stats["nodes"]), atlasInt(stats["edges"]), len(atlasMap(stats["product_areas"])))
+	if canonicalScreens, present := stats["canonical_screens"]; present {
+		summary = fmt.Sprintf("%s has %d screens; this read returned %d nodes including state variants, connected by %d observed relationships across %d product areas.", name, atlasInt(canonicalScreens), atlasInt(stats["nodes"]), atlasInt(stats["edges"]), len(atlasMap(stats["product_areas"])))
+	} else if note := atlasString(stats, "count_note"); note != "" {
+		summary = fmt.Sprintf("%s has %d nodes including state variants (%s), connected by %d observed relationships across %d product areas.", name, atlasInt(stats["nodes"]), note, atlasInt(stats["edges"]), len(atlasMap(stats["product_areas"])))
+	}
 	result := map[string]interface{}{
 		"contract":                  "atlas_brief.v2",
 		"app":                       atlasAppSummary(app, graph),
-		"summary":                   fmt.Sprintf("%s has %d screens connected by %d observed relationships across %d product areas.", name, atlasInt(stats["nodes"]), atlasInt(stats["edges"]), len(atlasMap(stats["product_areas"]))),
+		"summary":                   summary,
 		"projection":                atlasProjectionContract(graph),
 		"stats":                     stats,
 		"product_areas":             atlasProductAreas(stats),
@@ -1446,6 +1587,26 @@ func buildAtlasKnowledgeGraph(app *api.App, graph api.AtlasResponse) map[string]
 			fmt.Sprintf("revyl atlas search \"<capability>\" --app %s", appID),
 		},
 	}
+	if flows, ok := graph["flows"]; ok {
+		allFlows := atlasMaps(flows)
+		agentFlows := make([]map[string]interface{}, 0, len(allFlows))
+		for _, flow := range allFlows {
+			agentFlow := map[string]interface{}{}
+			for _, key := range []string{"id", "label", "path_label", "area", "depth", "parent_anchor_id", "support", "node_ids"} {
+				if value, present := flow[key]; present && value != nil {
+					agentFlow[key] = value
+				}
+			}
+			agentFlows = append(agentFlows, agentFlow)
+		}
+		sort.SliceStable(agentFlows, func(i, j int) bool {
+			return atlasInt(agentFlows[i]["support"]) > atlasInt(agentFlows[j]["support"])
+		})
+		flowLimit := atlasLimitOr(len(agentFlows))
+		result["flows"] = atlasLimitMaps(agentFlows, flowLimit)
+		result["flow_count"] = len(agentFlows)
+		result["flows_truncated"] = flowLimit < len(agentFlows)
+	}
 	result["next_actions"] = atlasScopedNextActions(
 		graph,
 		atlasStringSlice(result["next_actions"]),
@@ -1455,12 +1616,38 @@ func buildAtlasKnowledgeGraph(app *api.App, graph api.AtlasResponse) map[string]
 
 func atlasGraphStats(graph api.AtlasResponse) map[string]interface{} {
 	stats := atlasMap(graph["stats"])
-	return map[string]interface{}{
-		"nodes":         len(atlasMaps(graph["nodes"])),
+	nodes := atlasMaps(graph["nodes"])
+	result := map[string]interface{}{
+		"nodes":         len(nodes),
 		"edges":         len(atlasMaps(graph["edges"])),
 		"observations":  stats["observations"],
 		"product_areas": stats["product_areas"],
 	}
+	if !atlasBool(atlasMap(graph["projection"])["include_variants"]) {
+		return result
+	}
+	variantNodes, classified := 0, true
+	for _, node := range nodes {
+		kind := atlasString(node, "entity_kind")
+		if kind != "variant" && kind != "canonical_screen" {
+			classified = false
+			break
+		}
+		if kind == "variant" {
+			variantNodes++
+		}
+	}
+	if classified {
+		result["variant_nodes"] = variantNodes
+	}
+	structureInput := atlasMap(atlasMap(atlasMap(atlasMap(graph["structure"])["metadata"])["diagnostics"])["input"])
+	if canonicalScreens, present := structureInput["node_count"]; present {
+		result["canonical_screens"] = atlasInt(canonicalScreens)
+		result["count_note"] = "nodes include state variants; count screens with canonical_screens"
+	} else {
+		result["count_note"] = "nodes include state variants; read with include_variants=false to count screens"
+	}
+	return result
 }
 
 func atlasConnectivity(graph api.AtlasResponse) map[string]int {
@@ -1853,6 +2040,9 @@ func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
 	if recentBuildLimit := atlasInt(projection["recent_build_limit"]); recentBuildLimit > 0 {
 		result["recent_build_limit"] = recentBuildLimit
 	}
+	if launchFilter := atlasMap(graph["launch_filter"]); len(launchFilter) > 0 {
+		result["launch_filter"] = launchFilter
+	}
 	for _, key := range []string{
 		"requested_build_id",
 		"from_time",
@@ -1860,6 +2050,7 @@ func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
 		"device_model",
 		"device_runtime",
 		"visibility",
+		"reader_fallback_reason",
 	} {
 		if value := atlasString(projection, key); value != "" {
 			result[key] = value
@@ -2092,6 +2283,7 @@ func printAtlasBrief(result map[string]interface{}) {
 	printAtlasNamedList("Visual evidence sample", result["visual_sample"])
 	ui.Println()
 	ui.PrintDim("Starting anchors are traversal hints, not a parent/child hierarchy. Inspect their screenshots, then follow observed edges in both directions.")
+	printAtlasInlineFilters(result["filters"])
 	printAtlasNext(result["next_actions"])
 }
 
@@ -2101,6 +2293,13 @@ func printAtlasKnowledgeGraph(result map[string]interface{}) {
 	returned := atlasMap(result["returned"])
 	ui.PrintInfo("%s knowledge graph", atlasString(app, "name"))
 	ui.PrintDim("  %d screens, %d observed relationships, %d observations", atlasInt(stats["nodes"]), atlasInt(stats["edges"]), atlasInt(stats["observations"]))
+	if note := atlasString(stats, "count_note"); note != "" {
+		if canonicalScreens, present := stats["canonical_screens"]; present {
+			ui.PrintDim("  %d canonical screens; %s", atlasInt(canonicalScreens), note)
+		} else {
+			ui.PrintDim("  %s", note)
+		}
+	}
 	printAtlasScope(result)
 	if atlasBool(result["truncated"]) {
 		ui.PrintDim("  response is truncated; increase --limit before treating this as the complete graph")
@@ -2129,6 +2328,7 @@ func printAtlasKnowledgeGraph(result map[string]interface{}) {
 	if !atlasIncludeVariants {
 		ui.PrintDim("Use --include-variants when state variants are relevant to the question.")
 	}
+	printAtlasInlineFilters(result["filters"])
 	printAtlasNext(result["next_actions"])
 }
 

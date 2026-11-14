@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/launcharguments"
@@ -64,6 +65,9 @@ type RunTestParams struct {
 	// OnTaskStarted is called immediately after the test execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
+	// OnQueued is called once the run is accepted when every device the
+	// organization may run at once is busy, before the wait for one begins.
+	OnQueued func(notice *billingstatus.QueueNotice)
 	// OnDefaultBranchFallback is called with the app's default branch when it
 	// replaced GitBranchName because that Git branch had no usable build.
 	OnDefaultBranchFallback func(branchName string)
@@ -143,20 +147,26 @@ func cancelRunThatIgnoredLocalDefinitions(ctx context.Context, taskID string, ca
 //   - ReportURL: URL to the test report
 //   - ErrorMessage: Error message if failed
 type RunTestResult struct {
-	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
-	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName        string           `json:"git_branch_name,omitempty"`
-	BranchName           string           `json:"branch_name,omitempty"`
-	Success              bool             `json:"success"`
-	TaskID               string           `json:"task_id"`
-	TestID               string           `json:"test_id"`
-	TestName             string           `json:"test_name"`
-	Status               string           `json:"status"`
-	Duration             string           `json:"duration"`
-	ReportURL            string           `json:"report_url"`
-	ErrorMessage         string           `json:"error_message,omitempty"`
-	BuildID              string           `json:"build_id,omitempty"`
-	BuildVersion         string           `json:"build_version,omitempty"`
+	AutoGitBranchEnabled *bool                `json:"auto_git_branch_enabled,omitempty"`
+	BranchSource         api.BranchSource     `json:"branch_source,omitempty"`
+	GitBranchName        string               `json:"git_branch_name,omitempty"`
+	BranchName           string               `json:"branch_name,omitempty"`
+	Success              bool                 `json:"success"`
+	TaskID               string               `json:"task_id"`
+	TestID               string               `json:"test_id"`
+	TestName             string               `json:"test_name"`
+	Status               string               `json:"status"`
+	Duration             string               `json:"duration"`
+	ReportURL            string               `json:"report_url"`
+	ErrorMessage         string               `json:"error_message,omitempty"`
+	BillingURL           string               `json:"billing_url,omitempty"`
+	BillingAction        api.BillingAction    `json:"billing_action,omitempty"`
+	UpgradeBenefits      *api.UpgradeBenefits `json:"upgrade_benefits,omitempty"`
+	UsageNotice          *api.UsageNotice     `json:"billing_notice,omitempty"`
+	// QueueNotice is set when the run waited for a free device to start.
+	QueueNotice  *billingstatus.QueueNotice `json:"queue_notice,omitempty"`
+	BuildID      string                     `json:"build_id,omitempty"`
+	BuildVersion string                     `json:"build_version,omitempty"`
 
 	TestDefinitionSource         api.TestDefinitionSource         `json:"test_definition_source,omitempty"`
 	TestDefinitionFallbackReason api.TestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
@@ -260,7 +270,12 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 	}
 	resp, err := client.ExecuteTest(ctx, req)
 	if err != nil {
+		refusal, _ := api.AsBillingRefusal(err)
+		if refusal == nil {
+			refusal = &api.BillingRefusal{}
+		}
 		return &RunTestResult{
+			BillingURL: refusal.BillingURL, BillingAction: refusal.BillingAction, UpgradeBenefits: refusal.UpgradeBenefits,
 			Success:      false,
 			TestID:       testID,
 			ErrorMessage: err.Error(),
@@ -288,11 +303,17 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 	if params.OnTaskStarted != nil {
 		params.OnTaskStarted(resp.TaskID)
 	}
+	queued := billingstatus.QueuedStart(resp.QueueNotice)
+	if queued != nil && params.OnQueued != nil {
+		params.OnQueued(queued)
+	}
 
 	// No-wait: the run is dispatched; return without monitoring to completion.
 	if params.NoWait {
 		reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 		return &RunTestResult{
+			UsageNotice:          resp.UsageNotice,
+			QueueNotice:          queued,
 			TaskID:               resp.TaskID,
 			BranchSource:         resp.BranchSource,
 			AutoGitBranchEnabled: resp.AutoGitBranchEnabled,
@@ -317,6 +338,8 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
 			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 			result := &RunTestResult{
+				UsageNotice:          resp.UsageNotice,
+				QueueNotice:          queued,
 				Success:              status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 				TaskID:               resp.TaskID,
 				BranchSource:         resp.BranchSource,
@@ -338,6 +361,8 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 			return result, nil
 		}
 		return &RunTestResult{
+			UsageNotice:          resp.UsageNotice,
+			QueueNotice:          queued,
 			Success:              false,
 			TaskID:               resp.TaskID,
 			BranchSource:         resp.BranchSource,
@@ -356,6 +381,8 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
 	result := &RunTestResult{
+		UsageNotice:          resp.UsageNotice,
+		QueueNotice:          queued,
 		Success:              status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 		TaskID:               resp.TaskID,
 		BranchSource:         resp.BranchSource,
@@ -506,19 +533,23 @@ type WorkflowTestResult struct {
 //   - ErrorMessage: Error message if failed
 //   - Tests: Per-test results when available (populated from unified report)
 type RunWorkflowResult struct {
-	Success        bool                 `json:"success"`
-	TaskID         string               `json:"task_id"`
-	WorkflowID     string               `json:"workflow_id"`
-	WorkflowName   string               `json:"workflow_name"`
-	Status         string               `json:"status"`
-	TotalTests     int                  `json:"total_tests"`
-	CompletedTests int                  `json:"completed_tests"`
-	PassedTests    int                  `json:"passed_tests"`
-	FailedTests    int                  `json:"failed_tests"`
-	Duration       string               `json:"duration"`
-	ReportURL      string               `json:"report_url"`
-	ErrorMessage   string               `json:"error_message,omitempty"`
-	Tests          []WorkflowTestResult `json:"tests,omitempty"`
+	Success         bool                 `json:"success"`
+	TaskID          string               `json:"task_id"`
+	WorkflowID      string               `json:"workflow_id"`
+	WorkflowName    string               `json:"workflow_name"`
+	Status          string               `json:"status"`
+	TotalTests      int                  `json:"total_tests"`
+	CompletedTests  int                  `json:"completed_tests"`
+	PassedTests     int                  `json:"passed_tests"`
+	FailedTests     int                  `json:"failed_tests"`
+	Duration        string               `json:"duration"`
+	ReportURL       string               `json:"report_url"`
+	ErrorMessage    string               `json:"error_message,omitempty"`
+	BillingURL      string               `json:"billing_url,omitempty"`
+	BillingAction   api.BillingAction    `json:"billing_action,omitempty"`
+	UpgradeBenefits *api.UpgradeBenefits `json:"upgrade_benefits,omitempty"`
+	UsageNotice     *api.UsageNotice     `json:"billing_notice,omitempty"`
+	Tests           []WorkflowTestResult `json:"tests,omitempty"`
 
 	TestCountByDefinitionSource         map[api.TestDefinitionSource]int         `json:"test_count_by_definition_source,omitempty"`
 	TestCountByDefinitionFallbackReason map[api.TestDefinitionFallbackReason]int `json:"test_count_by_definition_fallback_reason,omitempty"`
@@ -655,7 +686,12 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 	}
 	resp, err := client.ExecuteWorkflow(ctx, req)
 	if err != nil {
+		refusal, _ := api.AsBillingRefusal(err)
+		if refusal == nil {
+			refusal = &api.BillingRefusal{}
+		}
 		return &RunWorkflowResult{
+			BillingURL: refusal.BillingURL, BillingAction: refusal.BillingAction, UpgradeBenefits: refusal.UpgradeBenefits,
 			Success:      false,
 			WorkflowID:   workflowID,
 			ErrorMessage: err.Error(),
@@ -677,11 +713,12 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 	}
 	if params.NoWait {
 		return &RunWorkflowResult{
-			Success:    true,
-			TaskID:     resp.TaskID,
-			WorkflowID: workflowID,
-			Status:     "queued",
-			ReportURL:  fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID)),
+			UsageNotice: resp.UsageNotice,
+			Success:     true,
+			TaskID:      resp.TaskID,
+			WorkflowID:  workflowID,
+			Status:      "queued",
+			ReportURL:   fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID)),
 
 			TestCountByDefinitionSource:         resp.TestCountByDefinitionSource,
 			TestCountByDefinitionFallbackReason: resp.TestCountByDefinitionFallbackReason,
@@ -698,6 +735,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
 			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 			result := &RunWorkflowResult{
+				UsageNotice:    resp.UsageNotice,
 				Success:        status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
 				TaskID:         resp.TaskID,
 				WorkflowID:     workflowID,
@@ -722,6 +760,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 		if finalStatus != nil {
 			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 			result := &RunWorkflowResult{
+				UsageNotice:    resp.UsageNotice,
 				Success:        false,
 				TaskID:         resp.TaskID,
 				WorkflowID:     workflowID,
@@ -744,6 +783,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 			return result, nil
 		}
 		return &RunWorkflowResult{
+			UsageNotice:  resp.UsageNotice,
 			Success:      false,
 			TaskID:       resp.TaskID,
 			Status:       "cancelled",
@@ -758,6 +798,7 @@ func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, pa
 	reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
 	result := &RunWorkflowResult{
+		UsageNotice:    resp.UsageNotice,
 		Success:        status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
 		TaskID:         resp.TaskID,
 		WorkflowID:     workflowID,

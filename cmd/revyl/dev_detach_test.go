@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/devloop"
 )
 
@@ -238,5 +240,38 @@ func TestProjectDetachArgsKeepsInferredBranchDefaultAndExplicitSelections(t *tes
 				t.Fatalf("child selectors = %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestPrintDetachHandshakeRelaysChildBillingNotice(t *testing.T) {
+	prevJSON, prevNoOpen, prevOpen := devStartJSON, devStartNoOpen, devStartOpen
+	prevNotice := devBillingNotice
+	t.Cleanup(func() {
+		devStartJSON, devStartNoOpen, devStartOpen = prevJSON, prevNoOpen, prevOpen
+		devBillingNotice = prevNotice
+	})
+	devStartJSON, devStartNoOpen, devStartOpen = true, true, false
+
+	cwd := t.TempDir()
+	devCtx := &DevContext{Name: "default", PID: 42, SessionID: "session-1"}
+	devBillingNotice = &api.UsageNotice{Level: "approaching", Message: "You've used 80% of this month's free minutes."}
+	writeDevLogsTestStatus(t, cwd, "default", devStatus{State: "running", PID: 42, SessionID: "session-1", LastRebuild: &devRebuildInfo{Status: "success"}})
+
+	stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+		printDetachHandshake(&cobra.Command{Use: "dev"}, cwd, devCtx, testRuntimePath("/tmp/detach.log"))
+	})
+
+	var handshake devDetachHandshake
+	if err := json.Unmarshal([]byte(stdout), &handshake); err != nil {
+		t.Fatalf("parse handshake: %v\noutput: %s", err, stdout)
+	}
+	if handshake.BillingNotice == nil || handshake.BillingNotice.Message != devBillingNotice.Message {
+		t.Fatalf("billing_notice = %+v, want the session start's notice", handshake.BillingNotice)
+	}
+	if !strings.Contains(stderr, "80% of this month's free minutes") {
+		t.Fatalf("stderr = %q, want the notice", stderr)
+	}
+	if got := buildDevStatusOutput("default", 42, nil, readDevStatusSnapshot(devCtxStatusPath(cwd, "default")))["billing_notice"]; got == nil {
+		t.Fatal("dev status billing_notice missing")
 	}
 }

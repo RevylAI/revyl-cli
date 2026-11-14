@@ -5,11 +5,11 @@
 <h1 align="center">Revyl</h1>
 
 <p align="center">
-  <em>Proactive Reliability for Mobile Apps</em>
+  <em>Proactive Reliability for Your Apps</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.11-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.12-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -17,7 +17,7 @@
 
 ---
 
-Revyl is an AI-powered testing platform for mobile apps. Define tests in natural language, run them on cloud devices, and catch bugs before your users do. It works with iOS and Android, supports Expo / React Native / Flutter / native builds, and integrates with your CI pipeline and AI coding tools.
+Revyl is an AI-powered testing platform for your apps. Define tests in natural language, run them on cloud devices and computers, and catch bugs before your users do. It works with iOS, Android, web and Mac, supports Expo / React Native / Flutter / native builds, and integrates with your CI pipeline and AI coding tools.
 
 ## For coding agents
 

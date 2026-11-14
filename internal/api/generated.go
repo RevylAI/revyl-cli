@@ -387,6 +387,54 @@ func (e AtlasAttachmentTier) Valid() bool {
 	}
 }
 
+// Defines values for AtlasGraphFilterGroupId.
+const (
+	AtlasGraphFilterGroupIdDevice AtlasGraphFilterGroupId = "device"
+	AtlasGraphFilterGroupIdLaunch AtlasGraphFilterGroupId = "launch"
+	AtlasGraphFilterGroupIdRuns   AtlasGraphFilterGroupId = "runs"
+	AtlasGraphFilterGroupIdTime   AtlasGraphFilterGroupId = "time"
+)
+
+// Valid indicates whether the value is a known member of the AtlasGraphFilterGroupId enum.
+func (e AtlasGraphFilterGroupId) Valid() bool {
+	switch e {
+	case AtlasGraphFilterGroupIdDevice:
+		return true
+	case AtlasGraphFilterGroupIdLaunch:
+		return true
+	case AtlasGraphFilterGroupIdRuns:
+		return true
+	case AtlasGraphFilterGroupIdTime:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasGraphFilterValuesResponseGroup.
+const (
+	AtlasGraphFilterValuesResponseGroupDevice AtlasGraphFilterValuesResponseGroup = "device"
+	AtlasGraphFilterValuesResponseGroupLaunch AtlasGraphFilterValuesResponseGroup = "launch"
+	AtlasGraphFilterValuesResponseGroupRuns   AtlasGraphFilterValuesResponseGroup = "runs"
+	AtlasGraphFilterValuesResponseGroupTime   AtlasGraphFilterValuesResponseGroup = "time"
+)
+
+// Valid indicates whether the value is a known member of the AtlasGraphFilterValuesResponseGroup enum.
+func (e AtlasGraphFilterValuesResponseGroup) Valid() bool {
+	switch e {
+	case AtlasGraphFilterValuesResponseGroupDevice:
+		return true
+	case AtlasGraphFilterValuesResponseGroupLaunch:
+		return true
+	case AtlasGraphFilterValuesResponseGroupRuns:
+		return true
+	case AtlasGraphFilterValuesResponseGroupTime:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole.
 const (
 	AtlasSessionAnnotationAnchorPreviewRequestScreenshotRoleAfter  AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole = "after"
@@ -1608,6 +1656,27 @@ func (e ComputerHostingCapabilityPlatforms) Valid() bool {
 	}
 }
 
+// Defines values for ComputerLimitOfferAction.
+const (
+	ComputerLimitOfferActionAddCard       ComputerLimitOfferAction = "add_card"
+	ComputerLimitOfferActionContactSales  ComputerLimitOfferAction = "contact_sales"
+	ComputerLimitOfferActionRequestAccess ComputerLimitOfferAction = "request_access"
+)
+
+// Valid indicates whether the value is a known member of the ComputerLimitOfferAction enum.
+func (e ComputerLimitOfferAction) Valid() bool {
+	switch e {
+	case ComputerLimitOfferActionAddCard:
+		return true
+	case ComputerLimitOfferActionContactSales:
+		return true
+	case ComputerLimitOfferActionRequestAccess:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerOperationDetailErrorCode.
 const (
 	ComputerOperationDetailErrorCodeAccessDenied          ComputerOperationDetailErrorCode = "access_denied"
@@ -2526,6 +2595,27 @@ func (e DeviceFoldState) Valid() bool {
 	case DeviceFoldStateFolded:
 		return true
 	case DeviceFoldStateUnfolded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceQueueNoticeAction.
+const (
+	DeviceQueueNoticeActionAddCard       DeviceQueueNoticeAction = "add_card"
+	DeviceQueueNoticeActionContactSales  DeviceQueueNoticeAction = "contact_sales"
+	DeviceQueueNoticeActionRequestAccess DeviceQueueNoticeAction = "request_access"
+)
+
+// Valid indicates whether the value is a known member of the DeviceQueueNoticeAction enum.
+func (e DeviceQueueNoticeAction) Valid() bool {
+	switch e {
+	case DeviceQueueNoticeActionAddCard:
+		return true
+	case DeviceQueueNoticeActionContactSales:
+		return true
+	case DeviceQueueNoticeActionRequestAccess:
 		return true
 	default:
 		return false
@@ -3978,6 +4068,48 @@ func (e ListAtlasAnnotationFeedbackParamsSeverity) Valid() bool {
 	}
 }
 
+// Defines values for GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup.
+const (
+	GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupDevice GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup = "device"
+	GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupLaunch GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup = "launch"
+	GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupRuns   GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup = "runs"
+	GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupTime   GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup = "time"
+)
+
+// Valid indicates whether the value is a known member of the GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup enum.
+func (e GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup) Valid() bool {
+	switch e {
+	case GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupDevice:
+		return true
+	case GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupLaunch:
+		return true
+	case GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupRuns:
+		return true
+	case GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroupTime:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel.
+const (
+	GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevelFull    GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel = "full"
+	GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevelPreview GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel = "preview"
+)
+
+// Valid indicates whether the value is a known member of the GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel enum.
+func (e GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel) Valid() bool {
+	switch e {
+	case GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevelFull:
+		return true
+	case GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevelPreview:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSupportRequestMultipartBodyType.
 const (
 	CreateSupportRequestMultipartBodyTypeBug      CreateSupportRequestMultipartBodyType = "bug"
@@ -5069,6 +5201,73 @@ type AtlasEdgeRunsResponse struct {
 	Runs        *[]AtlasEdgeRun     `json:"runs,omitempty"`
 }
 
+// AtlasGraphFilterGroup defines model for AtlasGraphFilterGroup.
+type AtlasGraphFilterGroup struct {
+	Id   AtlasGraphFilterGroupId `json:"id"`
+	Keys []AtlasGraphFilterKey   `json:"keys"`
+}
+
+// AtlasGraphFilterGroupId defines model for AtlasGraphFilterGroup.Id.
+type AtlasGraphFilterGroupId string
+
+// AtlasGraphFilterKey One filterable key and how many runs in the time scope record it.
+type AtlasGraphFilterKey struct {
+	Key string `json:"key"`
+
+	// NotRecordedCount Runs in the time scope where this key's value is not recorded.
+	NotRecordedCount *int `json:"not_recorded_count,omitempty"`
+
+	// RunCount Runs in the time scope with a known value.
+	RunCount *int `json:"run_count,omitempty"`
+
+	// Secret The key holds secret values: values are never listed, and the key filters only by whether it was set.
+	Secret *bool `json:"secret,omitempty"`
+}
+
+// AtlasGraphFilterKeysResponse Filter groups and keys with run counts over the current time scope.
+type AtlasGraphFilterKeysResponse struct {
+	Groups        []AtlasGraphFilterGroup `json:"groups"`
+	KeysTruncated *bool                   `json:"keys_truncated,omitempty"`
+
+	// LaunchRecordedInOtherBuilds Set only when the selected builds recorded no launch variables: whether other builds on the branch did in the same time scope.
+	LaunchRecordedInOtherBuilds *bool   `json:"launch_recorded_in_other_builds,omitempty"`
+	Level                       *string `json:"level,omitempty"`
+
+	// RunCount Runs with captures in the time scope.
+	RunCount int `json:"run_count"`
+
+	// RunsWithoutLaunchData Runs in the time scope with no recorded launch configuration.
+	RunsWithoutLaunchData int `json:"runs_without_launch_data"`
+}
+
+// AtlasGraphFilterValue defines model for AtlasGraphFilterValue.
+type AtlasGraphFilterValue struct {
+	// Label Display name for an id value.
+	Label    *string `json:"label,omitempty"`
+	RunCount int     `json:"run_count"`
+
+	// StartedAt When the run, or the latest run, started.
+	StartedAt *time.Time `json:"started_at,omitempty"`
+
+	// Value The filter value: a literal or an entity id.
+	Value string `json:"value"`
+}
+
+// AtlasGraphFilterValuesResponse A key's most common values over the current time scope.
+type AtlasGraphFilterValuesResponse struct {
+	Group AtlasGraphFilterValuesResponseGroup `json:"group"`
+	Key   string                              `json:"key"`
+	Level *string                             `json:"level,omitempty"`
+
+	// Secret Secret values are never listed; filter on the bare key to match runs by whether it was set.
+	Secret    *bool                   `json:"secret,omitempty"`
+	Truncated *bool                   `json:"truncated,omitempty"`
+	Values    []AtlasGraphFilterValue `json:"values"`
+}
+
+// AtlasGraphFilterValuesResponseGroup defines model for AtlasGraphFilterValuesResponse.Group.
+type AtlasGraphFilterValuesResponseGroup string
+
 // AtlasGroundedAnnotationThreadCreateRequest defines model for AtlasGroundedAnnotationThreadCreateRequest.
 type AtlasGroundedAnnotationThreadCreateRequest struct {
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
@@ -5090,6 +5289,18 @@ type AtlasGroundedAnnotationThreadCreateResponse struct {
 	Grounding        AtlasAnnotationAnchorPreviewResponse `json:"grounding"`
 	IdempotentReplay *bool                                `json:"idempotent_replay,omitempty"`
 	Thread           AtlasAnnotationThread                `json:"thread"`
+}
+
+// AtlasLaunchFilterResult How the graph's launch-variable filter selected runs.
+type AtlasLaunchFilterResult struct {
+	// MatchedRunCount Runs in scope whose launch configuration matches every term.
+	MatchedRunCount int `json:"matched_run_count"`
+
+	// TermCount Launch filter terms applied, ANDed.
+	TermCount int `json:"term_count"`
+
+	// UnknownRunCount Runs in scope that were excluded because their launch configuration is not recorded, so the filter could not be evaluated for them.
+	UnknownRunCount int `json:"unknown_run_count"`
 }
 
 // AtlasSessionAnnotationAnchorPreviewRequest defines model for AtlasSessionAnnotationAnchorPreviewRequest.
@@ -5148,6 +5359,30 @@ type AtlasSessionGroundedAnnotationThreadCreateRequest struct {
 // AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole Which of the action's screenshots to pin; only applied when action_id is given.
 type AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole string
 
+// AtlasShareLinkRequest defines model for AtlasShareLinkRequest.
+type AtlasShareLinkRequest struct {
+	BranchId        *string `json:"branch_id,omitempty"`
+	BuildId         *string `json:"build_id,omitempty"`
+	ExpirationHours *int    `json:"expiration_hours,omitempty"`
+	FromTime        *string `json:"from_time,omitempty"`
+
+	// IncludeAnnotations Read-only annotation visibility for this share; null keeps the existing setting when refreshing an active link.
+	IncludeAnnotations *bool   `json:"include_annotations,omitempty"`
+	Origin             *string `json:"origin,omitempty"`
+	RecentBuildLimit   *int    `json:"recent_build_limit,omitempty"`
+	ToTime             *string `json:"to_time,omitempty"`
+}
+
+// AtlasShareLinkStatusResponse defines model for AtlasShareLinkStatusResponse.
+type AtlasShareLinkStatusResponse struct {
+	Enabled            bool    `json:"enabled"`
+	ExpiresAt          *string `json:"expires_at,omitempty"`
+	IncludeAnnotations *bool   `json:"include_annotations,omitempty"`
+	ShareId            *string `json:"share_id,omitempty"`
+	ShareableLink      *string `json:"shareable_link,omitempty"`
+	Token              *string `json:"token,omitempty"`
+}
+
 // AtlasV2GraphResponse defines model for AtlasV2GraphResponse.
 type AtlasV2GraphResponse struct {
 	AppId         string                    `json:"app_id"`
@@ -5158,10 +5393,13 @@ type AtlasV2GraphResponse struct {
 	Edges         *[]map[string]interface{} `json:"edges,omitempty"`
 	Facets        *map[string]interface{}   `json:"facets,omitempty"`
 	Flows         *[]map[string]interface{} `json:"flows,omitempty"`
-	Nodes         *[]map[string]interface{} `json:"nodes,omitempty"`
-	Projection    *map[string]interface{}   `json:"projection,omitempty"`
-	Stats         *map[string]interface{}   `json:"stats,omitempty"`
-	Structure     *map[string]interface{}   `json:"structure,omitempty"`
+
+	// LaunchFilter How the graph's launch-variable filter selected runs.
+	LaunchFilter *AtlasLaunchFilterResult  `json:"launch_filter,omitempty"`
+	Nodes        *[]map[string]interface{} `json:"nodes,omitempty"`
+	Projection   *map[string]interface{}   `json:"projection,omitempty"`
+	Stats        *map[string]interface{}   `json:"stats,omitempty"`
+	Structure    *map[string]interface{}   `json:"structure,omitempty"`
 }
 
 // AtlasV2IndexApp defines model for AtlasV2IndexApp.
@@ -5550,6 +5788,19 @@ type AuthoredWorkflows struct {
 	WorkflowIds *[]openapi_types.UUID   `json:"workflow_ids,omitempty"`
 }
 
+// AutoTopup A Pro organization's automatic prepaid-credit refill.
+type AutoTopup struct {
+	// AmountUsd Prepaid credit bought by each refill.
+	AmountUsd float32 `json:"amount_usd"`
+	Enabled   bool    `json:"enabled"`
+
+	// StepsUp The refill amount rises as usage grows, until the organization picks its own amount.
+	StepsUp *bool `json:"steps_up,omitempty"`
+
+	// ThresholdUsd A refill runs when prepaid credit falls below this balance.
+	ThresholdUsd float32 `json:"threshold_usd"`
+}
+
 // BatchTestInfoRequest Batch request for test metadata lookups.
 type BatchTestInfoRequest struct {
 	// OmitMissing Return only the tests that exist and are accessible instead of failing with 404 when any requested test is missing.
@@ -5557,6 +5808,35 @@ type BatchTestInfoRequest struct {
 	OrgId       *openapi_types.UUID `json:"org_id,omitempty"`
 	TestIds     []string            `json:"test_ids"`
 	UserId      *string             `json:"user_id,omitempty"`
+}
+
+// BilledElsewhereUsage An organization's usage that a partner pays for.
+type BilledElsewhereUsage struct {
+	BilledTo      string  `json:"billed_to"`
+	TotalSeconds  float32 `json:"total_seconds"`
+	TotalSessions int     `json:"total_sessions"`
+}
+
+// BillingNotice A heads-up on a work-start response that free monthly usage is running low.
+//
+// Only free organizations without a card get one, at or past a usage
+// threshold. Minutes are the organization's credit usage at its own plan
+// version's rates: one number where iOS and Android minutes share one price,
+// else fewer iOS minutes than Android minutes.
+type BillingNotice struct {
+	BillingUrl              string  `json:"billing_url"`
+	FreeMinutesAndroid      int     `json:"free_minutes_android"`
+	FreeMinutesIos          int     `json:"free_minutes_ios"`
+	Level                   string  `json:"level"`
+	Message                 string  `json:"message"`
+	RateUsdPerMinuteAndroid float32 `json:"rate_usd_per_minute_android"`
+	RateUsdPerMinuteIos     float32 `json:"rate_usd_per_minute_ios"`
+	ThresholdPct            int     `json:"threshold_pct"`
+
+	// UpgradeBenefits What Pro adds for a free organization, from its plan terms.
+	UpgradeBenefits    *UpgradeBenefits `json:"upgrade_benefits,omitempty"`
+	UsedMinutesAndroid int              `json:"used_minutes_android"`
+	UsedMinutesIos     int              `json:"used_minutes_ios"`
 }
 
 // BillingPlanTerms defines model for BillingPlanTerms.
@@ -5583,6 +5863,21 @@ type BillingPlanTermsBillingPeriod string
 
 // BillingPlanTermsPlan defines model for BillingPlanTerms.Plan.
 type BillingPlanTermsPlan string
+
+// BillingSummaryResponse The organization's own billed usage, plus usage partners pay for.
+//
+// The totals cover only what the organization's plan is charged for;
+// “billed_elsewhere“ lists the rest of its usage, by payer.
+type BillingSummaryResponse struct {
+	BilledElsewhere *[]BilledElsewhereUsage `json:"billed_elsewhere,omitempty"`
+	PeriodEnd       string                  `json:"period_end"`
+	PeriodStart     string                  `json:"period_start"`
+	TotalCost       float32                 `json:"total_cost"`
+	TotalDeviceCost float32                 `json:"total_device_cost"`
+	TotalLlmCost    float32                 `json:"total_llm_cost"`
+	TotalSeconds    float32                 `json:"total_seconds"`
+	TotalSessions   int                     `json:"total_sessions"`
+}
 
 // BillingUsageRate defines model for BillingUsageRate.
 type BillingUsageRate struct {
@@ -6534,8 +6829,16 @@ type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 	Detail         ComputerAPIError_Detail       `json:"detail"`
 	Message        *ComputerAPIErrorMessage      `json:"message,omitempty"`
-	Phase          *ComputerAPIErrorPhase        `json:"phase,omitempty"`
-	Reason         *string                       `json:"reason,omitempty"`
+
+	// Offer The step that lets an organization at its device limit run more at once.
+	//
+	// ``add_card`` upgrades a Free organization to Pro, and is
+	// ``request_access`` for a member, who asks an owner or admin.
+	// ``contact_sales`` is for Pro, whose next step is Enterprise.
+	// ``billing_url`` is the step's link and ``message`` names the step without it.
+	Offer  *ComputerLimitOffer    `json:"offer,omitempty"`
+	Phase  *ComputerAPIErrorPhase `json:"phase,omitempty"`
+	Reason *string                `json:"reason,omitempty"`
 }
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.
@@ -6900,6 +7203,21 @@ type ComputerHostingCapability struct {
 
 // ComputerHostingCapabilityPlatforms defines model for ComputerHostingCapability.Platforms.
 type ComputerHostingCapabilityPlatforms string
+
+// ComputerLimitOffer The step that lets an organization at its device limit run more at once.
+//
+// “add_card“ upgrades a Free organization to Pro, and is
+// “request_access“ for a member, who asks an owner or admin.
+// “contact_sales“ is for Pro, whose next step is Enterprise.
+// “billing_url“ is the step's link and “message“ names the step without it.
+type ComputerLimitOffer struct {
+	Action     ComputerLimitOfferAction `json:"action"`
+	BillingUrl string                   `json:"billing_url"`
+	Message    string                   `json:"message"`
+}
+
+// ComputerLimitOfferAction defines model for ComputerLimitOffer.Action.
+type ComputerLimitOfferAction string
 
 // ComputerMemorySample defines model for ComputerMemorySample.
 type ComputerMemorySample struct {
@@ -7426,6 +7744,20 @@ type CreditConversion struct {
 	Name           string  `json:"name"`
 }
 
+// CreditsBalanceItem defines model for CreditsBalanceItem.
+type CreditsBalanceItem struct {
+	Balance     *int   `json:"balance,omitempty"`
+	FeatureId   string `json:"feature_id"`
+	FeatureName string `json:"feature_name"`
+	Granted     *int   `json:"granted,omitempty"`
+	Usage       *int   `json:"usage,omitempty"`
+}
+
+// CreditsBalanceResponse defines model for CreditsBalanceResponse.
+type CreditsBalanceResponse struct {
+	Balances []CreditsBalanceItem `json:"balances"`
+}
+
 // CursorCloudAgentConversationAttributionLaunch Launch facts displayed with an ordinary related-resource attribution.
 type CursorCloudAgentConversationAttributionLaunch struct {
 	// ConversationOrigin Bounded origin of a cloud-agent conversation.
@@ -7678,6 +8010,24 @@ type DevicePair struct {
 	Runtime string `json:"runtime"`
 }
 
+// DeviceQueueNotice A start that waits because every device the organization runs at once is busy.
+//
+// The run is queued, never refused. “action“ names what would let more run
+// at once, and is null when the organization's plan has no such step.
+// “billing_url“ is that step's link: Billing settings, or the Enterprise
+// contact page for “contact_sales“.
+type DeviceQueueNotice struct {
+	Action     *DeviceQueueNoticeAction `json:"action,omitempty"`
+	BillingUrl *string                  `json:"billing_url,omitempty"`
+
+	// Devices Devices the organization runs at once.
+	Devices int    `json:"devices"`
+	Message string `json:"message"`
+}
+
+// DeviceQueueNoticeAction defines model for DeviceQueueNotice.Action.
+type DeviceQueueNoticeAction string
+
 // DeviceSessionDetailResponse Session viewer detail, with build attribution fixed to its starting build.
 type DeviceSessionDetailResponse struct {
 	ActionCount               *int                                      `json:"action_count,omitempty"`
@@ -7922,6 +8272,14 @@ type ExecuteTestAsyncAPIResponse struct {
 	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
 	AutoGitBranchEnabled *bool `json:"auto_git_branch_enabled,omitempty"`
 
+	// BillingNotice A heads-up on a work-start response that free monthly usage is running low.
+	//
+	// Only free organizations without a card get one, at or past a usage
+	// threshold. Minutes are the organization's credit usage at its own plan
+	// version's rates: one number where iOS and Android minutes share one price,
+	// else fewer iOS minutes than Android minutes.
+	BillingNotice *BillingNotice `json:"billing_notice,omitempty"`
+
 	// BranchName Branch of the build the run uses
 	BranchName *string `json:"branch_name,omitempty"`
 
@@ -7937,6 +8295,14 @@ type ExecuteTestAsyncAPIResponse struct {
 	// Id Execution ID
 	Id      openapi_types.UUID `json:"id"`
 	Message string             `json:"message"`
+
+	// QueueNotice A start that waits because every device the organization runs at once is busy.
+	//
+	// The run is queued, never refused. ``action`` names what would let more run
+	// at once, and is null when the organization's plan has no such step.
+	// ``billing_url`` is that step's link: Billing settings, or the Enterprise
+	// contact page for ``contact_sales``.
+	QueueNotice *DeviceQueueNotice `json:"queue_notice,omitempty"`
 
 	// SessionId Idempotent device-session start ID
 	SessionId openapi_types.UUID `json:"session_id"`
@@ -7972,6 +8338,14 @@ type ExecuteTestAsyncAPIResponseTestDefinitionSource string
 
 // ExecuteWorkflowAsyncAPIResponse Response for async workflow execution start.
 type ExecuteWorkflowAsyncAPIResponse struct {
+	// BillingNotice A heads-up on a work-start response that free monthly usage is running low.
+	//
+	// Only free organizations without a card get one, at or past a usage
+	// threshold. Minutes are the organization's credit usage at its own plan
+	// version's rates: one number where iOS and Android minutes share one price,
+	// else fewer iOS minutes than Android minutes.
+	BillingNotice *BillingNotice `json:"billing_notice,omitempty"`
+
 	// Id Execution ID
 	Id      openapi_types.UUID `json:"id"`
 	Message string             `json:"message"`
@@ -9231,31 +9605,39 @@ type PaginatedBuildsWithJobsResponse_Items_Item struct {
 
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {
+	// AutoTopup A Pro organization's automatic prepaid-credit refill.
+	AutoTopup      *AutoTopup             `json:"auto_topup,omitempty"`
 	AvailablePlans *[]BillingPlanTerms    `json:"available_plans,omitempty"`
 	BillingPeriod  *PlanInfoBillingPeriod `json:"billing_period,omitempty"`
 
 	// BuildPromo An active promo code that discounts cloud build credits.
-	BuildPromo            *BuildPromo                  `json:"build_promo,omitempty"`
-	BuildPromoEligibility *BuildPromoEligibility       `json:"build_promo_eligibility,omitempty"`
-	CanEnablePayg         *bool                        `json:"can_enable_payg,omitempty"`
-	CancelsAt             *int                         `json:"cancels_at,omitempty"`
-	CurrentTerms          *BillingPlanTerms            `json:"current_terms,omitempty"`
-	Discounts             *[]DiscountItem              `json:"discounts,omitempty"`
-	DisplayName           string                       `json:"display_name"`
-	Entitlements          *[]EntitlementItem           `json:"entitlements,omitempty"`
-	FreeCreditLabel       string                       `json:"free_credit_label"`
-	MonthlyBase           float32                      `json:"monthly_base"`
-	OverageAllowed        *bool                        `json:"overage_allowed,omitempty"`
-	PaygEnrolled          *bool                        `json:"payg_enrolled,omitempty"`
-	PaymentMethodStatus   *PlanInfoPaymentMethodStatus `json:"payment_method_status,omitempty"`
+	BuildPromo            *BuildPromo            `json:"build_promo,omitempty"`
+	BuildPromoEligibility *BuildPromoEligibility `json:"build_promo_eligibility,omitempty"`
+	CanEnablePayg         *bool                  `json:"can_enable_payg,omitempty"`
+	CancelsAt             *int                   `json:"cancels_at,omitempty"`
+
+	// ChargeFailed The card on file was declined and has not been replaced since.
+	ChargeFailed        *bool                        `json:"charge_failed,omitempty"`
+	CurrentTerms        *BillingPlanTerms            `json:"current_terms,omitempty"`
+	Discounts           *[]DiscountItem              `json:"discounts,omitempty"`
+	DisplayName         string                       `json:"display_name"`
+	Entitlements        *[]EntitlementItem           `json:"entitlements,omitempty"`
+	FreeCreditLabel     string                       `json:"free_credit_label"`
+	MonthlyBase         float32                      `json:"monthly_base"`
+	OverageAllowed      *bool                        `json:"overage_allowed,omitempty"`
+	PaygEnrolled        *bool                        `json:"payg_enrolled,omitempty"`
+	PaymentMethodStatus *PlanInfoPaymentMethodStatus `json:"payment_method_status,omitempty"`
 
 	// PeriodEnd Current subscription billing-period end in Unix milliseconds.
 	PeriodEnd *int `json:"period_end,omitempty"`
 
 	// PeriodStart Current subscription billing-period start in Unix milliseconds.
-	PeriodStart            *int                            `json:"period_start,omitempty"`
-	Plan                   PlanInfoPlan                    `json:"plan"`
-	PlanStatus             *string                         `json:"plan_status,omitempty"`
+	PeriodStart *int         `json:"period_start,omitempty"`
+	Plan        PlanInfoPlan `json:"plan"`
+	PlanStatus  *string      `json:"plan_status,omitempty"`
+
+	// PrepaidBalanceUsd Unspent prepaid credit; null unless on prepaid Pro.
+	PrepaidBalanceUsd      *float32                        `json:"prepaid_balance_usd,omitempty"`
 	ScheduledBillingPeriod *PlanInfoScheduledBillingPeriod `json:"scheduled_billing_period,omitempty"`
 	ScheduledPlan          *string                         `json:"scheduled_plan,omitempty"`
 
@@ -9480,6 +9862,20 @@ type ProjectCursorProofRepository struct {
 
 // ProjectCursorProofRepositoryProvider defines model for ProjectCursorProofRepository.Provider.
 type ProjectCursorProofRepositoryProvider string
+
+// RateCardItem defines model for RateCardItem.
+type RateCardItem struct {
+	AutumnFeatureId string  `json:"autumn_feature_id"`
+	DeviceType      string  `json:"device_type"`
+	Platform        string  `json:"platform"`
+	RatePerMinute   float32 `json:"rate_per_minute"`
+	RatePerSecond   float32 `json:"rate_per_second"`
+}
+
+// RateCardResponse defines model for RateCardResponse.
+type RateCardResponse struct {
+	Rates []RateCardItem `json:"rates"`
+}
 
 // RecipeStep A setup or build step the customer wrote.
 type RecipeStep struct {
@@ -9775,9 +10171,16 @@ type RemoteBuildSummary struct {
 //	build_job_id: Unique identifier used to poll build status.
 //	status: Initial public status (usually ``pending``).
 type RemoteBuildTriggerResponse struct {
-	BranchId   *openapi_types.UUID `json:"branch_id,omitempty"`
-	BuildJobId string              `json:"build_job_id"`
-	Status     *string             `json:"status,omitempty"`
+	// BillingNotice A heads-up on a work-start response that free monthly usage is running low.
+	//
+	// Only free organizations without a card get one, at or past a usage
+	// threshold. Minutes are the organization's credit usage at its own plan
+	// version's rates: one number where iOS and Android minutes share one price,
+	// else fewer iOS minutes than Android minutes.
+	BillingNotice *BillingNotice      `json:"billing_notice,omitempty"`
+	BranchId      *openapi_types.UUID `json:"branch_id,omitempty"`
+	BuildJobId    string              `json:"build_job_id"`
+	Status        *string             `json:"status,omitempty"`
 }
 
 // ReplaceTestLaunchEnvVarRefsRequest Request model for replacing launch variable attachments on a test.
@@ -10282,6 +10685,17 @@ type StartDeviceResponse struct {
 	// AutoGitBranchEnabled Whether automatic Git branch detection was enabled when this build was selected. False uses the app default branch unless an explicit build or branch selection or All branches overrides it; defaults to true for older records
 	AutoGitBranchEnabled *bool `json:"auto_git_branch_enabled,omitempty"`
 
+	// BillingNotice A heads-up on a work-start response that free monthly usage is running low.
+	//
+	// Only free organizations without a card get one, at or past a usage
+	// threshold. Minutes are the organization's credit usage at its own plan
+	// version's rates: one number where iOS and Android minutes share one price,
+	// else fewer iOS minutes than Android minutes.
+	BillingNotice *BillingNotice `json:"billing_notice,omitempty"`
+
+	// BillingUrl Billing settings link when billing limits refused the start
+	BillingUrl *string `json:"billing_url,omitempty"`
+
 	// BranchSource Where the branch a run, session, or resolution used came from.
 	//
 	// Results leave it absent or null when an exact build or All branches ·
@@ -10296,18 +10710,29 @@ type StartDeviceResponse struct {
 	ErrorDetail *LaunchEnvVarErrorDetail `json:"error_detail,omitempty"`
 
 	// GitBranchName The Git branch the request sent, present only when the resolution consulted it: branch_source is git_branch, or default_branch because that Git branch had no usable build. Absent or null for explicit_branch, an exact build, All branches · Latest build, and disabled automatic detection
-	GitBranchName *string             `json:"git_branch_name,omitempty"`
-	IframeUrl     *string             `json:"iframe_url,omitempty"`
-	Message       *string             `json:"message,omitempty"`
-	Platform      string              `json:"platform"`
-	RetryAllowed  *bool               `json:"retry_allowed,omitempty"`
-	SessionId     *openapi_types.UUID `json:"session_id,omitempty"`
-	Status        AsyncStatus         `json:"status"`
+	GitBranchName *string `json:"git_branch_name,omitempty"`
+	IframeUrl     *string `json:"iframe_url,omitempty"`
+	Message       *string `json:"message,omitempty"`
+	Platform      string  `json:"platform"`
+
+	// QueueNotice A start that waits because every device the organization runs at once is busy.
+	//
+	// The run is queued, never refused. ``action`` names what would let more run
+	// at once, and is null when the organization's plan has no such step.
+	// ``billing_url`` is that step's link: Billing settings, or the Enterprise
+	// contact page for ``contact_sales``.
+	QueueNotice  *DeviceQueueNotice  `json:"queue_notice,omitempty"`
+	RetryAllowed *bool               `json:"retry_allowed,omitempty"`
+	SessionId    *openapi_types.UUID `json:"session_id,omitempty"`
+	Status       AsyncStatus         `json:"status"`
 
 	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
-	TraceId       *string             `json:"trace_id,omitempty"`
-	WebsocketUrl  *string             `json:"websocket_url,omitempty"`
-	WorkflowRunId *openapi_types.UUID `json:"workflow_run_id,omitempty"`
+	TraceId *string `json:"trace_id,omitempty"`
+
+	// UpgradeBenefits What Pro adds for a free organization, from its plan terms.
+	UpgradeBenefits *UpgradeBenefits    `json:"upgrade_benefits,omitempty"`
+	WebsocketUrl    *string             `json:"websocket_url,omitempty"`
+	WorkflowRunId   *openapi_types.UUID `json:"workflow_run_id,omitempty"`
 }
 
 // StepType User-facing step types for YAML test definitions.
@@ -11104,6 +11529,33 @@ type UpdateWorkflowRunConfigRequest struct {
 	DefaultConcurrencyLimit *int                  `json:"default_concurrency_limit,omitempty"`
 	OverrideRunConfig       *bool                 `json:"override_run_config,omitempty"`
 	RunConfig               *map[string]JsonValue `json:"run_config,omitempty"`
+}
+
+// UpgradeBenefits What Pro adds for a free organization, from its plan terms.
+type UpgradeBenefits struct {
+	ConcurrentDevicesNow  int `json:"concurrent_devices_now"`
+	ConcurrentDevicesPayg int `json:"concurrent_devices_payg"`
+}
+
+// UsageCap The most an organization pays in a month, plan fee included, in US dollars.
+type UsageCap struct {
+	// IncludedCreditsUsedUp Whether this period's included compute credits are used up. Until they are, a cap equal to the plan fee does not stop new work.
+	IncludedCreditsUsedUp *bool `json:"included_credits_used_up,omitempty"`
+
+	// IneligibleReason Why this organization cannot set its own cap; null when it can.
+	IneligibleReason *string `json:"ineligible_reason,omitempty"`
+
+	// MonthlyCapUsd The enabled cap; null when usage is uncapped.
+	MonthlyCapUsd *float32 `json:"monthly_cap_usd,omitempty"`
+
+	// MonthlyPlanFeeUsd The monthly plan fee, which is the lowest cap.
+	MonthlyPlanFeeUsd *float32 `json:"monthly_plan_fee_usd,omitempty"`
+
+	// PeriodResetsAt When the cap's period resets, in Unix milliseconds: the compute-credit period, or the refill window of a prepaid monthly limit.
+	PeriodResetsAt *int `json:"period_resets_at,omitempty"`
+
+	// SpendThisPeriodUsd Plan fee plus compute-credit overage so far this period.
+	SpendThisPeriodUsd *float32 `json:"spend_this_period_usd,omitempty"`
 }
 
 // ValidationError defines model for ValidationError.
@@ -11994,7 +12446,53 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	IncludeFlows        *bool   `form:"include_flows,omitempty" json:"include_flows,omitempty"`
 	IncludeScreenshots  *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Launch Launch-variable filter term <key>:<value>, or <key> alone for runs launched with that key set, repeatable up to 8 times. Terms for one key match any of their values; different keys are ANDed. Requires include_details=false on an app served by the ClickHouse graph reader. Runs with unknown launch configuration are excluded and counted in launch_filter.unknown_run_count. Secret keys can be filtered only by whether they were set: a term that gives a secret key a value is refused.
+	Launch *[]string `form:"launch,omitempty" json:"launch,omitempty"`
+
+	// XAtlasLaunchTerms Launch-variable terms as comma-separated, percent-encoded <key>:<value> or <key> terms. They combine with launch the same way and count toward its limit, and secret keys follow the same presence-only rule. Terms sent here keep their values out of the URL.
+	XAtlasLaunchTerms *string `json:"X-Atlas-Launch-Terms,omitempty"`
 }
+
+// GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParams defines parameters for GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGet.
+type GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParams struct {
+	Group            *GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup `form:"group,omitempty" json:"group,omitempty"`
+	Key              *string                                                                `form:"key,omitempty" json:"key,omitempty"`
+	Prefix           *string                                                                `form:"prefix,omitempty" json:"prefix,omitempty"`
+	BuildId          *string                                                                `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId         *string                                                                `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	FromTime         *string                                                                `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime           *string                                                                `form:"to_time,omitempty" json:"to_time,omitempty"`
+	RecentBuildLimit *int                                                                   `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
+}
+
+// GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup defines parameters for GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGet.
+type GetAtlasV2GraphFiltersApiV1AtlasV2AppsAppIdGraphFiltersGetParamsGroup string
+
+// GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
+type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struct {
+	BuildId                *string                                                                           `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId               *string                                                                           `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	ReportId               *string                                                                           `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId                 *string                                                                           `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId    *string                                                                           `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind             *string                                                                           `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	DeviceModel            *string                                                                           `form:"device_model,omitempty" json:"device_model,omitempty"`
+	DeviceRuntime          *string                                                                           `form:"device_runtime,omitempty" json:"device_runtime,omitempty"`
+	FromTime               *string                                                                           `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime                 *string                                                                           `form:"to_time,omitempty" json:"to_time,omitempty"`
+	RecentBuildLimit       *int                                                                              `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
+	Visibility             *string                                                                           `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants        *bool                                                                             `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	DetailStackLimit       *int                                                                              `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
+	DetailObservationLimit *int                                                                              `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
+	FocusObservationId     *string                                                                           `form:"focus_observation_id,omitempty" json:"focus_observation_id,omitempty"`
+	DetailLevel            *GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel `form:"detail_level,omitempty" json:"detail_level,omitempty"`
+	IncludeScreenshots     *bool                                                                             `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+}
+
+// GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
+type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel string
 
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
 type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams struct {
@@ -12023,6 +12521,16 @@ type CreateGroundedAtlasAnnotationThreadParams struct {
 	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
 }
 
+// GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams defines parameters for GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGet.
+type GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams struct {
+	BuildId          *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	BranchId         *string `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	FromTime         *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime           *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	RecentBuildLimit *int    `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
+	Origin           *string `form:"origin,omitempty" json:"origin,omitempty"`
+}
+
 // GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams defines parameters for GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGet.
 type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
@@ -12036,6 +12544,7 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	IncludeDetails      *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
 }
 
 // GetAtlasV2IndexApiV1AtlasV2IndexGetParams defines parameters for GetAtlasV2IndexApiV1AtlasV2IndexGet.
@@ -12103,6 +12612,12 @@ type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams struct {
 	XCIPRURL                               *string `json:"X-CI-PR-URL,omitempty"`
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+}
+
+// BillingSummaryApiV1ExecutionBillingSummaryGetParams defines parameters for BillingSummaryApiV1ExecutionBillingSummaryGet.
+type BillingSummaryApiV1ExecutionBillingSummaryGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
 }
 
 // GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams defines parameters for GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGet.
@@ -12565,6 +13080,9 @@ type PreviewAtlasAnnotationAnchorJSONRequestBody = AtlasAnnotationAnchorPreviewR
 
 // CreateGroundedAtlasAnnotationThreadJSONRequestBody defines body for CreateGroundedAtlasAnnotationThread for application/json ContentType.
 type CreateGroundedAtlasAnnotationThreadJSONRequestBody = AtlasGroundedAnnotationThreadCreateRequest
+
+// CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody defines body for CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePost for application/json ContentType.
+type CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody = AtlasShareLinkRequest
 
 // PreviewSessionAtlasAnnotationAnchorJSONRequestBody defines body for PreviewSessionAtlasAnnotationAnchor for application/json ContentType.
 type PreviewSessionAtlasAnnotationAnchorJSONRequestBody = AtlasSessionAnnotationAnchorPreviewRequest

@@ -1,6 +1,6 @@
 # Revyl CLI
 
-AI-powered mobile app testing from the command line. The PyPI package contains
+AI-powered app testing from the command line. The PyPI package contains
 the native Revyl CLI for the target platform and performs no runtime download.
 
 ## Install

@@ -255,6 +255,14 @@ type APIError struct {
 	// project's .revyl files; empty and zero when the error names no file or line.
 	FilePath string
 	FileLine int
+	// BillingURL and BillingAction name the billing page and the step a
+	// billing denial asks for; empty when the denial offers none.
+	BillingURL      string
+	BillingAction   BillingAction
+	UpgradeBenefits *UpgradeBenefits
+	// BillingReported is set once a command has written this refusal's
+	// billing fields in its own --json output.
+	BillingReported bool
 }
 
 // ParseRetryAfter converts an HTTP Retry-After value, either delay seconds or
@@ -451,9 +459,9 @@ func authHintForStatus(statusCode int, serverReason string) string {
 	}
 	if statusCode == 402 {
 		if strings.TrimSpace(serverReason) != "" {
-			return "Manage billing:\n  → revyl auth billing"
+			return "Review billing: " + BillingSettingsURL(false)
 		}
-		return "Billing action is required. Review your plan, available credits, and unpaid invoices:\n  → revyl auth billing"
+		return "Billing needs attention: " + BillingSettingsURL(false)
 	}
 	return ""
 }
@@ -628,10 +636,20 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		apiError.FilePath = errResp.Path
 		apiError.FileLine = errResp.Line
 	}
+	billing := readBillingResponseFields(body)
+	apiError.BillingURL = billing.BillingURL
+	apiError.BillingAction = billing.BillingAction
+	apiError.UpgradeBenefits = billing.UpgradeBenefits
+	if statusCode == http.StatusPaymentRequired && apiError.BillingURL != "" {
+		apiError.Hint = ""
+		if !strings.Contains(serverReason, apiError.BillingURL) {
+			apiError.Hint = BillingNextStep(apiError.BillingAction, apiError.BillingURL)
+		}
+	}
 	if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusConflict) &&
 		(isConcurrencyLimitMessage(message+" "+detail) || isConcurrencyLimitCode(apiError.Code) ||
 			isConcurrencyLimitCode(apiError.DetailString("code")) || isConcurrencyLimitCode(apiError.DetailString("error_type"))) {
-		apiError.Hint = ConcurrencyUpgradeHint
+		apiError.Hint = concurrencyUpgradeHint(apiError.BillingURL)
 	}
 	return apiError
 }
@@ -911,7 +929,9 @@ func parseResponseWithRaw(resp *http.Response, target interface{}) (json.RawMess
 			}
 		}
 
-		return nil, parseAPIErrorBody(resp.StatusCode, body)
+		apiErr := parseAPIErrorBody(resp.StatusCode, body)
+		apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
+		return nil, apiErr
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -1035,6 +1055,8 @@ type ExecuteTestResponse struct {
 	TestDefinitionSource         TestDefinitionSource         `json:"test_definition_source,omitempty"`
 	TestDefinitionFallbackReason TestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
 	TestDefinitionSnapshotID     string                       `json:"test_definition_snapshot_id,omitempty"`
+	UsageNotice                  *UsageNotice                 `json:"billing_notice,omitempty"`
+	QueueNotice                  *DeviceQueueNotice           `json:"queue_notice,omitempty"`
 	TestDefinitionGitRead
 }
 
@@ -1050,6 +1072,8 @@ type BillingPlanResponse struct {
 	DisplayName     string  `json:"display_name"`
 	MonthlyBase     float64 `json:"monthly_base"`
 	FreeCreditLabel string  `json:"free_credit_label"`
+	// PaygEnrolled says whether the organization is on Pro.
+	PaygEnrolled bool `json:"payg_enrolled"`
 }
 
 // GetBillingPlan returns the org's current billing plan.
@@ -1134,6 +1158,7 @@ type ExecuteWorkflowResponse struct {
 	TaskID                              string                               `json:"task_id"`
 	TestCountByDefinitionSource         map[TestDefinitionSource]int         `json:"test_count_by_definition_source,omitempty"`
 	TestCountByDefinitionFallbackReason map[TestDefinitionFallbackReason]int `json:"test_count_by_definition_fallback_reason,omitempty"`
+	UsageNotice                         *UsageNotice                         `json:"billing_notice,omitempty"`
 	TestDefinitionGitRead
 }
 
@@ -1196,6 +1221,8 @@ type UploadBuildResponse struct {
 	Version    string   `json:"version"`
 	PackageID  string   `json:"package_id,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
+	// UsageNotice is the usage notice the backend attached to the upload.
+	UsageNotice *UsageNotice `json:"billing_notice,omitempty"`
 }
 
 const maxUploadErrorBodyBytes = 16 * 1024
@@ -1219,6 +1246,7 @@ type buildCreatedResponse struct {
 	Version     string                 `json:"version"`
 	PackageName string                 `json:"package_name,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	UsageNotice *UsageNotice           `json:"billing_notice,omitempty"`
 }
 
 type extractBuildPackageIDResponse struct {
@@ -1337,12 +1365,13 @@ func (c *Client) createBuildFromStagedUpload(ctx context.Context, req *UploadBui
 	}
 
 	return &UploadBuildResponse{
-		BranchID:   created.BranchID,
-		BranchName: created.BranchName,
-		VersionID:  created.ID,
-		Version:    created.Version,
-		PackageID:  created.PackageName,
-		Warnings:   artifactValidationWarnings(created.Metadata),
+		BranchID:    created.BranchID,
+		BranchName:  created.BranchName,
+		VersionID:   created.ID,
+		Version:     created.Version,
+		PackageID:   created.PackageName,
+		Warnings:    artifactValidationWarnings(created.Metadata),
+		UsageNotice: created.UsageNotice,
 	}, nil
 }
 
@@ -3406,6 +3435,72 @@ type AtlasQuery struct {
 	IncludeFlows        *bool
 	Limit               int
 	IncludeScreenshots  bool
+	// LaunchTerms are <key>:<value> launch-variable filters. They travel only in
+	// the launch-terms header so values, including secrets, never reach a URL.
+	LaunchTerms []string
+}
+
+// AtlasLaunchTermsHeader carries launch-variable filter terms to the graph API.
+const AtlasLaunchTermsHeader = "X-Atlas-Launch-Terms"
+
+func atlasLaunchTermsHeaders(terms []string) []map[string]string {
+	if len(terms) == 0 {
+		return nil
+	}
+	encoded := make([]string, len(terms))
+	for index, term := range terms {
+		encoded[index] = url.PathEscape(term)
+	}
+	return []map[string]string{{AtlasLaunchTermsHeader: strings.Join(encoded, ",")}}
+}
+
+// AtlasFilterQuery selects the map filter options: groups and keys when Group
+// and Key are empty, otherwise that key's most common values.
+type AtlasFilterQuery struct {
+	AppID            string
+	Group            string
+	Key              string
+	Prefix           string
+	BranchID         string
+	BuildID          string
+	FromTime         string
+	ToTime           string
+	RecentBuildLimit int
+}
+
+// GetAtlasGraphFilters lists filter groups and keys, or one key's values, with
+// run counts over the selected branch, build and time scope.
+func (c *Client) GetAtlasGraphFilters(ctx context.Context, query AtlasFilterQuery) (AtlasResponse, error) {
+	values := url.Values{}
+	for name, value := range map[string]string{
+		"group":     query.Group,
+		"key":       query.Key,
+		"prefix":    query.Prefix,
+		"branch_id": query.BranchID,
+		"build_id":  query.BuildID,
+		"from_time": query.FromTime,
+		"to_time":   query.ToTime,
+	} {
+		if value != "" {
+			values.Set(name, value)
+		}
+	}
+	if query.RecentBuildLimit > 0 {
+		values.Set("recent_build_limit", fmt.Sprintf("%d", query.RecentBuildLimit))
+	}
+	path := fmt.Sprintf("/api/v1/atlas/v2/apps/%s/graph/filters", url.PathEscape(query.AppID))
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // AtlasResponse is a generic JSON object returned by Atlas inspection endpoints.
@@ -3472,7 +3567,7 @@ func (c *Client) getAtlas(ctx context.Context, path string, query AtlasQuery) (A
 	if encoded := values.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
-	resp, err := c.doRequest(ctx, "GET", path, nil)
+	resp, err := c.doRequestWithRetry(ctx, "GET", path, nil, atlasLaunchTermsHeaders(query.LaunchTerms)...)
 	if err != nil {
 		return nil, err
 	}
@@ -3561,6 +3656,12 @@ func (c *Client) GetAtlasStructure(ctx context.Context, query AtlasQuery) (Atlas
 
 func (c *Client) GetAtlasEntityObservations(ctx context.Context, query AtlasQuery, entityID string) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/entities/%s/observations", url.PathEscape(query.AppID), url.PathEscape(entityID)), query)
+}
+
+// GetAtlasNodeDetails reads one node's full detail payload, such as its state
+// stacks and observation evidence. The endpoint applies no launch filters.
+func (c *Client) GetAtlasNodeDetails(ctx context.Context, query AtlasQuery, nodeID string) (AtlasResponse, error) {
+	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/nodes/%s/details", url.PathEscape(query.AppID), url.PathEscape(nodeID)), query)
 }
 
 func (c *Client) GetAtlasObservation(ctx context.Context, query AtlasQuery, observationID string) (AtlasResponse, error) {
@@ -4593,9 +4694,9 @@ type DeviceExecutionModeConfig struct {
 //   - req: The device start request
 //
 // Returns:
-//   - *StartDeviceResponse: The device start response with workflow run ID
+//   - *StartDeviceResult: The device start response with workflow run ID
 //   - error: Any error that occurred
-func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*StartDeviceResponse, error) {
+func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*StartDeviceResult, error) {
 	if req == nil {
 		return nil, fmt.Errorf("start device request is nil")
 	}
@@ -4628,16 +4729,35 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 		return nil, err
 	}
 
-	var result StartDeviceResponse
-	if err := parseResponse(resp, &result); err != nil {
+	var result StartDeviceResult
+	body, err := parseResponseWithRaw(resp, &result.StartDeviceResponse)
+	if err != nil {
 		return nil, err
 	}
+	billing := readBillingResponseFields(body)
+	result.BillingURL = billing.BillingURL
+	result.BillingAction = billing.BillingAction
+	result.UpgradeBenefits = billing.UpgradeBenefits
+	result.UsageNotice = billing.UsageNotice
 	if result.Error != nil {
-		message := withConcurrencyUpgradeHint(*result.Error)
+		message := withConcurrencyUpgradeHint(*result.Error, result.BillingURL)
 		result.Error = &message
 	}
 
 	return &result, nil
+}
+
+// StartDeviceResult is the device start response with the billing fields the
+// generated contract does not carry yet.
+type StartDeviceResult struct {
+	StartDeviceResponse
+	// BillingURL, BillingAction and UpgradeBenefits describe a start refused
+	// for billing; empty when the refusal offers no billing step.
+	BillingURL      string           `json:"-"`
+	BillingAction   BillingAction    `json:"-"`
+	UpgradeBenefits *UpgradeBenefits `json:"-"`
+	// UsageNotice is the usage notice attached to an accepted start.
+	UsageNotice *UsageNotice `json:"-"`
 }
 
 func traceHandoffHeadersFromContext(ctx context.Context) map[string]string {

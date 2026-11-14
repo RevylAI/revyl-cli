@@ -63,7 +63,7 @@ func GetCLISchema(rootCmd *cobra.Command, version string) *CLISchema {
 	schema := &CLISchema{
 		Name:        "revyl",
 		Version:     version,
-		Description: "Proactive reliability for mobile apps. Catch bugs before your users do.",
+		Description: "Proactive reliability for your apps. Catch bugs before your users do.",
 		Commands:    extractCommands(rootCmd, ""),
 		GlobalFlags: extractFlags(rootCmd.PersistentFlags()),
 		Workflows:   getCommonWorkflows(),

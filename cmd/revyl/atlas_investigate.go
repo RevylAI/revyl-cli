@@ -87,8 +87,14 @@ func newAtlasReportsCommand() *cobra.Command {
 }
 
 func readInvestigationGraph(ctx context.Context, client *api.Client, appID, buildID, reportID string, limit int) (atlasScopedGraph, error) {
-	details, flows, variants := false, false, true
-	graph, err := client.GetAtlasGraph(ctx, api.AtlasQuery{AppID: appID, BuildID: buildID, ReportID: reportID, Limit: limit, IncludeDetails: &details, IncludeFlows: &flows, IncludeVariants: &variants, Visibility: "included"})
+	variants := true
+	return readScopedInvestigationGraph(ctx, client, api.AtlasQuery{AppID: appID, BuildID: buildID, ReportID: reportID, Limit: limit, IncludeVariants: &variants, Visibility: "included"})
+}
+
+func readScopedInvestigationGraph(ctx context.Context, client *api.Client, query api.AtlasQuery) (atlasScopedGraph, error) {
+	details, flows := false, false
+	query.IncludeDetails, query.IncludeFlows = &details, &flows
+	graph, err := client.GetAtlasGraph(ctx, query)
 	if err != nil {
 		return atlasScopedGraph{}, err
 	}

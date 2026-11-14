@@ -651,6 +651,78 @@ func TestComputerCreateSendsTheRequestedDisplaySize(t *testing.T) {
 	}
 }
 
+func TestComputerCreateAtTheDeviceLimitNamesTheStepForMoreDevices(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	const billingURL = "https://app.revyl.ai/settings/billing?add_card=1&organization_id=org"
+	const contactURL = "https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo"
+	const limit = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
+	for _, tc := range []struct {
+		name       string
+		offer      string
+		jsonOutput bool
+		wantError  string
+		wantJSON   map[string]string
+	}{
+		{"free_owner_text", `{"action":"add_card","billing_url":"` + billingURL + `","message":"Upgrade to Pro to run 10 at once ($20 credit, charged when you add a card)"}`, false, limit + "\nUpgrade to Pro to run 10 at once ($20 credit, charged when you add a card): " + billingURL, nil},
+		{"free_member_text", `{"action":"request_access","billing_url":"` + billingURL + `","message":"Ask an owner or admin to upgrade to Pro to run 10 at once"}`, false, limit + "\nAsk an owner or admin to upgrade to Pro to run 10 at once: " + billingURL, nil},
+		{"pro_text", `{"action":"contact_sales","billing_url":"` + contactURL + `","message":"Need more than 10? Talk to us"}`, false, limit + "\nNeed more than 10? Talk to us: " + contactURL, nil},
+		{"pro_json", `{"action":"contact_sales","billing_url":"` + contactURL + `","message":"Need more than 10? Talk to us"}`, true, "", map[string]string{
+			"billing_url":    contactURL,
+			"billing_action": "contact_sales",
+			"next_step":      "Agents: stop. Tell the person every device is in use, and that they can talk to Revyl at the link to run more at once. Do not retry or work around it.",
+		}},
+		{"unsafe_link_ignored", `{"action":"contact_sales","billing_url":"javascript:alert(1)","message":"Talk to us"}`, false, limit, nil},
+		{"unknown_action_ignored", `{"action":"buy_now","billing_url":"` + billingURL + `","message":"Talk to us"}`, false, limit, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusTooManyRequests)
+				fmt.Fprintf(w, `{"detail":"computer_limit","offer":%s}`, tc.offer)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			t.Setenv("REVYL_API_KEY", "fixture-key")
+			root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+			root.AddCommand(newComputerCommand())
+			args := []string{"computer", "create", "--os", "macos"}
+			if tc.jsonOutput {
+				args = append(args, "--json")
+			}
+			var output, guidance bytes.Buffer
+			root.SetOut(&output)
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs(args)
+
+			cmd, err := root.ExecuteC()
+			writeBillingErrorJSON(&output, cmd, err)
+			printBillingRefusalGuidance(&guidance, cmd, err)
+
+			if err == nil {
+				t.Fatal("computer create succeeded at the device limit")
+			}
+			if tc.jsonOutput {
+				var payload map[string]any
+				if decodeErr := json.Unmarshal(output.Bytes(), &payload); decodeErr != nil {
+					t.Fatalf("stdout is not one JSON document: %v\n%s", decodeErr, output.String())
+				}
+				for key, want := range tc.wantJSON {
+					if payload[key] != want {
+						t.Fatalf("%s = %v, want %q", key, payload[key], want)
+					}
+				}
+				return
+			}
+			if err.Error() != tc.wantError {
+				t.Fatalf("computer create said\n%s\nwant\n%s", err.Error(), tc.wantError)
+			}
+			wantsGuidance := tc.wantError != limit
+			if got := strings.Contains(guidance.String(), "Agents: stop."); got != wantsGuidance {
+				t.Fatalf("agent guidance printed = %v, want %v: %q", got, wantsGuidance, guidance.String())
+			}
+		})
+	}
+}
+
 func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	for _, tc := range []struct {
@@ -662,7 +734,7 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	}{
 		{"text", false, "computer_limit", http.StatusTooManyRequests, "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."},
 		{"json", true, "computer_limit", http.StatusTooManyRequests, ""},
-		{"not_enabled_text", false, "computer_not_enabled", http.StatusForbidden, "Computers aren't available to this organization. Mac computers need a current paid plan; an owner or admin can upgrade in Settings > Plans."},
+		{"not_enabled_text", false, "computer_not_enabled", http.StatusForbidden, "Computers aren't available to this organization. Contact support@revyl.ai to turn Mac computers on."},
 		{"not_enabled_json", true, "computer_not_enabled", http.StatusForbidden, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

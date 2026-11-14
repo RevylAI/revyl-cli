@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
@@ -137,13 +138,22 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		return err
 	}
 	opts.ResolvedWebArtifact = &artifact
+	var queueNotice *billingstatus.QueueNotice
+	opts.OnQueued = func(notice *billingstatus.QueueNotice) {
+		queueNotice = notice
+		printQueueNotice(notice)
+	}
 	_, session, err := mgr.StartSession(ctx, opts)
 	if err != nil {
 		return err
 	}
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if jsonOutput {
-		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(withAppliedDefaults(cmd, session)); err != nil {
+		output := struct {
+			*mcppkg.DeviceSession
+			QueueNotice *billingstatus.QueueNotice `json:"queue_notice,omitempty"`
+		}{session, queueNotice}
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(withAppliedDefaults(cmd, output)); err != nil {
 			return err
 		}
 	} else {

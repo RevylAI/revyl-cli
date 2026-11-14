@@ -2,9 +2,20 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/revyl/cli/internal/toolcatalog"
+)
+
+// atlasInputRefusal matches the refusals the CLI and the Atlas API give for a
+// caller's own arguments. Each names a position or a limit, never a value, so
+// the matched text alone is safe to return to the caller.
+var atlasInputRefusal = regexp.MustCompile(
+	`at most \d+ launch filters are allowed|a scope may combine at most \d+ launch filters|` +
+		`launch filter \d+ (?:must be KEY=VALUE or KEY with a key of at most 256 characters and no colon|has an invalid value)|` +
+		`atlas (?:screen --details|edge --runs) does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph|` +
+		`Launch filter term \d+ names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone`,
 )
 
 type toolRecovery struct {
@@ -42,7 +53,9 @@ func toolFailure(tool toolcatalog.Definition, input map[string]any, code, messag
 			kind = value
 		}
 	}
-	if reference != "" && tool.Name != "reports.inspect" {
+	if tool.Name == "atlas.graph" {
+		failure.Message = "The graph exceeded the output budget; limit caps screens but not their relationships. Start with atlas.brief, read one product area with atlas.area, or scope atlas.graph to a build, report, test or time range."
+	} else if reference != "" && tool.Name != "reports.inspect" {
 		failure.Recovery = append(failure.Recovery, toolRecovery{Tool: "reports.inspect", Arguments: map[string]any{"reference_id": reference, "id_kind": kind, "section": "overview"}})
 		failure.Message = "Report output exceeded the budget. Read its overview, then request filtered steps/actions with reports.inspect. The overview is not the complete report."
 	} else {
@@ -52,6 +65,9 @@ func toolFailure(tool toolcatalog.Definition, input map[string]any, code, messag
 }
 
 func classifyInvestigationFailure(stderr string) (string, string) {
+	if refusal := atlasInputRefusal.FindString(stderr); refusal != "" {
+		return "invalid_arguments", refusal
+	}
 	hint := investigationFailureHint(stderr)
 	switch {
 	case strings.HasPrefix(hint, "query timed out"):

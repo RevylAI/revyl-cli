@@ -56,7 +56,7 @@ func TestConcurrencyHintStatusAndCarrierMatrix(t *testing.T) {
 		{429, ConcurrencyUpgradeHint},
 		{400, ""},
 		{401, "Session may have expired. Run 'revyl auth login' to re-authenticate."},
-		{402, "Manage billing:\n  → revyl auth billing"},
+		{402, "Review billing: " + BillingSettingsURL(false)},
 		{403, ""},
 		{422, ""},
 		{500, ""},
@@ -138,7 +138,7 @@ func TestStartDeviceConcurrencyRejectionPreservesResponseContract(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if response.Error == nil || *response.Error != withConcurrencyUpgradeHint(message) {
+			if response.Error == nil || *response.Error != withConcurrencyUpgradeHint(message, "") {
 				t.Fatalf("response error = %v", response.Error)
 			}
 			encoded, err := json.Marshal(response)

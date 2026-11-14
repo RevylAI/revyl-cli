@@ -125,7 +125,10 @@ committed artifacts.
 Graph inspection JSON responses have a versioned `contract` and `projection.data_source`.
 `summary` is the compact graph model; `evidence` is a focused read of screenshot
 observations. Atlas CLI reads are canonical-only unless `--include-variants` is
-set.
+set. With it, `graph` and `brief` nodes include state variants, so `stats` adds
+`canonical_screens` (the backend's canonical screen count for the same scope),
+`variant_nodes` when every node carries its kind, and a `count_note`; count
+screens with `canonical_screens`, not `stats.nodes`.
 
 Use `--device-model` and `--runtime` independently or together; `--os-version`
 is an alias for `--runtime`. Values match the model and OS runtime recorded on
@@ -146,6 +149,100 @@ bounded samples per identity stack, not an exhaustive list. Exact-capture reads
 remain exact evidence. Graph `limit` has a minimum fetch size, so an
 output-budget failure should be narrowed by area or neighbors, not simply retried
 with a lower limit.
+
+## Filter the map
+
+Atlas reads accept the same filters as the map's filter bar. List the options
+and their run counts first, then pass a value to any graph read:
+
+```bash
+revyl atlas filters --app "My App" --json
+revyl atlas filters --app "My App" --group launch --key REGION --json
+revyl atlas graph --app "My App" --launch REGION=EU --launch REGION=US --os "iOS 18.2" --range 7d
+```
+
+`filters` returns the groups `time` (build, branch), `device` (os, device),
+`launch` (launch-variable keys) and `runs` (report, test, workflow_execution)
+with run counts over the selected branch, build and time scope. Pass `--group`
+alone for that group's keys, `--group` and `--key` for one key's most common
+values, and `--prefix` to narrow them. Run-count filter options require the ClickHouse map reader;
+other apps return `atlas_filter_options_unsupported`.
+
+`graph --with-filters` and `brief --with-filters` read the same options
+concurrently with the graph and add them under `filters`: up to 8 of the most
+common builds, branches, devices and OS versions, each with its run count and
+the graph parameter that takes it, plus up to 20 launch keys without values.
+Tests, reports and workflow executions are not inlined, because listing them
+reads every run in the scope; use `filters --group runs` for them.
+`filters.truncated` names every capped list. If filter options are
+unavailable, the graph is still returned and `filters.available` is false with
+the reason, after one keys request. The `atlas.brief` catalog tool enables
+this by default; `atlas.graph` takes `with_filters: true` when no filter values
+are known yet.
+
+## Diff scopes
+
+`revyl atlas diff` reads several filter scopes concurrently and diffs their
+canonical screen and relationship identities in one call:
+
+```bash
+revyl atlas diff --app "My App" --a device_model="iPhone 15" --b device_model="Pixel 8" --json
+revyl atlas diff --app "My App" --partition-by device_model --range 30d --json
+printf 'a:FEATURE=on\nb:FEATURE=off\n' | revyl atlas diff --app "My App" --launch-stdin --json
+```
+
+Both sides share the base filters. `--a` and `--b` add `KEY=VALUE` terms
+(`build`, `branch_id`, `device_model`, `runtime`, `test_id`, `report_id`,
+`workflow_execution_id`, `from`, `to`, `include_variants`); a side's term
+replaces the base value for that key, and `build` and `branch_id` take exact
+UUIDs. `--a-launch` and `--b-launch` add launch terms; on `--launch-stdin`,
+lines prefixed `a:` or `b:` apply to one side. The result lists screens and
+relationships only in A, only in B and in both, sorted by observation count and
+capped at `--limit` with totals.
+
+`--partition-by` takes one key (`device_model`, `runtime`, `build`,
+`branch_id`, `test_id`, `report_id`, `workflow_execution_id` or
+`launch:KEY`), reads one graph for each of the 8 most common values (or
+`--partition-values`), and lists the screens observed under exactly one value.
+`values_truncated` means other values exist and were not read; a secret launch
+key can't be partitioned, because it filters only by whether it was set. Counts are observation counts: the graph doesn't serve
+per-screen run counts. `partial` is true when any graph was truncated, so
+absence is unproven. `atlas compare` remains available for two builds.
+
+`--range` matches the map's time picker: `recent` is the latest 20 builds,
+`1d`, `7d` and `30d` start at UTC midnight that many days ago, and `all`
+removes the window. It can't be combined with `--from`, `--since` or
+`--recent-build-limit`. `--os` and `--device` are aliases for `--runtime`
+and `--device-model`. `--build all` with `--branch` or `--branch-id` reads
+every build on that branch; without a branch it still means All branches.
+
+`--launch KEY=VALUE` filters by launch variables on `brief`, `graph`,
+`map`, `area`, `search`, `screen`, `neighbors` and `edge`, up to eight
+terms, and `--launch KEY` selects runs launched with that key set. Values for
+one key match any of them; different keys must all match. Terms always travel
+in a request header, never in the URL, and `--launch-stdin` reads them from
+standard input so values stay out of argv and shell history. A secret key is
+marked `secret` in `filters`, never lists values and filters only by whether
+it was set; a term that gives a secret key a value is refused:
+
+```bash
+revyl atlas graph --app "My App" --launch API_TOKEN --json
+```
+
+The response's `projection.launch_filter` reports how many runs matched and how
+many had no recorded launch data. Reads whose endpoint can't apply launch
+filters (`screen --details`, `edge --runs`) refuse `--launch` instead of
+silently returning unfiltered evidence. Suggested follow-up commands don't
+carry launch filters, so add them again when you follow one.
+
+`graph --flows` adds the map's largest observed flows, up to `--limit`, to the
+graph contract with `flow_count` for the total and `flows_truncated` when some
+were left out, and `screen --details` adds the screen's state stacks and observation evidence
+under `details`.
+
+`revyl atlas open` accepts the same filters, plus `--test-id`, `--report-id`
+and `--workflow-execution-id`, and opens the map with them applied. A bare
+`--launch KEY` opens as a filter on runs that set the key, shown as `KEY · set`.
 
 Selected reports can be projected upward with `revyl atlas from-reports --app
 <APP_UUID> --reports <REPORT_UUID>,<REPORT_UUID> --json`. The result retains
@@ -245,6 +342,32 @@ Install the write-capable leaf only for requested feedback work:
 ```bash
 revyl skill install --name revyl-cli-atlas-review
 ```
+
+## Correct the map structure
+
+Merging, splitting, hiding, and pinning Atlas screens happen in the Atlas web
+UI. The CLI, its MCP tools, and Atlas Chat read the map but do not change its
+screen identities or curation.
+
+## Share the map
+
+A share link opens a public, read-only copy of the map for one branch, build
+and time scope:
+
+```bash
+revyl atlas share create --app <app-id> [--build latest] [--range 7d] [--expiration-hours 720] [--include-annotations] [--json]
+revyl atlas share status --app <app-id> [--build latest] [--range 7d] [--json]
+revyl atlas share revoke --app <app-id> [--build latest] [--range 7d] [--json]
+```
+
+Treat the link as a credential: anyone who has it can view the map until it
+expires or is revoked. `create` prints it once, to stdout, and refreshes the
+active link when one already exists for that exact scope. `status` reports
+whether a link is active and when it expires without printing it, and
+`revoke` disables the link for the scope you pass. Shares carry only branch,
+build and time scope, so these commands refuse launch, device, OS, test,
+report and workflow filters instead of creating a link that silently ignores
+them.
 
 ## Run-native annotations (`revyl report annotations`)
 

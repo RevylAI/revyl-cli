@@ -60,6 +60,7 @@ func (s *Server) registerCompositeTools(profile Profile) {
 	s.registerManageTestsTool()
 	s.registerManageBuildsTool()
 	s.registerUtilityTools()
+	s.registerInvestigateTool()
 
 	// --- Full profile only ---
 	if profile == ProfileFull {
@@ -469,7 +470,7 @@ func (s *Server) handleManageVariables(ctx context.Context, req *mcp.CallToolReq
 }
 
 // ---------------------------------------------------------------------------
-// Utility tools (auth_status, get_schema) — registered as standalone
+// Utility tools (auth_status, get_billing_status, get_schema) — registered as standalone
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerUtilityTools() {
@@ -483,6 +484,7 @@ func (s *Server) registerUtilityTools() {
 			ReadOnlyHint: true,
 		},
 	}, s.handleAuthStatus)
+	s.registerBillingStatusTool()
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_schema",

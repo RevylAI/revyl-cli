@@ -2,7 +2,10 @@
 
 The CLI tool catalog lets shell-capable agents discover a small operation,
 inspect its JSON input schema, and call it using the same authenticated CLI
-implementation as a human. It does not require an MCP client.
+implementation as a human. It does not require an MCP client; MCP clients
+reach the same catalog through the `investigate` tool of `revyl mcp serve`
+(flat, `core` and `full` profiles), with actions `search`, `describe`,
+`cookbook` and `call`.
 
 ```bash
 revyl tools search "device logs"
@@ -47,6 +50,19 @@ together, mapping to `--device-model` and `--runtime`. The tool argument is
 
 ```bash
 revyl tools call atlas.graph '{"app":"<APP_UUID>","device_model":"Pixel 7","runtime":"Android 14"}' --read-only
+```
+
+They also accept the map's other filters: `range` (`recent`, `1d`, `7d`, `30d`
+or `all`), `report_id`, `test_id`, `workflow_execution_id` and, on graph reads,
+`launch` as a list of up to eight `KEY=VALUE` terms, or `KEY` for runs
+launched with that key set. Launch terms reach the child command on stdin, never
+as arguments. `atlas.filters` lists the available keys and values with run
+counts; secret launch keys never list values and filter only by whether they
+were set.
+`atlas.graph` accepts `flows` and `atlas.screen` accepts `details`.
+
+```bash
+echo '{"app":"<APP_UUID>","launch":["REGION=EU"],"range":"7d"}' | revyl tools call atlas.graph - --read-only
 ```
 
 ## Consequential operations
@@ -276,6 +292,23 @@ and is null if unavailable; a full page then conservatively indicates more rows.
 
 ## Cookbook: compare build evidence
 
+For any two filter scopes, or for screens seen under only one value of a
+filter, use `atlas.diff`. It returns bounded only-in-A, only-in-B and shared
+lists with totals instead of both full graphs:
+
+```bash
+revyl tools call atlas.diff '{"app":"<APP_UUID>","a":["build=<BASE_UUID>"],"b":["build=<HEAD_UUID>"]}'
+revyl tools call atlas.diff '{"app":"<APP_UUID>","partition_by":"device_model"}'
+```
+
+`atlas.brief` returns the common build, branch, device and OS values inline,
+so they can be passed straight to `atlas.diff`. `atlas.graph` adds them only
+with `with_filters: true`; pass it only when no filter values are known yet.
+A `tools search` that matches at most 6 tools includes each one's
+`input_schema`, so a narrow search can replace a separate `describe`.
+
+`atlas.compare_builds` keeps both full build graphs:
+
 ```bash
 revyl tools call atlas.compare_builds '{"app":"<APP_UUID>","base_build":"<BASE_UUID>","head_build":"<HEAD_UUID>","limit":100}'
 ```
@@ -321,8 +354,8 @@ Pass only the `view` object to `revyl tools hydrate -`. Hydration executes the
 same read under current authorization and returns a refreshed envelope. Store
 the recipe rather than signed media URLs. Views refresh current evidence;
 they are not immutable result snapshots. Use exact build UUIDs and absolute
-`from`/`to` times when applicable; moving build aliases and relative calendar
-windows are rejected. Numeric network `since`/`until` offsets remain valid
+`from`/`to` times when applicable; moving build aliases, relative calendar
+windows (`since`, and `range` other than `all`) and launch filters are rejected. Numeric network `since`/`until` offsets remain valid
 because they refer to seconds within an exact execution.
 
 Renderer names are fixed by the catalog. They describe a native UI binding,
@@ -341,6 +374,6 @@ timed-out mutation can have completed remotely: read back before retrying.
 
 The catalog exposes existing reads and bounded compositions. It does not add
 organization-wide diagnostic indexing, screen-time performance attribution,
-arbitrary locale/launch-argument cohorts, Figma discovery or OAuth, persistent
+arbitrary locale cohorts, launch-argument cohorts outside Atlas launch filters, Figma discovery or OAuth, persistent
 chat history, or shared saved views. A query that needs one of those facilities
 must report the missing capability instead of simulating an answer.

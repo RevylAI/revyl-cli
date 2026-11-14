@@ -109,6 +109,15 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 				parameter.Enum = []string{"both", "in", "out"}
 			case "surface-scope":
 				parameter.Enum = []string{"all", "app", "app+system", "app+external"}
+			case "range":
+				parameter.Enum = []string{"recent", "1d", "7d", "30d", "all"}
+			case "group":
+				parameter.Enum = []string{"time", "device", "launch", "runs"}
+			case "launch", "a-launch", "b-launch":
+				parameter.Items.MaxLength = 4400
+				parameter.MaxItems = 8
+			case "partition-values":
+				parameter.MaxItems = 8
 			}
 			if name == "step-id" || name == "action-id" || name == "session-id" || name == "app" || name == "branch-id" || name == "observation" || name == "report-id" || name == "test-id" || name == "client-request-id" || name == "base-build" || name == "head-build" {
 				parameter.Format = "uuid"
@@ -137,6 +146,9 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 				}
 				if name == "explorers" {
 					minimum, maximum = 1, 100
+				}
+				if name == "expiration-hours" {
+					minimum, maximum = 1, 876000
 				}
 				parameter.Minimum, parameter.Maximum = &minimum, &maximum
 			}
@@ -224,7 +236,15 @@ func (d Definition) Arguments(input map[string]any) ([]string, error) {
 		}
 	}
 	sort.Strings(keys)
+	launchStdin := false
 	for _, key := range keys {
+		if _, ok := launchStdinPrefixes[key]; ok {
+			if !launchStdin {
+				args = append(args, "--launch-stdin")
+				launchStdin = true
+			}
+			continue
+		}
 		value := values[key]
 		var encoded string
 		switch v := value.(type) {
@@ -260,6 +280,26 @@ func (d Definition) Arguments(input map[string]any) ([]string, error) {
 		args = append(args, values[key].(string))
 	}
 	return args, nil
+}
+
+var launchStdinPrefixes = map[string]string{"launch": "", "a_launch": "a:", "b_launch": "b:"}
+
+// LaunchStdin renders launch-variable terms as the --launch-stdin lines that
+// Arguments selects, so their values never reach argv.
+func LaunchStdin(input map[string]any) (string, bool) {
+	lines := []string{}
+	for _, key := range []string{"launch", "a_launch", "b_launch"} {
+		terms, ok := input[key].([]any)
+		if !ok {
+			continue
+		}
+		for _, term := range terms {
+			if text, ok := term.(string); ok {
+				lines = append(lines, launchStdinPrefixes[key]+text)
+			}
+		}
+	}
+	return strings.Join(lines, "\n"), len(lines) > 0
 }
 
 func validate(parameter Parameter, value any) error {
@@ -319,8 +359,11 @@ func validate(parameter Parameter, value any) error {
 		}
 	case "array":
 		items, ok := value.([]any)
-		if !ok || len(items) > parameter.MaxItems || len(items) < parameter.MinItems {
-			return fmt.Errorf("expected bounded array")
+		if !ok {
+			return fmt.Errorf("expected array")
+		}
+		if len(items) > parameter.MaxItems || len(items) < parameter.MinItems {
+			return fmt.Errorf("expected %d to %d items", parameter.MinItems, parameter.MaxItems)
 		}
 		for _, item := range items {
 			if err := validate(*parameter.Items, item); err != nil {

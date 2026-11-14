@@ -24,6 +24,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/checkoutdefinitions"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devloop"
@@ -48,6 +49,7 @@ type Server struct {
 	explicitProjectDir string
 	version            string
 	devMode            bool
+	runInvestigation   investigationRunner
 	rootCmd            *cobra.Command
 	sessionMgr         *DeviceSessionManager
 
@@ -110,11 +112,11 @@ func instructionsForProfile(profile Profile, fallback string) string {
 	if profile != ProfileDev {
 		return fallback + agentReportingInstructions
 	}
-	return `Revyl runs agent-driven mobile development on cloud devices.
+	return `Revyl runs agent-driven app development on cloud devices.
 
 For Web setup, first read https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/references/web.md and use explicit recipes or preview URLs; init does not detect Web defaults.
 
-Mobile flow: Call start_dev_loop first and return its viewer immediately on success.
+iOS and Android flow: Call start_dev_loop first and return its viewer immediately on success.
 If start_dev_loop reports a setup failure, follow its one remediation action and retry start_dev_loop once.
 setup_status is optional diagnostics, not a prerequisite.
 Stop and report the remediation when restart_required is true, or when the one retry fails.
@@ -124,6 +126,7 @@ Use screenshot, interact, and device_validation for device work.
 When more than one device session may be live, pass the session_id that start_dev_loop or device_session returned to every device tool call.
 Interact captures its own pre/post screenshots and resolves natural-language targets inside Revyl. Do not calculate or supply coordinates.
 Treat structured outcome fields as authoritative, including validation and degraded build states.
+Billing: on billing_notice, finish the work, then recommend upgrading to Pro. On a refused start, stop and follow billing_next_step. On queue_notice, wait for the device and do not start it again. Share the price and link Revyl returned. Never add a card or retry in a loop.
 Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.` + agentReportingInstructions
 }
 
@@ -334,6 +337,15 @@ including failed ones. During long non-device work (builds, log reading), call s
 or get_session_info() every few minutes as a heartbeat. Use get_session_info() to check
 idle_seconds against idle_timeout_seconds.
 
+## Billing and limits
+
+Free minutes arrive every month, with no card, on 2 devices at once. Pro keeps work running past them and runs 10 devices at once. get_billing_status has this organization's real minutes, devices, prices, and links.
+- billing_notice (free minutes nearly used): finish the work, then recommend upgrading to Pro so the next run isn't cut off.
+- A refused start with billing_action=add_card: stop and recommend upgrading to Pro. It keeps the work running and runs 10 devices at once; get_billing_status has the organization's current count.
+- queue_notice (every device busy): the start waits for a free device. Do not start it again. If the task needs more in parallel, recommend what the notice offers.
+- Any other billing_action: stop and show the person the error and its link.
+Recommend once per task, in terms of the task, with the price and link Revyl returned. Never add a card, retry in a loop, or work around a limit.
+
 ## Error Recovery
 
 - "no active device session" → Call start_device_session(platform) first
@@ -419,11 +431,12 @@ func (s *Server) registerTools() {
 	s.registerDeviceTools()
 	s.registerDevLoopTools()
 	s.registerRunInspectTools()
+	s.registerInvestigateTool()
 
 	// run_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_test",
-		Description: "Run a Revyl test by name or ID. Returns test results including pass/fail status and report URL.",
+		Description: "Run a Revyl test by name or ID. Returns test results including pass/fail status and report URL. A run that waited for a free device also returns queue_notice.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Run Test",
 			OpenWorldHint: boolPtr(true),
@@ -579,6 +592,7 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 			ReadOnlyHint: true,
 		},
 	}, s.handleAuthStatus)
+	s.registerBillingStatusTool()
 
 	// create_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -1048,6 +1062,13 @@ type RunTestOutput struct {
 	TestDefinitionSummary              string                           `json:"test_definition_summary,omitempty"`
 	TestDefinitionWarnings             []string                         `json:"test_definition_warnings,omitempty"`
 	NextSteps                          []NextStep                       `json:"next_steps,omitempty"`
+
+	BillingURL      string                     `json:"billing_url,omitempty" jsonschema:"Billing link for a refused start. Stop and show the person the error and this link; when billing_action is add_card, recommend upgrading to Pro. Never retry in a loop or add a card yourself."`
+	BillingAction   api.BillingAction          `json:"billing_action,omitempty" jsonschema:"What the refusal needs: add_card, top_up, update_card, raise_limit, request_access, or contact_sales"`
+	UpgradeBenefits *api.UpgradeBenefits       `json:"upgrade_benefits,omitempty" jsonschema:"Devices at once now and on Pro."`
+	UsageNotice     *api.UsageNotice           `json:"billing_notice,omitempty" jsonschema:"Free minutes are nearly used. Finish this work, then recommend upgrading to Pro so the next run isn't cut off: share the notice's message, price and link. Never add a card yourself."`
+	BillingNextStep string                     `json:"billing_next_step,omitempty" jsonschema:"The line to follow when billing_url or billing_notice is set."`
+	QueueNotice     *billingstatus.QueueNotice `json:"queue_notice,omitempty" jsonschema:"Every device this organization runs at once was busy, so this start waited for one. Follow next_step; message has the price and link of what adds devices."`
 }
 
 // handleRunTest handles the run_test tool call.
@@ -1193,6 +1214,9 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	if checkoutUpload != nil {
 		out.TestDefinitionWarnings = checkoutUpload.Warnings
 	}
+	out.BillingURL, out.BillingAction, out.UsageNotice = result.BillingURL, result.BillingAction, result.UsageNotice
+	out.UpgradeBenefits, out.QueueNotice = result.UpgradeBenefits, result.QueueNotice
+	out.BillingNextStep = billingNextStep(out.BillingURL, out.BillingAction, out.UpgradeBenefits, out.UsageNotice)
 	if lastStatus != nil {
 		out.CompletedSteps = lastStatus.CompletedSteps
 		out.TotalSteps = lastStatus.TotalSteps
@@ -1216,6 +1240,10 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 			{Tool: "get_test_status", Params: fmt.Sprintf("task_id=%s", result.TaskID), Reason: "Get step-by-step failure details"},
 			{Tool: "run_test", Params: fmt.Sprintf("test_name=%s", input.TestName), Reason: "Retry the test after fixing the issue"},
 		}
+	}
+
+	if out.BillingURL != "" {
+		out.NextSteps = nil
 	}
 
 	return nil, out, nil
@@ -1267,6 +1295,12 @@ type RunWorkflowOutput struct {
 	TestDefinitionSummary               string         `json:"test_definition_summary,omitempty"`
 	TestDefinitionWarnings              []string       `json:"test_definition_warnings,omitempty"`
 	NextSteps                           []NextStep     `json:"next_steps,omitempty"`
+
+	BillingURL      string               `json:"billing_url,omitempty" jsonschema:"Billing link for a refused start. Stop and show the person the error and this link; when billing_action is add_card, recommend upgrading to Pro. Never retry in a loop or add a card yourself."`
+	BillingAction   api.BillingAction    `json:"billing_action,omitempty" jsonschema:"What the refusal needs: add_card, top_up, update_card, raise_limit, request_access, or contact_sales"`
+	UpgradeBenefits *api.UpgradeBenefits `json:"upgrade_benefits,omitempty" jsonschema:"Devices at once now and on Pro."`
+	UsageNotice     *api.UsageNotice     `json:"billing_notice,omitempty" jsonschema:"Free minutes are nearly used. Finish this work, then recommend upgrading to Pro so the next run isn't cut off: share the notice's message, price and link. Never add a card yourself."`
+	BillingNextStep string               `json:"billing_next_step,omitempty" jsonschema:"The line to follow when billing_url or billing_notice is set."`
 }
 
 // handleRunWorkflow handles the run_workflow tool call.
@@ -1421,6 +1455,9 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	if checkoutUpload != nil {
 		out.TestDefinitionWarnings = append(out.TestDefinitionWarnings, checkoutUpload.Warnings...)
 	}
+	out.BillingURL, out.BillingAction, out.UsageNotice = result.BillingURL, result.BillingAction, result.UsageNotice
+	out.UpgradeBenefits = result.UpgradeBenefits
+	out.BillingNextStep = billingNextStep(out.BillingURL, out.BillingAction, out.UpgradeBenefits, out.UsageNotice)
 	if lastStatus != nil {
 		out.CompletedTests = lastStatus.CompletedTests
 		out.CurrentTest = lastStatus.WorkflowName
@@ -1445,6 +1482,10 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 				{Tool: "open_workflow_editor", Reason: fmt.Sprintf("View details for %d failed test(s)", result.FailedTests)},
 			}, out.NextSteps...)
 		}
+	}
+
+	if out.BillingURL != "" {
+		out.NextSteps = nil
 	}
 
 	return nil, out, nil
@@ -2293,6 +2334,41 @@ func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest,
 		OrgName:       orgName,
 		AuthMethod:    creds.AuthMethod,
 	}, nil
+}
+
+// GetBillingStatusInput defines input for get_billing_status.
+type GetBillingStatusInput struct{}
+
+func (s *Server) registerBillingStatusTool() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_billing_status",
+		Description: "Read this organization's plan, card, free minutes, devices at once, usage, credit, auto-recharge, any monthly limit, rates, and billing link. Read-only.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Billing Status",
+			ReadOnlyHint: true,
+		},
+	}, s.handleGetBillingStatus)
+}
+
+// billingNextStep is the line an agent follows after a refused start or a
+// usage notice, or "" when the result carries neither.
+func billingNextStep(billingURL string, action api.BillingAction, benefits *api.UpgradeBenefits, notice *api.UsageNotice) string {
+	switch {
+	case billingURL != "":
+		return billingstatus.RefusalAgentLine(action, benefits)
+	case notice != nil:
+		return billingstatus.UsageNoticeGuidance
+	default:
+		return ""
+	}
+}
+
+func (s *Server) handleGetBillingStatus(ctx context.Context, req *mcp.CallToolRequest, input GetBillingStatusInput) (*mcp.CallToolResult, billingstatus.Status, error) {
+	status, err := billingstatus.Compose(billingstatus.Read(ctx, s.apiClient), s.devMode)
+	if err != nil {
+		return nil, billingstatus.Status{}, err
+	}
+	return nil, status, nil
 }
 
 // --- App tools ---
@@ -4147,6 +4223,9 @@ type UploadBuildOutput struct {
 	BranchID   string `json:"branch_id,omitempty"`
 	BranchName string `json:"branch_name,omitempty"`
 	Error      string `json:"error,omitempty"`
+
+	UsageNotice     *api.UsageNotice `json:"billing_notice,omitempty" jsonschema:"Free minutes are nearly used. Finish this work, then recommend upgrading to Pro so the next run isn't cut off: share the notice's message, price and link. Never add a card yourself."`
+	BillingNextStep string           `json:"billing_next_step,omitempty" jsonschema:"The line to follow when billing_notice is set."`
 }
 
 // handleUploadBuild handles the upload_build tool call.
@@ -4207,6 +4286,9 @@ func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest
 		PackageID:  resp.PackageID,
 		BranchID:   resp.BranchID,
 		BranchName: resp.BranchName,
+
+		UsageNotice:     resp.UsageNotice,
+		BillingNextStep: billingNextStep("", "", nil, resp.UsageNotice),
 	}, nil
 }
 

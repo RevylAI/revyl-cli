@@ -157,7 +157,11 @@ func PrintError(format string, args ...interface{}) {
 func PrintWarning(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	observeOutput("warning", msg)
-	fmt.Fprintln(stderrW, WarningStyle.Render("⚠ "+msg))
+	lines := strings.Split("⚠ "+msg, "\n")
+	for i, line := range lines {
+		lines[i] = WarningStyle.Render(line)
+	}
+	fmt.Fprintln(stderrW, strings.Join(lines, "\n"))
 }
 
 // PrintInfo prints an informational message.

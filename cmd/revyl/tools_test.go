@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/toolcatalog"
+	"github.com/spf13/cobra"
 )
 
 func TestInvestigationCatalogMatchesExecutableCommands(t *testing.T) {
@@ -27,6 +30,9 @@ func TestInvestigationCatalogMatchesExecutableCommands(t *testing.T) {
 				value := "sample"
 				if tool.InputSchema.Properties[key].Format == "uuid" {
 					value = "00000000-0000-4000-8000-000000000001"
+				}
+				if enum := tool.InputSchema.Properties[key].Enum; len(enum) > 0 {
+					value = enum[0]
 				}
 				input[key] = value
 			}
@@ -390,5 +396,209 @@ func TestReportRecoveryTargetsExecutableBoundedRead(t *testing.T) {
 				t.Fatal("tail silently narrows a forward page")
 			}
 		}
+	}
+}
+
+func TestAtlasCatalogLaunchFiltersStayOutOfArgvAndViews(t *testing.T) {
+	for _, name := range []string{"atlas.brief", "atlas.graph", "atlas.search", "atlas.area", "atlas.screen", "atlas.neighbors", "atlas.edge", "atlas.diff"} {
+		t.Run(name, func(t *testing.T) {
+			tool, err := findInvestigationTool(rootCmd, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := map[string]any{"launch": []any{"API_TOKEN=s3cr3t", "REGION=EU"}, "range": "7d"}
+			for _, key := range tool.InputSchema.Required {
+				input[key] = "00000000-0000-4000-8000-000000000001"
+			}
+			args, err := tool.Arguments(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			joined := strings.Join(args, " ")
+			if strings.Contains(joined, "s3cr3t") || !strings.Contains(joined, "--launch-stdin") || !strings.Contains(joined, "--range=7d") {
+				t.Fatalf("launch or range argv = %v", args)
+			}
+			input["launch"] = []any{"A=1", "B=1", "C=1", "D=1", "E=1", "F=1", "G=1", "H=1", "I=1"}
+			if _, err := tool.Arguments(input); err == nil {
+				t.Fatal("accepted more launch filters than the map allows")
+			}
+		})
+	}
+	graph, err := findInvestigationTool(rootCmd, "atlas.graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []map[string]any{
+		{"app": "00000000-0000-4000-8000-000000000001", "launch": []any{"REGION=EU"}},
+		{"app": "00000000-0000-4000-8000-000000000001", "range": "recent"},
+	} {
+		if _, err := graph.View(input); err == nil {
+			t.Fatalf("replayable view accepted %v", input)
+		}
+	}
+	if _, err := graph.View(map[string]any{"app": "00000000-0000-4000-8000-000000000001", "range": "all"}); err != nil {
+		t.Fatalf("rejected the stable all range: %v", err)
+	}
+	filters, err := findInvestigationTool(rootCmd, "atlas.filters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filters.ReadOnly || filters.InputSchema.Properties["group"].Enum == nil {
+		t.Fatalf("atlas.filters contract = %+v", filters)
+	}
+}
+
+func TestAtlasDiffSideLaunchTermsTravelOnPrefixedStdin(t *testing.T) {
+	tool, err := findInvestigationTool(rootCmd, "atlas.diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"app": "00000000-0000-4000-8000-000000000001", "launch": []any{"REGION=EU"}, "a_launch": []any{"API_TOKEN=s3cr3t"}, "b_launch": []any{"API_TOKEN=other"}, "a": []any{"device_model=iPhone 15, Pro"}}
+
+	args, err := tool.Arguments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, ok := toolcatalog.LaunchStdin(input)
+
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "s3cr3t") || strings.Count(joined, "--launch-stdin") != 1 || !ok || stdin != "REGION=EU\na:API_TOKEN=s3cr3t\nb:API_TOKEN=other" {
+		t.Fatalf("argv = %v, stdin = %q", args, stdin)
+	}
+	cmd, _, err := rootCmd.Find(args)
+	if err != nil || cmd.Name() != "diff" {
+		t.Fatalf("diff command = %v, %v", cmd, err)
+	}
+	if err := cmd.ParseFlags(args[2:]); err != nil {
+		t.Fatal(err)
+	}
+	sides, _ := cmd.Flags().GetStringSlice("a")
+	if len(sides) != 1 || sides[0] != "device_model=iPhone 15, Pro" {
+		t.Fatalf("scope a terms = %q", sides)
+	}
+}
+
+func TestAtlasBriefCarriesInlineFiltersByDefaultAndGraphOnRequest(t *testing.T) {
+	for name, want := range map[string]bool{"atlas.brief": true, "atlas.graph": false} {
+		tool, err := findInvestigationTool(rootCmd, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args, err := tool.Arguments(map[string]any{"app": "00000000-0000-4000-8000-000000000001"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.Join(args, " "), "--with-filters=true") != want {
+			t.Fatalf("%s argv = %v", name, args)
+		}
+	}
+	graph, err := findInvestigationTool(rootCmd, "atlas.graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := graph.Arguments(map[string]any{"app": "00000000-0000-4000-8000-000000000001", "with_filters": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(args, " "), "--with-filters=true") {
+		t.Fatalf("atlas.graph opt-in argv = %v", args)
+	}
+}
+
+func TestToolSearchIncludesSchemasOnlyForNarrowMatches(t *testing.T) {
+	catalog, err := toolcatalog.Build(rootCmd, investigationToolSpecs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	narrow := searchInvestigationTools(catalog, "atlas diff")
+	if len(narrow) == 0 || len(narrow) > toolSearchSchemaLimit {
+		t.Fatalf("narrow search matched %d tools", len(narrow))
+	}
+	for _, match := range narrow {
+		if match.InputSchema == nil || len(match.InputSchema.Properties) == 0 {
+			t.Fatalf("%s lacks its input schema", match.Name)
+		}
+	}
+	broad := searchInvestigationTools(catalog, "atlas")
+	if len(broad) <= toolSearchSchemaLimit {
+		t.Fatalf("broad search matched %d tools", len(broad))
+	}
+	for _, match := range broad {
+		if match.InputSchema != nil {
+			t.Fatalf("broad search inlined %s's schema", match.Name)
+		}
+	}
+}
+
+func TestToolCallInvalidArgumentsNameTheParameterAndLimit(t *testing.T) {
+	tool, err := findInvestigationTool(rootCmd, "atlas.graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := "00000000-0000-4000-8000-000000000001"
+	terms := []any{}
+	for index := 0; index < 9; index++ {
+		terms = append(terms, fmt.Sprintf("KEY_%d", index))
+	}
+	for _, scenario := range []struct {
+		input map[string]any
+		want  string
+	}{
+		{map[string]any{"app": app, "launch": terms}, "parameter launch: expected 0 to 8 items"},
+		{map[string]any{"app": app, "bogus": true}, `unknown parameter "bogus"`},
+		{map[string]any{}, "required parameter app is missing"},
+	} {
+		err := executeInvestigationTool(&cobra.Command{}, tool, scenario.input, nil)
+		var failure *investigationError
+		if !errors.As(err, &failure) || failure.Code != "invalid_arguments" || !strings.Contains(failure.Message, scenario.want) {
+			t.Errorf("input %v: got %v, want a message naming %q", scenario.input, err, scenario.want)
+		}
+	}
+}
+
+func TestToolCallPassesThroughOnlyTheAtlasInputRefusal(t *testing.T) {
+	for stderr, want := range map[string]string{
+		"Error: at most 8 launch filters are allowed\n": "at most 8 launch filters are allowed",
+		"Error: Launch filter term 2 names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone\n":                  "Launch filter term 2 names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone",
+		"Error: atlas screen --details does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph\n": "atlas screen --details does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph",
+	} {
+		code, message := classifyInvestigationFailure(stderr + "TOKEN=private-value https://private.example.com")
+		if code != "invalid_arguments" || message != want {
+			t.Errorf("stderr %q: got %s %q", stderr, code, message)
+		}
+	}
+	code, message := classifyInvestigationFailure("Error: private payload from https://private.example.com")
+	if code != "command_failed" || strings.Contains(message, "private") {
+		t.Errorf("provider output escaped: %s %q", code, message)
+	}
+}
+
+func TestAtlasGraphOverBudgetPointsToNarrowerReads(t *testing.T) {
+	tool, err := findInvestigationTool(rootCmd, "atlas.graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	failure := toolFailure(tool, map[string]any{"app": "00000000-0000-4000-8000-000000000001"}, "result_too_large", "")
+
+	for _, want := range []string{"atlas.brief", "atlas.area", "limit caps screens but not their relationships"} {
+		if !strings.Contains(failure.Message, want) {
+			t.Errorf("message %q does not mention %q", failure.Message, want)
+		}
+	}
+}
+
+func TestAtlasLaunchHelpSaysEveryORedValueCountsTowardTheCap(t *testing.T) {
+	tool, err := findInvestigationTool(rootCmd, "atlas.graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(schema), "up to 8 terms in total, where each ORed value is one term") {
+		t.Errorf("launch parameter does not explain the cap: %s", schema)
 	}
 }

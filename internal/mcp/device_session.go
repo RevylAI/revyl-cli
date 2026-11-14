@@ -34,6 +34,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/beforesession"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/launcharguments"
@@ -161,6 +162,10 @@ type DeviceSession struct {
 	// SyncSessions could not attach yet, such as "queued" or "starting".
 	// Attached sessions leave it empty; it is never persisted.
 	BackendStatus string `json:"-"`
+
+	// UsageNotice is the usage notice the backend attached to this start;
+	// it is never persisted.
+	UsageNotice *api.UsageNotice `json:"-"`
 }
 
 // persistedState is the on-disk format for device-sessions.json.
@@ -447,6 +452,11 @@ type StartSessionOptions struct {
 	// OnStartAccepted, when set, is called once the backend has accepted the
 	// start and named its session, before StartSession waits for the device.
 	OnStartAccepted func(sessionID string)
+
+	// OnQueued, when set, is called after OnStartAccepted when every device
+	// the organization may run at once is busy, before StartSession waits for
+	// one.
+	OnQueued func(notice *billingstatus.QueueNotice)
 }
 
 // ValidateComputerSessionStart rejects start options that a session inside the
@@ -693,6 +703,13 @@ func (m *DeviceSessionManager) StartSession(
 		if resp.Error != nil {
 			errMsg = *resp.Error
 		}
+		if resp.BillingURL != "" {
+			action := resp.BillingAction
+			if action == "" {
+				action = api.BillingActionAddCard
+			}
+			return -1, nil, fmt.Errorf("failed to start device: %w", &api.BillingRefusal{Message: errMsg, BillingURL: resp.BillingURL, BillingAction: action, UpgradeBenefits: resp.UpgradeBenefits})
+		}
 		return -1, nil, fmt.Errorf("failed to start device: %s", errMsg)
 	}
 
@@ -711,13 +728,16 @@ func (m *DeviceSessionManager) StartSession(
 	if opts.OnStartAccepted != nil {
 		opts.OnStartAccepted(sessionID)
 	}
+	if queued := billingstatus.QueuedStart(resp.QueueNotice); queued != nil && opts.OnQueued != nil {
+		opts.OnQueued(queued)
+	}
 	autoGitBranchEnabled := resolvedArtifact.AutoGitBranchEnabled
 	if autoGitBranchEnabled == nil {
 		autoGitBranchEnabled = resp.AutoGitBranchEnabled
 	}
 	if platform == "web" {
 		now := time.Now()
-		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName, BranchSource: resolvedArtifact.BranchSource, GitBranchName: resolvedArtifact.GitBranchName, AutoGitBranchEnabled: autoGitBranchEnabled, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
+		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName, BranchSource: resolvedArtifact.BranchSource, GitBranchName: resolvedArtifact.GitBranchName, AutoGitBranchEnabled: autoGitBranchEnabled, UsageNotice: resp.UsageNotice, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
 		frame, screenToken, err := m.waitForRuntimeReadyLocked(ctx, session, deviceWorkerReadyTimeout, opts.OnPhase)
 		if err != nil {
 			return -1, nil, m.requestRuntimeStartCleanup(sessionID, err)
@@ -784,6 +804,7 @@ func (m *DeviceSessionManager) StartSession(
 	session := &DeviceSession{
 		BranchSource: branchSource, GitBranchName: gitBranchName,
 		AutoGitBranchEnabled: autoGitBranchEnabled,
+		UsageNotice:          resp.UsageNotice,
 		BuildID:              resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName,
 		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,

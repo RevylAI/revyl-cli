@@ -19,6 +19,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
@@ -172,7 +173,9 @@ func computerSessionIDForStart(cmd *cobra.Command) string {
 // computer it runs inside, or null for a standalone device.
 type deviceStartOutput struct {
 	*mcppkg.DeviceSession
-	ComputerSessionID *string `json:"computer_session_id"`
+	ComputerSessionID *string                    `json:"computer_session_id"`
+	UsageNotice       *api.UsageNotice           `json:"billing_notice,omitempty"`
+	QueueNotice       *billingstatus.QueueNotice `json:"queue_notice,omitempty"`
 }
 
 func deviceStartOpensBrowser(cmd *cobra.Command, computerSessionID string) bool {
@@ -1154,8 +1157,16 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 		}
 
 		var session *mcppkg.DeviceSession
+		var queueNotice *billingstatus.QueueNotice
 		if jsonOutput {
+			startOpts.OnQueued = func(notice *billingstatus.QueueNotice) {
+				queueNotice = notice
+				printQueueNotice(notice)
+			}
 			_, session, err = mgr.StartSession(ctx, startOpts)
+			if err == nil {
+				printBillingNotice(session.UsageNotice)
+			}
 		} else {
 			_, session, err = startDevSessionWithProgress(
 				ctx,
@@ -1184,7 +1195,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 		}
 
 		if jsonOutput {
-			output := deviceStartOutput{DeviceSession: session}
+			output := deviceStartOutput{DeviceSession: session, UsageNotice: session.UsageNotice, QueueNotice: queueNotice}
 			if computerSessionID != "" {
 				output.ComputerSessionID = &computerSessionID
 			}

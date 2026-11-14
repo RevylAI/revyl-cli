@@ -55,6 +55,12 @@ func (d Definition) View(input map[string]any) (View, error) {
 	if _, relative := arguments["since"].(string); relative && strings.HasPrefix(d.Name, "atlas.") {
 		return View{}, fmt.Errorf("replayable views require absolute from/to timestamps instead of since")
 	}
+	if timeRange, ok := arguments["range"].(string); ok && timeRange != "all" {
+		return View{}, fmt.Errorf("replayable views require absolute from/to timestamps instead of range")
+	}
+	if _, launch := arguments["launch"]; launch {
+		return View{}, fmt.Errorf("replayable views cannot carry launch filters")
+	}
 	if build, ok := arguments["build"].(string); ok && build != "all" {
 		if err := validate(Parameter{Type: "string", Format: "uuid", MaxLength: 36}, build); err != nil {
 			return View{}, fmt.Errorf("replayable views require an exact build UUID or all")

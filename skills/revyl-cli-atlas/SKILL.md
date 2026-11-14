@@ -12,6 +12,9 @@ enough evidence to support an answer.
 When the user explicitly asks to create, reply to, edit, delete, move, or
 change the status of Atlas feedback, route to `revyl-cli-atlas-review`. Keep
 this inspection skill read-only when feedback mutation was not requested.
+Merging, splitting, hiding, and pinning screens happen in the Atlas web UI, not
+the CLI. Never create, refresh, or revoke a share link unless the user asks for
+that exact action.
 
 Atlas is a graph, not a tree. Screens are nodes and observed relationships are
 edges. Starting anchors help begin exploration, but they do not imply a parent,
@@ -145,6 +148,34 @@ Apply these rules throughout the task:
    it into a recursive tree or choose one incoming edge as the real parent.
    Check top-level `truncated` or `has_more` before claiming the traversal covers
    the complete app graph.
+
+   When the question names a launch variable, device, OS, report, test or time
+   window, list the map's filter options and pass the matching values to every
+   graph read:
+
+   ```bash
+   revyl atlas filters --app <app-id> --json
+   revyl atlas filters --app <app-id> --group launch --key <KEY> --json
+   revyl atlas graph --app <app-id> --launch <KEY>=<VALUE> --os "<runtime>" --range 7d --json
+   ```
+
+   Read `projection.launch_filter` to report how many runs matched. A secret
+   key filters only by whether it was set: pass `--launch <KEY>` with no value.
+   Follow-up commands
+   don't carry launch filters, so add them again. `atlas brief --with-filters`
+   (or `graph --with-filters`) returns the most common build, branch, device and
+   OS values with the read, so you can skip the separate `filters` call for
+   them. Tests, reports and workflow executions still come from
+   `filters --group runs`.
+
+   To compare two scopes, or to find screens seen under only one device, OS,
+   build or launch value, diff them in one call instead of checking screens one
+   by one:
+
+   ```bash
+   revyl atlas diff --app <app-id> --a build=<base-build-id> --b build=<head-build-id> --json
+   revyl atlas diff --app <app-id> --partition-by device_model --json
+   ```
 
 5. Pick the most relevant anchor or search result, inspect it, then traverse:
 

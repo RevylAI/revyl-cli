@@ -421,6 +421,31 @@ func TestBuildAtlasScreenIncludesRelationshipCounts(t *testing.T) {
 	}
 }
 
+func TestBuildAtlasKnowledgeGraphBoundsFlowsToTheLargest(t *testing.T) {
+	previous := atlasLimit
+	atlasLimit = 2
+	t.Cleanup(func() { atlasLimit = previous })
+	graph := atlasContractFixture()
+	graph["flows"] = []interface{}{
+		map[string]interface{}{"id": "small", "support": 2, "node_ids": []interface{}{"a", "b"}, "edge_pairs": []interface{}{}},
+		map[string]interface{}{"id": "large", "support": 9, "route_node_ids": []interface{}{"a"}},
+		map[string]interface{}{"id": "medium", "support": 5},
+	}
+
+	result := buildAtlasKnowledgeGraph(&api.App{ID: "app-1"}, graph)
+
+	flows := atlasMaps(result["flows"])
+	if len(flows) != 2 || atlasString(flows[0], "id") != "large" || atlasString(flows[1], "id") != "medium" {
+		t.Fatalf("flows = %#v", result["flows"])
+	}
+	if atlasInt(result["flow_count"]) != 3 || !atlasBool(result["flows_truncated"]) {
+		t.Fatalf("flow totals = %v, %v", result["flow_count"], result["flows_truncated"])
+	}
+	if _, exists := flows[0]["route_node_ids"]; exists {
+		t.Fatalf("flow kept duplicated route ids: %#v", flows[0])
+	}
+}
+
 func TestBuildAtlasEdgeIncludesTransitionCount(t *testing.T) {
 	graph := atlasContractFixture()
 	source, err := resolveAtlasNode(graph, "home_dashboard")
@@ -639,5 +664,80 @@ func TestAtlasAreaMatchesProductAreaNotScreenName(t *testing.T) {
 	edges := atlasMaps(result["edges"])
 	if len(edges) != 1 || atlasString(edges[0], "scope") != "outbound_boundary" || atlasInt(result["boundary_edges"]) != 1 {
 		t.Fatalf("area did not preserve boundary edge: %#v", result)
+	}
+}
+
+func atlasVariantGraphFixture() api.AtlasResponse {
+	variant := func(id, canonical, kind string, observations float64) map[string]interface{} {
+		return map[string]interface{}{"id": id, "entity_kind": "variant", "parent_entity_id": canonical, "canonical_entity_id": canonical, "variant_kind": kind, "semantic_name": canonical + "_" + kind, "product_area": "Home", "observation_count": observations, "observation_count_exact": true}
+	}
+	return api.AtlasResponse{
+		"app_id":     "app-1",
+		"projection": map[string]interface{}{"data_source": "clickhouse", "include_variants": true, "node_count": float64(5), "truncated": false},
+		"stats":      map[string]interface{}{"nodes": float64(5), "edges": float64(4), "observations": float64(19), "product_areas": map[string]interface{}{"Home": float64(3), "Creation": float64(2)}},
+		"structure": map[string]interface{}{
+			"roots": []interface{}{"home"},
+			"metadata": map[string]interface{}{"diagnostics": map[string]interface{}{
+				"input": map[string]interface{}{"node_count": float64(2), "projected_node_count": float64(2), "edge_count": float64(1)},
+			}},
+		},
+		"nodes": []interface{}{
+			map[string]interface{}{"id": "home", "entity_kind": "canonical_screen", "parent_entity_id": nil, "canonical_entity_id": nil, "variant_kind": nil, "semantic_name": "home_dashboard", "product_area": "Home", "observation_count": float64(8), "observation_count_exact": true},
+			variant("home-loading", "home", "loading", 3),
+			variant("home-empty", "home", "empty", 2),
+			variant("create-error", "create", "error", 4),
+			variant("create-filled", "create", "filled", 2),
+		},
+		"edges": []interface{}{
+			map[string]interface{}{"source_entity_id": "home", "target_entity_id": "create-filled", "action_type": "tap", "observation_count": float64(4)},
+			map[string]interface{}{"source_entity_id": "home", "target_entity_id": "home-loading", "edge_kind": "hierarchy", "observation_count": float64(3)},
+			map[string]interface{}{"source_entity_id": "home", "target_entity_id": "home-empty", "edge_kind": "hierarchy", "observation_count": float64(2)},
+			map[string]interface{}{"source_entity_id": "create-filled", "target_entity_id": "create-error", "action_type": "tap", "observation_count": float64(1)},
+		},
+	}
+}
+
+func TestAtlasVariantReadsReportTheBackendCanonicalScreenCount(t *testing.T) {
+	app := &api.App{ID: "app-1", Name: "Finance", Platform: "iOS"}
+	graphStats := atlasMap(buildAtlasKnowledgeGraph(app, atlasVariantGraphFixture())["stats"])
+	brief := buildAtlasBrief(app, atlasVariantGraphFixture())
+	briefStats := atlasMap(brief["stats"])
+
+	for name, stats := range map[string]map[string]interface{}{"graph": graphStats, "brief": briefStats} {
+		if atlasInt(stats["nodes"]) != 5 || atlasInt(stats["canonical_screens"]) != 2 || atlasInt(stats["variant_nodes"]) != 4 {
+			t.Fatalf("%s stats = %v", name, stats)
+		}
+		if note := atlasString(stats, "count_note"); note != "nodes include state variants; count screens with canonical_screens" {
+			t.Fatalf("%s count note = %q", name, note)
+		}
+	}
+	if summary := atlasString(brief, "summary"); !strings.HasPrefix(summary, "Finance has 2 screens; this read returned 5 nodes including state variants") {
+		t.Fatalf("brief summary = %q", summary)
+	}
+}
+
+func TestAtlasVariantReadWithoutStructureCountDoesNotGuessScreens(t *testing.T) {
+	graph := atlasVariantGraphFixture()
+	delete(graph, "structure")
+	delete(atlasMaps(graph["nodes"])[1], "entity_kind")
+
+	stats := atlasMap(buildAtlasKnowledgeGraph(&api.App{ID: "app-1", Name: "Finance"}, graph)["stats"])
+
+	for _, key := range []string{"canonical_screens", "variant_nodes"} {
+		if _, present := stats[key]; present {
+			t.Fatalf("stats guessed %s: %v", key, stats)
+		}
+	}
+	if note := atlasString(stats, "count_note"); !strings.Contains(note, "include_variants=false") {
+		t.Fatalf("count note = %q", note)
+	}
+}
+
+func TestAtlasCanonicalReadsCarryNoVariantCountNote(t *testing.T) {
+	stats := atlasMap(buildAtlasKnowledgeGraph(&api.App{ID: "app-1", Name: "Finance"}, atlasContractFixture())["stats"])
+	for _, key := range []string{"canonical_screens", "variant_nodes", "count_note"} {
+		if _, present := stats[key]; present {
+			t.Fatalf("canonical stats carry %s: %v", key, stats)
+		}
 	}
 }

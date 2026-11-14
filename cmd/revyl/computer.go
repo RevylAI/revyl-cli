@@ -31,6 +31,9 @@ type computerInvocation struct {
 	OperationID       string `json:"operation_id,omitempty"`
 	Status            string `json:"status,omitempty"`
 	Error             string `json:"error,omitempty"`
+	BillingURL        string `json:"billing_url,omitempty"`
+	BillingAction     string `json:"billing_action,omitempty"`
+	NextStep          string `json:"next_step,omitempty"`
 	waitedForActive   bool
 	createdDisplay    *api.ComputerDisplaySize
 	execOptions       bool
@@ -47,7 +50,7 @@ func newComputerCommand() *cobra.Command {
 		Use: "computer", Short: "Start, use and stop cloud computers",
 		Long: `A computer is a cloud machine you start, run commands on, and stop.
 
-Mac computers are available to organizations on a current paid plan.
+Mac computers are available on request: contact support@revyl.ai. Paid plans, Pro included, have them.
 
   revyl computer create --os macos       start a computer
   revyl computer create --os macos --wait  start one and wait until it is active
@@ -543,6 +546,11 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		}
 		analytics.SetCommandCompletion(cmd.Context(), completion)
 		if jsonOutput && !(isPerformance && performance.Watch) {
+			if errors.As(err, &refusal) && refusal.BillingURL != "" {
+				invocation.BillingURL, invocation.BillingAction = refusal.BillingURL, string(refusal.BillingAction)
+				invocation.NextStep = billingRefusalGuidance(cmd.Context(), refusal.BillingAction, refusal.UpgradeBenefits)
+				refusal.BillingReported = true
+			}
 			if outputErr := writeComputerJSON(cmd.OutOrStdout(), invocation, api.ComputerMaxResponseJSON); outputErr != nil {
 				return outputErr
 			}
