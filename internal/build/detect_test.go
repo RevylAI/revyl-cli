@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -168,8 +169,8 @@ func TestDetectReactNative_BuildsDebugAndReleaseProfiles(t *testing.T) {
 	want := map[string]BuildPlatform{
 		"ios":             {SetupCommands: []string{"yarn install"}, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app"},
 		"ios-preview":     {SetupCommands: []string{"yarn install"}, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app"},
-		"android":         {SetupCommands: []string{"yarn install"}, Command: "cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
-		"android-preview": {SetupCommands: []string{"yarn install"}, Command: "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
+		"android":         {SetupCommands: []string{"yarn install"}, Command: "cd android && " + executableGradleWrapper() + " assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
+		"android-preview": {SetupCommands: []string{"yarn install"}, Command: "cd android && " + executableGradleWrapper() + " assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
 	}
 	if !reflect.DeepEqual(detected.Platforms, want) {
 		t.Fatalf("Platforms =\n%#v\nwant\n%#v", detected.Platforms, want)
@@ -316,10 +317,10 @@ func TestDetectGradle_RunsTheWrapperItHasAndFindsFlavoredAPKs(t *testing.T) {
 		wantCommand string
 		apk         string
 	}{
-		{name: "executable wrapper", wrapperMode: 0o755, wantCommand: "./gradlew assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
+		{name: "executable wrapper", wrapperMode: 0o755, wantCommand: executableGradleWrapper() + " assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
 		{name: "wrapper without its executable bit", wrapperMode: 0o644, wantCommand: "sh ./gradlew assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
 		{name: "no wrapper", wantCommand: "gradle assembleDebug", apk: "app/build/outputs/apk/debug/app-debug.apk"},
-		{name: "product flavors", wrapperMode: 0o755, flavors: true, wantCommand: "./gradlew assembleDebug", apk: "app/build/outputs/apk/staging/debug/app-staging-debug.apk"},
+		{name: "product flavors", wrapperMode: 0o755, flavors: true, wantCommand: executableGradleWrapper() + " assembleDebug", apk: "app/build/outputs/apk/staging/debug/app-staging-debug.apk"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -354,6 +355,16 @@ func TestDetectGradle_RunsTheWrapperItHasAndFindsFlavoredAPKs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// executableGradleWrapper is how Detect runs a wrapper the test made
+// executable. Windows files carry no executable bit, so there Detect always
+// runs the wrapper through sh.
+func executableGradleWrapper() string {
+	if runtime.GOOS == "windows" {
+		return "sh ./gradlew"
+	}
+	return "./gradlew"
 }
 
 func TestXcodeScheme(t *testing.T) {

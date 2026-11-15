@@ -13,3 +13,4 @@ examples/cursor-automation/** text=auto eol=lf
 /cursor-plugin/assets/icon.svg text eol=lf
 /cursor-plugin/skills/revyl-cli-dev-loop/SKILL.md text eol=lf
 /skills/revyl-cli-dev-loop/SKILL.md text eol=lf
+/cmd/sync-codex-plugin/ported-skill-launcher.md text eol=lf

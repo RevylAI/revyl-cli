@@ -145,7 +145,9 @@ func newSessionCheckFixture(t *testing.T) sessionCheckFixture {
 printf '%s|%s|%s\n' "$*" "${REVYL_TELEMETRY_DISABLED:-}" "${REVYL_RUNTIME_NO_DOWNLOAD:-}" >>"$FAKE_LOG"
 if [ -n "${FAKE_RUNTIME:-}" ] && [ ! -f "$FAKE_RUNTIME" ]; then
   [ "$1" = version ] && [ "${REVYL_RUNTIME_NO_DOWNLOAD:-}" != 1 ] && [ -z "${FAKE_INSTALL_FAILS:-}" ] || exit 1
-  sleep "${FAKE_INSTALL_SECONDS:-0}"
+  if [ -n "${FAKE_INSTALL_GATE:-}" ]; then
+    while [ ! -f "$FAKE_INSTALL_GATE" ]; do sleep 0.1; done
+  fi
   : >"$FAKE_RUNTIME"
   exit 0
 fi
@@ -251,10 +253,14 @@ func TestSessionCheckInstallsTheRuntimeAndReportsStateOnTheFirstSession(t *testi
 func TestSessionCheckSaysTheRuntimeIsStillInstallingAndLetsItFinish(t *testing.T) {
 	f := newSessionCheckFixture(t)
 	runtimeMarker := filepath.Join(f.data, "runtime-installed")
-	output := f.run(t, true, "FAKE_RUNTIME="+runtimeMarker, "FAKE_INSTALL_SECONDS=5")
+	installGate := filepath.Join(f.data, "install-may-finish")
+	releaseInstall := func() { writeTestFile(t, installGate, "", 0600) }
+	t.Cleanup(releaseInstall)
+	output := f.run(t, true, "FAKE_RUNTIME="+runtimeMarker, "FAKE_INSTALL_GATE="+installGate)
 	if !strings.Contains(output, "is still installing") || !strings.Contains(output, "The next session reports them") {
 		t.Fatalf("slow install output = %q", output)
 	}
+	releaseInstall()
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		if _, err := os.Stat(runtimeMarker); err == nil {
