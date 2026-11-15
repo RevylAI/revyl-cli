@@ -130,6 +130,9 @@ On macOS, commands run as the `computer` account, not root. Each
 `exec` starts in `/Users/computer/workspace` with `HOME` set to that same
 directory. Relative file-operation paths also start there: `notes.txt` means
 `/Users/computer/workspace/notes.txt`, not `/Users/computer/notes.txt`.
+The workspace's `Library/Keychains` is a link to the account's login keychains,
+so an app started from `exec`, such as Chrome, finds its keychain instead of
+asking for one.
 
 A Terminal opened on the desktop uses the same account but its login home is
 `/Users/computer`. It does not inherit an `exec` process's environment or working
