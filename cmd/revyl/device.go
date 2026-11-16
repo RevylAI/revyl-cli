@@ -893,6 +893,8 @@ with --build-version-id; otherwise use the project's configured app.
 
 Inside a computer, REVYL_COMPUTER_ID supplies --computer. Use --computer=none
 for a standalone device, or unset REVYL_COMPUTER_ID to disable computer defaults.
+A session inside a computer adds no compute charge or device slot and ends
+when the computer stops; a standalone device is billed and counted on its own.
 Explicit --app-id and --build-version-id override the configured app selection.
 
 For iOS sessions inside a computer, --device-model (and optionally --os-version)
@@ -904,7 +906,9 @@ image does not support it.
 Web sessions (--platform web) without --build-version-id or --url open the
 newest Web build on --branch, or on the app's default branch. They don't read
 your Git branch or a branch's pin. Managed Web bundles keep running standalone
-when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
+when REVYL_COMPUTER_ID is set; only URL builds use that default computer.
+--url refuses localhost; inside a computer, start on a public page and run
+revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 	Example: `  revyl device start --platform ios
   revyl device start --platform android --branch staging
   revyl device start --platform ios --all-branches

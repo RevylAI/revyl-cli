@@ -64,7 +64,10 @@ Mac computers are available on request: contact support@revyl.ai. Paid plans, Pr
   revyl computer report ID --format performance
   revyl computer stop ID                 stop it
 
-Add --json to any command for machine-readable output.`,
+Add --json to any command for machine-readable output.
+
+Coding agents on a Mac computer find which phones and browsers it can host,
+and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 		RunE: computerHelp,
 	}
 	command.PersistentFlags().Bool("json", false, "Output JSON; binary fields use URL-safe base64")

@@ -139,7 +139,13 @@ func writeComputerHosting(writer io.Writer, hosting *api.ComputerHostingCapabili
 	}
 	platforms := make([]string, 0, len(hosting.Platforms))
 	for _, platform := range hosting.Platforms {
-		platforms = append(platforms, string(platform))
+		name := string(platform)
+		if hosting.MaxChildrenByPlatform != nil {
+			if limit, ok := (*hosting.MaxChildrenByPlatform)[name]; ok {
+				name = fmt.Sprintf("%s (%d at a time)", name, limit)
+			}
+		}
+		platforms = append(platforms, name)
 	}
 	_, err := fmt.Fprintf(writer, "Platforms: %s\nMax app sessions: %d\n", strings.Join(platforms, ", "), hosting.MaxChildren)
 	return err

@@ -465,7 +465,7 @@ func TestComputerHostingAndSessionsShowWhatRunsInside(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/computer-runs/" + id + "/hosting":
-			fmt.Fprint(w, `{"platforms":["web","ios"],"max_children":2}`)
+			fmt.Fprint(w, `{"platforms":["web","ios"],"max_children":2,"max_children_by_platform":{"web":1,"ios":1}}`)
 		case "/api/v1/computer-runs/" + id + "/sessions":
 			if r.URL.Query().Get("limit") != "2" {
 				t.Errorf("sessions query = %q", r.URL.RawQuery)
@@ -483,7 +483,7 @@ func TestComputerHostingAndSessionsShowWhatRunsInside(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{[]string{"hosting", id}, []string{"Platforms: web, ios", "Max app sessions: 2"}},
+		{[]string{"hosting", id}, []string{"Platforms: web (1 at a time), ios (1 at a time)", "Max app sessions: 2"}},
 		{[]string{"hosting", id, "--json"}, []string{`"platforms":["web","ios"]`}},
 		{[]string{"sessions", id, "--limit", "2"}, []string{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01", "ios", "running", "Demo", "Showing the newest 1 of 3 sessions"}},
 		{[]string{"sessions", id, "--limit", "2", "--json"}, []string{`"total":3`}},

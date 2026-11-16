@@ -350,6 +350,45 @@ Stopping it leaves C1 running; stopping C1 ends it. Its report attributes only
 the actions Revyl's driver took, and commands run in C1 can also change the
 app.
 
+### Coding agents inside a computer
+
+A Mac computer carries a guide for coding agents at
+`/opt/revyl/computer-guide.md`. The image writes it when it is built, from what
+that image can host: the iPhone models and iOS runtime its hosted sessions run,
+the browser, and how many of each run at once. `xcrun simctl list` in the
+computer also shows simulators that hosted sessions can't use. The guide also
+covers starting a phone or browser, installing a simulator build made on the
+computer, opening a local dev server, and cost. The same text is copied to
+where each agent reads instructions:
+
+- Claude Code: `/Library/Application Support/ClaudeCode/CLAUDE.md`
+- Codex: `~/.codex/AGENTS.md`
+- Devin: `~/.config/devin/AGENTS.md`
+- Cursor, and other agents that read `AGENTS.md` or agent skills:
+  `/Users/computer/workspace/AGENTS.md` and the
+  `~/.agents/skills/revyl-computer/` skill
+
+`~` here is both `/Users/computer` and `/Users/computer/workspace`, the home
+directory `revyl computer exec` uses. An agent outpost appends the same guide to
+the outpost instructions it writes.
+
+To install a build made on the computer, upload the simulator `.app` and start
+the session with that build:
+
+```sh
+revyl build upload --file path/to/MyApp.app --platform ios --app "$APP" --json
+revyl device start --platform ios --app "$APP" --build-version-id "$BUILD_ID" --json
+```
+
+`--url` refuses `localhost` and private addresses. To test a dev server running
+on the computer, start a hosted Web session on any public page, then navigate
+its browser, which runs on the computer:
+
+```sh
+revyl device start --platform web --app "$WEB_APP" --url https://example.com --json
+revyl device navigate http://localhost:3000
+```
+
 ## Bounds and output
 
 The server fixes each new run's lifetime at 120 minutes from creation. The

@@ -225,7 +225,7 @@ func (s *Server) registerDeviceTools() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "start_device_session",
 		Meta:        s.workspaceToolMeta(),
-		Description: "Provision a cloud-hosted Android, iOS, or Web session. Web requires app_id and uses its latest URL build by default; url creates or reuses a URL build on that app. Returns session_id and viewer_url. Pass session_id to later device tools whenever several sessions may be live. When every device is busy the start waits for one and returns queue_notice.",
+		Description: "Provision a cloud-hosted Android, iOS, or Web session. Web requires app_id and uses its latest URL build by default; url creates or reuses a URL build on that app. Returns session_id and viewer_url. Pass session_id to later device tools whenever several sessions may be live. When every device is busy the start waits for one and returns queue_notice. This tool always starts a standalone device, billed on its own; on a Revyl computer, run `revyl device start` there to start one inside it.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Start Device Session",
 			DestructiveHint: boolPtr(false),
