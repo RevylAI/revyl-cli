@@ -923,7 +923,7 @@ when REVYL_COMPUTER_ID is set; only URL builds use that default computer.`,
 		if strings.EqualFold(strings.TrimSpace(platform), "web") {
 			return runWebDeviceStart(cmd)
 		}
-		for _, name := range []string{"url", "commit", "viewport"} {
+		for _, name := range []string{"url", "commit", "viewport", "browser"} {
 			if cmd.Flags().Changed(name) {
 				return fmt.Errorf("--%s is only available on platform web; pass --platform web", name)
 			}
@@ -3887,6 +3887,7 @@ func init() {
 	deviceStartCmd.Flags().String("url", "", "Create or reuse a URL build for this website on --app before starting Web, such as example.com")
 	deviceStartCmd.Flags().String("commit", "", "Commit SHA identity for --url on platform web")
 	deviceStartCmd.Flags().String("viewport", "1280x800", "Web viewport WIDTHxHEIGHT (width 320–3840, height 240–2160)")
+	deviceStartCmd.Flags().String("browser", "chrome", "Web browser: chrome, or safari inside a Mac computer (--computer)")
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")

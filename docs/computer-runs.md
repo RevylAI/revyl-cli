@@ -288,6 +288,7 @@ revyl device start --platform ios --computer=none
 
 revyl device start --platform ios --app "$APP" --computer "$C1" --json
 revyl device start --platform web --app "$WEB_APP" --computer "$C1" --json
+revyl device start --platform web --app "$WEB_APP" --computer "$C1" --browser safari --json
 ```
 
 A mobile `device start --json` reports `computer_session_id`: the computer the
@@ -322,7 +323,12 @@ platform: iOS simulators and Web on macOS. The capability also caps each
 platform (`max_children_by_platform`); a start past that cap is refused with
 `409 computer_platform_at_capacity` before anything runs. Hosted Web needs
 no separate Web enablement and uses a registered deployment URL build, not a
-managed Web bundle. Select an app and one of its builds (`--app`, optionally
+managed Web bundle. Hosted Web runs in Chrome by default; `--browser safari`
+runs it in Safari when the computer is a Mac whose hosting capability lists
+`safari` in `browsers` (omitted `browsers` means Chrome only). Otherwise the
+start is refused with `409 computer_cannot_host_browser`, and Safari outside a
+computer is refused locally and with `422 web_browser_unsupported`. Select an
+app and one of its builds (`--app`, optionally
 `--build-version-id`); the computer chooses
 the device and the app launches with its defaults, so `--app-url`, launch
 variables, arguments and environment, run options and test-backed starts are

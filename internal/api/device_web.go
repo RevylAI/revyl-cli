@@ -23,9 +23,10 @@ type DeviceWebSignIn struct {
 }
 
 type DeviceWebOptions struct {
-	SecretEnvVars map[string]string  `json:"secret_env_vars,omitempty"`
-	Viewport      *DeviceWebViewport `json:"viewport,omitempty"`
-	SignIn        *DeviceWebSignIn   `json:"sign_in,omitempty"`
+	SecretEnvVars map[string]string                         `json:"secret_env_vars,omitempty"`
+	Viewport      *DeviceWebViewport                        `json:"viewport,omitempty"`
+	SignIn        *DeviceWebSignIn                          `json:"sign_in,omitempty"`
+	Browser       CognisimSchemasSchemasWebSchemaWebBrowser `json:"browser,omitempty"`
 }
 
 type ExternalURLBuildRequest struct {

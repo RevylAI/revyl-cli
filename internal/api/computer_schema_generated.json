@@ -804,6 +804,18 @@
     },
     "ComputerHostingCapability": {
       "properties": {
+        "browsers": {
+          "default": [
+            "chrome"
+          ],
+          "items": {
+            "$ref": "#/$defs/cognisim_schemas__schemas__web_schema__WebBrowser"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Browsers",
+          "type": "array"
+        },
         "max_children": {
           "maximum": 8.0,
           "minimum": 0.0,
@@ -2564,6 +2576,13 @@
         "timeout"
       ],
       "title": "SessionStatus",
+      "type": "string"
+    },
+    "cognisim_schemas__schemas__web_schema__WebBrowser": {
+      "enum": [
+        "chrome",
+        "safari"
+      ],
       "type": "string"
     }
   },

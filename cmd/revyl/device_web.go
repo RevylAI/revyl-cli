@@ -77,11 +77,22 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		return err
 	}
 	computerSessionID := computerSessionIDForStart(cmd)
+	var browser api.CognisimSchemasSchemasWebSchemaWebBrowser
+	if cmd.Flags().Changed("browser") {
+		browserFlag, _ := cmd.Flags().GetString("browser")
+		browser = api.CognisimSchemasSchemasWebSchemaWebBrowser(strings.ToLower(strings.TrimSpace(browserFlag)))
+		if !browser.Valid() {
+			return fmt.Errorf("--browser must be chrome or safari")
+		}
+		if browser == api.CognisimSchemasSchemasWebSchemaWebBrowserSafari && computerSessionID == "" {
+			return fmt.Errorf("--browser safari runs only inside a Mac computer; pass --computer <computer-id>")
+		}
+	}
 	launchEnv, secretLaunchEnv, err := parseWebLaunchEnv(getExactStringArrayFlag(cmd, "launch-env"))
 	if err != nil {
 		return err
 	}
-	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport}, ComputerSessionID: computerSessionID}
+	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport, Browser: browser}, ComputerSessionID: computerSessionID}
 	if !cmd.Flags().Changed("computer") {
 		opts.DefaultComputerSessionID = opts.ComputerSessionID
 		opts.ComputerSessionID = ""

@@ -3957,6 +3957,24 @@ func (e CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection) Valid() bo
 	}
 }
 
+// Defines values for CognisimSchemasSchemasWebSchemaWebBrowser.
+const (
+	CognisimSchemasSchemasWebSchemaWebBrowserChrome CognisimSchemasSchemasWebSchemaWebBrowser = "chrome"
+	CognisimSchemasSchemasWebSchemaWebBrowserSafari CognisimSchemasSchemasWebSchemaWebBrowser = "safari"
+)
+
+// Valid indicates whether the value is a known member of the CognisimSchemasSchemasWebSchemaWebBrowser enum.
+func (e CognisimSchemasSchemasWebSchemaWebBrowser) Valid() bool {
+	switch e {
+	case CognisimSchemasSchemasWebSchemaWebBrowserChrome:
+		return true
+	case CognisimSchemasSchemasWebSchemaWebBrowserSafari:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListAppsApiV1AppsGetParamsSort.
 const (
 	ListAppsApiV1AppsGetParamsSortName           ListAppsApiV1AppsGetParamsSort = "name"
@@ -4339,44 +4357,45 @@ type ActionRange struct {
 
 // ActiveDeviceSessionItem Active session, with build attribution fixed to the session starting build.
 type ActiveDeviceSessionItem struct {
-	AppId                     *string                 `json:"app_id,omitempty"`
-	AppName                   *string                 `json:"app_name,omitempty"`
-	AppPackage                *string                 `json:"app_package,omitempty"`
-	BilledTo                  *string                 `json:"billed_to,omitempty"`
-	BranchId                  *string                 `json:"branch_id,omitempty"`
-	BranchName                *string                 `json:"branch_name,omitempty"`
-	BuildId                   *string                 `json:"build_id,omitempty"`
-	BuildVersion              *string                 `json:"build_version,omitempty"`
-	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
-	CanInteract               *bool                   `json:"can_interact,omitempty"`
-	ComputerSessionId         *string                 `json:"computer_session_id,omitempty"`
-	CreatedAt                 *time.Time              `json:"created_at,omitempty"`
-	DeviceModel               *string                 `json:"device_model,omitempty"`
-	DeviceScaleFactor         *float32                `json:"device_scale_factor,omitempty"`
-	ExplorationRunId          *string                 `json:"exploration_run_id,omitempty"`
-	HasTestExecution          *bool                   `json:"has_test_execution,omitempty"`
-	Id                        string                  `json:"id"`
-	IdleTimeoutSeconds        *int                    `json:"idle_timeout_seconds,omitempty"`
-	InteractionDisabledReason *string                 `json:"interaction_disabled_reason,omitempty"`
-	LaneIndex                 *int                    `json:"lane_index,omitempty"`
-	LaneRole                  *string                 `json:"lane_role,omitempty"`
-	LastActivityAt            *string                 `json:"last_activity_at,omitempty"`
-	OrgId                     string                  `json:"org_id"`
-	OsVersion                 *string                 `json:"os_version,omitempty"`
-	Platform                  string                  `json:"platform"`
-	ScreenHeight              *int                    `json:"screen_height,omitempty"`
-	ScreenWidth               *int                    `json:"screen_width,omitempty"`
-	Source                    string                  `json:"source"`
-	SourceMetadata            *map[string]interface{} `json:"source_metadata,omitempty"`
-	StartedAt                 *time.Time              `json:"started_at,omitempty"`
-	Status                    string                  `json:"status"`
-	TestId                    *string                 `json:"test_id,omitempty"`
-	TestName                  *string                 `json:"test_name,omitempty"`
-	TraceId                   *string                 `json:"trace_id,omitempty"`
-	UserEmail                 *string                 `json:"user_email,omitempty"`
-	UserId                    *string                 `json:"user_id,omitempty"`
-	WhepUrl                   *string                 `json:"whep_url,omitempty"`
-	WorkflowRunId             *string                 `json:"workflow_run_id,omitempty"`
+	AppId                     *string                                    `json:"app_id,omitempty"`
+	AppName                   *string                                    `json:"app_name,omitempty"`
+	AppPackage                *string                                    `json:"app_package,omitempty"`
+	BilledTo                  *string                                    `json:"billed_to,omitempty"`
+	BranchId                  *string                                    `json:"branch_id,omitempty"`
+	BranchName                *string                                    `json:"branch_name,omitempty"`
+	Browser                   *CognisimSchemasSchemasWebSchemaWebBrowser `json:"browser,omitempty"`
+	BuildId                   *string                                    `json:"build_id,omitempty"`
+	BuildVersion              *string                                    `json:"build_version,omitempty"`
+	CanCancel                 *bool                                      `json:"can_cancel,omitempty"`
+	CanInteract               *bool                                      `json:"can_interact,omitempty"`
+	ComputerSessionId         *string                                    `json:"computer_session_id,omitempty"`
+	CreatedAt                 *time.Time                                 `json:"created_at,omitempty"`
+	DeviceModel               *string                                    `json:"device_model,omitempty"`
+	DeviceScaleFactor         *float32                                   `json:"device_scale_factor,omitempty"`
+	ExplorationRunId          *string                                    `json:"exploration_run_id,omitempty"`
+	HasTestExecution          *bool                                      `json:"has_test_execution,omitempty"`
+	Id                        string                                     `json:"id"`
+	IdleTimeoutSeconds        *int                                       `json:"idle_timeout_seconds,omitempty"`
+	InteractionDisabledReason *string                                    `json:"interaction_disabled_reason,omitempty"`
+	LaneIndex                 *int                                       `json:"lane_index,omitempty"`
+	LaneRole                  *string                                    `json:"lane_role,omitempty"`
+	LastActivityAt            *string                                    `json:"last_activity_at,omitempty"`
+	OrgId                     string                                     `json:"org_id"`
+	OsVersion                 *string                                    `json:"os_version,omitempty"`
+	Platform                  string                                     `json:"platform"`
+	ScreenHeight              *int                                       `json:"screen_height,omitempty"`
+	ScreenWidth               *int                                       `json:"screen_width,omitempty"`
+	Source                    string                                     `json:"source"`
+	SourceMetadata            *map[string]interface{}                    `json:"source_metadata,omitempty"`
+	StartedAt                 *time.Time                                 `json:"started_at,omitempty"`
+	Status                    string                                     `json:"status"`
+	TestId                    *string                                    `json:"test_id,omitempty"`
+	TestName                  *string                                    `json:"test_name,omitempty"`
+	TraceId                   *string                                    `json:"trace_id,omitempty"`
+	UserEmail                 *string                                    `json:"user_email,omitempty"`
+	UserId                    *string                                    `json:"user_id,omitempty"`
+	WhepUrl                   *string                                    `json:"whep_url,omitempty"`
+	WorkflowRunId             *string                                    `json:"workflow_run_id,omitempty"`
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.
@@ -7196,9 +7215,10 @@ type ComputerFileWriteSummary struct {
 
 // ComputerHostingCapability defines model for ComputerHostingCapability.
 type ComputerHostingCapability struct {
-	MaxChildren           int                                  `json:"max_children"`
-	MaxChildrenByPlatform *map[string]int                      `json:"max_children_by_platform,omitempty"`
-	Platforms             []ComputerHostingCapabilityPlatforms `json:"platforms"`
+	Browsers              *[]CognisimSchemasSchemasWebSchemaWebBrowser `json:"browsers,omitempty"`
+	MaxChildren           int                                          `json:"max_children"`
+	MaxChildrenByPlatform *map[string]int                              `json:"max_children_by_platform,omitempty"`
+	Platforms             []ComputerHostingCapabilityPlatforms         `json:"platforms"`
 }
 
 // ComputerHostingCapabilityPlatforms defines model for ComputerHostingCapability.Platforms.
@@ -8030,47 +8050,48 @@ type DeviceQueueNoticeAction string
 
 // DeviceSessionDetailResponse Session viewer detail, with build attribution fixed to its starting build.
 type DeviceSessionDetailResponse struct {
-	ActionCount               *int                                      `json:"action_count,omitempty"`
-	AppId                     *string                                   `json:"app_id,omitempty"`
-	AppName                   *string                                   `json:"app_name,omitempty"`
-	BilledTo                  *string                                   `json:"billed_to,omitempty"`
-	BranchId                  *string                                   `json:"branch_id,omitempty"`
-	BranchName                *string                                   `json:"branch_name,omitempty"`
-	BuildId                   *string                                   `json:"build_id,omitempty"`
-	BuildVersion              *string                                   `json:"build_version,omitempty"`
-	CanCancel                 *bool                                     `json:"can_cancel,omitempty"`
-	CanInteract               *bool                                     `json:"can_interact,omitempty"`
-	CloudAgentConversation    *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
-	ComputerSessionId         *string                                   `json:"computer_session_id,omitempty"`
-	CreatedAt                 *string                                   `json:"created_at,omitempty"`
-	DeviceModel               *string                                   `json:"device_model,omitempty"`
-	DeviceScaleFactor         *float32                                  `json:"device_scale_factor,omitempty"`
-	DurationSeconds           *float32                                  `json:"duration_seconds,omitempty"`
-	EndedAt                   *string                                   `json:"ended_at,omitempty"`
-	ErrorMessage              *string                                   `json:"error_message,omitempty"`
-	HasTestExecution          *bool                                     `json:"has_test_execution,omitempty"`
-	HasVideo                  *bool                                     `json:"has_video,omitempty"`
-	Id                        string                                    `json:"id"`
-	InteractionDisabledReason *string                                   `json:"interaction_disabled_reason,omitempty"`
-	OrgId                     string                                    `json:"org_id"`
-	OsVersion                 *string                                   `json:"os_version,omitempty"`
-	Platform                  *string                                   `json:"platform,omitempty"`
-	RecordingStatus           *SessionRecordingStatus                   `json:"recording_status,omitempty"`
-	ReportId                  *string                                   `json:"report_id,omitempty"`
-	ScreenHeight              *int                                      `json:"screen_height,omitempty"`
-	ScreenWidth               *int                                      `json:"screen_width,omitempty"`
-	Source                    *string                                   `json:"source,omitempty"`
-	SourceMetadata            *map[string]interface{}                   `json:"source_metadata,omitempty"`
-	StartedAt                 *string                                   `json:"started_at,omitempty"`
-	Status                    string                                    `json:"status"`
-	StepCount                 *int                                      `json:"step_count,omitempty"`
-	TestExecutionId           *string                                   `json:"test_execution_id,omitempty"`
-	TestId                    *string                                   `json:"test_id,omitempty"`
-	TestName                  *string                                   `json:"test_name,omitempty"`
-	TraceId                   *string                                   `json:"trace_id,omitempty"`
-	UserEmail                 *string                                   `json:"user_email,omitempty"`
-	UserId                    *string                                   `json:"user_id,omitempty"`
-	ViewerKind                *DeviceSessionDetailResponseViewerKind    `json:"viewer_kind,omitempty"`
+	ActionCount               *int                                       `json:"action_count,omitempty"`
+	AppId                     *string                                    `json:"app_id,omitempty"`
+	AppName                   *string                                    `json:"app_name,omitempty"`
+	BilledTo                  *string                                    `json:"billed_to,omitempty"`
+	BranchId                  *string                                    `json:"branch_id,omitempty"`
+	BranchName                *string                                    `json:"branch_name,omitempty"`
+	Browser                   *CognisimSchemasSchemasWebSchemaWebBrowser `json:"browser,omitempty"`
+	BuildId                   *string                                    `json:"build_id,omitempty"`
+	BuildVersion              *string                                    `json:"build_version,omitempty"`
+	CanCancel                 *bool                                      `json:"can_cancel,omitempty"`
+	CanInteract               *bool                                      `json:"can_interact,omitempty"`
+	CloudAgentConversation    *CloudAgentConversationAttributionSummary  `json:"cloud_agent_conversation,omitempty"`
+	ComputerSessionId         *string                                    `json:"computer_session_id,omitempty"`
+	CreatedAt                 *string                                    `json:"created_at,omitempty"`
+	DeviceModel               *string                                    `json:"device_model,omitempty"`
+	DeviceScaleFactor         *float32                                   `json:"device_scale_factor,omitempty"`
+	DurationSeconds           *float32                                   `json:"duration_seconds,omitempty"`
+	EndedAt                   *string                                    `json:"ended_at,omitempty"`
+	ErrorMessage              *string                                    `json:"error_message,omitempty"`
+	HasTestExecution          *bool                                      `json:"has_test_execution,omitempty"`
+	HasVideo                  *bool                                      `json:"has_video,omitempty"`
+	Id                        string                                     `json:"id"`
+	InteractionDisabledReason *string                                    `json:"interaction_disabled_reason,omitempty"`
+	OrgId                     string                                     `json:"org_id"`
+	OsVersion                 *string                                    `json:"os_version,omitempty"`
+	Platform                  *string                                    `json:"platform,omitempty"`
+	RecordingStatus           *SessionRecordingStatus                    `json:"recording_status,omitempty"`
+	ReportId                  *string                                    `json:"report_id,omitempty"`
+	ScreenHeight              *int                                       `json:"screen_height,omitempty"`
+	ScreenWidth               *int                                       `json:"screen_width,omitempty"`
+	Source                    *string                                    `json:"source,omitempty"`
+	SourceMetadata            *map[string]interface{}                    `json:"source_metadata,omitempty"`
+	StartedAt                 *string                                    `json:"started_at,omitempty"`
+	Status                    string                                     `json:"status"`
+	StepCount                 *int                                       `json:"step_count,omitempty"`
+	TestExecutionId           *string                                    `json:"test_execution_id,omitempty"`
+	TestId                    *string                                    `json:"test_id,omitempty"`
+	TestName                  *string                                    `json:"test_name,omitempty"`
+	TraceId                   *string                                    `json:"trace_id,omitempty"`
+	UserEmail                 *string                                    `json:"user_email,omitempty"`
+	UserId                    *string                                    `json:"user_id,omitempty"`
+	ViewerKind                *DeviceSessionDetailResponseViewerKind     `json:"viewer_kind,omitempty"`
 
 	// ViewerLookupTimedOut True when viewer_kind is none only because the viewer lookup timed out; the viewer may be ready, so read the session again shortly.
 	ViewerLookupTimedOut *bool   `json:"viewer_lookup_timed_out,omitempty"`
@@ -8085,15 +8106,16 @@ type DeviceSessionDetailResponseViewerKind string
 
 // DeviceSessionHistoryItem Session history row, with build attribution fixed to its starting build.
 type DeviceSessionHistoryItem struct {
-	AppDefaultBranchId     *string                                   `json:"app_default_branch_id,omitempty"`
-	AppId                  *string                                   `json:"app_id,omitempty"`
-	AppName                *string                                   `json:"app_name,omitempty"`
-	BilledTo               *string                                   `json:"billed_to,omitempty"`
-	BranchId               *string                                   `json:"branch_id,omitempty"`
-	BranchName             *string                                   `json:"branch_name,omitempty"`
-	BuildId                *string                                   `json:"build_id,omitempty"`
-	BuildVersion           *string                                   `json:"build_version,omitempty"`
-	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	AppDefaultBranchId     *string                                    `json:"app_default_branch_id,omitempty"`
+	AppId                  *string                                    `json:"app_id,omitempty"`
+	AppName                *string                                    `json:"app_name,omitempty"`
+	BilledTo               *string                                    `json:"billed_to,omitempty"`
+	BranchId               *string                                    `json:"branch_id,omitempty"`
+	BranchName             *string                                    `json:"branch_name,omitempty"`
+	Browser                *CognisimSchemasSchemasWebSchemaWebBrowser `json:"browser,omitempty"`
+	BuildId                *string                                    `json:"build_id,omitempty"`
+	BuildVersion           *string                                    `json:"build_version,omitempty"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary  `json:"cloud_agent_conversation,omitempty"`
 
 	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
 	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
@@ -11675,7 +11697,8 @@ type WebExternalBuildRequest struct {
 
 // WebSessionOptions defines model for WebSessionOptions.
 type WebSessionOptions struct {
-	SecretEnvVars *map[string]string `json:"secret_env_vars,omitempty"`
+	Browser       *CognisimSchemasSchemasWebSchemaWebBrowser `json:"browser,omitempty"`
+	SecretEnvVars *map[string]string                         `json:"secret_env_vars,omitempty"`
 
 	// SignIn A caller's sign-in link naming, never carrying, its org secret.
 	SignIn *WebSignInRequest `json:"sign_in,omitempty"`
@@ -12126,6 +12149,9 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 
 // CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection defines model for CognisimSchemasSchemasDeviceSchemaWorkflowInfo.BuildSelection.
 type CognisimSchemasSchemasDeviceSchemaWorkflowInfoBuildSelection string
+
+// CognisimSchemasSchemasWebSchemaWebBrowser defines model for cognisim_schemas__schemas__web_schema__WebBrowser.
+type CognisimSchemasSchemasWebSchemaWebBrowser string
 
 // ListAppsApiV1AppsGetParams defines parameters for ListAppsApiV1AppsGet.
 type ListAppsApiV1AppsGetParams struct {
