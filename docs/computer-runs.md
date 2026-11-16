@@ -157,6 +157,15 @@ printf 'revyl\n' | revyl computer exec "$C1" --stdin - -- sudo -S installer -pkg
 Each computer is a fresh copy of the image and is deleted when it stops, so
 administrator changes never carry over to another computer.
 
+### Safari WebDriver
+
+On macOS, Safari's WebDriver is on for the `computer` account: `safaridriver`
+runs in the computer's desktop session and listens on port 4444 of the guest's
+loopback only (`127.0.0.1` and `::1`). A WebDriver client running in the computer, for example one started with
+`exec`, opens Safari at `http://127.0.0.1:4444` with no setup. The port has no
+authentication, so any process in the computer can drive Safari as `computer`
+through it.
+
 ### Working directory, environment and long commands
 
 `--cwd DIR` runs the command in `DIR`, absolute or relative to the workspace.
