@@ -65,6 +65,10 @@ var computerFailureReasons = map[string]string{
 
 const computerLimitMessage = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
 const computerNotEnabledMessage = "Computers aren't available to this organization. Contact support@revyl.ai to turn Mac computers on."
+const computerLongLimitMessage = "Your organization already has 2 computers running longer than 2 hours. Ask for 2 hours or less, or stop one of them."
+
+const computerExtendUnsupportedMessage = "This computer's host cannot extend it; it still stops at its current expiry. Computers started after the host updates can be extended."
+
 const computerDisplayUnsupportedMessage = "No computer host can apply a display size yet. Omit --display to start at the default 1280x800."
 
 func computerStateText(state, release string) string {

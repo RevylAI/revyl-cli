@@ -55,6 +55,7 @@ Mac computers are available on request: contact support@revyl.ai. Paid plans, Pr
   revyl computer create --os macos       start a computer
   revyl computer create --os macos --wait  start one and wait until it is active
   revyl computer create --os macos --display 1440x900  start one at a display size
+  revyl computer create --os macos --ttl 8h  start one that runs up to 8 hours
   revyl computer list                    show your organization's computers
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
@@ -62,6 +63,7 @@ Mac computers are available on request: contact support@revyl.ai. Paid plans, Pr
   revyl computer sessions ID             list the app sessions running inside it
   revyl computer export ID               save a Harbor trial bundle
   revyl computer report ID --format performance
+  revyl computer extend ID --ttl 4h      keep it running 4 more hours (24 h max)
   revyl computer stop ID                 stop it
 
 Add --json to any command for machine-readable output.
@@ -76,6 +78,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	create.Flags().String("os", "", "Computer OS: macos")
 	create.Flags().String("id", "", "Proposed computer UUID (generated once when omitted)")
 	create.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
+	create.Flags().Duration("ttl", 0, "Lifetime from creation, whole seconds from 1m to 24h (default 2h)")
 	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --timeout")
 	create.Flags().Duration("timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
@@ -100,6 +103,15 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			if err != nil {
 				return nil, err
 			}
+			var ttlSeconds *int
+			if cmd.Flags().Changed("ttl") {
+				ttl, _ := cmd.Flags().GetDuration("ttl")
+				seconds, err := computerTTLSeconds(ttl)
+				if err != nil {
+					return nil, err
+				}
+				ttlSeconds = &seconds
+			}
 			idText, _ := cmd.Flags().GetString("id")
 			id, err := computerUUIDOrNew(idText)
 			if err != nil {
@@ -118,12 +130,14 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display})
+			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display, TtlSeconds: ttlSeconds})
 			var refusal *api.APIError
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
 				switch refusal.Code {
 				case "computer_limit":
 					refusal.Message = computerLimitMessage
+				case "computer_long_limit":
+					refusal.Message = computerLongLimitMessage
 				case "computer_not_enabled":
 					refusal.Message = computerNotEnabledMessage
 				case "display_unsupported":
@@ -161,6 +175,41 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 		})
 	}
 	command.AddCommand(listComputers)
+	extend := &cobra.Command{Use: "extend C1", Short: "Keep a running computer alive longer"}
+	extend.Flags().Duration("ttl", 0, "Keep it running at least this long from now, whole seconds from 1m to 24h; never past 24h from creation")
+	extend.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
+			if len(args) != 1 {
+				return nil, errors.New("computer command requires exactly one computer UUID")
+			}
+			id, err := parseComputerUUID(args[0])
+			if err != nil {
+				return nil, err
+			}
+			invocation.ComputerSessionID = id.String()
+			ttl, _ := cmd.Flags().GetDuration("ttl")
+			seconds, err := computerTTLSeconds(ttl)
+			if err != nil {
+				return nil, err
+			}
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			report, err := client.ExtendComputerRun(cmd.Context(), id, seconds)
+			var refusal *api.APIError
+			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
+				switch refusal.Code {
+				case "computer_long_limit":
+					refusal.Message = computerLongLimitMessage
+				case "extend_unsupported":
+					refusal.Message = computerExtendUnsupportedMessage
+				}
+			}
+			return report, err
+		})
+	}
+	command.AddCommand(extend)
 	leafShorts := map[string]string{
 		"get": "Show a computer's state and steps", "stop": "Stop a computer", "report": "Print a computer report (JSON, ATIF or performance)",
 		"hosting": "Show which app-session platforms a running computer can host", "sessions": "List the app sessions hosted inside a computer",
@@ -489,6 +538,13 @@ func computerUUIDOrNew(value string) (uuid.UUID, error) {
 		return uuid.New(), nil
 	}
 	return parseComputerUUID(value)
+}
+
+func computerTTLSeconds(ttl time.Duration) (int, error) {
+	if ttl < time.Minute || ttl > 24*time.Hour || ttl%time.Second != 0 {
+		return 0, errors.New("--ttl must be whole seconds from 1m to 24h")
+	}
+	return int(ttl / time.Second), nil
 }
 
 func computerDisplaySize(value string) (*api.ComputerDisplaySize, error) {

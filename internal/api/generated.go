@@ -1124,6 +1124,7 @@ const (
 	ComputerAPIErrorDetail0EvidenceConflict        ComputerAPIErrorDetail0 = "evidence_conflict"
 	ComputerAPIErrorDetail0EvidenceUnavailable     ComputerAPIErrorDetail0 = "evidence_unavailable"
 	ComputerAPIErrorDetail0ExecOptionsUnsupported  ComputerAPIErrorDetail0 = "exec_options_unsupported"
+	ComputerAPIErrorDetail0ExtendUnsupported       ComputerAPIErrorDetail0 = "extend_unsupported"
 	ComputerAPIErrorDetail0Inaccessible            ComputerAPIErrorDetail0 = "inaccessible"
 	ComputerAPIErrorDetail0InvalidHandle           ComputerAPIErrorDetail0 = "invalid_handle"
 	ComputerAPIErrorDetail0InvalidRequest          ComputerAPIErrorDetail0 = "invalid_request"
@@ -1154,6 +1155,8 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 	case ComputerAPIErrorDetail0EvidenceUnavailable:
 		return true
 	case ComputerAPIErrorDetail0ExecOptionsUnsupported:
+		return true
+	case ComputerAPIErrorDetail0ExtendUnsupported:
 		return true
 	case ComputerAPIErrorDetail0Inaccessible:
 		return true
@@ -1204,6 +1207,7 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 const (
 	ComputerAPIErrorDetail1AuthenticationUnavailable ComputerAPIErrorDetail1 = "authentication_unavailable"
 	ComputerAPIErrorDetail1ComputerLimit             ComputerAPIErrorDetail1 = "computer_limit"
+	ComputerAPIErrorDetail1ComputerLongLimit         ComputerAPIErrorDetail1 = "computer_long_limit"
 	ComputerAPIErrorDetail1ComputerNotEnabled        ComputerAPIErrorDetail1 = "computer_not_enabled"
 	ComputerAPIErrorDetail1DisplayUnsupported        ComputerAPIErrorDetail1 = "display_unsupported"
 	ComputerAPIErrorDetail1Forbidden                 ComputerAPIErrorDetail1 = "forbidden"
@@ -1217,6 +1221,8 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 	case ComputerAPIErrorDetail1AuthenticationUnavailable:
 		return true
 	case ComputerAPIErrorDetail1ComputerLimit:
+		return true
+	case ComputerAPIErrorDetail1ComputerLongLimit:
 		return true
 	case ComputerAPIErrorDetail1ComputerNotEnabled:
 		return true
@@ -7602,10 +7608,19 @@ type ComputerRunCreate struct {
 	// Display A computer's display in pixels, fixed when its VM boots.
 	Display *ComputerDisplaySize `json:"display,omitempty"`
 	Os      ComputerRunCreateOs  `json:"os"`
+
+	// TtlSeconds Lifetime in seconds from creation, 60-86400. Omit for the default 7200.
+	TtlSeconds *int `json:"ttl_seconds,omitempty"`
 }
 
 // ComputerRunCreateOs defines model for ComputerRunCreate.Os.
 type ComputerRunCreateOs string
+
+// ComputerRunExtend defines model for ComputerRunExtend.
+type ComputerRunExtend struct {
+	// TtlSeconds Keep the computer running at least this many seconds from now, never past 86400 seconds from creation. Never shortens the current deadline.
+	TtlSeconds int `json:"ttl_seconds"`
+}
 
 // ComputerRunListResponse defines model for ComputerRunListResponse.
 type ComputerRunListResponse struct {
@@ -13121,6 +13136,9 @@ type CreateSessionGroundedAnnotationThreadJSONRequestBody = AtlasSessionGrounded
 
 // CreateComputerRunApiV1ComputerRunsPostJSONRequestBody defines body for CreateComputerRunApiV1ComputerRunsPost for application/json ContentType.
 type CreateComputerRunApiV1ComputerRunsPostJSONRequestBody = ComputerRunCreate
+
+// ExtendComputerRunApiV1ComputerRunsComputerSessionIdExtendPostJSONRequestBody defines body for ExtendComputerRunApiV1ComputerRunsComputerSessionIdExtendPost for application/json ContentType.
+type ExtendComputerRunApiV1ComputerRunsComputerSessionIdExtendPostJSONRequestBody = ComputerRunExtend
 
 // SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody defines body for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost for application/json ContentType.
 type SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostJSONRequestBody = ComputerOperationRequest

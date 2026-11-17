@@ -282,7 +282,7 @@ func TestComputerFileWriteLocalInputUsesSchemaLimit(t *testing.T) {
 }
 
 func TestComputerCommandSurfaceIsExplicit(t *testing.T) {
-	for _, args := range [][]string{{"computer", "list", "11111111-1111-4111-8111-111111111111"}, {"computer", "list", "--state", "active"}, {"computer", "create", "--image", "anything"}, {"computer", "create", "--ttl", "1h"}, {"computer", "exec", "--cwd", "repo"}} {
+	for _, args := range [][]string{{"computer", "list", "11111111-1111-4111-8111-111111111111"}, {"computer", "list", "--state", "active"}, {"computer", "create", "--image", "anything"}, {"computer", "exec", "--cwd", "repo"}} {
 		root := &cobra.Command{Use: "revyl", SilenceErrors: true, SilenceUsage: true}
 		root.AddCommand(newComputerCommand())
 		root.SetArgs(args)
