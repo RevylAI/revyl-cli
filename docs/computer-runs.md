@@ -133,7 +133,9 @@ directory. Relative file-operation paths also start there: `notes.txt` means
 `/Users/computer/workspace/notes.txt`, not `/Users/computer/notes.txt`.
 The workspace's `Library/Keychains` is a link to the account's login keychains,
 so an app started from `exec`, such as Chrome, finds its keychain instead of
-asking for one.
+asking for one. `PATH` ends with Homebrew's `/opt/homebrew/bin` and
+`/opt/homebrew/sbin`, and `computer` owns `/opt/homebrew`, so
+`revyl computer exec "$C1" -- brew install hello` works without `sudo`.
 
 A Terminal opened on the desktop uses the same account but its login home is
 `/Users/computer`. It does not inherit an `exec` process's environment or working
