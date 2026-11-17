@@ -30,11 +30,12 @@ cleanup can be confirmed. macOS computers can host iOS and Web app sessions
 when their hosting capability includes those platforms.
 
 Partner connection credentials can create, read, stop and run operations on
-enabled computers, including screenshots and hosted app sessions. Their outer
-computer bills to the partner's Mac or Linux computer meter; hosted sessions
-add no compute charge or shared device slot. Disconnecting the connection stops
-its computers through the same owner cleanup path. Interactive screen input and
-live viewer leases still require a person.
+enabled computers, including screenshots, screen actions and hosted app
+sessions. Their outer computer bills to the connection's payer: the partner's
+Mac or Linux computer meter with `bill_to: partner`, or the workspace's own plan
+with `bill_to: workspace`. Hosted sessions add no compute charge or shared
+device slot. Disconnecting the connection stops its computers through the same
+owner cleanup path. Live viewer leases still require a person.
 
 ## Commands
 
