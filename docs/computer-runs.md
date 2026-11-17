@@ -148,12 +148,24 @@ can still use different state; when needed, run that tool in Terminal with
 On macOS the `computer` account is an administrator with the password `revyl`.
 Enter `computer` and `revyl` when macOS asks for an administrator's name and
 password, for example to allow Screen & System Audio Recording or Accessibility
-for an app in System Settings, or to install a package. `exec` has no
-terminal, so give `sudo -S` the password on stdin:
+for an app in System Settings, or to install a package.
+
+`sudo` needs no password:
+
+```bash
+revyl computer exec "$C1" -- sudo installer -pkg MyApp.pkg -target /
+```
+
+If `sudo` says a password is required, give it `revyl` on stdin with
+`sudo -S`, since `exec` has no terminal:
 
 ```bash
 printf 'revyl\n' | revyl computer exec "$C1" --stdin - -- sudo -S installer -pkg MyApp.pkg -target /
 ```
+
+Root inside the computer doesn't change its network limits, which the host
+enforces outside the VM. Root can stop Revyl's agent in the computer, and that
+ends the computer's screen stream and recording.
 
 Each computer is a fresh copy of the image and is deleted when it stops, so
 administrator changes never carry over to another computer.
