@@ -148,6 +148,18 @@ when it says `stopped: true`. Retry once, never more.
 - **App or changes not visible:** inspect a screenshot and
   `revyl device report --session-id <session-id> --json` before changing the
   build or transport. Check build status for native apps.
+- **OS permission prompts:** when a run isn't testing onboarding, pre-grant
+  permissions before the app's first launch instead of tapping through
+  prompts. Start the session with `revyl device start --platform <platform>`
+  and no app (`--app-id` installs and launches the app at once, so it asks
+  before the grant), then
+  `revyl device install --app-id <app-id> -s <session-id>`,
+  `revyl device permissions set --bundle-id <bundle-id> location=allow motion=allow -s <session-id>`,
+  and `revyl device launch <bundle-id> -s <session-id>`. An alert the app
+  already showed stays on screen after relaunch and replaces the permission
+  when answered (location becomes While Using), so answer it first. iOS cannot pre-grant `notifications` or
+  `userTracking`; answer those alerts on the device. If the CLI reports an
+  unknown command, it predates `device permissions`; upgrade it.
 - **Slow Metro startup:** increase `--ready-timeout`. For a slow first Expo
   bundle, increase `--prewarm-timeout` (up to 600 seconds). When the relay works
   but Expo manifest readiness cannot be confirmed, use `--force-hot-reload`

@@ -234,7 +234,7 @@ For Web setup, first read https://github.com/RevylAI/revyl-cli/blob/main/skills/
 - **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag, device_pinch, device_clear_text, device_scroll (Web), device_select (Web)
 - **Manual Controls**: device_wait, device_back, device_key, device_shake, device_go_home, device_kill_app, device_open_app, device_navigate, device_set_location, device_set_fold_state, device_download_file
 - **Vision**: screenshot
-- **App Management**: install_app, launch_app
+- **App Management**: install_app, device_set_permissions, launch_app
 - **Diagnostics**: device_doctor
 
 ### Test Management

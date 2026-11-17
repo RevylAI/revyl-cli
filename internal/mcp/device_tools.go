@@ -401,6 +401,16 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleLaunchApp)
 
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_set_permissions",
+		Description: "Allow, deny, or reset an app's OS permissions so its permission prompts don't appear. Stops the app if it is running. On iOS, call it after install_app and before the app's first launch_app: alerts the app already raised stay on screen and overwrite the change when answered. iOS simulators take calendar, contacts, location (granted as Always), medialibrary, microphone, motion, photos, reminders, and siri; they cannot pre-grant notifications or userTracking.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Set App Permissions",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceSetPermissions)
+
 	// Device utility actions
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_go_home",
