@@ -7609,8 +7609,8 @@ type ComputerRunCreate struct {
 	Display *ComputerDisplaySize `json:"display,omitempty"`
 	Os      ComputerRunCreateOs  `json:"os"`
 
-	// TtlSeconds Lifetime in seconds from creation, 60-86400. Omit for the default 7200.
-	TtlSeconds *int `json:"ttl_seconds,omitempty"`
+	// TimeoutSeconds Lifetime in seconds from creation, 60-86400. Omit for the default 7200.
+	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
 }
 
 // ComputerRunCreateOs defines model for ComputerRunCreate.Os.
@@ -7618,8 +7618,8 @@ type ComputerRunCreateOs string
 
 // ComputerRunExtend defines model for ComputerRunExtend.
 type ComputerRunExtend struct {
-	// TtlSeconds Keep the computer running at least this many seconds from now, never past 86400 seconds from creation. Never shortens the current deadline.
-	TtlSeconds int `json:"ttl_seconds"`
+	// TimeoutSeconds Keep the computer running at least this many seconds from now, never past 86400 seconds from creation. Never shortens the current deadline.
+	TimeoutSeconds int `json:"timeout_seconds"`
 }
 
 // ComputerRunListResponse defines model for ComputerRunListResponse.

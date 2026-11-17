@@ -20,7 +20,7 @@ counts against that lane, a computer takes one slot of the budget its iOS
 sessions use, and the sessions hosted inside it take none. On Pro, the
 `computer_limit` refusal also names adding a device and links to Billing; see
 [Billing](billing.md). A computer runs for
-two hours from creation unless create asks for up to 24 hours with `--ttl`.
+two hours from creation unless create asks for up to 24 hours with `--timeout`.
 An organization may run at most 2 computers longer than two hours at once;
 asking for a third answers `computer_long_limit` (HTTP 429). Like a device start, create
 also needs the payer's compute credits and fails with a billing error
@@ -64,11 +64,11 @@ existing meaning.
 ```sh
 revyl computer create --os macos --json
 revyl computer create --os macos --wait --json
-revyl computer create --os macos --wait --timeout 5m
+revyl computer create --os macos --wait --wait-timeout 5m
 revyl computer create --os macos --id "$C1" --json
 revyl computer create --os macos --display 1440x900 --json
-revyl computer create --os macos --ttl 8h --json
-revyl computer extend "$C1" --ttl 4h --json
+revyl computer create --os macos --timeout 8h --json
+revyl computer extend "$C1" --timeout 4h --json
 revyl computer list
 revyl computer get "$C1"
 revyl computer hosting "$C1"
@@ -99,8 +99,10 @@ Create uses `--os macos` and an optional proposed `--id`; otherwise it
 generates C1 once. Create returns as soon as the computer is recorded, usually
 still `starting`. Add `--wait` to return only once it is `active` and accepts
 operations: the CLI re-reads the computer every 250 ms and prints the report
-the way create does. `--timeout`
-(default 2m, 1s to 30m, only with `--wait`) counts from the create request. A
+the way create does. `--wait-timeout`
+(default 2m, 1s to 30m, only with `--wait`) counts from the create request; it
+was `--timeout` before `--timeout` became the lifetime, and create refuses
+`--wait` with `--timeout` but no `--wait-timeout` before creating anything. A
 computer that ends instead of becoming active exits non-zero and names its
 state and release (`failed` and `owner_lost` exit 125, others 1); one still
 starting at the timeout exits 124 and keeps starting, so read it with `get` or
@@ -410,8 +412,8 @@ revyl device navigate http://localhost:3000
 
 ## Bounds and output
 
-A new run lives 2 hours from creation, or `--ttl` (1m..24h) when create sets
-it. `revyl computer extend C1 --ttl DURATION` moves `expires_at` to at least
+A new run lives 2 hours from creation, or `--timeout` (1m..24h) when create sets
+it. `revyl computer extend C1 --timeout DURATION` moves `expires_at` to at least
 DURATION from now, never earlier and never past 24 hours from creation; repeating
 it is safe. Extending past two hours counts toward the limit of 2 long computers
 (`computer_long_limit`). A computer whose host predates extend answers

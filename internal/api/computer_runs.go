@@ -223,8 +223,8 @@ func (c *Client) StopComputerRun(ctx context.Context, id uuid.UUID) (*ComputerRe
 	return readComputerReport(response, err, id)
 }
 
-func (c *Client) ExtendComputerRun(ctx context.Context, id uuid.UUID, ttlSeconds int) (*ComputerReport, error) {
-	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/extend", id), ComputerRunExtend{TtlSeconds: ttlSeconds}, id.String(), DefaultTimeout)
+func (c *Client) ExtendComputerRun(ctx context.Context, id uuid.UUID, timeoutSeconds int) (*ComputerReport, error) {
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/extend", id), ComputerRunExtend{TimeoutSeconds: timeoutSeconds}, id.String(), DefaultTimeout)
 	return readComputerReport(response, err, id)
 }
 

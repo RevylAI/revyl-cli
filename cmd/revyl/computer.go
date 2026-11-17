@@ -55,7 +55,7 @@ Mac computers are available on request: contact support@revyl.ai. Paid plans, Pr
   revyl computer create --os macos       start a computer
   revyl computer create --os macos --wait  start one and wait until it is active
   revyl computer create --os macos --display 1440x900  start one at a display size
-  revyl computer create --os macos --ttl 8h  start one that runs up to 8 hours
+  revyl computer create --os macos --timeout 8h  start one that runs up to 8 hours
   revyl computer list                    show your organization's computers
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
@@ -63,7 +63,7 @@ Mac computers are available on request: contact support@revyl.ai. Paid plans, Pr
   revyl computer sessions ID             list the app sessions running inside it
   revyl computer export ID               save a Harbor trial bundle
   revyl computer report ID --format performance
-  revyl computer extend ID --ttl 4h      keep it running 4 more hours (24 h max)
+  revyl computer extend ID --timeout 4h  keep it running 4 more hours (24 h max)
   revyl computer stop ID                 stop it
 
 Add --json to any command for machine-readable output.
@@ -78,9 +78,9 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	create.Flags().String("os", "", "Computer OS: macos")
 	create.Flags().String("id", "", "Proposed computer UUID (generated once when omitted)")
 	create.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
-	create.Flags().Duration("ttl", 0, "Lifetime from creation, whole seconds from 1m to 24h (default 2h)")
-	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --timeout")
-	create.Flags().Duration("timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
+	create.Flags().Duration("timeout", 0, "Lifetime from creation (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
+	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --wait-timeout")
+	create.Flags().Duration("wait-timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
 			if len(args) != 0 {
@@ -91,26 +91,29 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				return nil, errors.New("specify --os macos")
 			}
 			wait, _ := cmd.Flags().GetBool("wait")
-			timeout, _ := cmd.Flags().GetDuration("timeout")
-			if cmd.Flags().Changed("timeout") && !wait {
-				return nil, errors.New("--timeout requires --wait")
+			waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
+			if cmd.Flags().Changed("wait-timeout") && !wait {
+				return nil, errors.New("--wait-timeout requires --wait")
 			}
-			if timeout < time.Second || timeout > 30*time.Minute {
-				return nil, errors.New("--timeout must be from 1s to 30m")
+			if waitTimeout < time.Second || waitTimeout > 30*time.Minute {
+				return nil, errors.New("--wait-timeout must be from 1s to 30m")
 			}
 			displayText, _ := cmd.Flags().GetString("display")
 			display, err := computerDisplaySize(displayText)
 			if err != nil {
 				return nil, err
 			}
-			var ttlSeconds *int
-			if cmd.Flags().Changed("ttl") {
-				ttl, _ := cmd.Flags().GetDuration("ttl")
-				seconds, err := computerTTLSeconds(ttl)
+			var timeoutSeconds *int
+			if cmd.Flags().Changed("timeout") {
+				if wait && !cmd.Flags().Changed("wait-timeout") {
+					return nil, errors.New("--timeout now sets the computer's lifetime, not how long --wait waits; pass --wait-timeout to bound --wait, alongside --timeout only if you meant a lifetime")
+				}
+				lifetime, _ := cmd.Flags().GetDuration("timeout")
+				seconds, err := computerLifetimeSeconds(lifetime)
 				if err != nil {
 					return nil, err
 				}
-				ttlSeconds = &seconds
+				timeoutSeconds = &seconds
 			}
 			idText, _ := cmd.Flags().GetString("id")
 			id, err := computerUUIDOrNew(idText)
@@ -127,10 +130,10 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			ctx := cmd.Context()
 			if wait {
 				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, timeout)
+				ctx, cancel = context.WithTimeout(ctx, waitTimeout)
 				defer cancel()
 			}
-			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display, TtlSeconds: ttlSeconds})
+			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display, TimeoutSeconds: timeoutSeconds})
 			var refusal *api.APIError
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
 				switch refusal.Code {
@@ -176,7 +179,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	}
 	command.AddCommand(listComputers)
 	extend := &cobra.Command{Use: "extend C1", Short: "Keep a running computer alive longer"}
-	extend.Flags().Duration("ttl", 0, "Keep it running at least this long from now, whole seconds from 1m to 24h; never past 24h from creation")
+	extend.Flags().Duration("timeout", 0, "Keep it running at least this long from now (the API's timeout_seconds), whole seconds from 1m to 24h; never past 24h from creation")
 	extend.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
 			if len(args) != 1 {
@@ -187,8 +190,8 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				return nil, err
 			}
 			invocation.ComputerSessionID = id.String()
-			ttl, _ := cmd.Flags().GetDuration("ttl")
-			seconds, err := computerTTLSeconds(ttl)
+			lifetime, _ := cmd.Flags().GetDuration("timeout")
+			seconds, err := computerLifetimeSeconds(lifetime)
 			if err != nil {
 				return nil, err
 			}
@@ -540,11 +543,11 @@ func computerUUIDOrNew(value string) (uuid.UUID, error) {
 	return parseComputerUUID(value)
 }
 
-func computerTTLSeconds(ttl time.Duration) (int, error) {
-	if ttl < time.Minute || ttl > 24*time.Hour || ttl%time.Second != 0 {
-		return 0, errors.New("--ttl must be whole seconds from 1m to 24h")
+func computerLifetimeSeconds(lifetime time.Duration) (int, error) {
+	if lifetime < time.Minute || lifetime > 24*time.Hour || lifetime%time.Second != 0 {
+		return 0, errors.New("--timeout must be whole seconds from 1m to 24h")
 	}
-	return int(ttl / time.Second), nil
+	return int(lifetime / time.Second), nil
 }
 
 func computerDisplaySize(value string) (*api.ComputerDisplaySize, error) {
