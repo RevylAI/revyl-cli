@@ -3633,6 +3633,45 @@ func (e SessionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ShiptokVideoUploadResponseCommentAction.
+const (
+	ShiptokVideoUploadResponseCommentActionEdited ShiptokVideoUploadResponseCommentAction = "edited"
+	ShiptokVideoUploadResponseCommentActionNone   ShiptokVideoUploadResponseCommentAction = "none"
+	ShiptokVideoUploadResponseCommentActionPosted ShiptokVideoUploadResponseCommentAction = "posted"
+)
+
+// Valid indicates whether the value is a known member of the ShiptokVideoUploadResponseCommentAction enum.
+func (e ShiptokVideoUploadResponseCommentAction) Valid() bool {
+	switch e {
+	case ShiptokVideoUploadResponseCommentActionEdited:
+		return true
+	case ShiptokVideoUploadResponseCommentActionNone:
+		return true
+	case ShiptokVideoUploadResponseCommentActionPosted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ShiptokVideoUploadResponseCommentError.
+const (
+	ShiptokVideoUploadResponseCommentErrorCommentRecordingFailed ShiptokVideoUploadResponseCommentError = "comment_recording_failed"
+	ShiptokVideoUploadResponseCommentErrorGithubUnavailable      ShiptokVideoUploadResponseCommentError = "github_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ShiptokVideoUploadResponseCommentError enum.
+func (e ShiptokVideoUploadResponseCommentError) Valid() bool {
+	switch e {
+	case ShiptokVideoUploadResponseCommentErrorCommentRecordingFailed:
+		return true
+	case ShiptokVideoUploadResponseCommentErrorGithubUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StepType.
 const (
 	StepTypeBack            StepType = "back"
@@ -4128,6 +4167,24 @@ func (e GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDet
 	case GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevelFull:
 		return true
 	case GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevelPreview:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind.
+const (
+	UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKindIssue       UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind = "issue"
+	UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKindPullRequest UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind = "pull_request"
+)
+
+// Valid indicates whether the value is a known member of the UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind enum.
+func (e UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind) Valid() bool {
+	switch e {
+	case UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKindIssue:
+		return true
+	case UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKindPullRequest:
 		return true
 	default:
 		return false
@@ -10624,6 +10681,21 @@ type ShareableReportResponse struct {
 	ShareableLink string `json:"shareable_link"`
 }
 
+// ShiptokVideoUploadResponse defines model for ShiptokVideoUploadResponse.
+type ShiptokVideoUploadResponse struct {
+	CommentAction ShiptokVideoUploadResponseCommentAction `json:"comment_action"`
+	CommentError  *ShiptokVideoUploadResponseCommentError `json:"comment_error,omitempty"`
+	CommentUrl    *string                                 `json:"comment_url,omitempty"`
+	Url           string                                  `json:"url"`
+	VideoId       openapi_types.UUID                      `json:"video_id"`
+}
+
+// ShiptokVideoUploadResponseCommentAction defines model for ShiptokVideoUploadResponse.CommentAction.
+type ShiptokVideoUploadResponseCommentAction string
+
+// ShiptokVideoUploadResponseCommentError defines model for ShiptokVideoUploadResponse.CommentError.
+type ShiptokVideoUploadResponseCommentError string
+
 // SimpleTestItem Simple test item with essential fields for dropdowns/lists.
 //
 // Attributes:
@@ -12781,6 +12853,17 @@ type GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams st
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
+// UploadShiptokVideoApiV1ShiptokVideosPostMultipartBody defines parameters for UploadShiptokVideoApiV1ShiptokVideosPost.
+type UploadShiptokVideoApiV1ShiptokVideosPostMultipartBody struct {
+	File             openapi_types.File                                                    `json:"file"`
+	GithubNumber     int                                                                   `json:"github_number"`
+	GithubRepository string                                                                `json:"github_repository"`
+	GithubTargetKind UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind `json:"github_target_kind"`
+}
+
+// UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind defines parameters for UploadShiptokVideoApiV1ShiptokVideosPost.
+type UploadShiptokVideoApiV1ShiptokVideosPostMultipartBodyGithubTargetKind string
+
 // CreateSupportRequestMultipartBody defines parameters for CreateSupportRequest.
 type CreateSupportRequestMultipartBody struct {
 	Attachments *[]openapi_types.File `json:"attachments,omitempty"`
@@ -13214,6 +13297,9 @@ type GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableRep
 
 // GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody defines body for GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPost for application/json ContentType.
 type GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody = ShareableReportByTaskModel
+
+// UploadShiptokVideoApiV1ShiptokVideosPostMultipartRequestBody defines body for UploadShiptokVideoApiV1ShiptokVideosPost for multipart/form-data ContentType.
+type UploadShiptokVideoApiV1ShiptokVideosPostMultipartRequestBody UploadShiptokVideoApiV1ShiptokVideosPostMultipartBody
 
 // CreateSupportRequestJSONRequestBody defines body for CreateSupportRequest for application/json ContentType.
 type CreateSupportRequestJSONRequestBody = SupportRequest
