@@ -236,8 +236,8 @@ parse as URLs.
 While a Web session is running, organization members who can control it can
 click, scroll, type, and press Enter, Tab, Backspace, Escape, and the arrow keys
 in the live viewer. Each input is recorded as a Manual control step, and typed
-text is never written to the report. Viewers and shared report links get a
-view-only player. Drag and hover are not available in the viewer; use CLI or
+text is never written to the report. Shared report links get a view-only
+player. Drag and hover are not available in the viewer; use CLI or
 MCP actions for them.
 
 Use the returned `session_id` for screenshots, navigation, taps, typing, reports,
