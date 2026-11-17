@@ -567,6 +567,15 @@ func TestToolCallPassesThroughOnlyTheAtlasInputRefusal(t *testing.T) {
 			t.Errorf("stderr %q: got %s %q", stderr, code, message)
 		}
 	}
+	for stderr, want := range map[string]string{
+		"Error: --range cannot be combined with --recent-build-limit\n": "range cannot be combined with recent_build_limit; pass only one of them",
+		"Error: --range cannot be combined with --from\n":               "range cannot be combined with from; pass only one of them",
+	} {
+		code, message := classifyInvestigationFailure(stderr + "TOKEN=private-value https://private.example.com")
+		if code != "invalid_arguments" || message != want {
+			t.Errorf("stderr %q: got %s %q", stderr, code, message)
+		}
+	}
 	code, message := classifyInvestigationFailure("Error: private payload from https://private.example.com")
 	if code != "command_failed" || strings.Contains(message, "private") {
 		t.Errorf("provider output escaped: %s %q", code, message)

@@ -18,6 +18,16 @@ var atlasInputRefusal = regexp.MustCompile(
 		`Launch filter term \d+ names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone`,
 )
 
+// atlasArgumentConflict matches the CLI's refusals of two scope arguments
+// that exclude each other. They name flags only, never values.
+var atlasArgumentConflict = regexp.MustCompile(
+	`--([a-z-]+) cannot be combined with --([a-z-]+)`,
+)
+
+func toolArgumentName(flag string) string {
+	return strings.ReplaceAll(flag, "-", "_")
+}
+
 type toolRecovery struct {
 	Tool      string         `json:"tool"`
 	Arguments map[string]any `json:"arguments"`
@@ -67,6 +77,9 @@ func toolFailure(tool toolcatalog.Definition, input map[string]any, code, messag
 func classifyInvestigationFailure(stderr string) (string, string) {
 	if refusal := atlasInputRefusal.FindString(stderr); refusal != "" {
 		return "invalid_arguments", refusal
+	}
+	if conflict := atlasArgumentConflict.FindStringSubmatch(stderr); conflict != nil {
+		return "invalid_arguments", fmt.Sprintf("%s cannot be combined with %s; pass only one of them", toolArgumentName(conflict[1]), toolArgumentName(conflict[2]))
 	}
 	hint := investigationFailureHint(stderr)
 	switch {
