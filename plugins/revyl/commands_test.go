@@ -126,6 +126,7 @@ var hostedToolNames = map[string]bool{
 	"stop_device_session": true, "screenshot": true, "device_instruction": true, "device_validation": true,
 	"get_device_step": true, "start_exploration": true, "get_exploration": true, "cancel_exploration": true,
 	"atlas_search": true, "atlas_graph": true, "list_builds": true, "get_build": true,
+	"get_session_recording": true,
 }
 
 func TestVerifierAgentRefusesUnauthorizedWorkAndLoadsHostedToolsFirst(t *testing.T) {

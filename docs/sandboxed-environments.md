@@ -34,11 +34,12 @@ broad mounts, unrestricted egress, or a shared home directory.
 ### Claude Code on the web
 
 Put the installation command in the Claude Cloud environment's setup script and
-make the `PATH` setting available to subsequent commands. The default **Trusted**
-network policy allows package registries, including PyPI, but does not include
-the Revyl API. Select **Custom**, retain the default package-manager allowlist,
-and add `backend.revyl.ai`. Add the operation-specific destinations below only
-when needed; do not switch to unrestricted network access.
+make the `PATH` setting available to subsequent commands. Choose **Limited**
+network access, keep **Allow package managers** checked so PyPI stays reachable,
+and add `backend.revyl.ai` under **Allowed domains**; environments that used
+the older **Trusted** or **Custom** policies open as **Limited**. Add the
+operation-specific destinations below only when needed; do not switch to
+**Full** network access.
 
 Claude Cloud environment variables and setup scripts are visible to people who
 can edit that environment. Use a dedicated, appropriately scoped credential only

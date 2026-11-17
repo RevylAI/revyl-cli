@@ -107,7 +107,8 @@ once per commit. It never runs the CLI or starts anything.
 
 Both hosts load the root `.mcp.json`, which names only Revyl's hosted
 `revyl-workspace` server at `https://backend.revyl.ai/api/v1/mcp`. Its tools
-find builds, show and act on device sessions, take screenshots, and read Atlas.
+find builds, show and act on device sessions, take screenshots, read Atlas,
+and list, run, read, create and change saved tests.
 New hosted tools appear when the backend deploys them, without a plugin
 release, so the skills check which tools exist and fall back to the CLI. The
 server signs in with OAuth, separately from the CLI: in Claude Code through

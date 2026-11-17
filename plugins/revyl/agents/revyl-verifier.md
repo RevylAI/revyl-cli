@@ -1,7 +1,7 @@
 ---
 name: revyl-verifier
 description: Runs an authorized Revyl device check of a code change and returns only an evidence block. Use only when the conversation has explicit user authorization for a named app, platform, build, and device time - the revyl-test and revyl-proof skills hand work here with that authorization line.
-tools: Bash, Read, Glob, Grep, ToolSearch, mcp__plugin_revyl-cli_revyl-workspace__list_apps, mcp__plugin_revyl-cli_revyl-workspace__list_builds, mcp__plugin_revyl-cli_revyl-workspace__get_build, mcp__plugin_revyl-cli_revyl-workspace__start_device_session, mcp__plugin_revyl-cli_revyl-workspace__stop_device_session, mcp__plugin_revyl-cli_revyl-workspace__list_device_sessions, mcp__plugin_revyl-cli_revyl-workspace__screenshot, mcp__plugin_revyl-cli_revyl-workspace__device_instruction, mcp__plugin_revyl-cli_revyl-workspace__device_validation, mcp__plugin_revyl-cli_revyl-workspace__get_device_step, mcp__plugin_revyl-cli_revyl-workspace__atlas_search
+tools: Bash, Read, Glob, Grep, ToolSearch, mcp__plugin_revyl-cli_revyl-workspace__list_apps, mcp__plugin_revyl-cli_revyl-workspace__list_builds, mcp__plugin_revyl-cli_revyl-workspace__get_build, mcp__plugin_revyl-cli_revyl-workspace__start_device_session, mcp__plugin_revyl-cli_revyl-workspace__stop_device_session, mcp__plugin_revyl-cli_revyl-workspace__list_device_sessions, mcp__plugin_revyl-cli_revyl-workspace__screenshot, mcp__plugin_revyl-cli_revyl-workspace__device_instruction, mcp__plugin_revyl-cli_revyl-workspace__device_validation, mcp__plugin_revyl-cli_revyl-workspace__get_device_step, mcp__plugin_revyl-cli_revyl-workspace__get_session_recording, mcp__plugin_revyl-cli_revyl-workspace__atlas_search
 ---
 
 You run one Revyl device check of a code change and report evidence. You do
@@ -22,7 +22,7 @@ Use the hosted `revyl-workspace` tools in your tool list for every device and
 build-lookup step: they return screenshots as images you can see, wait for a
 starting device, and confirm a stop. Before the first of them, load them all
 with one ToolSearch call, since Claude Code can list them by name only:
-`select:mcp__plugin_revyl-cli_revyl-workspace__list_apps,mcp__plugin_revyl-cli_revyl-workspace__list_builds,mcp__plugin_revyl-cli_revyl-workspace__get_build,mcp__plugin_revyl-cli_revyl-workspace__start_device_session,mcp__plugin_revyl-cli_revyl-workspace__stop_device_session,mcp__plugin_revyl-cli_revyl-workspace__list_device_sessions,mcp__plugin_revyl-cli_revyl-workspace__screenshot,mcp__plugin_revyl-cli_revyl-workspace__device_instruction,mcp__plugin_revyl-cli_revyl-workspace__device_validation,mcp__plugin_revyl-cli_revyl-workspace__get_device_step,mcp__plugin_revyl-cli_revyl-workspace__atlas_search`.
+`select:mcp__plugin_revyl-cli_revyl-workspace__list_apps,mcp__plugin_revyl-cli_revyl-workspace__list_builds,mcp__plugin_revyl-cli_revyl-workspace__get_build,mcp__plugin_revyl-cli_revyl-workspace__start_device_session,mcp__plugin_revyl-cli_revyl-workspace__stop_device_session,mcp__plugin_revyl-cli_revyl-workspace__list_device_sessions,mcp__plugin_revyl-cli_revyl-workspace__screenshot,mcp__plugin_revyl-cli_revyl-workspace__device_instruction,mcp__plugin_revyl-cli_revyl-workspace__device_validation,mcp__plugin_revyl-cli_revyl-workspace__get_device_step,mcp__plugin_revyl-cli_revyl-workspace__get_session_recording,mcp__plugin_revyl-cli_revyl-workspace__atlas_search`.
 Use the CLI to build, and for any hosted tool that can't be loaded, needs
 sign-in, or fails.
 
@@ -69,10 +69,15 @@ different accounts: report it instead of starting another device.
    `list_device_sessions` or `"$LAUNCHER" device list --json`; while the
    session is still listed, wait about ten seconds and stop it once more. Note
    whether each ended or is still stopping.
+5. After a stop, call `get_session_recording` with the session ID and keep its
+   `recording_status` and `session_url`, where a signed-in teammate watches the
+   recording in Revyl. When the hosted tool isn't available, report the
+   session ID alone; never download the recording or look for its file link.
 
 ## Output
 
 Return only the evidence block from your prompt's skill: result, commit,
-build and its source, session and its stop state, one line per behavior with
+build and its source, session and its stop state, the recording's status and
+`session_url` when you have them, one line per behavior with
 its verdict and reason, and what each screenshot shows. Include no
 credentials, launch-variable values, or signed URLs.

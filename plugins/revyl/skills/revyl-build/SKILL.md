@@ -58,6 +58,12 @@ its head commit (find it with hosted `list_builds` or
 `"$LAUNCHER" build list --app <app-id> --branch <branch> --json`). Say so
 instead of building again, unless the user still wants a new build.
 
+The cloud build below uploads this checkout. When the user wants a build of a
+branch already pushed to GitHub instead, hosted `start_build` builds that
+branch's head from the repository linked to the app in Revyl and uploads
+nothing; it needs the same one confirmation, then follow it with hosted
+`get_build`.
+
 ## Confirm once
 
 Ask one question naming the app, profile, platform, and that a cloud build

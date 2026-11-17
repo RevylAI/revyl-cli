@@ -1,0 +1,104 @@
+{
+  "name": "revyl",
+  "displayName": "Revyl",
+  "version": "0.1.0",
+  "description": "Open your mobile app's Revyl Atlas map and live cloud iOS, Android, web and macOS sessions in a Revyl panel beside your code and inside GitHub Copilot Chat, through Revyl's hosted MCP server. Sign in with your Revyl account on first use; no API key or local install needed.",
+  "publisher": "revyl",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "homepage": "https://revyl.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RevylAI/revyl-cli",
+    "directory": "plugins/revyl-vscode"
+  },
+  "bugs": {
+    "email": "support@revyl.ai"
+  },
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Testing"
+  ],
+  "keywords": [
+    "revyl",
+    "mcp",
+    "copilot",
+    "mobile testing",
+    "ios simulator",
+    "android emulator"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "revyl.openAtlas",
+        "title": "Open Atlas",
+        "category": "Revyl"
+      },
+      {
+        "command": "revyl.openDeviceSession",
+        "title": "Open Device Session",
+        "category": "Revyl"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "revyl_open_panel",
+        "toolReferenceName": "revylPanel",
+        "displayName": "Open Revyl panel",
+        "userDescription": "Open Revyl Atlas or a device session in an editor tab beside the code.",
+        "modelDescription": "Opens or focuses the Revyl panel, an editor tab beside the code that shows Revyl Atlas or a live device session. Use it when the user asks to open Revyl, Atlas, or a device session in a panel, tab, or beside the code. Empty input opens Atlas. It never starts a device session: pass session_id only for a session that already runs.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(device-mobile)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": ["atlas", "device"],
+              "description": "View to open: atlas or device. Defaults to device when session_id is given, else atlas."
+            },
+            "app_id": {
+              "type": "string",
+              "description": "App UUID, for the atlas view only."
+            },
+            "session_id": {
+              "type": "string",
+              "description": "Running device session UUID, for the device view only. Without it the device view lists sessions."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "revyl",
+        "label": "Revyl"
+      }
+    ],
+    "chatSkills": [
+      {
+        "path": "./skills/revyl-workspace/SKILL.md"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p .",
+    "sync-skill": "node scripts/sync-skill.mjs",
+    "test": "tsc -p . && node --test",
+    "package": "vsce package --out revyl.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/vscode": "1.109.0",
+    "@vscode/vsce": "4.1.1",
+    "ovsx": "1.4.0",
+    "typescript": "^5.8.3"
+  }
+}

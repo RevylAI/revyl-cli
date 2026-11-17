@@ -104,7 +104,11 @@ subagent.
 ## Draft and publish
 
 Return a draft headed `## Revyl device proof` with the full SHA, the build ID
-and source, each validation verdict, and only evidence you collected. Posting
+and source, each validation verdict, and only evidence you collected. When the
+hosted `get_session_recording` is listed, call it after the stop and add the
+recording's `session_url`, which opens it in Revyl for signed-in teammates; it
+never returns the recording's file link, and the CLI has no equivalent, so
+without it name the session ID alone. Posting
 it, `session share`, and `session publish` are separate external actions: ask
 first, and name the audience. Never include credentials, launch-variable
 values, or signed URLs.

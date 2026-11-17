@@ -722,7 +722,7 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			case status.State == "failed" || status.State == "owner_lost":
 				exitCode, exitMessage = 125, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
 			case invocation.waitedForActive && status.State == "starting":
-				exitCode, exitMessage = 124, "computer is still starting at --timeout; check it with revyl computer get, or stop it"
+				exitCode, exitMessage = 124, "computer is still starting at --wait-timeout; check it with revyl computer get, or stop it"
 			case invocation.waitedForActive && status.State != "active":
 				exitCode, exitMessage = 1, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
 			case status.Evidence != "recorded":
