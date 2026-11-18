@@ -3366,6 +3366,24 @@ func (e RemoteBuildStepStatus) Valid() bool {
 	}
 }
 
+// Defines values for ReportContextResponseTestDefinitionSource.
+const (
+	ReportContextResponseTestDefinitionSourceCliUpload     ReportContextResponseTestDefinitionSource = "cli_upload"
+	ReportContextResponseTestDefinitionSourceGitCommitRead ReportContextResponseTestDefinitionSource = "git_commit_read"
+)
+
+// Valid indicates whether the value is a known member of the ReportContextResponseTestDefinitionSource enum.
+func (e ReportContextResponseTestDefinitionSource) Valid() bool {
+	switch e {
+	case ReportContextResponseTestDefinitionSourceCliUpload:
+		return true
+	case ReportContextResponseTestDefinitionSourceGitCommitRead:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReportContextStepResponseEffectiveStatus.
 const (
 	ReportContextStepResponseEffectiveStatusFailed  ReportContextStepResponseEffectiveStatus = "failed"
@@ -3849,6 +3867,48 @@ func (e TestDefinitionRunErrorResponseCode) Valid() bool {
 	case TestDefinitionRunErrorResponseCodeTestDefinitionGitProjectLimitExceeded:
 		return true
 	case TestDefinitionRunErrorResponseCodeTestDefinitionGitReadUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TestRunQueuedInWorkflowTestDefinitionSource.
+const (
+	TestRunQueuedInWorkflowTestDefinitionSourceCliUpload     TestRunQueuedInWorkflowTestDefinitionSource = "cli_upload"
+	TestRunQueuedInWorkflowTestDefinitionSourceGitCommitRead TestRunQueuedInWorkflowTestDefinitionSource = "git_commit_read"
+)
+
+// Valid indicates whether the value is a known member of the TestRunQueuedInWorkflowTestDefinitionSource enum.
+func (e TestRunQueuedInWorkflowTestDefinitionSource) Valid() bool {
+	switch e {
+	case TestRunQueuedInWorkflowTestDefinitionSourceCliUpload:
+		return true
+	case TestRunQueuedInWorkflowTestDefinitionSourceGitCommitRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TestRunResult.
+const (
+	TestRunResultFailed  TestRunResult = "failed"
+	TestRunResultPassed  TestRunResult = "passed"
+	TestRunResultRunning TestRunResult = "running"
+	TestRunResultUnknown TestRunResult = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the TestRunResult enum.
+func (e TestRunResult) Valid() bool {
+	switch e {
+	case TestRunResultFailed:
+		return true
+	case TestRunResultPassed:
+		return true
+	case TestRunResultRunning:
+		return true
+	case TestRunResultUnknown:
 		return true
 	default:
 		return false
@@ -8127,11 +8187,14 @@ type DeviceSessionDetailResponseViewerKind string
 
 // DeviceSessionHistoryItem Session history row, with build attribution fixed to its starting build.
 type DeviceSessionHistoryItem struct {
-	AppDefaultBranchId     *string                                    `json:"app_default_branch_id,omitempty"`
-	AppId                  *string                                    `json:"app_id,omitempty"`
-	AppName                *string                                    `json:"app_name,omitempty"`
-	BilledTo               *string                                    `json:"billed_to,omitempty"`
-	BranchId               *string                                    `json:"branch_id,omitempty"`
+	AppDefaultBranchId *string `json:"app_default_branch_id,omitempty"`
+	AppId              *string `json:"app_id,omitempty"`
+	AppName            *string `json:"app_name,omitempty"`
+	BilledTo           *string `json:"billed_to,omitempty"`
+	BranchId           *string `json:"branch_id,omitempty"`
+
+	// BranchIsInitialBranch Whether branch_name is the app's initial branch, the base branch Revyl created with the app; null when the run has no build branch.
+	BranchIsInitialBranch  *bool                                      `json:"branch_is_initial_branch,omitempty"`
 	BranchName             *string                                    `json:"branch_name,omitempty"`
 	Browser                *CognisimSchemasSchemasWebSchemaWebBrowser `json:"browser,omitempty"`
 	BuildId                *string                                    `json:"build_id,omitempty"`
@@ -8146,26 +8209,36 @@ type DeviceSessionHistoryItem struct {
 	DurationSeconds                 *float32                                        `json:"duration_seconds,omitempty"`
 	EndedAt                         *string                                         `json:"ended_at,omitempty"`
 	ErrorMessage                    *string                                         `json:"error_message,omitempty"`
-	HasVideo                        *bool                                           `json:"has_video,omitempty"`
-	Id                              string                                          `json:"id"`
-	OrgId                           string                                          `json:"org_id"`
-	OsVersion                       *string                                         `json:"os_version,omitempty"`
-	Platform                        *string                                         `json:"platform,omitempty"`
-	RecordingStatus                 *SessionRecordingStatus                         `json:"recording_status,omitempty"`
-	ReportId                        *string                                         `json:"report_id,omitempty"`
-	Source                          *string                                         `json:"source,omitempty"`
-	SourceMetadata                  *map[string]interface{}                         `json:"source_metadata,omitempty"`
-	StartedAt                       *string                                         `json:"started_at,omitempty"`
-	Status                          string                                          `json:"status"`
-	StepCount                       *int                                            `json:"step_count,omitempty"`
-	TestExecutionId                 *string                                         `json:"test_execution_id,omitempty"`
-	TestId                          *string                                         `json:"test_id,omitempty"`
-	TestName                        *string                                         `json:"test_name,omitempty"`
-	TraceId                         *string                                         `json:"trace_id,omitempty"`
-	UserEmail                       *string                                         `json:"user_email,omitempty"`
-	WorkflowExecutionId             *string                                         `json:"workflow_execution_id,omitempty"`
-	WorkflowName                    *string                                         `json:"workflow_name,omitempty"`
-	WorkflowRunId                   *string                                         `json:"workflow_run_id,omitempty"`
+
+	// GitBranchIsRepositoryDefaultBranch Whether git_branch_name was its repository's default branch when the run started; null when the run couldn't check it.
+	GitBranchIsRepositoryDefaultBranch *bool   `json:"git_branch_is_repository_default_branch,omitempty"`
+	GitBranchName                      *string `json:"git_branch_name,omitempty"`
+
+	// GitCommitSha The Git commit the run's test definition came from: the commit Revyl read the file at, or the checkout's HEAD commit when the CLI sent the checkout's files; null when the run has no test definition snapshot or its checkout had no commit.
+	GitCommitSha *string `json:"git_commit_sha,omitempty"`
+
+	// HasUncommittedDefinitionChanges Whether the checkout the CLI sent the run's test definition from had uncommitted changes in .revyl/tests, .revyl/modules or .revyl/scripts, so the definition can differ from git_commit_sha; false for a definition Revyl read from Git, and null when the run has no test definition snapshot. Changes outside those folders, such as app code, don't count.
+	HasUncommittedDefinitionChanges *bool                   `json:"has_uncommitted_definition_changes,omitempty"`
+	HasVideo                        *bool                   `json:"has_video,omitempty"`
+	Id                              string                  `json:"id"`
+	OrgId                           string                  `json:"org_id"`
+	OsVersion                       *string                 `json:"os_version,omitempty"`
+	Platform                        *string                 `json:"platform,omitempty"`
+	RecordingStatus                 *SessionRecordingStatus `json:"recording_status,omitempty"`
+	ReportId                        *string                 `json:"report_id,omitempty"`
+	Source                          *string                 `json:"source,omitempty"`
+	SourceMetadata                  *map[string]interface{} `json:"source_metadata,omitempty"`
+	StartedAt                       *string                 `json:"started_at,omitempty"`
+	Status                          string                  `json:"status"`
+	StepCount                       *int                    `json:"step_count,omitempty"`
+	TestExecutionId                 *string                 `json:"test_execution_id,omitempty"`
+	TestId                          *string                 `json:"test_id,omitempty"`
+	TestName                        *string                 `json:"test_name,omitempty"`
+	TraceId                         *string                 `json:"trace_id,omitempty"`
+	UserEmail                       *string                 `json:"user_email,omitempty"`
+	WorkflowExecutionId             *string                 `json:"workflow_execution_id,omitempty"`
+	WorkflowName                    *string                 `json:"workflow_name,omitempty"`
+	WorkflowRunId                   *string                 `json:"workflow_run_id,omitempty"`
 }
 
 // DeviceSessionHistoryItemComputerRelease defines model for DeviceSessionHistoryItem.ComputerRelease.
@@ -10267,75 +10340,92 @@ type ReportContextActionResponse struct {
 
 // ReportContextResponse Canonical high-context report payload for CLI JSON consumption.
 type ReportContextResponse struct {
-	AppId        *string    `json:"app_id,omitempty"`
-	AppName      *string    `json:"app_name,omitempty"`
-	BranchId     *string    `json:"branch_id,omitempty"`
-	BranchName   *string    `json:"branch_name,omitempty"`
-	BuildVersion *string    `json:"build_version,omitempty"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
-	CreatedAt    *string    `json:"created_at,omitempty"`
+	AppId    *string `json:"app_id,omitempty"`
+	AppName  *string `json:"app_name,omitempty"`
+	BranchId *string `json:"branch_id,omitempty"`
+
+	// BranchIsInitialBranch Whether branch_name is the app's initial branch, the base branch Revyl created with the app; null when the run has no build branch.
+	BranchIsInitialBranch *bool      `json:"branch_is_initial_branch,omitempty"`
+	BranchName            *string    `json:"branch_name,omitempty"`
+	BuildVersion          *string    `json:"build_version,omitempty"`
+	CompletedAt           *time.Time `json:"completed_at,omitempty"`
+	CreatedAt             *string    `json:"created_at,omitempty"`
 
 	// DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
 	//
 	// This schema is still actively used and stored in the reports.device_metadata
 	// column in the database.
-	DeviceMetadata         *DeviceMetadata                    `json:"device_metadata,omitempty"`
-	DeviceModel            *string                            `json:"device_model,omitempty"`
-	DeviceScaleFactor      *float32                           `json:"device_scale_factor,omitempty"`
-	DeviceStatePartial     *bool                              `json:"device_state_partial,omitempty"`
-	DeviceStateUrl         *string                            `json:"device_state_url,omitempty"`
-	DurationSeconds        *float32                           `json:"duration_seconds,omitempty"`
-	EffectiveFailedSteps   *int                               `json:"effective_failed_steps,omitempty"`
-	EffectivePassedSteps   *int                               `json:"effective_passed_steps,omitempty"`
-	EffectivePendingSteps  *int                               `json:"effective_pending_steps,omitempty"`
-	EffectiveRunningSteps  *int                               `json:"effective_running_steps,omitempty"`
-	EffectiveWarningSteps  *int                               `json:"effective_warning_steps,omitempty"`
-	ErrorMessage           *string                            `json:"error_message,omitempty"`
-	ErrorType              *string                            `json:"error_type,omitempty"`
-	ExecutionId            *string                            `json:"execution_id,omitempty"`
-	FailedSteps            *int                               `json:"failed_steps,omitempty"`
-	HardwareMetricsPartial *bool                              `json:"hardware_metrics_partial,omitempty"`
-	HardwareMetricsUrl     *string                            `json:"hardware_metrics_url,omitempty"`
-	Id                     string                             `json:"id"`
-	LaunchEnvVarIds        *[]string                          `json:"launch_env_var_ids,omitempty"`
-	LaunchEnvVarKeys       *[]string                          `json:"launch_env_var_keys,omitempty"`
-	LaunchEnvVarSnapshot   *[]LaunchEnvVarSnapshotEntry       `json:"launch_env_var_snapshot,omitempty"`
-	Locale                 *string                            `json:"locale,omitempty"`
-	NetworkRequestsPartial *bool                              `json:"network_requests_partial,omitempty"`
-	NetworkRequestsUrl     *string                            `json:"network_requests_url,omitempty"`
-	OrgId                  string                             `json:"org_id"`
-	OsVersion              *string                            `json:"os_version,omitempty"`
-	PassedSteps            *int                               `json:"passed_steps,omitempty"`
-	PerfettoTraceUrl       *string                            `json:"perfetto_trace_url,omitempty"`
-	Platform               *string                            `json:"platform,omitempty"`
-	ReportUrl              *string                            `json:"report_url,omitempty"`
-	ResolvedBuildId        *string                            `json:"resolved_build_id,omitempty"`
-	RuntimeCheckerFindings *[]IOSRuntimeCheckerFindingSummary `json:"runtime_checker_findings,omitempty"`
-	ScreenHeight           *int                               `json:"screen_height,omitempty"`
-	ScreenWidth            *int                               `json:"screen_width,omitempty"`
-	SessionId              *string                            `json:"session_id,omitempty"`
-	SessionStatus          *string                            `json:"session_status,omitempty"`
-	StartedAt              *time.Time                         `json:"started_at,omitempty"`
-	Steps                  *[]ReportContextStepResponse       `json:"steps,omitempty"`
-	Success                *bool                              `json:"success,omitempty"`
-	SystemPrompt           *string                            `json:"system_prompt,omitempty"`
-	TestGoalSummary        *string                            `json:"test_goal_summary,omitempty"`
-	TestId                 *string                            `json:"test_id,omitempty"`
-	TestName               *string                            `json:"test_name,omitempty"`
-	TestVersionId          *string                            `json:"test_version_id,omitempty"`
-	TestVersionNumber      *int                               `json:"test_version_number,omitempty"`
-	Tldr                   *ReportContextResponse_Tldr        `json:"tldr,omitempty"`
-	TotalSteps             *int                               `json:"total_steps,omitempty"`
-	TotalValidations       *int                               `json:"total_validations,omitempty"`
-	TraceId                *string                            `json:"trace_id,omitempty"`
-	UpdatedAt              *string                            `json:"updated_at,omitempty"`
-	ValidationsPassed      *int                               `json:"validations_passed,omitempty"`
-	VideoDuration          *float32                           `json:"video_duration,omitempty"`
-	VideoUrl               *string                            `json:"video_url,omitempty"`
-	WarningSteps           *int                               `json:"warning_steps,omitempty"`
-	WhepUrl                *string                            `json:"whep_url,omitempty"`
-	WorkflowExecutionId    *string                            `json:"workflow_execution_id,omitempty"`
+	DeviceMetadata        *DeviceMetadata `json:"device_metadata,omitempty"`
+	DeviceModel           *string         `json:"device_model,omitempty"`
+	DeviceScaleFactor     *float32        `json:"device_scale_factor,omitempty"`
+	DeviceStatePartial    *bool           `json:"device_state_partial,omitempty"`
+	DeviceStateUrl        *string         `json:"device_state_url,omitempty"`
+	DurationSeconds       *float32        `json:"duration_seconds,omitempty"`
+	EffectiveFailedSteps  *int            `json:"effective_failed_steps,omitempty"`
+	EffectivePassedSteps  *int            `json:"effective_passed_steps,omitempty"`
+	EffectivePendingSteps *int            `json:"effective_pending_steps,omitempty"`
+	EffectiveRunningSteps *int            `json:"effective_running_steps,omitempty"`
+	EffectiveWarningSteps *int            `json:"effective_warning_steps,omitempty"`
+	ErrorMessage          *string         `json:"error_message,omitempty"`
+	ErrorType             *string         `json:"error_type,omitempty"`
+	ExecutionId           *string         `json:"execution_id,omitempty"`
+	FailedSteps           *int            `json:"failed_steps,omitempty"`
+
+	// GitBranchIsRepositoryDefaultBranch Whether git_branch_name was its repository's default branch when the run started; null when the run couldn't check it.
+	GitBranchIsRepositoryDefaultBranch *bool   `json:"git_branch_is_repository_default_branch,omitempty"`
+	GitBranchName                      *string `json:"git_branch_name,omitempty"`
+
+	// GitCommitSha The Git commit the run's test definition came from: the commit Revyl read the file at, or the checkout's HEAD commit when the CLI sent the checkout's files; null when the run has no test definition snapshot or its checkout had no commit.
+	GitCommitSha           *string `json:"git_commit_sha,omitempty"`
+	HardwareMetricsPartial *bool   `json:"hardware_metrics_partial,omitempty"`
+	HardwareMetricsUrl     *string `json:"hardware_metrics_url,omitempty"`
+
+	// HasUncommittedDefinitionChanges Whether the checkout the CLI sent the run's test definition from had uncommitted changes in .revyl/tests, .revyl/modules or .revyl/scripts, so the definition can differ from git_commit_sha; false for a definition Revyl read from Git, and null when the run has no test definition snapshot. Changes outside those folders, such as app code, don't count.
+	HasUncommittedDefinitionChanges *bool                                      `json:"has_uncommitted_definition_changes,omitempty"`
+	Id                              string                                     `json:"id"`
+	LaunchEnvVarIds                 *[]string                                  `json:"launch_env_var_ids,omitempty"`
+	LaunchEnvVarKeys                *[]string                                  `json:"launch_env_var_keys,omitempty"`
+	LaunchEnvVarSnapshot            *[]LaunchEnvVarSnapshotEntry               `json:"launch_env_var_snapshot,omitempty"`
+	Locale                          *string                                    `json:"locale,omitempty"`
+	NetworkRequestsPartial          *bool                                      `json:"network_requests_partial,omitempty"`
+	NetworkRequestsUrl              *string                                    `json:"network_requests_url,omitempty"`
+	OrgId                           string                                     `json:"org_id"`
+	OsVersion                       *string                                    `json:"os_version,omitempty"`
+	PassedSteps                     *int                                       `json:"passed_steps,omitempty"`
+	PerfettoTraceUrl                *string                                    `json:"perfetto_trace_url,omitempty"`
+	Platform                        *string                                    `json:"platform,omitempty"`
+	ReportUrl                       *string                                    `json:"report_url,omitempty"`
+	ResolvedBuildId                 *string                                    `json:"resolved_build_id,omitempty"`
+	RuntimeCheckerFindings          *[]IOSRuntimeCheckerFindingSummary         `json:"runtime_checker_findings,omitempty"`
+	ScreenHeight                    *int                                       `json:"screen_height,omitempty"`
+	ScreenWidth                     *int                                       `json:"screen_width,omitempty"`
+	SessionId                       *string                                    `json:"session_id,omitempty"`
+	SessionStatus                   *string                                    `json:"session_status,omitempty"`
+	StartedAt                       *time.Time                                 `json:"started_at,omitempty"`
+	Steps                           *[]ReportContextStepResponse               `json:"steps,omitempty"`
+	Success                         *bool                                      `json:"success,omitempty"`
+	SystemPrompt                    *string                                    `json:"system_prompt,omitempty"`
+	TestDefinitionSource            *ReportContextResponseTestDefinitionSource `json:"test_definition_source,omitempty"`
+	TestGoalSummary                 *string                                    `json:"test_goal_summary,omitempty"`
+	TestId                          *string                                    `json:"test_id,omitempty"`
+	TestName                        *string                                    `json:"test_name,omitempty"`
+	TestVersionId                   *string                                    `json:"test_version_id,omitempty"`
+	TestVersionNumber               *int                                       `json:"test_version_number,omitempty"`
+	Tldr                            *ReportContextResponse_Tldr                `json:"tldr,omitempty"`
+	TotalSteps                      *int                                       `json:"total_steps,omitempty"`
+	TotalValidations                *int                                       `json:"total_validations,omitempty"`
+	TraceId                         *string                                    `json:"trace_id,omitempty"`
+	UpdatedAt                       *string                                    `json:"updated_at,omitempty"`
+	ValidationsPassed               *int                                       `json:"validations_passed,omitempty"`
+	VideoDuration                   *float32                                   `json:"video_duration,omitempty"`
+	VideoUrl                        *string                                    `json:"video_url,omitempty"`
+	WarningSteps                    *int                                       `json:"warning_steps,omitempty"`
+	WhepUrl                         *string                                    `json:"whep_url,omitempty"`
+	WorkflowExecutionId             *string                                    `json:"workflow_execution_id,omitempty"`
 }
+
+// ReportContextResponseTestDefinitionSource defines model for ReportContextResponse.TestDefinitionSource.
+type ReportContextResponseTestDefinitionSource string
 
 // ReportContextResponse_Tldr defines model for ReportContextResponse.Tldr.
 type ReportContextResponse_Tldr struct {
@@ -10536,6 +10626,14 @@ type RevylProofHarness struct {
 
 // RevylProofHarnessModelId defines model for RevylProofHarness.ModelId.
 type RevylProofHarnessModelId string
+
+// RunResultCounts How many runs have each run result.
+type RunResultCounts struct {
+	FailedCount  int `json:"failed_count"`
+	PassedCount  int `json:"passed_count"`
+	RunningCount int `json:"running_count"`
+	UnknownCount int `json:"unknown_count"`
+}
 
 // ScriptUsageModuleItem A module that uses a specific script as a step, and is itself used by
 // at least one test
@@ -11158,36 +11256,51 @@ type TestEnhancedHistoryResponse struct {
 // When queried via test_executions_full view, includes status and timing
 // from device_sessions (the source of truth for state).
 type TestExecutionTasksEnhanced struct {
-	AppId                *openapi_types.UUID `json:"app_id,omitempty"`
-	BranchId             *openapi_types.UUID `json:"branch_id,omitempty"`
-	BranchName           *string             `json:"branch_name,omitempty"`
-	BuildId              *openapi_types.UUID `json:"build_id,omitempty"`
-	BuildVersion         *string             `json:"build_version,omitempty"`
-	CompletedAt          *time.Time          `json:"completed_at,omitempty"`
-	CreatedAt            *time.Time          `json:"created_at,omitempty"`
-	CurrentStep          *string             `json:"current_step,omitempty"`
-	CurrentStepIndex     *int                `json:"current_step_index,omitempty"`
-	ErrorMessage         *string             `json:"error_message,omitempty"`
-	ExecutionTimeSeconds *float32            `json:"execution_time_seconds,omitempty"`
+	AppId    *openapi_types.UUID `json:"app_id,omitempty"`
+	BranchId *openapi_types.UUID `json:"branch_id,omitempty"`
+
+	// BranchIsInitialBranch Whether branch_name is the app's initial branch, the base branch Revyl created with the app; null when the run has no build branch.
+	BranchIsInitialBranch *bool               `json:"branch_is_initial_branch,omitempty"`
+	BranchName            *string             `json:"branch_name,omitempty"`
+	BuildId               *openapi_types.UUID `json:"build_id,omitempty"`
+	BuildVersion          *string             `json:"build_version,omitempty"`
+	CompletedAt           *time.Time          `json:"completed_at,omitempty"`
+	CreatedAt             *time.Time          `json:"created_at,omitempty"`
+	CurrentStep           *string             `json:"current_step,omitempty"`
+	CurrentStepIndex      *int                `json:"current_step_index,omitempty"`
+	ErrorMessage          *string             `json:"error_message,omitempty"`
+	ExecutionTimeSeconds  *float32            `json:"execution_time_seconds,omitempty"`
+
+	// GitBranchIsRepositoryDefaultBranch Whether git_branch_name was its repository's default branch when the run started; null when the run couldn't check it.
+	GitBranchIsRepositoryDefaultBranch *bool   `json:"git_branch_is_repository_default_branch,omitempty"`
+	GitBranchName                      *string `json:"git_branch_name,omitempty"`
+
+	// GitCommitSha The Git commit the run's test definition came from: the commit Revyl read the file at, or the checkout's HEAD commit when the CLI sent the checkout's files; null when the run has no test definition snapshot or its checkout had no commit.
+	GitCommitSha *string `json:"git_commit_sha,omitempty"`
+
+	// HasUncommittedDefinitionChanges Whether the checkout the CLI sent the run's test definition from had uncommitted changes in .revyl/tests, .revyl/modules or .revyl/scripts, so the definition can differ from git_commit_sha; false for a definition Revyl read from Git, and null when the run has no test definition snapshot. Changes outside those folders, such as app code, don't count.
+	HasUncommittedDefinitionChanges *bool `json:"has_uncommitted_definition_changes,omitempty"`
 
 	// Id Execution ID (primary key)
-	Id                  openapi_types.UUID      `json:"id"`
-	Metadata            *map[string]interface{} `json:"metadata,omitempty"`
-	OrgId               *openapi_types.UUID     `json:"org_id,omitempty"`
-	Progress            *float32                `json:"progress,omitempty"`
-	ReportMetadata      *map[string]interface{} `json:"report_metadata,omitempty"`
-	ResolvedBuildId     *openapi_types.UUID     `json:"resolved_build_id,omitempty"`
-	SessionId           *openapi_types.UUID     `json:"session_id,omitempty"`
-	StartedAt           *time.Time              `json:"started_at,omitempty"`
-	Status              *string                 `json:"status,omitempty"`
-	StepsCompleted      *int                    `json:"steps_completed,omitempty"`
-	Success             *bool                   `json:"success,omitempty"`
-	TestId              openapi_types.UUID      `json:"test_id"`
-	TotalSteps          *int                    `json:"total_steps,omitempty"`
-	TraceId             *string                 `json:"trace_id,omitempty"`
-	UpdatedAt           *time.Time              `json:"updated_at,omitempty"`
-	WasQuarantined      *bool                   `json:"was_quarantined,omitempty"`
-	WorkflowExecutionId *openapi_types.UUID     `json:"workflow_execution_id,omitempty"`
+	Id                   openapi_types.UUID      `json:"id"`
+	Metadata             *map[string]interface{} `json:"metadata,omitempty"`
+	OrgId                *openapi_types.UUID     `json:"org_id,omitempty"`
+	Progress             *float32                `json:"progress,omitempty"`
+	ReportMetadata       *map[string]interface{} `json:"report_metadata,omitempty"`
+	ResolvedBuildId      *openapi_types.UUID     `json:"resolved_build_id,omitempty"`
+	SessionId            *openapi_types.UUID     `json:"session_id,omitempty"`
+	StartedAt            *time.Time              `json:"started_at,omitempty"`
+	Status               *string                 `json:"status,omitempty"`
+	StepsCompleted       *int                    `json:"steps_completed,omitempty"`
+	Success              *bool                   `json:"success,omitempty"`
+	TestDefinitionSource *string                 `json:"test_definition_source,omitempty"`
+	TestId               openapi_types.UUID      `json:"test_id"`
+	TestName             *string                 `json:"test_name,omitempty"`
+	TotalSteps           *int                    `json:"total_steps,omitempty"`
+	TraceId              *string                 `json:"trace_id,omitempty"`
+	UpdatedAt            *time.Time              `json:"updated_at,omitempty"`
+	WasQuarantined       *bool                   `json:"was_quarantined,omitempty"`
+	WorkflowExecutionId  *openapi_types.UUID     `json:"workflow_execution_id,omitempty"`
 }
 
 // TestInfo defines model for TestInfo.
@@ -11195,6 +11308,44 @@ type TestInfo struct {
 	Id       string  `json:"id"`
 	Name     *string `json:"name,omitempty"`
 	Platform *string `json:"platform,omitempty"`
+}
+
+// TestLatestRunResult A test's newest run that matches the filters, and how it counts.
+//
+// Exactly one of latest_run and latest_run_queued_in_workflow is set.
+type TestLatestRunResult struct {
+	// LatestRun Enhanced history item with task tracking details
+	LatestRun *TestEnhancedHistoryItem `json:"latest_run,omitempty"`
+
+	// LatestRunQueuedInWorkflow A test's run that its workflow execution queued, before the run's device session exists.
+	LatestRunQueuedInWorkflow *TestRunQueuedInWorkflow `json:"latest_run_queued_in_workflow,omitempty"`
+
+	// RunResult How a run counts toward test status, checked in this order: running
+	// while its session is active, failed when history's failed filter matches
+	// it, passed when its success filter does, else unknown.
+	RunResult TestRunResult `json:"run_result"`
+
+	// RunResultCountsSinceCreatedFrom How many runs have each run result.
+	RunResultCountsSinceCreatedFrom *RunResultCounts   `json:"run_result_counts_since_created_from,omitempty"`
+	TestId                          openapi_types.UUID `json:"test_id"`
+	TestName                        *string            `json:"test_name,omitempty"`
+}
+
+// TestLatestRunResultsResponse Each test's newest matching run, failed first, then running, unknown and passed.
+type TestLatestRunResultsResponse struct {
+	Items []TestLatestRunResult `json:"items"`
+
+	// LatestRunResultCounts How many runs have each run result.
+	LatestRunResultCounts RunResultCounts `json:"latest_run_result_counts"`
+
+	// QuarantinedFailedLatestRunCount How many failed newest runs were quarantined, so they don't fail the status.
+	QuarantinedFailedLatestRunCount int `json:"quarantined_failed_latest_run_count"`
+
+	// RunResultCountsSinceCreatedFrom How many runs have each run result.
+	RunResultCountsSinceCreatedFrom *RunResultCounts `json:"run_result_counts_since_created_from,omitempty"`
+
+	// TotalCount How many tests have a matching run, across every page.
+	TotalCount int `json:"total_count"`
 }
 
 // TestListResponse Response model for listing tests.
@@ -11376,6 +11527,31 @@ type TestRunConfig struct {
 	LlmConfig *LLMConfig          `json:"llm_config,omitempty"`
 	RunId     *openapi_types.UUID `json:"run_id,omitempty"`
 }
+
+// TestRunQueuedInWorkflow A test's run that its workflow execution queued, before the run's device session exists.
+type TestRunQueuedInWorkflow struct {
+	// GitBranchName The Git branch this test's definition file was read from, when the run read it from Git.
+	GitBranchName *string `json:"git_branch_name,omitempty"`
+
+	// GitCommitSha The Git commit the run's test definition came from: the commit Revyl read the file at, or the checkout's HEAD commit when the CLI sent the checkout's files; null when the run has no test definition snapshot or its checkout had no commit.
+	GitCommitSha *string `json:"git_commit_sha,omitempty"`
+
+	// HasUncommittedDefinitionChanges Whether the checkout the CLI sent the run's test definition from had uncommitted changes in .revyl/tests, .revyl/modules or .revyl/scripts, so the definition can differ from git_commit_sha; false for a definition Revyl read from Git, and null when the run has no test definition snapshot. Changes outside those folders, such as app code, don't count.
+	HasUncommittedDefinitionChanges bool `json:"has_uncommitted_definition_changes"`
+
+	// QueuedAt When the workflow execution was queued.
+	QueuedAt             time.Time                                   `json:"queued_at"`
+	TestDefinitionSource TestRunQueuedInWorkflowTestDefinitionSource `json:"test_definition_source"`
+	WorkflowExecutionId  openapi_types.UUID                          `json:"workflow_execution_id"`
+}
+
+// TestRunQueuedInWorkflowTestDefinitionSource defines model for TestRunQueuedInWorkflow.TestDefinitionSource.
+type TestRunQueuedInWorkflowTestDefinitionSource string
+
+// TestRunResult How a run counts toward test status, checked in this order: running
+// while its session is active, failed when history's failed filter matches
+// it, passed when its success filter does, else unknown.
+type TestRunResult string
 
 // TestStatusCounts Server-side test counts by status, computed across all tests (not just the current page).
 type TestStatusCounts struct {
@@ -12691,6 +12867,8 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	AppId                                *openapi_types.UUID   `form:"app_id,omitempty" json:"app_id,omitempty"`
 	BranchId                             *openapi_types.UUID   `form:"branch_id,omitempty" json:"branch_id,omitempty"`
 	BranchName                           *string               `form:"branch_name,omitempty" json:"branch_name,omitempty"`
+	RunBranchName                        *string               `form:"run_branch_name,omitempty" json:"run_branch_name,omitempty"`
+	GitCommitSha                         *string               `form:"git_commit_sha,omitempty" json:"git_commit_sha,omitempty"`
 	IncludeComputers                     *bool                 `form:"include_computers,omitempty" json:"include_computers,omitempty"`
 	ExcludeHosted                        *bool                 `form:"exclude_hosted,omitempty" json:"exclude_hosted,omitempty"`
 }
@@ -12836,7 +13014,7 @@ type GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGetParams struct {
 
 // GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams defines parameters for GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGet.
 type GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams struct {
-	TestId                               string              `form:"test_id" json:"test_id"`
+	TestId                               *string             `form:"test_id,omitempty" json:"test_id,omitempty"`
 	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset                               *int                `form:"offset,omitempty" json:"offset,omitempty"`
 	Status                               *string             `form:"status,omitempty" json:"status,omitempty"`
@@ -12844,6 +13022,8 @@ type GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams struct {
 	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 	AppId                                *openapi_types.UUID `form:"app_id,omitempty" json:"app_id,omitempty"`
 	BranchId                             *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	RunBranchName                        *string             `form:"run_branch_name,omitempty" json:"run_branch_name,omitempty"`
+	GitCommitSha                         *string             `form:"git_commit_sha,omitempty" json:"git_commit_sha,omitempty"`
 }
 
 // GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams defines parameters for GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGet.
@@ -12873,6 +13053,16 @@ type QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy string
 
 // QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
 type QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir string
+
+// GetLatestRunResultsApiV1TestsLatestRunResultsGetParams defines parameters for GetLatestRunResultsApiV1TestsLatestRunResultsGet.
+type GetLatestRunResultsApiV1TestsLatestRunResultsGetParams struct {
+	TestId        *openapi_types.UUID `form:"test_id,omitempty" json:"test_id,omitempty"`
+	RunBranchName *string             `form:"run_branch_name,omitempty" json:"run_branch_name,omitempty"`
+	GitCommitSha  *string             `form:"git_commit_sha,omitempty" json:"git_commit_sha,omitempty"`
+	CreatedFrom   *time.Time          `form:"created_from,omitempty" json:"created_from,omitempty"`
+	Limit         *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset        *int                `form:"offset,omitempty" json:"offset,omitempty"`
+}
 
 // ListScriptsApiV1TestsScriptsGetParams defines parameters for ListScriptsApiV1TestsScriptsGet.
 type ListScriptsApiV1TestsScriptsGetParams struct {

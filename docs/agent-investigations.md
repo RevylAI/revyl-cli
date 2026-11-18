@@ -275,6 +275,12 @@ Read `has_more` before claiming a complete execution history. Compare relevant
 successful runs of the same test/build/configuration; differing context is a
 confounder, not proof of the cause.
 
+For a branch-first investigation, use `tests.status` with `branch` or
+`git_commit_sha`. It returns every test's newest matching run in one response,
+failed first, with counts across all of them, so there is no page to follow. A
+test with no matching run isn't listed. Add `since`, such as `7d`, to count
+each test's finished runs and passes in that window.
+
 `tests.get` (also `revyl test inspect <TEST_UUID> --json`) reads the current
 definition, including instructions, validations, saved device targets and
 run configuration. `tests.configuration` reads just the saved configuration.

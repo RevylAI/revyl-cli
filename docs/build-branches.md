@@ -132,8 +132,11 @@ revyl device install --app-id <app-id> --all-branches
   platforms you don't override use each test's saved choice.
 - Output names the branch of each build, such as
   `Build: v1.4 from branch feature-login`.
-- `revyl device history --app-id <id> --branch staging` lists sessions that
-  started with a build from that branch.
+- `revyl device history --branch staging` lists sessions that used `staging`
+  for their tests from Git or for their Revyl build. Add `--app-id <id>` to
+  narrow the sessions to one app.
+  [Query runs by branch or commit](https://docs.revyl.com/tests/run-from-git#query-runs-by-branch-or-commit)
+  explains the matching.
 - `revyl dev` keeps one branch for startup and every rebuild, and doesn't take
   `--all-branches`. See
   [Dev Loop](https://docs.revyl.com/cli/command-reference#dev-loop) for how it

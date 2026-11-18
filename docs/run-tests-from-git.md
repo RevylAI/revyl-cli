@@ -7,6 +7,548 @@ branch keeps running its own.
 [Test definitions from Git](https://docs.revyl.com/tests/definitions-from-git)
 explains how a run picks its files.
 
+## Query runs by branch or commit
+
+Use an authenticated CLI. If you have not signed in, run `revyl auth login`
+first. These queries search the runs visible to that organization; a branch
+name is not scoped to one project or app.
+
+Run history records two branches for each run: the Git branch its test
+definition came from, for a snapshot-backed run, and the Revyl branch of its
+build. `--branch` matches a run when either branch has that name. To list
+every test execution that used a branch, run:
+
+```bash
+revyl test history --branch <branch-name> --json --limit 100 --offset 0
+```
+
+The JSON response includes the test and execution status, and may include a
+session ID. A snapshot-backed record also includes its Git branch and commit; a
+record without a snapshot Git branch has no snapshot Git fields. The
+default page contains 10 executions; `--limit` accepts 1-100 and `--offset`
+accepts 0-100000 and skips earlier results. Continue while `has_more` is
+`true` by increasing `--offset` by `shown_count`.
+
+Use a lowercase hexadecimal 40- or 64-character commit SHA when you need to
+decide whether one revision needs another gate run:
+
+```bash
+revyl test history --git-commit-sha <git-commit-sha> --json --limit 100 --offset 0
+```
+
+Add `<test-name>` or a test ID to narrow either query to one test:
+
+```bash
+revyl test history <test-name> --git-commit-sha <git-commit-sha> --json --limit 100 --offset 0
+```
+
+To narrow a branch query to one test, pass its name or ID:
+
+```bash
+revyl test history <test-name> --branch <branch-name> --json --limit 100 --offset 0
+```
+
+The response includes the recorded definition source and, when available, the
+session. A snapshot-backed branch query has this response shape:
+
+```json
+{
+  "branch": "<branch-name>",
+  "items": [
+    {
+      "test_name": "<test-name>",
+      "status": "starting",
+      "session_id": "<session-id>",
+      "git_branch_name": "<git-branch-name>",
+      "git_commit_sha": "<commit-sha>",
+      "has_uncommitted_definition_changes": false,
+      "test_definition_source": "cli_upload"
+    }
+  ],
+  "total_count": 1,
+  "shown_count": 1,
+  "offset": 0,
+  "has_more": false,
+  "test_id": "",
+  "test_name": ""
+}
+```
+
+For snapshot-backed executions, the JSON output includes `git_branch_name`,
+`git_commit_sha`, `has_uncommitted_definition_changes`,
+`test_definition_source`, and `session_id`;
+[Check which commit each run used](#check-which-commit-each-run-used) explains
+the commit fields. The two Git fields are absent when the run has no snapshot
+Git branch. To list
+the device sessions joined to those test runs, run:
+
+```bash
+revyl device history --branch <branch-name> --status all --json --limit 100 --offset 0
+```
+
+To list sessions from one exact snapshot commit, use the same session filters:
+
+```bash
+revyl device history --git-commit-sha <git-commit-sha> --status all --json --limit 100 --offset 0
+```
+
+The default page contains 20 terminal sessions; `--limit` accepts 1-100 and
+`--offset` accepts nonnegative values and skips earlier results. Use
+`--status all` to include every session status, and continue until
+`offset + sessions.length` reaches `total`. Add `--app-id <app-uuid>` when one
+app's history is needed.
+The response includes `limit`, `offset`, `total`, and session rows. Test fields
+appear when a session has a linked test execution; a session that matched by
+its build branch can have no test or snapshot Git fields. The following is a
+relevant excerpt:
+
+```json
+{
+  "limit": 100,
+  "offset": 0,
+  "sessions": [
+    {
+      "id": "<session-id>",
+      "test_name": "<test-name>",
+      "test_execution_id": "<execution-id>",
+      "branch_name": "<revyl-branch-name>",
+      "git_branch_name": "<git-branch-name>",
+      "git_commit_sha": "<git-commit-sha>",
+      "has_uncommitted_definition_changes": false
+    }
+  ],
+  "total": 1
+}
+```
+
+`--branch` matches any run that used the branch for its tests from Git or for
+its Revyl build, so a run whose tests and build came from different branches
+matches either branch name.
+
+Your repository's default Git branch and the app's `base` branch, which Revyl
+creates with the app, count as one branch. A run that read its tests from the
+default Git branch, such as `main`, and used a build on `base` matches both
+`--branch main` and `--branch base`, and neither the dashboard nor the CLI
+flags its tests and build as coming from different branches. Revyl records
+whether a run's Git branch is the repository's default when the run starts,
+only for a project with **Run tests from Git** on.
+
+In the device query, a session is included when a linked snapshot's Git branch
+matches or the session's build is on a Revyl branch with that name.
+Filtering checks any linked test execution, while displayed test and Git
+fields come from the latest linked execution. A session can therefore be
+included by an older matching execution and display newer linked metadata.
+`--git-commit-sha` matches the exact commit recorded on a test definition
+snapshot and therefore only matches snapshot-backed runs. If you pass both
+filters, the run must match both. The output keeps `git_branch_name` and
+`branch_name` separate so you can see the Git branch and Revyl build branch
+that were recorded. When both are known, the JSON output's
+`tests_and_build_from_different_branches` says whether the run's tests and
+build came from different branches, and the table output adds a line for each
+run where they did, or a single line about every run when they all did. The
+JSON output also includes
+`git_branch_is_repository_default_branch` and `branch_is_initial_branch` when
+the run recorded them; a run on the default Git branch with a build on `base`
+counts as one branch only when both are `true`. These commands report recorded
+runs; they do not list the `.revyl/` files that currently exist on a branch.
+
+If the Revyl server doesn't support Git branch and commit filters yet,
+`revyl device history --branch <branch-name>` with `--app` or `--app-id` falls
+back to sessions whose build came from that Revyl branch of the app and prints a
+warning on stderr. Every other `--branch` query, and every `--git-commit-sha`
+query, fails with an error instead of returning unfiltered results. For
+`revyl device history --branch <branch-name>` without an app, the error
+suggests adding `--app-id`.
+
+## Check which commit each run used
+
+Each run that read its tests from Git or from your checkout records the commit
+its test definition came from, and whether your checkout had uncommitted
+changes to its test files. Use an authenticated CLI, as for the queries in
+[Query runs by branch or commit](#query-runs-by-branch-or-commit).
+
+To see them for one run, pass its execution ID, or a test's name for the
+test's latest run:
+
+```bash
+revyl test report <execution-id> --json
+```
+
+The report includes these fields at its top level, with the same names and
+meanings as in `revyl test history --json` items and
+`revyl device history --json` sessions:
+
+- `git_commit_sha`: the commit Revyl read the test's file at, or your
+  checkout's `HEAD` commit when the CLI sent your checkout's files.
+- `has_uncommitted_definition_changes`: `true` when the checkout the CLI sent
+  had changes not committed to Git in `.revyl/tests/`, `.revyl/modules/` or
+  `.revyl/scripts/`, such as an edited or new file, so the files the run used
+  can differ from `git_commit_sha`. It's `false` when that checkout had no
+  such changes, and for a run that read its files from Git. Changes elsewhere
+  in the checkout, such as your app's code or `.revyl/config.yaml`, don't
+  count.
+- `test_definition_source`: `cli_upload` when the CLI sent your checkout's
+  files, or `git_commit_read` when Revyl read them from Git.
+- `git_branch_name`: the Git branch the test definition came from.
+
+A run without a test definition snapshot, such as a run of a test's saved copy,
+has none of these fields, so read a missing
+`has_uncommitted_definition_changes` as unknown, not as `false`. The report
+of a run that sent a checkout with uncommitted changes includes this excerpt,
+with identifiers replaced by placeholders:
+
+```json
+{
+  "git_branch_name": "<branch-name>",
+  "git_commit_sha": "<commit-sha>",
+  "has_uncommitted_definition_changes": true,
+  "test_definition_source": "cli_upload"
+}
+```
+
+To list a branch's runs whose files can differ from their commit, keep the
+items where the field is `true`:
+
+```bash
+revyl test history --branch <branch-name> --json --limit 100 --offset 0 \
+  | jq '.items[] | select(.has_uncommitted_definition_changes == true) | {test_name, session_id, git_commit_sha}'
+```
+
+The table output of `revyl test history`, `revyl test status` and
+`revyl device history` adds a line under the table for each such run:
+
+```text
+Run #1's checkout had test files with uncommitted changes, so they can differ from Git commit <commit>.
+```
+
+When every run in the table has the same line, the table output prints it once,
+starting with `Every run` instead, or `Every session` in
+`revyl device history`.
+
+## Check a branch's test status
+
+To find out whether a branch's tests pass, show the newest run of each test on
+that branch. Sign in with `revyl auth login`, or in CI set the `REVYL_API_KEY`
+environment variable to an API key, and run:
+
+```bash
+revyl test status --branch <branch-name>
+```
+
+The first line counts the tests with a run on the branch, and how many of
+their newest runs passed, failed, are still running or have no known result.
+The table lists each test's newest run: failed tests first, then running,
+unknown and passed, with the newest run first within each group. LAST RUN is
+how long ago that run started. For example:
+
+```text
+Newest run of each test on branch "main": 12 tests, 10 passed, 2 failed, 0 running, 0 unknown
+
+  #       TEST                            RESULT      LAST RUN      DURATION      GIT COMMIT        SESSION
+──────────────────────────────────────────────────────────────────────────────────
+  1       zzob-d-repo-edited              failed      6d ago        1m 32s        <commit-sha>      <session>
+  2       zzob-b-repo-edited              failed      7d ago        1m 26s        <commit-sha>      <session>
+  3       zzob-d-revyl-edited             passed      6d ago        1m 39s        <commit-sha>      <session>
+  4       zzob-d-secret-checkout          passed      6d ago        1m 29s        <commit-sha>      <session>
+  5       zzob-c-secret-note              passed      6d ago        1m 30s        <commit-sha>      <session>
+  6       zzob-c-add-todo                 passed      6d ago        1m 26s        <commit-sha>      <session>
+  7       zzob-a-add-todo                 passed      7d ago        1m 7s         <commit-sha>      <session>
+  8       zzob-b-revyl-edited             passed      7d ago        1m 30s        <commit-sha>      <session>
+  9       zzob-b-secret-checkout          passed      7d ago        1m 16s        <commit-sha>      <session>
+  10      zzob-a-secret-note              passed      7d ago        1m 9s         <commit-sha>      <session>
+  11      zzqa-web-pinned                 passed      7d ago        1m 11s        <commit-sha>      <session>
+  12      zzqa-pr1-pinned-definition      passed      7d ago        1m 24s        <commit-sha>      <session>
+
+Every run's tests came from Git branch "main" and its build from Revyl branch "base".
+```
+
+To show the runs whose test definitions came from one exact commit, pass a
+lowercase hexadecimal 40- or 64-character SHA instead of `--branch`, or with it
+to show only the runs that match both:
+
+```bash
+revyl test status --git-commit-sha <git-commit-sha>
+```
+
+A run without a test definition snapshot has no recorded commit, so it never
+matches a commit. Add `<test-name>` or a test ID to either command to show
+only that test's newest matching run, in the layout of
+`revyl test status <test-name>` with its result and Git commit added.
+`revyl test status` with no test and neither flag stops with
+`provide a test name or ID, or use --branch or --git-commit-sha`.
+
+The CLI reads every page of results, so the counts and the table cover every
+test with a run on the branch. A test that never ran on the branch isn't
+listed, and tests deleted in Revyl are left out.
+
+### How test status matches and counts runs
+
+Each test's RESULT, `run_result` in JSON, says how its newest run counts,
+checked in this order:
+
+- `running`: the run's session is queued or still in progress, or a workflow
+  run has queued a test that reads its definition from Git or your checkout
+  and not started its session yet.
+- `failed`: the run failed, timed out or was cancelled, recorded that it
+  didn't succeed, or recorded an error. Its `status` still shows `timeout`
+  or `cancelled` for those.
+- `passed`: the run succeeded and recorded no error.
+- `unknown`: none of these, such as a run that finished without recording
+  whether it succeeded.
+
+Test status decides which branch a run belongs to differently from
+`revyl test history --branch`, which matches either branch:
+
+- A run that recorded the Git branch its test definition came from belongs to
+  that Git branch, even when its build came from a Revyl branch with another
+  name.
+- A run that recorded no Git branch, such as a run of a test's saved copy,
+  belongs to its build's Revyl branch, because Revyl can't tell which Git
+  branch such a run was for. When that Revyl branch has another name than your
+  Git branch, such as `base` for your default Git branch, check it with its
+  own `--branch` to see those runs.
+- A run that read its tests from your repository's default Git branch and used
+  a build on the app's `base` branch counts under both names only when it
+  recorded both facts: `git_branch_is_repository_default_branch` and
+  `branch_is_initial_branch` are both `true`. A run that didn't record
+  whether its Git branch was the default, including every run from before
+  Revyl recorded it, counts only under its recorded Git branch name.
+
+Revyl picks each test's newest matching run, by when the run was created,
+before it looks at the run's result, so an older passing run never hides a
+newer failed one. A run that never finishes, including a test queued in a
+workflow run that never ends, stays `running` until a newer run of that test
+replaces it, and its LAST RUN age shows how long ago it started or was queued.
+
+### Count each test's runs over a time window
+
+To see how reliable each test has been lately, add `--since`:
+
+```bash
+revyl test status --branch <branch-name> --since 7d
+```
+
+`--since` takes a whole number of hours or days, such as `24h` or `7d`.
+Only runs created in that window count, including when Revyl picks each test's
+newest run, so a test with no run in the window isn't listed. Each row adds
+RUNS, the test's finished runs in the window, and PASSED, how many of them
+passed and their share, rounded down so that only a test whose every finished
+run passed shows 100%. A finished run is one that passed, failed or has no
+known result; a run still going isn't counted. A failure quarantined in its
+workflow counts as failed here. A second line under the first
+totals the finished runs of every test. For example:
+
+```text
+Newest run of each test on branch "main" in the last 7 days: 5 tests, 4 passed, 1 failed, 0 running, 0 unknown
+Finished runs in the last 7 days: 16, of which 10 (62%) passed
+
+  #      TEST                        RESULT      LAST RUN      RUNS      PASSED       GIT COMMIT
+────────────────────────────────────────────────────────────────────────
+  1      zzob-d-repo-edited          failed      6d ago        2         0 (0%)       <commit-sha>
+  2      zzob-d-revyl-edited         passed      6d ago        3         2 (66%)      <commit-sha>
+  3      zzob-d-secret-checkout      passed      6d ago        3         2 (66%)      <commit-sha>
+  4      zzob-c-secret-note          passed      6d ago        4         3 (75%)      <commit-sha>
+  5      zzob-c-add-todo             passed      6d ago        4         3 (75%)      <commit-sha>
+
+Every run's tests came from Git branch "main" and its build from Revyl branch "base".
+```
+
+Any other value stops with
+`--since must be a whole number of hours or days above zero, such as 24h or 7d, not "<value>"`.
+
+### Fail a CI job unless every test passed
+
+To make the exit code the answer, for example in a merge or deploy check that
+reads results it didn't start, add `--fail-unless-all-tests-passed`:
+
+```bash
+revyl test status --git-commit-sha <git-commit-sha> --fail-unless-all-tests-passed
+```
+
+Pass `--git-commit-sha` to judge one revision, such as a pull request's head
+commit, or `--branch` to judge each test's newest run on the branch, whichever
+commit it used. Either way the check covers every test with a matching run, not
+only the tests one workflow run started.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | At least one test has a matching run, and every test's newest run passed. A failure quarantined in its workflow doesn't count. |
+| `2` | A test's newest run failed outside quarantine or has no known result, or no test has a matching run. |
+| `3` | No newest run failed or has no known result, but at least one is still queued or running. |
+| `1` | The command itself failed, such as a mistyped flag, a sign-in problem or a server error. |
+
+Without the flag, the command exits `0` whenever it succeeds, even when no test
+matched. With it, the
+last line says the result: `✓ Every test passed` for `0`, and why for `2` or
+`3`, such as `Error: No test has a run on branch "<branch-name>"` when no test
+matched, or:
+
+```text
+Newest run of each test on branch "main": 1 test, 0 passed, 1 failed, 0 running, 0 unknown
+
+  #      TEST                             RESULT      LAST RUN      DURATION      GIT COMMIT        SESSION
+──────────────────────────────────────────────────────────────────────────────────
+  1      run-tests-from-git-checkout      failed      28h ago       56s           <commit-sha>      <session>
+Error: Not every test passed: 1 failed
+```
+
+A failed newest run that was quarantined in its workflow still shows as
+`failed`, and a line under the table says it doesn't stop the check:
+
+```text
+Newest run of each test on branch "<branch-name>": 2 tests, 1 passed, 1 failed, 0 running, 0 unknown
+
+  #      TEST                                 RESULT      LAST RUN      DURATION      GIT COMMIT        SESSION
+──────────────────────────────────────────────────────────────────────────────────────
+  1      zzqa-status-quarantined-failure      failed      10m ago       15s           <commit-sha>      <session>
+  2      zzqa-pr1-pinned-definition           passed      14d ago       1m 46s        <commit-sha>      <session>
+
+Run #1 was quarantined in its workflow, so its failure doesn't stop --fail-unless-all-tests-passed.
+
+✓ Every test passed, apart from 1 whose failure was quarantined in its workflow
+```
+
+A workflow run counts each test that reads its definition from Git or from your
+checkout as `running` from when Revyl queues the workflow run, before the
+test's device session exists. So a check right after
+`revyl workflow run --no-wait` returns exits `3` until those tests finish,
+instead of passing or failing on their earlier runs. Such a row shows when the
+workflow run was queued, with no duration or session, and a line under the
+table says the test is queued:
+
+```text
+Newest run of each test on branch "<branch-name>": 2 tests, 1 passed, 0 failed, 1 running, 0 unknown
+
+  #      TEST                            RESULT       LAST RUN      DURATION      GIT COMMIT        SESSION
+──────────────────────────────────────────────────────────────────────────────────
+  1      zzqa-status-live-20261118       running      1s ago        -             <commit-sha>      -
+  2      zzqa-pr1-pinned-definition      passed       14d ago       1m 46s        <commit-sha>      <session>
+
+Run #1 is queued in its workflow and has no device session yet.
+Error: Not every test has finished: 1 still queued or running
+```
+
+The command checks once and doesn't wait. To wait for the tests, run it again
+while it exits `3`, and bound the wait, for example with your CI job's timeout,
+because a run that never finishes stays `running`:
+
+```bash
+until revyl test status --branch <branch-name> --fail-unless-all-tests-passed; do
+  status=$?
+  if [ "$status" -ne 3 ]; then exit "$status"; fi
+  sleep 30
+done
+```
+
+While a test is queued this way, it matches `--branch` only by the Git branch
+its definition comes from. If the workflow run ends before it starts the test,
+for example because it was cancelled, the test shows its earlier newest run
+again. A test the workflow run had already started keeps that run and its
+result.
+
+A test that runs as saved in Revyl, rather than from a file in Git or your
+checkout, counts only once its device session exists, because Revyl matches
+such a run to a branch by its build, which it picks when the run starts. Until
+then the check sees the test's earlier newest run, or doesn't list the test. To
+gate a CI job on a workflow run that the job starts itself, you can also run
+`revyl workflow run` without `--no-wait`: it waits for the workflow run and
+exits with a nonzero code unless every test passed.
+
+### Read test status as JSON
+
+Add `--json` to get the same results as one object:
+
+```bash
+revyl test status --branch <branch-name> --since 7d --json
+```
+
+For a branch where one test ran in the window, the output looks like this,
+with identifiers replaced by placeholders:
+
+```json
+{
+  "branch": "main",
+  "created_from": "2026-11-11T01:46:20Z",
+  "latest_run_result_counts": {
+    "failed_count": 1,
+    "passed_count": 0,
+    "running_count": 0,
+    "unknown_count": 0
+  },
+  "quarantined_failed_latest_run_count": 0,
+  "run_result_counts_since_created_from": {
+    "failed_count": 1,
+    "passed_count": 3,
+    "running_count": 0,
+    "unknown_count": 0
+  },
+  "test_count": 1,
+  "tests": [
+    {
+      "branch_name": "base",
+      "build_version": "<build-version>",
+      "duration": 56.680798,
+      "git_branch_name": "main",
+      "git_commit_sha": "<commit-sha>",
+      "has_uncommitted_definition_changes": false,
+      "report_url": "<report-url>",
+      "run_result": "failed",
+      "run_result_counts_since_created_from": {
+        "failed_count": 1,
+        "passed_count": 3,
+        "running_count": 0,
+        "unknown_count": 0
+      },
+      "session_id": "<session-id>",
+      "started_at": "2026-11-16T21:15:43.458720Z",
+      "status": "failed",
+      "task_id": "<task-id>",
+      "test_definition_source": "git_commit_read",
+      "test_id": "<test-id>",
+      "test_name": "run-tests-from-git-checkout",
+      "was_quarantined": false
+    }
+  ]
+}
+```
+
+- `test_count`: the number of tests with a matching run.
+- `latest_run_result_counts`: how many of those tests' newest runs have each
+  result.
+- `quarantined_failed_latest_run_count`: how many of the failed newest runs
+  were quarantined in their workflow.
+- `tests`: one object per test, in the table's order, with its newest run's
+  `run_result`, `was_quarantined`, `task_id`, `session_id`, `status`,
+  `started_at`, `duration` in seconds, `branch_name`, `build_version`,
+  `git_branch_name`, `git_commit_sha`, `has_uncommitted_definition_changes`,
+  `test_definition_source` and `report_url`. `test_id`, `test_name`,
+  `run_result` and `status` are always there, and so are `task_id`,
+  `was_quarantined` and `report_url` once the run has started. Any other field
+  the run didn't record is left out; read a missing
+  `has_uncommitted_definition_changes` as unknown.
+- A test that a workflow run has queued, before its device session exists, has
+  `status` `queued` and, instead of `task_id`, `session_id`, `started_at`,
+  `duration`, `was_quarantined` and `report_url`, it has `workflow_task_id`,
+  the workflow run's ID that `revyl workflow status` takes, and `queued_at`,
+  when the workflow run was queued.
+- `branch` and `git_commit_sha` repeat the selectors you passed.
+- With `--fail-unless-all-tests-passed`, the exit code works as without
+  `--json`, and its `Error:` line goes to standard error, so standard output
+  holds only the JSON.
+- With `--since`, `created_from` is the start of the window, and
+  `run_result_counts_since_created_from` counts every matching run in it: at the
+  top level for every test, and in each test's object for that test. Its
+  `running_count` counts the runs still going, which RUNS leaves out.
+
+With a test name, `--json` prints that test's object in the layout of
+`revyl test status <test-name> --json`, with the same fields added.
+
+If the Revyl server can't show test status by branch or commit yet, the
+command exits `1` with
+`this Revyl server can't show test status by branch or commit yet`,
+followed by the server's response. `revyl test status <test-name>` without
+these flags works on every Revyl server.
+
 ## Prerequisites
 
 - Your repository is connected to Revyl through the GitHub or GitLab
@@ -312,8 +854,10 @@ explains how a run picks its files.
 
 2. In the dashboard, open the run's report, select **Info**, then
    **Test definition**. It shows the repository, the file, and the Git branch
-   and commit the run read the file at. `revyl test report` doesn't show
-   them; the `Definition:` line in step 1 is the CLI's view.
+   and commit the run read the file at. `revyl test report <test-name> --json`
+   shows them for the test's latest run as `git_branch_name` and
+   `git_commit_sha`, with `has_uncommitted_definition_changes` set to
+   `false` because the run read the file from Git.
 
 ## Several apps or repositories
 
@@ -618,10 +1162,13 @@ older work there again.
   setting is on. `--from-checkout` sends them in a repository without the
   setting, and `--from-checkout=false` sends none, so the run reads the files
   at the head of the run's branch in Git.
-- `--branch` picks the run's branch for both its build and its files. Without
-  it, a run uses the branch saved on the test, else your Git branch when the
-  app follows Git branches, else the app's default branch, which reads your
-  repository's default branch.
+- `--branch` picks the Revyl branch the run takes its build from. Use it to
+  choose a build, not to choose which Git branch's files run: to have Revyl
+  read a feature branch's files from Git, run
+  `revyl test run <test-name> --from-checkout=false` from a checkout of that
+  branch, without `--branch`. Without `--branch`, a run uses the branch saved
+  on the test, else your Git branch when the app follows Git branches, else the
+  app's default branch, which reads your repository's default branch.
 - `revyl test run --json` adds `test_definition_source` and
   `test_definition_fallback_reason`, and for a run that read Git,
   `test_definition_git_branch_name`, `test_definition_git_commit_sha` and, when

@@ -82,6 +82,7 @@ GET /api/v1/tests/get_test_by_id/{test_id}
 GET /api/v1/tests/get_test_enhanced_history
 GET /api/v1/tests/get_test_execution_task
 GET /api/v1/tests/get_tests
+GET /api/v1/tests/latest-run-results
 GET /api/v1/tests/scripts
 GET /api/v1/tests/scripts/{script_id}
 GET /api/v1/tests/scripts/{script_id}/tests

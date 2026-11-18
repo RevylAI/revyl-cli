@@ -17,14 +17,6 @@ import (
 
 const computerStopReleaseWait = time.Minute
 
-type computerExitError struct {
-	err  error
-	code int
-}
-
-func (e *computerExitError) Error() string { return e.err.Error() }
-func (e *computerExitError) Unwrap() error { return e.err }
-
 type computerInvocation struct {
 	ComputerSessionID string `json:"computer_session_id,omitempty"`
 	RequestID         string `json:"request_id,omitempty"`
@@ -774,11 +766,11 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		}
 		if result.EndReason == "timeout" {
 			completion.ExitCode = 124
-			return &computerExitError{code: 124, err: analytics.CompletedWithExitCode(errors.New("performance watch timed out"), completion)}
+			return &commandExitError{code: 124, err: analytics.CompletedWithExitCode(errors.New("performance watch timed out"), completion)}
 		}
 		if result.EndReason == "cancelled" {
 			completion.ExitCode = 130
-			return &computerExitError{code: 130, err: analytics.CompletedWithExitCode(errors.New("performance watch canceled"), completion)}
+			return &commandExitError{code: 130, err: analytics.CompletedWithExitCode(errors.New("performance watch canceled"), completion)}
 		}
 	case *computerExportResult:
 		completion.DomainStatus = "exported"
@@ -802,7 +794,7 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 	completion.ExitCode = exitCode
 	analytics.SetCommandCompletion(cmd.Context(), completion)
 	if exitCode != 0 {
-		return &computerExitError{code: exitCode, err: analytics.CompletedWithExitCode(errors.New(exitMessage), completion)}
+		return &commandExitError{code: exitCode, err: analytics.CompletedWithExitCode(errors.New(exitMessage), completion)}
 	}
 	return nil
 }

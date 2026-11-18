@@ -127,13 +127,23 @@ func Execute() {
 				}
 			}
 		}
-		var computerErr *computerExitError
-		if errors.As(err, &computerErr) {
-			os.Exit(computerErr.code)
+		var exitErr *commandExitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.code)
 		}
 		os.Exit(1)
 	}
 }
+
+// commandExitError ends the CLI with code instead of 1, for an outcome a command
+// reports through its exit code.
+type commandExitError struct {
+	err  error
+	code int
+}
+
+func (e *commandExitError) Error() string { return e.err.Error() }
+func (e *commandExitError) Unwrap() error { return e.err }
 
 func executeWithNotices(root *cobra.Command) error {
 	cmd, err := root.ExecuteC()

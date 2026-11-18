@@ -175,13 +175,13 @@ func feedbackHintApplies(cmd *cobra.Command, err error) bool {
 		return false
 	}
 	var (
-		computerErr       *computerExitError
+		exitErr           *commandExitError
 		missingRootErr    *config.MissingProjectRootError
 		ambiguousRootsErr *config.AmbiguousProjectRootsError
 		configErr         *config.ConfigError
 		completedErr      *analytics.CompletedError
 	)
-	if errors.As(err, &computerErr) || errors.As(err, &missingRootErr) || errors.As(err, &ambiguousRootsErr) {
+	if errors.As(err, &exitErr) || errors.As(err, &missingRootErr) || errors.As(err, &ambiguousRootsErr) {
 		return false
 	}
 	if errors.As(err, &configErr) && projectLocationConfigCodes[configErr.Code] {

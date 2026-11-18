@@ -2765,10 +2765,8 @@ var deviceHistoryCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetInt("limit")
 		appID, _ := cmd.Flags().GetString("app-id")
 		branchName, _ := cmd.Flags().GetString("branch")
+		gitCommitSHA, _ := cmd.Flags().GetString("git-commit-sha")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
-		if app, _ := cmd.Flags().GetString("app"); branchName != "" && app == "" && appID == "" {
-			return errors.New("--branch requires --app or --app-id")
-		}
 
 		if !jsonOutput {
 			ui.StartSpinner("Fetching session history...")
@@ -2788,19 +2786,35 @@ var deviceHistoryCmd = &cobra.Command{
 			filters.Set("app_id", appID)
 		}
 		if branchName != "" {
-			filters.Set("branch_name", branchName)
+			filters.Set("run_branch_name", branchName)
+		}
+		if gitCommitSHA != "" {
+			filters.Set("git_commit_sha", gitCommitSHA)
 		}
 		result, err := client.QueryDeviceSessionHistory(cmd.Context(), filters)
+		matchedBuildBranchOnly := false
+		if errors.Is(err, api.ErrRunBranchAndGitCommitFiltersUnsupported) && gitCommitSHA == "" && filters.Get("app_id") != "" {
+			filters.Del("run_branch_name")
+			filters.Set("branch_name", branchName)
+			result, err = client.QueryDeviceSessionHistory(cmd.Context(), filters)
+			matchedBuildBranchOnly = err == nil
+		}
 		if !jsonOutput {
 			ui.StopSpinner()
 		}
 
+		if errors.Is(err, api.ErrRunBranchAndGitCommitFiltersUnsupported) && gitCommitSHA == "" {
+			err = fmt.Errorf("%w; add --app-id to list only sessions whose build came from Revyl branch %q", err, branchName)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to fetch session history: %w", err)
 		}
+		if matchedBuildBranchOnly {
+			ui.PrintWarning("This Revyl server can't match Git branches yet, so --branch listed only sessions whose build came from Revyl branch %q.", branchName)
+		}
 
 		if jsonOutput {
-			data, _ := json.MarshalIndent(result, "", "  ")
+			data, _ := json.MarshalIndent(newDeviceHistoryJSONOutput(result), "", "  ")
 			fmt.Println(string(data))
 			return nil
 		}
@@ -2814,7 +2828,7 @@ var deviceHistoryCmd = &cobra.Command{
 		ui.PrintInfo("Device Sessions (%d total)", result.Total)
 		ui.Println()
 
-		table := ui.NewTable("ID", "PLATFORM", "BRANCH", "BUILD", "STATUS", "CREATED", "DURATION")
+		table := ui.NewTable("ID", "PLATFORM", "REVYL BRANCH", "GIT BRANCH", "GIT COMMIT", "BUILD", "STATUS", "CREATED", "DURATION")
 		table.SetMinWidth(0, 12)
 		for _, s := range result.Sessions {
 			idShort := truncatePrefix(s.ID, 8)
@@ -2826,11 +2840,53 @@ var deviceHistoryCmd = &cobra.Command{
 			if s.BuildID != nil {
 				buildID = *s.BuildID
 			}
-			table.AddRow(idShort, s.Platform, s.BranchName, buildID, s.Status, s.CreatedAt, duration)
+			commitSHA := ""
+			if s.GitCommitSHA != "" {
+				commitSHA = truncatePrefix(s.GitCommitSHA, 12)
+			}
+			table.AddRow(idShort, s.Platform, s.BranchName, s.GitBranchName, commitSHA, buildID, s.Status, s.CreatedAt, duration)
 		}
 		table.Render()
+		printRunNoteLines(runListNoteLines(len(result.Sessions), func(index int) string {
+			return "Session " + truncatePrefix(result.Sessions[index].ID, 8)
+		}, "Every session", func(index int, runLabel string) []string {
+			session := result.Sessions[index]
+			return runNoteLines(runLabel, deviceSessionRunBranches(session), session.HasUncommittedDefinitionChanges, session.GitCommitSHA)
+		}))
 		return nil
 	},
+}
+
+// deviceHistoryJSONSession is a session row as `revyl device history --json`
+// prints it: the API row plus whether its tests and build came from different
+// branches, left out when either branch is unknown.
+type deviceHistoryJSONSession struct {
+	api.CLIDeviceSessionHistoryItem
+	TestsAndBuildFromDifferentBranches *bool `json:"tests_and_build_from_different_branches,omitempty"`
+}
+
+type deviceHistoryJSONOutput struct {
+	Sessions []deviceHistoryJSONSession `json:"sessions"`
+	Total    int                        `json:"total"`
+	Limit    int                        `json:"limit"`
+	Offset   int                        `json:"offset"`
+}
+
+func newDeviceHistoryJSONOutput(result *api.CLIDeviceSessionHistoryResponse) deviceHistoryJSONOutput {
+	output := deviceHistoryJSONOutput{
+		Sessions: make([]deviceHistoryJSONSession, 0, len(result.Sessions)),
+		Total:    result.Total,
+		Limit:    result.Limit,
+		Offset:   result.Offset,
+	}
+	for _, session := range result.Sessions {
+		row := deviceHistoryJSONSession{CLIDeviceSessionHistoryItem: session}
+		if differ, known := deviceSessionRunBranches(session).testsAndBuildFromDifferentBranches(); known {
+			row.TestsAndBuildFromDifferentBranches = &differ
+		}
+		output.Sessions = append(output.Sessions, row)
+	}
+	return output
 }
 
 var deviceInstructionCmd = &cobra.Command{
@@ -4125,7 +4181,8 @@ func init() {
 	deviceHistoryCmd.Flags().String("status", "", "Session status; defaults to terminal sessions; all includes every status; running selects active sessions")
 	deviceHistoryCmd.Flags().String("platform", "", "Platform: ios, android, or web")
 	deviceHistoryCmd.Flags().String("app-id", "", "Filter session history to an app")
-	deviceHistoryCmd.Flags().String("branch", "", "Filter history to a Revyl branch; requires --app or --app-id")
+	deviceHistoryCmd.Flags().String("branch", "", "Filter history to runs that used this branch for their tests from Git or for their Revyl build")
+	deviceHistoryCmd.Flags().String("git-commit-sha", "", "Filter history to runs whose test definition came from this exact lowercase hexadecimal Git commit SHA")
 	deviceHistoryCmd.MarkFlagsMutuallyExclusive("app", "app-id")
 	deviceHistoryCmd.Flags().Int("limit", 20, "Maximum number of sessions to show")
 	deviceHistoryCmd.Flags().Bool("json", false, "Output as JSON")

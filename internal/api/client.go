@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,6 +84,8 @@ const (
 
 	// DefaultRetryMaxDelay is the maximum delay between retries.
 	DefaultRetryMaxDelay = 10 * time.Second
+
+	historyFiltersCapabilityHeader = "X-Revyl-History-Filters"
 )
 
 // DefaultRetryBaseDelay is the base delay for exponential backoff. Test suites
@@ -5650,24 +5653,33 @@ func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsReque
 
 // CLIEnhancedTask represents the task details within an enhanced history item.
 type CLIEnhancedTask struct {
-	AppID                string  `json:"app_id,omitempty"`
-	BuildID              string  `json:"build_id,omitempty"`
-	ResolvedBuildID      string  `json:"resolved_build_id,omitempty"`
-	BuildVersion         string  `json:"build_version,omitempty"`
-	BranchID             string  `json:"branch_id,omitempty"`
-	BranchName           string  `json:"branch_name,omitempty"`
-	ID                   string  `json:"id"`
-	TestID               string  `json:"test_id"`
-	Success              *bool   `json:"success"`
-	Progress             float64 `json:"progress"`
-	CurrentStep          string  `json:"current_step,omitempty"`
-	StepsCompleted       int     `json:"steps_completed"`
-	TotalSteps           int     `json:"total_steps"`
-	ErrorMessage         string  `json:"error_message,omitempty"`
-	Status               string  `json:"status"`
-	StartedAt            string  `json:"started_at,omitempty"`
-	CompletedAt          string  `json:"completed_at,omitempty"`
-	ExecutionTimeSeconds float64 `json:"execution_time_seconds,omitempty"`
+	AppID                              string  `json:"app_id,omitempty"`
+	BuildID                            string  `json:"build_id,omitempty"`
+	ResolvedBuildID                    string  `json:"resolved_build_id,omitempty"`
+	BuildVersion                       string  `json:"build_version,omitempty"`
+	BranchID                           string  `json:"branch_id,omitempty"`
+	BranchName                         string  `json:"branch_name,omitempty"`
+	BranchIsInitialBranch              *bool   `json:"branch_is_initial_branch,omitempty"`
+	ID                                 string  `json:"id"`
+	TestID                             string  `json:"test_id"`
+	Success                            *bool   `json:"success"`
+	Progress                           float64 `json:"progress"`
+	CurrentStep                        string  `json:"current_step,omitempty"`
+	StepsCompleted                     int     `json:"steps_completed"`
+	TotalSteps                         int     `json:"total_steps"`
+	ErrorMessage                       string  `json:"error_message,omitempty"`
+	Status                             string  `json:"status"`
+	StartedAt                          string  `json:"started_at,omitempty"`
+	CompletedAt                        string  `json:"completed_at,omitempty"`
+	SessionID                          string  `json:"session_id,omitempty"`
+	TestName                           string  `json:"test_name,omitempty"`
+	GitBranchName                      string  `json:"git_branch_name,omitempty"`
+	GitBranchIsRepositoryDefaultBranch *bool   `json:"git_branch_is_repository_default_branch,omitempty"`
+	GitCommitSHA                       string  `json:"git_commit_sha,omitempty"`
+	HasUncommittedDefinitionChanges    *bool   `json:"has_uncommitted_definition_changes,omitempty"`
+	TestDefinitionSource               string  `json:"test_definition_source,omitempty"`
+	WasQuarantined                     bool    `json:"was_quarantined,omitempty"`
+	ExecutionTimeSeconds               float64 `json:"execution_time_seconds,omitempty"`
 }
 
 // CLIEnhancedHistoryItem represents a single execution in the enhanced history.
@@ -5724,6 +5736,13 @@ func (c *Client) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, er
 //   - *CLIEnhancedHistoryResponse: The enhanced history
 //   - error: Any error that occurred
 func (c *Client) GetTestEnhancedHistory(ctx context.Context, testID string, limit, offset int) (*CLIEnhancedHistoryResponse, error) {
+	return c.GetTestEnhancedHistoryWithOptions(ctx, testID, "", "", limit, offset)
+}
+
+// GetTestEnhancedHistoryWithOptions retrieves execution history for one test,
+// or for every test run that used a branch for its tests from Git or for its
+// Revyl build, or read an exact Git commit.
+func (c *Client) GetTestEnhancedHistoryWithOptions(ctx context.Context, testID, runBranchName, gitCommitSHA string, limit, offset int) (*CLIEnhancedHistoryResponse, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -5731,18 +5750,127 @@ func (c *Client) GetTestEnhancedHistory(ctx context.Context, testID string, limi
 		offset = 0
 	}
 
-	path := fmt.Sprintf("/api/v1/tests/get_test_enhanced_history?test_id=%s&limit=%d&offset=%d", testID, limit, offset)
+	query := url.Values{}
+	if testID != "" {
+		query.Set("test_id", testID)
+	}
+	if runBranchName != "" {
+		query.Set("run_branch_name", runBranchName)
+	}
+	if gitCommitSHA != "" {
+		query.Set("git_commit_sha", gitCommitSHA)
+	}
+	query.Set("limit", strconv.Itoa(limit))
+	query.Set("offset", strconv.Itoa(offset))
+	path := "/api/v1/tests/get_test_enhanced_history?" + query.Encode()
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireHistoryFiltersCapability(resp, runBranchName != "" || gitCommitSHA != ""); err != nil {
 		return nil, err
 	}
 
 	var result CLIEnhancedHistoryResponse
 	if err := parseResponse(resp, &result); err != nil {
+		if testID == "" && isMissingTestIDValidationError(err) {
+			return nil, fmt.Errorf("%w: %w", ErrRunBranchAndGitCommitFiltersUnsupported, err)
+		}
+		return nil, err
+	}
+	return &result, nil
+}
+
+// CLITestRunQueuedInWorkflow is a test's run that its workflow execution
+// queued, before the run's device session exists.
+type CLITestRunQueuedInWorkflow struct {
+	WorkflowExecutionID             string `json:"workflow_execution_id"`
+	QueuedAt                        string `json:"queued_at"`
+	GitBranchName                   string `json:"git_branch_name,omitempty"`
+	GitCommitSHA                    string `json:"git_commit_sha,omitempty"`
+	HasUncommittedDefinitionChanges bool   `json:"has_uncommitted_definition_changes"`
+	TestDefinitionSource            string `json:"test_definition_source"`
+}
+
+// CLITestLatestRunResult is one test's newest run that matches the filters:
+// LatestRun once the run's device session exists, else
+// LatestRunQueuedInWorkflow.
+type CLITestLatestRunResult struct {
+	TestID                          string                      `json:"test_id"`
+	TestName                        string                      `json:"test_name,omitempty"`
+	RunResult                       TestRunResult               `json:"run_result"`
+	LatestRun                       *CLIEnhancedHistoryItem     `json:"latest_run"`
+	LatestRunQueuedInWorkflow       *CLITestRunQueuedInWorkflow `json:"latest_run_queued_in_workflow"`
+	RunResultCountsSinceCreatedFrom *RunResultCounts            `json:"run_result_counts_since_created_from,omitempty"`
+}
+
+// CLITestLatestRunResultsResponse is one page of each test's newest matching
+// run, failed first, with counts across every page.
+type CLITestLatestRunResultsResponse struct {
+	Items                           []CLITestLatestRunResult `json:"items"`
+	TotalCount                      int                      `json:"total_count"`
+	LatestRunResultCounts           RunResultCounts          `json:"latest_run_result_counts"`
+	QuarantinedFailedLatestRunCount int                      `json:"quarantined_failed_latest_run_count"`
+	RunResultCountsSinceCreatedFrom *RunResultCounts         `json:"run_result_counts_since_created_from,omitempty"`
+}
+
+// LatestRunResultsFilter selects the runs that can be a test's newest run.
+// A nil CreatedFrom leaves the runs' age unbounded.
+type LatestRunResultsFilter struct {
+	TestID        string
+	RunBranchName string
+	GitCommitSHA  string
+	CreatedFrom   *time.Time
+}
+
+// ErrLatestRunResultsUnsupported means the server has no route for each test's
+// newest matching run.
+var ErrLatestRunResultsUnsupported = errors.New("this Revyl server can't show test status by branch or commit yet")
+
+// GetLatestRunResults returns one page of each test's newest run that matches
+// filter, failed first, then running, unknown and passed. A run matches a
+// branch by its Git branch, else by its Revyl build branch.
+func (c *Client) GetLatestRunResults(ctx context.Context, filter LatestRunResultsFilter, limit, offset int) (*CLITestLatestRunResultsResponse, error) {
+	query := url.Values{}
+	if filter.TestID != "" {
+		query.Set("test_id", filter.TestID)
+	}
+	if filter.RunBranchName != "" {
+		query.Set("run_branch_name", filter.RunBranchName)
+	}
+	if filter.GitCommitSHA != "" {
+		query.Set("git_commit_sha", filter.GitCommitSHA)
+	}
+	if filter.CreatedFrom != nil {
+		query.Set("created_from", filter.CreatedFrom.UTC().Format(time.RFC3339))
+	}
+	query.Set("limit", strconv.Itoa(limit))
+	query.Set("offset", strconv.Itoa(offset))
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/tests/latest-run-results?"+query.Encode(), nil)
+	if err != nil {
 		return nil, err
 	}
 
+	var result CLITestLatestRunResultsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %w", ErrLatestRunResultsUnsupported, err)
+		}
+		return nil, err
+	}
 	return &result, nil
+}
+
+// Only a server older than branch queries without a test requires test_id.
+func isMissingTestIDValidationError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	return slices.ContainsFunc(apiErr.ValidationIssues, func(issue APIValidationIssue) bool {
+		return issue.Field == "query.test_id" && issue.Type == "missing"
+	})
 }
 
 // --- Report V3 API types ---
@@ -6236,25 +6364,30 @@ type CLIDeviceSessionHistoryResponse struct {
 
 // CLIDeviceSessionHistoryItem represents a single device session in the history list.
 type CLIDeviceSessionHistoryItem struct {
-	ID              string                  `json:"id"`
-	AppID           *string                 `json:"app_id"`
-	BuildID         *string                 `json:"build_id"`
-	AppName         *string                 `json:"app_name"`
-	BuildVersion    *string                 `json:"build_version"`
-	Source          *string                 `json:"source"`
-	ReportID        *string                 `json:"report_id"`
-	RecordingStatus *SessionRecordingStatus `json:"recording_status,omitempty"`
-	TestExecutionID *string                 `json:"test_execution_id"`
-	TestName        *string                 `json:"test_name"`
-	StartedAt       *string                 `json:"started_at"`
-	EndedAt         *string                 `json:"ended_at"`
-	StepCount       int                     `json:"step_count"`
-	Platform        string                  `json:"platform"`
-	Status          string                  `json:"status"`
-	CreatedAt       string                  `json:"created_at"`
-	Duration        float64                 `json:"duration_seconds,omitempty"`
-	BranchID        string                  `json:"branch_id,omitempty"`
-	BranchName      string                  `json:"branch_name,omitempty"`
+	ID                                 string                  `json:"id"`
+	AppID                              *string                 `json:"app_id"`
+	BuildID                            *string                 `json:"build_id"`
+	AppName                            *string                 `json:"app_name"`
+	BuildVersion                       *string                 `json:"build_version"`
+	Source                             *string                 `json:"source"`
+	ReportID                           *string                 `json:"report_id"`
+	RecordingStatus                    *SessionRecordingStatus `json:"recording_status,omitempty"`
+	TestExecutionID                    *string                 `json:"test_execution_id"`
+	TestName                           *string                 `json:"test_name"`
+	StartedAt                          *string                 `json:"started_at"`
+	EndedAt                            *string                 `json:"ended_at"`
+	StepCount                          int                     `json:"step_count"`
+	Platform                           string                  `json:"platform"`
+	Status                             string                  `json:"status"`
+	CreatedAt                          string                  `json:"created_at"`
+	Duration                           float64                 `json:"duration_seconds,omitempty"`
+	BranchID                           string                  `json:"branch_id,omitempty"`
+	BranchName                         string                  `json:"branch_name,omitempty"`
+	BranchIsInitialBranch              *bool                   `json:"branch_is_initial_branch,omitempty"`
+	GitBranchName                      string                  `json:"git_branch_name,omitempty"`
+	GitBranchIsRepositoryDefaultBranch *bool                   `json:"git_branch_is_repository_default_branch,omitempty"`
+	GitCommitSHA                       string                  `json:"git_commit_sha,omitempty"`
+	HasUncommittedDefinitionChanges    *bool                   `json:"has_uncommitted_definition_changes,omitempty"`
 }
 
 // GetDeviceSessionHistory retrieves paginated device session history.
@@ -6297,11 +6430,43 @@ func (c *Client) QueryDeviceSessionHistory(ctx context.Context, filters url.Valu
 	if err != nil {
 		return nil, err
 	}
+	if err := requireHistoryFiltersCapability(resp, filters.Get("run_branch_name") != "" || filters.Get("git_commit_sha") != ""); err != nil {
+		return nil, err
+	}
 	var result CLIDeviceSessionHistoryResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// ErrRunBranchAndGitCommitFiltersUnsupported means the server can't apply the
+// run_branch_name and git_commit_sha history filters: it answered without
+// them, so its rows weren't filtered, or it refused a query without a test.
+var ErrRunBranchAndGitCommitFiltersUnsupported = errors.New("this Revyl server can't filter history by Git branch or Git commit yet")
+
+func requireHistoryFiltersCapability(resp *http.Response, requested bool) error {
+	if !requested || resp.StatusCode >= http.StatusBadRequest {
+		return nil
+	}
+	if historyFiltersSupported(resp, "run_branch_name", "git_commit_sha") {
+		return nil
+	}
+	resp.Body.Close()
+	return ErrRunBranchAndGitCommitFiltersUnsupported
+}
+
+func historyFiltersSupported(resp *http.Response, filterNames ...string) bool {
+	supported := strings.Split(resp.Header.Get(historyFiltersCapabilityHeader), ",")
+	for index, supportedName := range supported {
+		supported[index] = strings.TrimSpace(supportedName)
+	}
+	for _, filterName := range filterNames {
+		if !slices.Contains(supported, filterName) {
+			return false
+		}
+	}
+	return true
 }
 
 // DeleteBuildVersion deletes a specific build version.

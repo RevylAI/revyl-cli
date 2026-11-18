@@ -45,6 +45,7 @@ EXAMPLES:
   revyl test run login-flow --build  # Build then run
   revyl test list                    # List tests with sync status
   revyl test status login-flow       # Check latest execution status
+  revyl test status --branch main    # Check each test's newest run on a branch
   revyl test report login-flow       # View detailed step report`,
 	Example: `  revyl test run login-flow
   revyl test list

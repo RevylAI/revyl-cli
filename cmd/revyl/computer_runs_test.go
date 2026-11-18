@@ -141,7 +141,7 @@ func TestComputerCommandsReportTheGuestOutcomeInPlainWords(t *testing.T) {
 			}
 			root.SetArgs(append([]string{"computer"}, args...))
 
-			var exitErr *computerExitError
+			var exitErr *commandExitError
 			if err := root.Execute(); !errors.As(err, &exitErr) {
 				t.Fatalf("expected a computer exit, got %v", err)
 			}
@@ -212,7 +212,7 @@ func TestComputerExecHumanOutputNoticesExactLimit(t *testing.T) {
 			}
 			root.SetArgs(args)
 			err := root.Execute()
-			var exitErr *computerExitError
+			var exitErr *commandExitError
 			if test.exitCode != 0 && (!errors.As(err, &exitErr) || exitErr.code != test.exitCode) {
 				t.Fatalf("guest exit code changed: %v", err)
 			} else if test.exitCode == 0 && err != nil {
