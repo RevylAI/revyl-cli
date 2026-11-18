@@ -47,9 +47,6 @@ live in `docs/runbooks/cursor-plugin-release.md`.
   assets: `revyl-darwin-amd64`, `revyl-darwin-arm64`, `revyl-linux-amd64`,
   `revyl-linux-arm64`, `revyl-windows-amd64.exe`, and
   `revyl-windows-arm64.exe`.
-- **API-coupled release:** production backend and frontend must serve any new
-  endpoints the CLI will call before the CLI GitHub Release exists. Then pin as
-  a runtime-coupled release.
 
 Never replace assets under an existing runtime tag; publish a new runtime
 version instead.
