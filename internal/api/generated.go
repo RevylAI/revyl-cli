@@ -1273,6 +1273,7 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 const (
 	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800 ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
 	ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64       ComputerAPIErrorMessage = "Plain argv/path are no longer accepted; upgrade your client to send argv_b64/path_b64."
+	ComputerAPIErrorMessageTimeoutSecondsMustBeWholeSecondsFrom60To86400                               ComputerAPIErrorMessage = "timeout_seconds must be whole seconds from 60 to 86400."
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorMessage enum.
@@ -1281,6 +1282,8 @@ func (e ComputerAPIErrorMessage) Valid() bool {
 	case ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800:
 		return true
 	case ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64:
+		return true
+	case ComputerAPIErrorMessageTimeoutSecondsMustBeWholeSecondsFrom60To86400:
 		return true
 	default:
 		return false
