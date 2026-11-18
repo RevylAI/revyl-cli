@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -249,4 +250,27 @@ func containsEnvKey(env []string, key string) bool {
 		}
 	}
 	return false
+}
+
+func TestStreamStdout_ReadsPastLinesLongerThanOneMebibyte(t *testing.T) {
+	long := strings.Repeat("x", 2*1024*1024)
+	for _, tc := range []struct {
+		name   string
+		stream func(io.Reader, hotreload.DevServerOutputCallback, func())
+	}{
+		{"expo", NewExpoDevServer(".", "demo", 8081, false).streamStdout},
+		{"bare react native", NewBareRNDevServer(".", 8081).streamStdout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var lines []string
+			tc.stream(strings.NewReader(long+"\nStarting Metro Bundler\n"), func(output hotreload.DevServerOutput) {
+				if output.Stream == hotreload.DevServerOutputStdout {
+					lines = append(lines, output.Line)
+				}
+			}, func() {})
+			if len(lines) != 2 || len(lines[0]) != len(long) || lines[1] != "Starting Metro Bundler" {
+				t.Fatalf("got %d stdout lines, want the long line and the line after it", len(lines))
+			}
+		})
+	}
 }

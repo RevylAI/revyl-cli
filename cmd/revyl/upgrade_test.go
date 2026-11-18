@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -873,5 +874,42 @@ func TestDownloadBinaryRespectsContextDeadlineNotReleaseCheckTimeout(t *testing.
 	}
 	if len(got) != len(payload) {
 		t.Fatalf("downloaded %d bytes, want %d", len(got), len(payload))
+	}
+}
+
+func TestPerformSelfUpdateRejectsReadOnlyInstallDirBeforeDownloading(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX directory permissions cannot make the directory read-only on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permissions")
+	}
+	installDir := t.TempDir()
+	execPath := filepath.Join(installDir, "revyl")
+	if err := os.WriteFile(execPath, []byte("current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(installDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(installDir, 0o755) })
+	originalExecutablePath := upgradeExecutablePathFn
+	upgradeExecutablePathFn = func() (string, error) { return execPath, nil }
+	t.Cleanup(func() { upgradeExecutablePathFn = originalExecutablePath })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := performSelfUpdate(ctx, "v9.9.9")
+
+	if err == nil {
+		t.Fatal("performSelfUpdate() succeeded in a read-only install directory")
+	}
+	for _, want := range []string{"is not writable", `REVYL_INSTALL_DIR="$HOME/.revyl/bin"`, `export PATH="$HOME/.revyl/bin:$PATH"`, "image owner"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+	if contents, readErr := os.ReadFile(execPath); readErr != nil || string(contents) != "current" {
+		t.Fatalf("installed binary changed: %q, %v", contents, readErr)
 	}
 }

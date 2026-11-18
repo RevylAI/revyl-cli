@@ -185,6 +185,7 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 		defer wg.Done()
 		defer stdout.Close()
 		scanner := bufio.NewScanner(stdoutReader)
+		scanner.Buffer(make([]byte, 64*1024), maxBuildOutputLineBytes)
 		scanner.Split(scanCRLF)
 		for scanner.Scan() {
 			if emit != nil {
@@ -204,6 +205,7 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 		defer wg.Done()
 		defer stderr.Close()
 		scanner := bufio.NewScanner(stderrReader)
+		scanner.Buffer(make([]byte, 64*1024), maxBuildOutputLineBytes)
 		scanner.Split(scanCRLF)
 		for scanner.Scan() {
 			line := scanner.Text()

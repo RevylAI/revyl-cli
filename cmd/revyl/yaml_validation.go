@@ -46,13 +46,31 @@ func runTestValidate(cmd *cobra.Command, files []string) error {
 }
 
 func validateYAMLFilesWithBackend(cmd *cobra.Command, files []string) error {
-	if len(files) == 0 {
+	report, err := checkYAMLFilesWithBackend(cmd, files)
+	if writeErr := writeYAMLValidationJSON(report); writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
+func writeYAMLValidationJSON(report map[string]interface{}) error {
+	if report == nil {
 		return nil
+	}
+	return json.NewEncoder(os.Stdout).Encode(report)
+}
+
+// checkYAMLFilesWithBackend validates files and prints human diagnostics, but
+// returns the --json report instead of printing it, so a caller that validates
+// again later can still emit exactly one JSON object.
+func checkYAMLFilesWithBackend(cmd *cobra.Command, files []string) (map[string]interface{}, error) {
+	if len(files) == 0 {
+		return nil, nil
 	}
 
 	apiKey, err := getAPIKey()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -66,7 +84,7 @@ func validateYAMLFilesWithBackend(cmd *cobra.Command, files []string) error {
 	for _, file := range files {
 		result, err := validateYAMLFileWithBackend(cmd.Context(), client, file)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		totalErrors += result.Errors
 		totalWarnings += result.Warnings
@@ -87,17 +105,16 @@ func validateYAMLFilesWithBackend(cmd *cobra.Command, files []string) error {
 		}
 	}
 
+	var report map[string]interface{}
 	if jsonOutput {
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+		report = map[string]interface{}{
 			"is_valid": !hasErrors,
 			"files":    results,
-		}); err != nil {
-			return err
 		}
 	}
 
 	if hasErrors {
-		return analytics.CompletedWithExitCode(fmt.Errorf("YAML validation failed"), analytics.CommandCompletion{
+		return report, analytics.CompletedWithExitCode(fmt.Errorf("YAML validation failed"), analytics.CommandCompletion{
 			ExitCode:     1,
 			Domain:       "test_validation",
 			DomainStatus: "invalid",
@@ -109,7 +126,7 @@ func validateYAMLFilesWithBackend(cmd *cobra.Command, files []string) error {
 			},
 		})
 	}
-	return nil
+	return report, nil
 }
 
 type yamlValidationFileResult struct {

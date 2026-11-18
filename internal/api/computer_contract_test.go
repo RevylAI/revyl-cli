@@ -200,6 +200,22 @@ func TestComputerRefusalCodesSurface(t *testing.T) {
 	}
 }
 
+func TestComputerLifetimeUnsupportedShowsTheLongestServedLifetime(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"detail":"lifetime_unsupported","message":"No computer host can run that long yet; see max_timeout_seconds.","max_timeout_seconds":19800}`: "no computer host can run that long yet; request a timeout of 5h30m or less",
+		`{"detail":"lifetime_unsupported","message":"No computer host can run that long yet; see max_timeout_seconds.","max_timeout_seconds":7200}`:  "no computer host can run that long yet; request a timeout of 2h or less",
+		`{"detail":"lifetime_unsupported"}`: "computer request refused: lifetime_unsupported",
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(409); _, _ = w.Write([]byte(body)) }))
+		_, err := NewClientWithBaseURL("fixture-key", server.URL).GetComputerRun(context.Background(), uuid.New())
+		server.Close()
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != "lifetime_unsupported" || apiErr.Message != want {
+			t.Fatalf("%s surfaced as %v", body, err)
+		}
+	}
+}
+
 func TestComputerGuestPathValidation(t *testing.T) {
 	for _, path := range []string{"", "/absolute", "../escape", "a/../b", "a//b", "a/./b", "a\\b", "a:b", "a\n", strings.Repeat("a", 1025)} {
 		if ValidateComputerPath(path) == nil {

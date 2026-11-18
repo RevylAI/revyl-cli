@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -113,7 +114,21 @@ func withConfigDiagnostic(err error) error {
 	if err == nil {
 		return nil
 	}
-	return analytics.WithSafeDiagnostic(err, err.Error())
+	return analytics.WithSafeDiagnostic(err, configTelemetryDiagnostic(err))
+}
+
+func configTelemetryDiagnostic(err error) string {
+	var configError *config.ConfigError
+	if !errors.As(err, &configError) || configError.Code != "unknown_field" || len(configError.Path) == 0 {
+		return err.Error()
+	}
+	redacted := *configError
+	redacted.Path = append([]string(nil), configError.Path...)
+	last := len(redacted.Path) - 1
+	if key := redacted.Path[last]; !buildOnlyConfigKeys[key] {
+		redacted.Path[last] = fmt.Sprintf("<unknown key, %d characters>", utf8.RuneCountInString(key))
+	}
+	return localConfigRecoveryError(&redacted, "").Error()
 }
 
 func actionableLocalConfigError(err error) error {
@@ -254,7 +269,33 @@ func invalidLocalConfigError(configError *config.ConfigError, configFilePath, fa
 		}
 		detail = location + ": " + detail
 	}
-	return fmt.Errorf("Invalid configuration\n  %s\n\n  %s", configFilePath, strings.ReplaceAll(detail, "\n", "\n  "))
+	if hint := localConfigFieldHint(configError); hint != "" {
+		detail += "\n\n" + hint
+	}
+	lines := strings.Split(detail, "\n")
+	for index, line := range lines {
+		if line != "" {
+			lines[index] = "  " + line
+		}
+	}
+	return fmt.Errorf("Invalid configuration\n  %s\n\n%s", configFilePath, strings.Join(lines, "\n"))
+}
+
+const configurationReferenceURL = "https://docs.revyl.com/reference/cli/configuration"
+
+var buildOnlyConfigKeys = map[string]bool{"framework": true, "env": true, "secrets": true, "caches": true, "profiles": true}
+
+func localConfigFieldHint(configError *config.ConfigError) string {
+	path := configError.Path
+	switch {
+	case configError.Code == "unknown_field" && len(path) == 1 && buildOnlyConfigKeys[path[0]]:
+		return fmt.Sprintf("Did you mean build.%s? Nest %s under the top-level build key:\n\n"+
+			"  project:\n    id: <project-id>\n  build:\n    framework: <framework>\n    profiles:\n      <profile-name>:\n        ios:\n          build_commands:\n            - <command>\n          output_path: <artifact-path>\n\n"+
+			"See %s", path[0], path[0], configurationReferenceURL)
+	case configError.Code == "invalid_contract" && len(path) == 1 && path[0] == "project":
+		return fmt.Sprintf("Set project to a mapping that holds the project ID:\n\n  project:\n    id: <project-id>\n\nSee %s", configurationReferenceURL)
+	}
+	return ""
 }
 
 func lastConfigErrorPathSegment(path []string) string {

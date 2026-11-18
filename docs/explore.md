@@ -32,6 +32,10 @@ Explorers beyond available device concurrency wait in the queue. Use
 `--device-model`, `--os-version` and `--idle-timeout` for runtime targeting.
 Queue time can require a longer local wait than the exploration duration.
 
+`--instructions` and `--auth-instructions` each accept at most 4,000 characters.
+For longer or shared text, use `--instructions-file <path>` (or `-` for stdin)
+instead of `--instructions`; the two flags cannot be combined.
+
 CLI authentication and the app's own login are separate. Configure a seeded test
 account or [auth bypass](https://docs.revyl.com/builds/auth-bypass-deeplinks), then
 reference stored launch variables:

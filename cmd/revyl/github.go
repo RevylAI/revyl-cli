@@ -69,6 +69,7 @@ already handed out.
 With --json, print one JSON object on stdout:
   status (already_connected, connected, link_issued, timed_out), connected,
   install_url, repository_count.
+Without --no-wait, --json also prints the install URL on stderr before waiting.
 
 EXAMPLES:
   revyl github connect
@@ -95,6 +96,7 @@ null when no .revyl/config.yaml applies or it could not be read.
 EXAMPLES:
   revyl github status
   revyl github status --json
+  revyl github status --repo owner/name
   revyl -C apps/mobile github status`,
 	Args: cobra.NoArgs,
 	RunE: runGithubStatus,
@@ -117,6 +119,7 @@ EXAMPLES:
 func init() {
 	githubConnectCmd.Flags().Bool("no-open", false, "Print the install link instead of opening a browser")
 	githubConnectCmd.Flags().Bool("no-wait", false, "Return once the install link is issued instead of waiting for the installation")
+	githubStatusCmd.Flags().String("repo", "", "GitHub repository as owner/name, overriding the Git origin")
 	githubCmd.AddCommand(githubConnectCmd, githubStatusCmd, githubSetupCmd)
 }
 
@@ -135,10 +138,14 @@ func runGithubConnect(cmd *cobra.Command, _ []string) error {
 	}
 	noOpen, _ := cmd.Flags().GetBool("no-open")
 	noWait, _ := cmd.Flags().GetBool("no-wait")
-	outcome, err := connectGithub(cmd.Context(), client, githubConnectOptions{
-		openBrowser: !noOpen,
-		wait:        !noWait,
-	})
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+	opts := githubConnectOptions{openBrowser: !noOpen, wait: !noWait}
+	if jsonOutput && ui.IsQuietMode() {
+		opts.onWaiting = func(installURL string) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Waiting up to %s for the Revyl GitHub App install to finish at %s (pass --no-wait to return at once)\n", githubConnectPollTimeout, installURL)
+		}
+	}
+	outcome, err := connectGithub(cmd.Context(), client, opts)
 	completionStatus := outcome.status
 	if completionStatus == "" && err != nil {
 		completionStatus = githubConnectFailed
@@ -149,7 +156,7 @@ func runGithubConnect(cmd *cobra.Command, _ []string) error {
 			DomainStatus: completionStatus,
 		})
 	}
-	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput && outcome.status != "" {
+	if jsonOutput && outcome.status != "" {
 		report := githubConnectReport{
 			Status:     outcome.status,
 			Connected:  outcome.repos.IsConnected(),
@@ -188,6 +195,11 @@ type githubStatusReport struct {
 }
 
 func runGithubStatus(cmd *cobra.Command, _ []string) error {
+	if repositoryOverride, _ := cmd.Flags().GetString("repo"); strings.TrimSpace(repositoryOverride) != "" {
+		if _, err := gitremote.ParseRepositorySlug(repositoryOverride); err != nil {
+			return err
+		}
+	}
 	client, err := newSCMAPIClient(cmd)
 	if err != nil {
 		return err
@@ -240,9 +252,12 @@ func collectGithubStatus(
 		worktreeRoot = root
 	}
 
-	namespace, repositoryName, slugErr := resolveProjectRepoSlug(worktreeRoot, "")
+	repositoryOverride, _ := cmd.Flags().GetString("repo")
+	namespace, repositoryName, slugErr := resolveProjectRepoSlug(worktreeRoot, repositoryOverride)
 	if slugErr != nil {
-		if localErr == nil {
+		if strings.TrimSpace(repositoryOverride) != "" {
+			report.ProjectError = slugErr.Error()
+		} else if localErr == nil {
 			report.ProjectError = actionableGithubOriginError(worktreeRoot).Error()
 		}
 		return report
@@ -405,6 +420,7 @@ var openGithubInstallPage = ui.OpenBrowser
 type githubConnectOptions struct {
 	openBrowser bool
 	wait        bool
+	onWaiting   func(installURL string)
 }
 
 // githubConnectOutcome is the bounded result of one connect attempt.
@@ -455,6 +471,9 @@ func connectGithub(ctx context.Context, client *api.Client, opts githubConnectOp
 		return outcome, nil
 	}
 
+	if opts.onWaiting != nil {
+		opts.onWaiting(install.InstallURL)
+	}
 	ui.Println()
 	ui.PrintInfo("Waiting for the installation to complete ...")
 	connected, err := waitForGithubInstallation(ctx, client)

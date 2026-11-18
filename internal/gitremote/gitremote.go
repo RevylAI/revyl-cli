@@ -20,11 +20,21 @@ import (
 //   - string: The trimmed origin remote URL.
 //   - error: A non-nil error when git is unavailable or no origin is set.
 func OriginURL(root string) (string, error) {
+	return gitOutput(root, "config", "--get", "remote.origin.url")
+}
+
+// rewrittenOriginURL returns the origin URL after Git's url.<base>.insteadOf
+// rewrites. Callers read it only when the configured URL does not parse, so a
+// rewrite to a mirror or proxy never replaces a parseable configured origin.
+func rewrittenOriginURL(root string) (string, error) {
+	return gitOutput(root, "remote", "get-url", "origin")
+}
+
+func gitOutput(root string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx,
-		"git", "-C", root, "config", "--get", "remote.origin.url",
-	).Output()
+	// #nosec G204 -- Git receives fixed subcommands and the local repository root as argv, without a shell.
+	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...).Output()
 	if err != nil {
 		return "", err
 	}
@@ -43,11 +53,38 @@ func ResolveRepository(root string) (RepositoryReference, error) {
 	if err != nil {
 		return RepositoryReference{}, fmt.Errorf("read Git origin: %w", err)
 	}
-	return ParseRepositoryRemote(remote)
+	reference, parseErr := ParseRepositoryRemote(remote)
+	if parseErr == nil {
+		return reference, nil
+	}
+	if rewritten, err := rewrittenOriginURL(root); err == nil && rewritten != remote {
+		if reference, err := ParseRepositoryRemote(rewritten); err == nil {
+			return reference, nil
+		}
+	}
+	return RepositoryReference{}, parseErr
+}
+
+// ParseRepositorySlug parses an explicit GitHub "owner/name" override.
+func ParseRepositorySlug(slug string) (RepositoryReference, error) {
+	reference, err := ParseRepositoryRemote("https://github.com/" + strings.TrimSpace(slug))
+	if err != nil {
+		return RepositoryReference{}, fmt.Errorf("invalid --repo %q (expected owner/name)", slug)
+	}
+	return reference, nil
+}
+
+func expandGithubShorthand(remote string) string {
+	for _, prefix := range []string{"github:", "gh:"} {
+		if len(remote) > len(prefix) && strings.EqualFold(remote[:len(prefix)], prefix) && !strings.HasPrefix(remote[len(prefix):], "/") {
+			return "https://github.com/" + remote[len(prefix):]
+		}
+	}
+	return remote
 }
 
 func ParseRepositoryRemote(remote string) (RepositoryReference, error) {
-	remote = strings.TrimSpace(remote)
+	remote = expandGithubShorthand(strings.TrimSpace(remote))
 	if strings.HasPrefix(remote, "git@") && !strings.Contains(remote, "://") {
 		host, path, ok := strings.Cut(strings.TrimPrefix(remote, "git@"), ":")
 		if !ok {
@@ -107,7 +144,8 @@ func ParseRepositoryRemote(remote string) (RepositoryReference, error) {
 }
 
 // ParseGithubRemote extracts owner/repo from a GitHub remote URL, supporting
-// scp-like (git@github.com:owner/repo.git) and URL (https/ssh) forms.
+// scp-like (git@github.com:owner/repo.git), URL (https/ssh), and
+// github:owner/repo or gh:owner/repo shorthand forms.
 //
 // Parameters:
 //   - remote: The raw remote URL.
@@ -117,7 +155,7 @@ func ParseRepositoryRemote(remote string) (RepositoryReference, error) {
 //   - string: The repository name.
 //   - bool: true when the remote parsed into a GitHub owner/repo pair.
 func ParseGithubRemote(remote string) (string, string, bool) {
-	remote = strings.TrimSuffix(strings.TrimSpace(remote), ".git")
+	remote = strings.TrimSuffix(expandGithubShorthand(strings.TrimSpace(remote)), ".git")
 	if idx := strings.Index(remote, "github.com:"); idx != -1 {
 		return splitOwnerRepo(remote[idx+len("github.com:"):])
 	}
@@ -149,6 +187,11 @@ func ResolveSlug(root, override string) (string, string, error) {
 		)
 	}
 	namespace, project, ok := ParseGithubRemote(remote)
+	if !ok {
+		if rewritten, err := rewrittenOriginURL(root); err == nil && rewritten != remote {
+			namespace, project, ok = ParseGithubRemote(rewritten)
+		}
+	}
 	if !ok {
 		return "", "", fmt.Errorf(
 			"could not parse a GitHub repo from remote %q; pass --repo owner/name",

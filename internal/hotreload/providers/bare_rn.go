@@ -333,6 +333,7 @@ func (b *BareRNDevServer) emitProcessOutput(callback hotreload.DevServerOutputCa
 // streamStdout emits every stdout line and signals readiness when Metro indicators appear.
 func (b *BareRNDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.DevServerOutputCallback, signalReady func()) {
 	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), hotreload.MaxDevServerOutputLineBytes)
 	for scanner.Scan() {
 		line := scanner.Text()
 		b.emitProcessOutput(outputCallback, hotreload.DevServerOutputStdout, line)

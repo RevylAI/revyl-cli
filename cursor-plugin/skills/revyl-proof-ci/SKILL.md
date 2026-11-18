@@ -43,9 +43,12 @@ To **create** the scheduled Automation (CI upload + paste-ready prompt), use
 ## Loop
 
 1. **Match the build to the PR head commit**
-   - `revyl build list --app <REVYL_APP_ID> --json`
+   - `revyl build list --app <REVYL_APP_ID> --limit 100 --json`; builds are
+     in the `versions` array. Repeat with `--page 2`, `--page 3`, ... while
+     `has_next` is `true` and nothing matched
    - Match `metadata.scm_head_sha`, `metadata.git.commit` /
-     `commit_short`, or a version string equal to the head SHA
+     `commit_short`, `metadata.commit_sha` (Web preview URLs), or a version
+     string equal to the head SHA
    - Brief wait + retry once or twice if CI upload has not landed yet
 
 2. **Start the device on that build**

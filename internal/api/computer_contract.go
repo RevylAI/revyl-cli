@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -231,8 +232,11 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 		if decodeComputerJSON(body, &safe, "detail") == nil {
 			code, _ := safe.Detail.AsComputerAPIErrorDetail0()
 			switch string(code) {
-			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "display_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported", "extend_unsupported", "computer_long_limit":
+			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "display_unsupported", "lifetime_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported", "extend_unsupported", "computer_long_limit":
 				refusal.Code, refusal.Message = string(code), "computer request refused: "+string(code)
+				if refusal.Code == "lifetime_unsupported" && safe.MaxTimeoutSeconds != nil && *safe.MaxTimeoutSeconds > 0 {
+					refusal.Message = "no computer host can run that long yet; request a timeout of " + wholeDuration(time.Duration(*safe.MaxTimeoutSeconds)*time.Second) + " or less"
+				}
 				if refusal.Code == "screen_input_uncertain" {
 					refusal.Message += "; take a screenshot before acting again"
 				}
@@ -524,4 +528,16 @@ func validComputerProcess(process ComputerProcessInfo, id uuid.UUID) bool {
 	return process.Handle.ComputerSessionId == id && process.Handle.HandleId != uuid.Nil &&
 		(process.State == "running" && process.ExitCode == nil || process.State == "exited") &&
 		(process.ExitCode == nil || *process.ExitCode >= -255 && *process.ExitCode <= 255)
+}
+
+// wholeDuration prints a whole-second duration without zero trailing units, such as 5h30m for 19800 seconds.
+func wholeDuration(d time.Duration) string {
+	text := d.String()
+	if strings.HasSuffix(text, "m0s") {
+		text = strings.TrimSuffix(text, "0s")
+	}
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return text
 }

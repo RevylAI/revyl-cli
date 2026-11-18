@@ -190,6 +190,9 @@ type deviceStartOutput struct {
 }
 
 func deviceStartOpensBrowser(cmd *cobra.Command, computerSessionID string) bool {
+	if noOpen, _ := cmd.Flags().GetBool("no-open"); noOpen {
+		return false
+	}
 	openBrowser, _ := cmd.Flags().GetBool("open")
 	return openBrowser && (computerSessionID == "" || cmd.Flags().Changed("open"))
 }
@@ -923,7 +926,9 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 	Example: `  revyl device start --platform ios
   revyl device start --platform android --branch staging
   revyl device start --platform ios --all-branches
-  revyl device start --platform ios --json`,
+  revyl device start --platform android --app-url https://example.com/app.apk
+  revyl device start --platform ios --json
+  revyl device start --platform ios --no-open`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
 		if !cmd.Flags().Changed("platform") {
@@ -2246,13 +2251,18 @@ or --app-url.
 		if resolved.GitBranchName != "" {
 			payload["git_branch_name"] = resolved.GitBranchName
 		}
-		message := fmt.Sprintf("Installed from %s", appURL)
+		message := "Installed app"
 		if detectedBundleID := extractInstallBundleID(respBody); detectedBundleID != "" {
 			payload["bundle_id"] = detectedBundleID
-			message = fmt.Sprintf("Installed %s from %s", detectedBundleID, appURL)
+			message = "Installed " + detectedBundleID
 		}
 		if label := buildFromBranchLabel(resolved.BuildID, resolved.BranchName); label != "" {
 			message += " (build " + label + ")"
+		} else {
+			message += " from --app-url"
+		}
+		if ui.IsDebugMode() {
+			message += " from " + appURL
 		}
 
 		jsonOrPrint(cmd, payload, message)
@@ -2269,7 +2279,11 @@ The bundle ID is optional. Omitted, the worker launches the app this session
 installed — which is what you want when attaching to a running "revyl dev"
 session, where the installed bundle ID is not something you can know from the
 outside. A bundle ID the device does not have is rejected immediately, listing
-the apps that are installed.`,
+the apps that are installed.
+
+On iOS, launching an app that is already running terminates it and starts a
+new process, so in-memory app state is lost. To bring a running app forward
+without restarting it, go to the home screen and tap its icon.`,
 	Example: `  revyl device launch
   revyl device launch com.example.app
   revyl device launch --bundle-id com.example.app`,
@@ -3475,8 +3489,9 @@ Use --no-follow for a single snapshot. Columns adapt to the platform:
 
 var deviceRequestsCmd = &cobra.Command{
 	Use:   "requests",
-	Short: "Poll live network requests from an active session",
-	Long: `Stream live network requests from a device session.
+	Short: "Poll live network requests from an active session (iOS only)",
+	Long: `Stream live network requests from a device session (iOS only). Android
+and Web sessions return an error.
 
 By default, polls continuously (--follow) printing one compact row per request.
 Use --no-follow for a single snapshot.`,
@@ -3957,6 +3972,7 @@ func init() {
 	deviceStartCmd.Flags().String("browser", "chrome", "Web browser: chrome, or safari inside a Mac computer (--computer)")
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
+	deviceStartCmd.Flags().Bool("no-open", false, "Do not open the viewer in a browser (same as --open=false; wins over --open)")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve using the selected branch's default build")
 	deviceStartCmd.Flags().String("branch", "", "Revyl branch (default: Git branch when enabled in app settings, else app default)")
 	deviceStartCmd.Flags().String("build-selection", "", "inherit (Automatic), latest (ignore the branch pin), or pinned with --build-version-id")

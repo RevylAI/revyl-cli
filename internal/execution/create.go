@@ -438,7 +438,7 @@ func resolveAppByID(ctx context.Context, client *api.Client, appID, platform, so
 	if err != nil {
 		return nil, fmt.Errorf("%s %q could not be resolved: %w", source, appID, err)
 	}
-	if normalized := normalizeCreatePlatform(appInfo.Platform); normalized != "" && normalized != platform {
+	if normalized := normalizeCreatePlatform(appInfo.Platform); normalized != "" && platform != "" && normalized != platform {
 		return nil, fmt.Errorf("%s %q targets platform %s, not %s", source, appID, normalized, platform)
 	}
 	return appInfo, nil

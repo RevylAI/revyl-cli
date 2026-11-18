@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +201,33 @@ func TestResolveSessionByIDExplainsWhenTerminalSessionEnded(t *testing.T) {
 	want := "session 9f3c1a2b is in terminal state: completed; it ended 2m ago after 300s without device activity (idle timeout)"
 	if err == nil || err.Error() != want {
 		t.Fatalf("ResolveSessionByID() error = %v, want %q", err, want)
+	}
+}
+
+func TestRegisterStartedSessionInReadOnlyDirectoryNamesRecovery(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX directory permissions cannot make the directory read-only on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permissions")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	mgr := NewDeviceSessionManager(api.NewClientWithBaseURL("test-key", "http://127.0.0.1:0"), dir)
+
+	_, err := mgr.registerStartedSession(&DeviceSession{
+		SessionID: "session-0000", WorkflowRunID: "run-0", Platform: "ios",
+		StartedAt: time.Now(), LastActivity: time.Now(), IdleTimeout: time.Hour,
+	})
+
+	if err == nil {
+		t.Fatal("registerStartedSession() succeeded in a read-only directory")
+	}
+	if !strings.Contains(err.Error(), "run revyl device commands from a writable project directory") {
+		t.Fatalf("error = %q, want writable-directory recovery", err)
 	}
 }
 

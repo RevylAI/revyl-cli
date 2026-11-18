@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -94,6 +95,7 @@ var (
 	exploreStrategy              string
 	exploreInstructions          string
 	exploreAuthInstructions      string
+	exploreInstructionsFile      string
 	exploreLaunchVars            []string
 	exploreLaunchEnv             []string
 	exploreNoInheritedLaunchVars bool
@@ -128,8 +130,9 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&explorePlatform, "platform", "", "Configured platform mapping: ios, android, or web")
 	cmd.Flags().IntVar(&exploreExplorerCount, "explorers", 3, "Number of parallel explorers")
 	cmd.Flags().StringVar(&exploreStrategy, "strategy", "balanced", "Exploration strategy: balanced, surface-sweep, journey-focus, or hard-edges")
-	cmd.Flags().StringVar(&exploreInstructions, "instructions", "", "Instructions shared by every explorer")
-	cmd.Flags().StringVar(&exploreAuthInstructions, "auth-instructions", "", "Authentication guidance shared by every explorer")
+	cmd.Flags().StringVar(&exploreInstructions, "instructions", "", "Instructions shared by every explorer (max 4000 characters)")
+	cmd.Flags().StringVar(&exploreInstructionsFile, "instructions-file", "", "Read --instructions from a file, or - for stdin (max 4000 characters)")
+	cmd.Flags().StringVar(&exploreAuthInstructions, "auth-instructions", "", "Authentication guidance shared by every explorer (max 4000 characters)")
 	cmd.Flags().StringArrayVar(&exploreLaunchVars, "launch-var", nil, "Stored launch variable key or ID (repeatable)")
 	cmd.Flags().StringArrayVar(&exploreLaunchEnv, "launch-env", nil, "Inline launch variable KEY=VALUE (repeatable; avoid secrets)")
 	cmd.Flags().BoolVar(&exploreNoInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore inherited launch variables")
@@ -351,11 +354,16 @@ func buildExploreLaunchRequest(
 	if exploreTimeout <= 0 {
 		return nil, nil, fmt.Errorf("--timeout must be greater than zero")
 	}
-	if len(exploreInstructions) > 4000 {
-		return nil, nil, fmt.Errorf("--instructions cannot exceed 4000 characters")
+	instructions, instructionsFlag, err := readExploreInstructions(cmd)
+	if err != nil {
+		return nil, nil, err
 	}
-	if len(exploreAuthInstructions) > 4000 {
-		return nil, nil, fmt.Errorf("--auth-instructions cannot exceed 4000 characters")
+	if err := validateExploreInstructionsLength(instructionsFlag, instructions); err != nil {
+		return nil, nil, err
+	}
+	authInstructions := strings.TrimSpace(exploreAuthInstructions)
+	if err := validateExploreInstructionsLength("--auth-instructions", authInstructions); err != nil {
+		return nil, nil, err
 	}
 
 	app, err := resolveExploreApp(ctx, client, args, platform)
@@ -393,11 +401,11 @@ func buildExploreLaunchRequest(
 		MaxDurationSeconds: intPointer(int(exploreMaxDuration.Seconds())),
 		IdleTimeoutSeconds: intPointer(int(exploreIdleTimeout.Seconds())),
 	}
-	if value := strings.TrimSpace(exploreInstructions); value != "" {
-		request.SeedInstructions = &value
+	if instructions != "" {
+		request.SeedInstructions = &instructions
 	}
-	if value := strings.TrimSpace(exploreAuthInstructions); value != "" {
-		request.AuthInstructions = &value
+	if authInstructions != "" {
+		request.AuthInstructions = &authInstructions
 	}
 	if exploreBranchName != "" {
 		request.BranchName = &exploreBranchName
@@ -923,6 +931,40 @@ func normalizeExploreStrategy(value string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("invalid --strategy %q: expected balanced, surface-sweep, journey-focus, or hard-edges", value)
+}
+
+const maxExploreInstructionsCharacters = 4000
+
+func readExploreInstructions(cmd *cobra.Command) (string, string, error) {
+	if !cmd.Flags().Changed("instructions-file") {
+		return strings.TrimSpace(exploreInstructions), "--instructions", nil
+	}
+	if cmd.Flags().Changed("instructions") {
+		return "", "", fmt.Errorf("--instructions and --instructions-file cannot be used together")
+	}
+	path := strings.TrimSpace(exploreInstructionsFile)
+	if path == "" {
+		return "", "", fmt.Errorf("--instructions-file requires a path, or - for stdin")
+	}
+	var data []byte
+	var err error
+	if path == "-" {
+		data, err = io.ReadAll(cmd.InOrStdin())
+	} else {
+		// #nosec G304 -- the caller explicitly selects this local file with --instructions-file.
+		data, err = os.ReadFile(path)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("read --instructions-file: %w", err)
+	}
+	return strings.TrimSpace(string(data)), "--instructions-file", nil
+}
+
+func validateExploreInstructionsLength(flagName, value string) error {
+	if count := utf8.RuneCountInString(value); count > maxExploreInstructionsCharacters {
+		return fmt.Errorf("%s cannot exceed %d characters (got %d); shorten the text and retry", flagName, maxExploreInstructionsCharacters, count)
+	}
+	return nil
 }
 
 func validateExploreDuration(name string, value, minimum, maximum time.Duration) error {

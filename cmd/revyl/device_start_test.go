@@ -90,3 +90,35 @@ func TestDeviceStartOpenBrowserDefaultsOffInsideComputer(t *testing.T) {
 		t.Fatal("device start should keep opening the browser by default outside a computer")
 	}
 }
+
+func TestDeviceStartNoOpenDisablesBrowser(t *testing.T) {
+	t.Setenv("REVYL_COMPUTER_ID", "")
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "default opens", want: true},
+		{name: "no-open disables", args: []string{"--no-open"}, want: false},
+		{name: "open=false still disables", args: []string{"--open=false"}, want: false},
+		{name: "no-open wins over open", args: []string{"--open", "--no-open"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "start"}
+			for _, name := range []string{"open", "no-open"} {
+				registered := deviceStartCmd.Flags().Lookup(name)
+				if registered == nil {
+					t.Fatalf("device start is missing --%s", name)
+				}
+				cmd.Flags().Bool(name, registered.DefValue == "true", registered.Usage)
+			}
+			if err := cmd.ParseFlags(tt.args); err != nil {
+				t.Fatalf("parse %v: %v", tt.args, err)
+			}
+			if got := deviceStartOpensBrowser(cmd, computerSessionIDForStart(cmd)); got != tt.want {
+				t.Fatalf("deviceStartOpensBrowser(%v) = %t, want %t", tt.args, got, tt.want)
+			}
+		})
+	}
+}

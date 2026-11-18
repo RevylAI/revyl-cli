@@ -33,12 +33,53 @@ The matching upload must be a simulator `.app` / `.app.zip` or an installable `.
 Find the Revyl build that matches this pull request's head commit:
 
 1. Resolve the PR head SHA from the checkout / Automation context.
-2. List builds for the app:
-   `revyl build list --app <REVYL_APP_ID> --json`
+2. List builds for the app, newest first:
+   `revyl build list --app <REVYL_APP_ID> --limit 100 --json`
+
+   The builds are in the `versions` array, not at the top level. The output looks like this (fields can be absent):
+
+   ```json
+   {
+     "app_id": "<app-id>",
+     "versions": [
+       {
+         "id": "<build-version-id>",
+         "version": "<pr-head-sha>",
+         "uploaded_at": "<timestamp>",
+         "branch_name": "<revyl-branch>",
+         "metadata": {
+           "scm_repo": "owner/name",
+           "scm_head_sha": "<pr-head-sha>",
+           "pr_number": 42,
+           "git": { "commit": "<sha>", "commit_short": "<short-sha>", "branch": "<git-branch>" }
+         }
+       }
+     ],
+     "count": 1,
+     "total": 37,
+     "page": 1,
+     "page_size": 100,
+     "has_next": false,
+     "scanned_count": 1
+   }
+   ```
+
+   If no build on the page matches and `has_next` is `true`, repeat with `--page 2`, `--page 3`, and so on.
 3. Match a build version whose metadata ties to that commit. Prefer, in order:
    - `metadata.scm_head_sha` equal to the full PR head SHA
-   - `metadata.git.commit` / `metadata.git.commit_short` prefix-matching the head SHA
+   - `metadata.git.commit` equal to the head SHA, or `metadata.git.commit_short` prefix-matching it
+   - `metadata.commit_sha` equal to the head SHA (registered Web preview URLs)
    - version string equal to the head SHA (common when CI passed `--version` as the PR head SHA)
+
+   For example, with the full head SHA in `HEAD_SHA`:
+
+   ```bash
+   revyl build list --app <REVYL_APP_ID> --limit 100 --json | jq -r --arg sha "$HEAD_SHA" '
+     .versions[]
+     | select(.metadata.scm_head_sha == $sha or .metadata.git.commit == $sha
+         or .metadata.commit_sha == $sha or .version == $sha)
+     | .id' | head -n 1
+   ```
 4. If no match yet, wait briefly and retry once or twice (CI upload can lag the Automation trigger). If there is still no matching build, **stop**. Post a short PR comment under `## Revyl device proof` stating that no Revyl build for this commit is available yet, and that proof was not run. Do not invent a build id and do not start a device on an unrelated build.
 
 ## Start the device on that exact build

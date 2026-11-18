@@ -2185,3 +2185,28 @@ func TestManagerStartLocalTransportProvesTheLoopbackDevServerWithoutARelay(t *te
 		t.Fatalf("Start() = %+v, want the loopback dev server %s with no relay", result, server.URL)
 	}
 }
+
+func TestCreateDevServerRequiresExpoAppSchemeOnlyForDevClientLaunch(t *testing.T) {
+	var receivedScheme *string
+	previous := expoDevServerFactory
+	expoDevServerFactory = func(workDir, appScheme string, port int, useExpPrefix bool) DevServer {
+		receivedScheme = &appScheme
+		return &fakeDevServer{}
+	}
+	t.Cleanup(func() { expoDevServerFactory = previous })
+
+	devClient := NewManager("expo", &config.ProviderConfig{}, t.TempDir())
+	if _, err := devClient.createDevServer(); err == nil || !strings.Contains(err.Error(), "app_scheme is required") {
+		t.Fatalf("dev-client launch without app_scheme error = %v", err)
+	}
+
+	packagerHost := NewManager("expo", &config.ProviderConfig{}, t.TempDir())
+	packagerHost.SetPackagerHostLaunch(true)
+	server, err := packagerHost.createDevServer()
+	if err != nil {
+		t.Fatalf("packager-host launch without app_scheme error = %v", err)
+	}
+	if server == nil || receivedScheme == nil || *receivedScheme != "" {
+		t.Fatalf("packager-host dev server = %v, scheme = %v", server, receivedScheme)
+	}
+}

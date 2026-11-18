@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -258,6 +259,10 @@ func TestRunnerHelperProcess(t *testing.T) {
 		_, _ = os.Stdout.WriteString(os.Getenv("REVYL_RUNNER_ADDED") + "\n")
 	case "output":
 		_, _ = os.Stdout.WriteString("first\nsecond\n")
+	case "long-lines":
+		long := strings.Repeat("x", 2*1024*1024)
+		_, _ = os.Stdout.WriteString(long + "\nstdout-after\n")
+		_, _ = os.Stderr.WriteString(long + "\nstderr-after\n")
 	case "output-both":
 		_, _ = os.Stdout.WriteString("stdout-first\nstdout-last")
 		_, _ = os.Stderr.WriteString("stderr-first\nstderr-last")
@@ -641,5 +646,24 @@ func TestScanCRLF_XcodebuildProgress(t *testing.T) {
 	}
 	if tokens[2] != "Build Succeeded" {
 		t.Errorf("tokens[2] = %q, want %q", tokens[2], "Build Succeeded")
+	}
+}
+
+func TestRunnerReadsOutputLinesLongerThanOneMebibyte(t *testing.T) {
+	var lines []string
+	err := NewRunner(t.TempDir()).RunContext(context.Background(), runnerTestHelperCommand(t, "long-lines"), RunOptions{}, func(line string) {
+		lines = append(lines, line)
+	})
+	if err != nil {
+		t.Fatalf("RunContext() error = %v", err)
+	}
+	longLines := 0
+	for _, line := range lines {
+		if len(line) == 2*1024*1024 {
+			longLines++
+		}
+	}
+	if longLines != 2 || !slices.Contains(lines, "stdout-after") || !slices.Contains(lines, "stderr-after") {
+		t.Fatalf("got %d lines with %d full-length long lines, want both long lines and the lines after them", len(lines), longLines)
 	}
 }

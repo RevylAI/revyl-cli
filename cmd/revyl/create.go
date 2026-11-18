@@ -467,7 +467,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 //
 // Returns:
 //   - error: Any error that occurred during test creation
-func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
+func runCreateTestFromFile(cmd *cobra.Command, args []string) (runErr error) {
 	cmd.SilenceUsage = true
 
 	var testName string
@@ -509,7 +509,17 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 
 	// Resolve and validate the canonical project before making the backend
 	// validation request or writing the source into the project.
-	if err := validateYAMLFilesWithBackend(cmd, []string{createTestFromFile}); err != nil {
+	validationReport, err := checkYAMLFilesWithBackend(cmd, []string{createTestFromFile})
+	delegatedToPush := false
+	defer func() {
+		if delegatedToPush {
+			return
+		}
+		if writeErr := writeYAMLValidationJSON(validationReport); writeErr != nil && runErr == nil {
+			runErr = writeErr
+		}
+	}()
+	if err != nil {
 		return err
 	}
 
@@ -546,6 +556,7 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 		if err := applyCreateFileSelector(cmd, project, absSource); err != nil {
 			return err
 		}
+		delegatedToPush = true
 		return runTestsPush(cmd, []string{testName})
 	}
 
@@ -557,6 +568,7 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 		if err := applyCreateFileSelector(cmd, project, absSource); err != nil {
 			return err
 		}
+		delegatedToPush = true
 		return runTestsPush(cmd, []string{srcName})
 	}
 
@@ -593,7 +605,7 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	if err := applyCreateFileSelector(cmd, project, destPath); err != nil {
 		return err
 	}
-	// Call the push function directly
+	delegatedToPush = true
 	return runTestsPush(cmd, []string{testName})
 }
 
@@ -1019,7 +1031,7 @@ func runHeadlessSession(ctx context.Context, session *interactive.Session) error
 }
 
 func applyCreateFileSelector(cmd *cobra.Command, project *config.ProjectContext, path string) error {
-	if createTestBranch == "" && createTestBuildSelection == "" && createTestBuildID == "" {
+	if strings.TrimSpace(createTestAppID) == "" && createTestBranch == "" && createTestBuildSelection == "" && createTestBuildID == "" {
 		return nil
 	}
 	local, err := config.LoadLocalTest(path)
@@ -1039,6 +1051,18 @@ func applyCreateFileSelector(cmd *cobra.Command, project *config.ProjectContext,
 	app, err := execution.ResolveCreateTestApp(cmd.Context(), client, project, platform, createTestAppID, local.Test.Build.Name)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(local.Test.Build.Name) == "" {
+		local.Test.Build.Name = app.Name
+	}
+	if strings.TrimSpace(local.Test.Metadata.Platform) == "" {
+		if strings.TrimSpace(platform) == "" {
+			platform = strings.ToLower(strings.TrimSpace(app.Platform))
+		}
+		local.Test.Metadata.Platform = platform
+	}
+	if createTestBranch == "" && createTestBuildSelection == "" && createTestBuildID == "" {
+		return config.SaveLocalTest(path, local)
 	}
 	selection, err := execution.ResolveSavedBuildSelection(cmd.Context(), client, app.ID, createTestBranch, "", createTestBuildSelection, createTestBuildID)
 	if err != nil {

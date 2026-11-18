@@ -36,6 +36,7 @@ show_banner() {
 info()  { printf '  \033[1;34m→\033[0m %s\n' "$1" >&2; }
 ok()    { printf '  \033[1;32m✓\033[0m %s\n' "$1" >&2; }
 err()   { printf '  \033[1;31m✗\033[0m %s\n' "$1" >&2; }
+warn()  { printf '  \033[1;33m!\033[0m %s\n' "$1" >&2; }
 
 need_cmd() {
     if ! command -v "$1" > /dev/null 2>&1; then
@@ -50,10 +51,11 @@ detect_os() {
     case "$(uname -s)" in
         Darwin) echo "darwin" ;;
         Linux)  echo "linux"  ;;
+        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
         *)
             err "Unsupported operating system: $(uname -s)"
-            err "This installer supports macOS and Linux."
-            err "For Windows, use: pip install revyl"
+            err "This installer supports macOS, Linux, and Windows Git Bash, MSYS2, or Cygwin."
+            err "Otherwise, use: uv tool install revyl, pipx install revyl, or pip install revyl"
             exit 1
             ;;
     esac
@@ -160,6 +162,27 @@ verify_checksum() {
 
 # ── PATH setup ────────────────────────────────────────────────────────
 
+print_manual_path() {
+    rc="$1"
+    line="$2"
+    printf '\n'
+    warn "Could not update $rc (it is not writable, for example when Nix manages it)."
+    info "Add this line to your shell profile yourself:"
+    printf '    %s\n' "$line"
+    info "Set REVYL_NO_MODIFY_PATH=1 to skip this step on later installs."
+}
+
+append_path_line() {
+    rc="$1"
+    line="$2"
+    install_dir="$3"
+    if { [ -e "$rc" ] && [ ! -w "$rc" ]; } || ! { printf '\n%s\n' "$line" >> "$rc"; } 2>/dev/null; then
+        print_manual_path "$rc" "$line"
+        return 0
+    fi
+    ok "Added $install_dir to PATH in $rc"
+}
+
 setup_path() {
     install_dir="$1"
 
@@ -191,12 +214,11 @@ setup_path() {
         fish)
             fish_line="set -gx PATH \"${install_dir}\" \$PATH"
             rc="$HOME/.config/fish/config.fish"
-            mkdir -p "$(dirname "$rc")"
             if [ -f "$rc" ] && grep -qF "$install_dir" "$rc" 2>/dev/null; then
                 return
             fi
-            printf '%s\n' "$fish_line" >> "$rc"
-            ok "Added $install_dir to PATH in $rc"
+            mkdir -p "$(dirname "$rc")" 2>/dev/null || true
+            append_path_line "$rc" "$fish_line" "$install_dir"
             return
             ;;
         *)
@@ -208,8 +230,18 @@ setup_path() {
         return
     fi
 
-    printf '\n%s\n' "$line" >> "$rc"
-    ok "Added $install_dir to PATH in $rc"
+    append_path_line "$rc" "$line" "$install_dir"
+}
+
+print_windows_path_guidance() {
+    install_dir="$1"
+    windows_dir="$install_dir"
+    if command -v cygpath > /dev/null 2>&1; then
+        windows_dir="$(cygpath -w "$install_dir")"
+    fi
+    printf '\n'
+    info "Git Bash: open a new Git Bash window, or run: export PATH=\"$install_dir:\$PATH\""
+    info "PowerShell and cmd: add $windows_dir to your user Path in Windows settings."
 }
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -221,6 +253,10 @@ main() {
     ARCH="$(detect_arch)"
     VERSION="$(resolve_version)"
     ASSET="revyl-${OS}-${ARCH}"
+    if [ "$OS" = "windows" ]; then
+        ASSET="${ASSET}.exe"
+        BINARY_NAME="revyl.exe"
+    fi
 
     info "Platform: ${OS}/${ARCH}"
     info "Version:  ${VERSION}"
@@ -250,6 +286,9 @@ main() {
     ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
 
     setup_path "$INSTALL_DIR"
+    if [ "$OS" = "windows" ]; then
+        print_windows_path_guidance "$INSTALL_DIR"
+    fi
 
     printf '\n'
     printf '  \033[1;32mRevyl CLI %s installed successfully!\033[0m\n' "$VERSION"

@@ -1211,6 +1211,7 @@ const (
 	ComputerAPIErrorDetail1ComputerNotEnabled        ComputerAPIErrorDetail1 = "computer_not_enabled"
 	ComputerAPIErrorDetail1DisplayUnsupported        ComputerAPIErrorDetail1 = "display_unsupported"
 	ComputerAPIErrorDetail1Forbidden                 ComputerAPIErrorDetail1 = "forbidden"
+	ComputerAPIErrorDetail1LifetimeUnsupported       ComputerAPIErrorDetail1 = "lifetime_unsupported"
 	ComputerAPIErrorDetail1RuntimeUnavailable        ComputerAPIErrorDetail1 = "runtime_unavailable"
 	ComputerAPIErrorDetail1Unauthenticated           ComputerAPIErrorDetail1 = "unauthenticated"
 )
@@ -1229,6 +1230,8 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 	case ComputerAPIErrorDetail1DisplayUnsupported:
 		return true
 	case ComputerAPIErrorDetail1Forbidden:
+		return true
+	case ComputerAPIErrorDetail1LifetimeUnsupported:
 		return true
 	case ComputerAPIErrorDetail1RuntimeUnavailable:
 		return true
@@ -1272,6 +1275,7 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 // Defines values for ComputerAPIErrorMessage.
 const (
 	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800 ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
+	ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds                         ComputerAPIErrorMessage = "No computer host can run that long yet; see max_timeout_seconds."
 	ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64       ComputerAPIErrorMessage = "Plain argv/path are no longer accepted; upgrade your client to send argv_b64/path_b64."
 	ComputerAPIErrorMessageTimeoutSecondsMustBeWholeSecondsFrom60To86400                               ComputerAPIErrorMessage = "timeout_seconds must be whole seconds from 60 to 86400."
 )
@@ -1280,6 +1284,8 @@ const (
 func (e ComputerAPIErrorMessage) Valid() bool {
 	switch e {
 	case ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800:
+		return true
+	case ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds:
 		return true
 	case ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64:
 		return true
@@ -6919,7 +6925,10 @@ type CompiledIntentStep struct {
 type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 	Detail         ComputerAPIError_Detail       `json:"detail"`
-	Message        *ComputerAPIErrorMessage      `json:"message,omitempty"`
+
+	// MaxTimeoutSeconds With lifetime_unsupported, the longest timeout_seconds any live host serves for this request.
+	MaxTimeoutSeconds *int                     `json:"max_timeout_seconds,omitempty"`
+	Message           *ComputerAPIErrorMessage `json:"message,omitempty"`
 
 	// Offer The step that lets an organization at its device limit run more at once.
 	//

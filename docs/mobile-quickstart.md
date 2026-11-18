@@ -46,8 +46,8 @@ revyl config validate
 ```
 
 iOS needs a simulator `.app` or zipped `.app`, not an `.ipa`. Android needs an
-installable APK; if it contains native libraries, include `x86_64` or
-`arm64-v8a`. See [artifact requirements](https://docs.revyl.com/builds/artifact-requirements).
+installable APK; if it contains native libraries, include `x86_64`, which
+React Native apps need. See [artifact requirements](https://docs.revyl.com/builds/artifact-requirements).
 
 ## 3. Build the version you want to verify
 

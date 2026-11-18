@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -429,6 +430,91 @@ func TestExploreLaunchFlagsPreserveCommas(t *testing.T) {
 	}
 }
 
+func TestExploreInstructionsFileFeedsSeedInstructions(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value func(t *testing.T) string
+		stdin string
+	}{
+		{name: "file", value: func(t *testing.T) string {
+			path := filepath.Join(t.TempDir(), "instructions.txt")
+			if err := os.WriteFile(path, []byte("  Map checkout\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}},
+		{name: "stdin", value: func(*testing.T) string { return "-" }, stdin: "Map checkout\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetExploreFlagsForTest(t)
+			cmd := &cobra.Command{}
+			configureExploreRunFlags(cmd)
+			cmd.SetIn(strings.NewReader(tc.stdin))
+			if err := cmd.ParseFlags([]string{"--instructions-file", tc.value(t)}); err != nil {
+				t.Fatalf("ParseFlags(): %v", err)
+			}
+			client := &fakeExploreAPI{searchResults: []api.App{{ID: uuid.NewString(), Name: "My App", Platform: "android"}}}
+
+			request, _, err := buildExploreLaunchRequest(cmd, client, []string{"My App"})
+
+			if err != nil {
+				t.Fatalf("buildExploreLaunchRequest(): %v", err)
+			}
+			if request.SeedInstructions == nil || *request.SeedInstructions != "Map checkout" {
+				t.Fatalf("seed instructions = %v", request.SeedInstructions)
+			}
+		})
+	}
+}
+
+func TestExploreInstructionsRejectsConflictsAndOverLimitText(t *testing.T) {
+	overLimitPath := filepath.Join(t.TempDir(), "long.txt")
+	if err := os.WriteFile(overLimitPath, []byte(strings.Repeat("a", 4001)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "both flags", args: []string{"--instructions", "x", "--instructions-file", overLimitPath}, want: "--instructions and --instructions-file cannot be used together"},
+		{name: "file over limit", args: []string{"--instructions-file", overLimitPath}, want: "--instructions-file cannot exceed 4000 characters (got 4001)"},
+		{name: "inline over limit", args: []string{"--instructions", strings.Repeat("a", 4001)}, want: "--instructions cannot exceed 4000 characters (got 4001)"},
+		{name: "auth over limit", args: []string{"--auth-instructions", strings.Repeat("a", 4001)}, want: "--auth-instructions cannot exceed 4000 characters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetExploreFlagsForTest(t)
+			cmd := &cobra.Command{}
+			configureExploreRunFlags(cmd)
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatalf("ParseFlags(): %v", err)
+			}
+			client := &fakeExploreAPI{}
+
+			_, _, err := buildExploreLaunchRequest(cmd, client, []string{"My App"})
+
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestExploreInstructionsLimitCountsCharactersNotBytes(t *testing.T) {
+	resetExploreFlagsForTest(t)
+	exploreInstructions = strings.Repeat("é", 4000)
+	client := &fakeExploreAPI{searchResults: []api.App{{ID: uuid.NewString(), Name: "My App", Platform: "android"}}}
+
+	request, _, err := buildExploreLaunchRequest(&cobra.Command{}, client, []string{"My App"})
+
+	if err != nil {
+		t.Fatalf("buildExploreLaunchRequest(): %v", err)
+	}
+	if request.SeedInstructions == nil || *request.SeedInstructions != exploreInstructions {
+		t.Fatal("seed instructions were not sent unchanged")
+	}
+}
+
 func TestExploreOutcomeAndExitSemantics(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -686,6 +772,9 @@ func exploreReport(executionStatus, atlasStatus, customerStatus string, complete
 func resetExploreFlagsForTest(t *testing.T) {
 	t.Helper()
 	oldBranch, oldSelection, oldAllBranches := exploreBranchName, exploreBuildSelection, exploreAllBranches
+	oldInstructionsFile := exploreInstructionsFile
+	exploreInstructionsFile = ""
+	t.Cleanup(func() { exploreInstructionsFile = oldInstructionsFile })
 	exploreBranchName, exploreBuildSelection, exploreAllBranches = "", "", false
 	t.Cleanup(func() {
 		exploreBranchName, exploreBuildSelection, exploreAllBranches = oldBranch, oldSelection, oldAllBranches

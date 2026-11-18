@@ -813,6 +813,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	manager.SetAPIClient(client)
 	manager.SetTargetPlatform(devicePlatform)
 	manager.SetForceHotReload(devStartForceHotReload)
+	manager.SetPackagerHostLaunch(packagerHostLaunch)
 	if computer.Local && devicePlatform == "ios" && externalTunnel.tunnelURL == "" {
 		manager.SetTransportPreference(hotreload.TransportLocal)
 	}

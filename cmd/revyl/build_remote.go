@@ -272,8 +272,8 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			ui.PrintSuccess("Compressed project files %s (%.1f MB)", formatBuildProgressDuration(time.Since(compressStart)), sizeMB)
 		}
 
-		if sizeMB > 500 {
-			return fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
+		if sizeMB > maxSourceArchiveMB {
+			return sourceArchiveTooLargeError(archivePath, sizeMB)
 		}
 
 		// ── 5. Get presigned upload URL ──────────────────────────────
@@ -345,6 +345,10 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		branchID = triggerResp.BranchId.String()
 	}
 	jobID := triggerResp.BuildJobId
+	if quiet, _ := cmd.Flags().GetBool("quiet"); opts.JSON && opts.Wait && !quiet {
+		fmt.Fprintf(os.Stderr, "Remote build queued: job %s (%s); follow with: revyl build status %s --follow\n",
+			jobID, remoteBuildDashboardURL(devMode, appID.String(), jobID), jobID)
+	}
 	if interactiveOutput {
 		if !debugOutput {
 			ui.Println()
@@ -1094,6 +1098,77 @@ func printRemoteBuildJSON(result remoteBuildJSONResult) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(result)
+}
+
+const maxSourceArchiveMB = 500
+
+func sourceArchiveTooLargeError(archivePath string, sizeMB float64) error {
+	message := fmt.Sprintf(
+		"source archive too large (%.0f MB, max %d MB); exclude paths the build does not need in .revylignore (gitignore syntax) at the project root, then retry",
+		sizeMB, maxSourceArchiveMB,
+	)
+	if largest := largestSourceArchivePaths(archivePath, 5); len(largest) > 0 {
+		message += "; largest top-level paths (uncompressed): " + strings.Join(largest, ", ")
+	}
+	return fmt.Errorf("%s", message)
+}
+
+func largestSourceArchivePaths(archivePath string, limit int) []string {
+	// #nosec G304 -- archivePath is the source archive this command just created.
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return nil
+	}
+	defer gzipReader.Close()
+	sizeBytesByPath := map[string]int64{}
+	reader := tar.NewReader(gzipReader)
+	for {
+		header, err := reader.Next()
+		if err != nil {
+			break
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		top, rest, nested := strings.Cut(strings.TrimPrefix(header.Name, "./"), "/")
+		if nested && rest != "" {
+			top += "/"
+		}
+		sizeBytesByPath[top] += header.Size
+	}
+	paths := make([]string, 0, len(sizeBytesByPath))
+	for path := range sizeBytesByPath {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		if sizeBytesByPath[paths[i]] != sizeBytesByPath[paths[j]] {
+			return sizeBytesByPath[paths[i]] > sizeBytesByPath[paths[j]]
+		}
+		return paths[i] < paths[j]
+	})
+	if len(paths) > limit {
+		paths = paths[:limit]
+	}
+	for index, path := range paths {
+		paths[index] = fmt.Sprintf("%s (%s)", path, formatArchiveSize(sizeBytesByPath[path]))
+	}
+	return paths
+}
+
+func formatArchiveSize(sizeBytes int64) string {
+	switch {
+	case sizeBytes >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(sizeBytes)/(1<<30))
+	case sizeBytes >= 1<<20:
+		return fmt.Sprintf("%.0f MB", float64(sizeBytes)/(1<<20))
+	default:
+		return fmt.Sprintf("%.0f KB", float64(sizeBytes)/(1<<10))
+	}
 }
 
 func createSourceArchive(worktreeRoot, projectRoot string) (string, error) {

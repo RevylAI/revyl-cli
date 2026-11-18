@@ -108,6 +108,8 @@ var (
 	// tests to avoid replacing the running binary and to inspect the context
 	// handed to the download phase.
 	performSelfUpdateFn = performSelfUpdate
+
+	upgradeExecutablePathFn = os.Executable
 )
 
 // upgradeCmd checks for and installs CLI updates.
@@ -677,6 +679,22 @@ func parseGitHubReleaseList(body io.Reader) (*GitHubRelease, error) {
 	return nil, fmt.Errorf("no releases found")
 }
 
+// ensureUpgradeInstallDirWritable fails before any download when the directory
+// holding execPath cannot take the backup rename and the new binary.
+func ensureUpgradeInstallDirWritable(execPath string) error {
+	installDir := filepath.Dir(execPath)
+	probe, err := os.CreateTemp(installDir, ".revyl-upgrade-check-*")
+	if err == nil {
+		probeName := probe.Name()
+		_ = probe.Close()
+		return os.Remove(probeName)
+	}
+	return fmt.Errorf("cannot upgrade %s: its directory %s is not writable (%w). "+
+		"Reinstall into a writable directory with: curl -fsSL https://revyl.com/install.sh | REVYL_INSTALL_DIR=\"$HOME/.revyl/bin\" sh, "+
+		"then put that directory first on PATH: export PATH=\"$HOME/.revyl/bin:$PATH\". "+
+		"If a managed image or agent outpost provides this install, its image owner updates it", execPath, installDir, err)
+}
+
 // performSelfUpdate downloads and installs the new version.
 //
 // Parameters:
@@ -696,6 +714,20 @@ func performSelfUpdate(ctx context.Context, tagName string) (string, error) {
 	// Download URLs
 	binaryURL := fmt.Sprintf("%s/%s/%s", GitHubReleasesURL, tagName, binaryName)
 	checksumURL := fmt.Sprintf("%s/%s/checksums.txt", GitHubReleasesURL, tagName)
+
+	execPath, err := upgradeExecutablePathFn()
+	if err != nil {
+		ui.PrintError("Failed to get executable path: %v", err)
+		return "", err
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		ui.PrintError("Failed to resolve executable path: %v", err)
+		return "", err
+	}
+	if err := ensureUpgradeInstallDirWritable(execPath); err != nil {
+		return "", err
+	}
 
 	ui.PrintInfo("Downloading %s...", binaryName)
 
@@ -732,19 +764,6 @@ func performSelfUpdate(ctx context.Context, tagName string) (string, error) {
 		return "", fmt.Errorf("checksum verification failed")
 	}
 	ui.PrintSuccess("Checksum verified")
-
-	// Get current executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		ui.PrintError("Failed to get executable path: %v", err)
-		return "", err
-	}
-
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		ui.PrintError("Failed to resolve executable path: %v", err)
-		return "", err
-	}
 
 	// Create backup
 	backupPath := execPath + ".old"

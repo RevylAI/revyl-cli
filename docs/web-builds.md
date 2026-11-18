@@ -191,6 +191,12 @@ revyl build upload --platform web --url https://pr-42.example.dev --json
 `commit_sha` and `review` appear only when the command knows the pull request
 identity. `defaults_applied` lists the app when it came from config.
 
+To run proof of changes on these previews, set `pr_review.build.kind:
+ci_upload_to_revyl` with `app_ids.web` instead of naming a profile; Revyl
+matches the registered URL to the pull request by repository and head SHA. See
+[Use your own CI: Web previews](https://docs.revyl.com/integrations/github#web-previews)
+for the config and a GitHub `deployment_status` example.
+
 URL-registration flags `--file`, `--header`, `--version`, `--pin`,
 `--set-current`, `--no-set-current`, `--preview`, and `--name` are rejected by
 `build upload --platform web`. This does not change the flags supported by

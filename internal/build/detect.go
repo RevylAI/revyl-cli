@@ -878,7 +878,6 @@ func parseBazelIOSTarget(dir string) string {
 
 // isKMPProject checks whether the directory contains a Kotlin Multiplatform
 // project. Detection requires multi-signal evidence to avoid false positives:
-//   - A shared module directory (shared/)
 //   - At least one KMP native shell (iosApp/, androidApp/, or composeApp/)
 //   - A KMP-specific Gradle build marker in the project
 //
@@ -888,10 +887,6 @@ func parseBazelIOSTarget(dir string) string {
 // Returns:
 //   - bool: True only when strong multi-signal evidence confirms KMP
 func isKMPProject(dir string) bool {
-	if !DirExists(filepath.Join(dir, "shared")) {
-		return false
-	}
-
 	hasNativeShell := DirExists(filepath.Join(dir, "iosApp")) ||
 		DirExists(filepath.Join(dir, "androidApp")) ||
 		DirExists(filepath.Join(dir, "composeApp"))
@@ -902,9 +897,9 @@ func isKMPProject(dir string) bool {
 	return hasKMPGradleMarker(dir)
 }
 
-// hasKMPGradleMarker checks for Kotlin Multiplatform-specific content in Gradle
-// build files. Looks for "kotlin(\"multiplatform\")", "kotlin-multiplatform",
-// or "KotlinMultiplatform" in settings.gradle(.kts) and shared/build.gradle(.kts).
+// hasKMPGradleMarker checks for Kotlin Multiplatform-specific content, matched
+// case-insensitively, in the root Gradle files, gradle/libs.versions.toml, and
+// the build.gradle(.kts) of every top-level module.
 //
 // Parameters:
 //   - dir: The project root directory
@@ -915,16 +910,25 @@ func hasKMPGradleMarker(dir string) bool {
 	candidates := []string{
 		filepath.Join(dir, "settings.gradle.kts"),
 		filepath.Join(dir, "settings.gradle"),
-		filepath.Join(dir, "shared", "build.gradle.kts"),
-		filepath.Join(dir, "shared", "build.gradle"),
 		filepath.Join(dir, "build.gradle.kts"),
 		filepath.Join(dir, "build.gradle"),
+		filepath.Join(dir, "gradle", "libs.versions.toml"),
+	}
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+				candidates = append(candidates,
+					filepath.Join(dir, entry.Name(), "build.gradle.kts"),
+					filepath.Join(dir, entry.Name(), "build.gradle"),
+				)
+			}
+		}
 	}
 
 	kmpMarkers := []string{
 		"kotlin(\"multiplatform\")",
 		"kotlin-multiplatform",
-		"KotlinMultiplatform",
+		"kotlinmultiplatform",
 		"org.jetbrains.kotlin.multiplatform",
 	}
 
@@ -936,7 +940,7 @@ func hasKMPGradleMarker(dir string) bool {
 		if err != nil {
 			continue
 		}
-		text := string(content)
+		text := strings.ToLower(string(content))
 		for _, marker := range kmpMarkers {
 			if strings.Contains(text, marker) {
 				return true

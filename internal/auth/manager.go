@@ -13,11 +13,14 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -560,9 +563,14 @@ func (m *Manager) saveUserCredentialsAndClearCloudContext(creds *Credentials) er
 //   - error: A directory, file-type, permission, write, sync, or rename error.
 func (m *Manager) writePrivateFile(destinationPath string, content []byte) (err error) {
 	defer func() {
-		if err != nil {
-			err = fmt.Errorf("cannot write private CLI state; use a writable, owner-only directory at %s: %w", m.configDir, err)
+		if err == nil {
+			return
 		}
+		if errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS) {
+			err = fmt.Errorf("cannot write private CLI state at %s because the location is read-only; set %s to a writable directory outside your repository and retry: %w", m.configDir, AuthDirectoryEnvironmentVariableName, err)
+			return
+		}
+		err = fmt.Errorf("cannot write private CLI state; use a writable, owner-only directory at %s: %w", m.configDir, err)
 	}()
 	if err := os.MkdirAll(m.configDir, 0o700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)

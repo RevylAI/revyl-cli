@@ -8,6 +8,8 @@ import (
 
 const outputReadIdleTimeout = 5 * time.Second
 
+const maxBuildOutputLineBytes = 16 * 1024 * 1024
+
 type commandOutputReader struct {
 	pipe          *os.File
 	idleTimeout   time.Duration

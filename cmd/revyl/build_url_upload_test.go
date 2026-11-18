@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +106,44 @@ func TestBuildUploadFlagsMutualExclusion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestURLUploadPrintsConfirmationLineOnStderr(t *testing.T) {
+	const appID = "00000000-0000-4000-8000-000000000001"
+	withWorkingDirectory(t, t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/apps/"+appID+"/builds/from-url" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"bv-9","app_id":"` + appID + `","version":"1.2.3"}`))
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	previousURL, previousApp, previousVersion, previousJSON := uploadURLFlag, uploadAppFlag, buildVersion, buildUploadJSON
+	t.Cleanup(func() {
+		uploadURLFlag, uploadAppFlag, buildVersion, buildUploadJSON = previousURL, previousApp, previousVersion, previousJSON
+	})
+	uploadURLFlag, uploadAppFlag, buildVersion, buildUploadJSON = "https://artifacts.example/app.apk", appID, "1.2.3", false
+	cmd := newLeafCommand("upload", nil)
+	cmd.Flags().String("branch", "", "")
+	cmd.Flags().Bool("dev", false, "")
+	if err := cmd.Flags().Set("branch", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+		if err := runURLUpload(cmd, "fixture-key", false); err != nil {
+			t.Fatalf("runURLUpload: %v", err)
+		}
+	})
+
+	if want := "Uploaded " + appID + " 1.2.3 → build bv-9"; !strings.Contains(stderr, want) {
+		t.Fatalf("stderr %q is missing %q", stderr, want)
+	}
+	if strings.Contains(stdout, "Uploaded") {
+		t.Fatalf("confirmation line leaked to stdout: %q", stdout)
 	}
 }

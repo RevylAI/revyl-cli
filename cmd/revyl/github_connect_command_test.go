@@ -16,6 +16,7 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/ui"
 )
 
 const testGithubInstallURL = "https://github.com/apps/revyl/installations/new?state=test-state"
@@ -308,5 +309,44 @@ func TestGithubConnectFailedBrowserOpenKeepsLinkIssuedAndExitZero(t *testing.T) 
 	}
 	if terminal["domain_status"] != "link_issued" || terminal["exit_code"] != 0 {
 		t.Fatalf("terminal analytics = %+v, want link_issued with exit 0", terminal)
+	}
+}
+
+func TestGithubConnectQuietJSONAnnouncesInstallURLOnStderrBeforeWaiting(t *testing.T) {
+	ui.SetQuietMode(true)
+	t.Cleanup(func() { ui.SetQuietMode(false) })
+	withFastGithubConnectPolling(t, time.Millisecond, 20*time.Millisecond)
+	withGithubInstallPageOpener(t, func(string) error { return nil })
+	server := (&githubConnectServer{}).start(t)
+
+	stdout, stderr, err, _ := runGithubConnectForTest(t, server, "--no-open", "--json")
+
+	if !errors.Is(err, errGithubInstallTimedOut) {
+		t.Fatalf("connect error = %v, want the install timeout", err)
+	}
+	if report := decodeGithubConnectReport(t, stdout); report != (githubConnectReport{Status: "timed_out", InstallURL: testGithubInstallURL}) {
+		t.Fatalf("report = %+v, want the unchanged timed_out report", report)
+	}
+	if strings.Count(stderr, testGithubInstallURL) != 1 || !strings.Contains(stderr, "Waiting up to") || !strings.Contains(stderr, "--no-wait") {
+		t.Fatalf("stderr = %q, want one waiting line with the install URL", stderr)
+	}
+}
+
+func TestGithubConnectQuietJSONNoWaitKeepsStderrEmpty(t *testing.T) {
+	ui.SetQuietMode(true)
+	t.Cleanup(func() { ui.SetQuietMode(false) })
+	withGithubInstallPageOpener(t, func(string) error { return nil })
+	server := (&githubConnectServer{}).start(t)
+
+	stdout, stderr, err, _ := runGithubConnectForTest(t, server, "--no-open", "--no-wait", "--json")
+
+	if err != nil {
+		t.Fatalf("connect error = %v", err)
+	}
+	if report := decodeGithubConnectReport(t, stdout); report.Status != "link_issued" || report.InstallURL != testGithubInstallURL {
+		t.Fatalf("report = %+v, want link_issued with the install URL", report)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want nothing when the command returns at once", stderr)
 	}
 }

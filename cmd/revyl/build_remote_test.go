@@ -1,9 +1,13 @@
 package main
 
 import (
+	"archive/tar"
+	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1041,5 +1046,131 @@ func TestRemoteBuildLogFormatterLabelsRevylStepsAndSkippedCommands(t *testing.T)
 	}
 	if strings.Contains(stderr, "@expo/fingerprint") {
 		t.Fatalf("stderr shows the internal fingerprint command:\n%s", stderr)
+	}
+}
+
+func TestRemoteBuildJSONWaitAnnouncesQueuedJobOnStderrBeforePolling(t *testing.T) {
+	const appID = "00000000-0000-4000-8000-000000000001"
+	withFastRemoteBuildPolling(t)
+	repoRoot := committedSourceRepository(t)
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = stderrWriter
+	t.Cleanup(func() { os.Stderr = originalStderr })
+	stderrLines := make(chan string, 256)
+	go func() {
+		scanner := bufio.NewScanner(stderrReader)
+		for scanner.Scan() {
+			select {
+			case stderrLines <- scanner.Text():
+			default:
+			}
+		}
+	}()
+	var queuedLineSeenBeforePoll atomic.Bool
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/apps/" + appID:
+			_ = json.NewEncoder(w).Encode(api.App{ID: appID, Platform: "Android", LatestVersion: "1.0", VersionsCount: 1})
+		case "/api/v1/apps/remote/upload-url":
+			_ = json.NewEncoder(w).Encode(api.RemoteBuildSourceUploadResponse{UploadUrl: server.URL + "/source", SourceKey: "source-key"})
+		case "/source":
+		case "/api/v1/apps/remote":
+			_, _ = w.Write([]byte(`{"build_job_id":"job-1"}`))
+		case "/api/v1/apps/remote/job-1/status":
+			deadline := time.After(10 * time.Second)
+			for !queuedLineSeenBeforePoll.Load() {
+				select {
+				case line := <-stderrLines:
+					queuedLineSeenBeforePoll.Store(strings.Contains(line, "Remote build queued: job job-1") && strings.Contains(line, "revyl build status job-1 --follow"))
+				case <-deadline:
+					t.Error("no queued-job line on stderr before the first status poll")
+					_ = json.NewEncoder(w).Encode(api.RemoteBuildStatusResponse{Status: "cancelled"})
+					return
+				}
+			}
+			_ = json.NewEncoder(w).Encode(api.RemoteBuildStatusResponse{Status: "cancelled"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	stdout := captureStdout(t, func() {
+		_ = runRemoteBuildWithOptions(newBuildTestCommand(), "test-key", remoteBuildOptions{
+			ProjectRoot: repoRoot, WorktreeRoot: repoRoot, JSON: true, Wait: true,
+			Resolved: &remoteBuildPlatformConfig{AppID: appID, Platform: "android", Command: "true", Output: "app.apk"},
+		})
+	})
+	_ = stderrWriter.Close()
+
+	if !queuedLineSeenBeforePoll.Load() {
+		t.Fatal("queued-job line was not printed before polling")
+	}
+	var result map[string]interface{}
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	if err := decoder.Decode(&result); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if decoder.More() {
+		t.Fatalf("stdout holds more than one JSON value: %s", stdout)
+	}
+	assertJSONString(t, result, "build_job_id", "job-1")
+}
+
+func TestSourceArchiveTooLargeErrorNamesRevylignoreAndLargestPaths(t *testing.T) {
+	archive, err := os.CreateTemp(t.TempDir(), "source-*.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzipWriter := gzip.NewWriter(archive)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for _, entry := range []struct {
+		name      string
+		sizeBytes int
+	}{
+		{"screenshots/a.png", 6 << 20}, {"screenshots/b.png", 1 << 20}, {"docs/guide.pdf", 5 << 20},
+		{"app/main.ts", 4 << 10}, {"assets/logo.png", 3 << 10}, {"package.json", 2 << 10}, {"README.md", 1 << 10},
+	} {
+		if err := tarWriter.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(entry.sizeBytes), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(make([]byte, entry.sizeBytes)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, closer := range []io.Closer{tarWriter, gzipWriter, archive} {
+		if err := closer.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	message := sourceArchiveTooLargeError(archive.Name(), 4160).Error()
+
+	for _, want := range []string{
+		"source archive too large (4160 MB, max 500 MB)",
+		".revylignore",
+		"largest top-level paths (uncompressed): screenshots/ (7 MB), docs/ (5 MB), app/ (4 KB), assets/ (3 KB), package.json (2 KB)",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message = %q, want it to contain %q", message, want)
+		}
+	}
+	if strings.Contains(message, "README.md") {
+		t.Fatalf("message = %q, want only the five largest paths", message)
+	}
+}
+
+func TestSourceArchiveTooLargeErrorWithoutReadableArchive(t *testing.T) {
+	message := sourceArchiveTooLargeError(filepath.Join(t.TempDir(), "missing.tar.gz"), 612).Error()
+
+	if !strings.Contains(message, "source archive too large (612 MB, max 500 MB)") || !strings.Contains(message, ".revylignore") || strings.Contains(message, "largest") {
+		t.Fatalf("message = %q", message)
 	}
 }

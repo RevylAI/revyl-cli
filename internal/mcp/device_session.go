@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -2043,6 +2045,9 @@ func (m *DeviceSessionManager) persistSessionsWithMutation(mutation sessionCache
 
 	dir := filepath.Join(m.workDir, ".revyl")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		if errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS) {
+			return fmt.Errorf("%w; the device session registry lives in .revyl/ under the working directory, so run revyl device commands from a writable project directory (REVYL_AUTH_DIRECTORY moves only sign-in state)", err)
+		}
 		return err
 	}
 	release, err := lockSessionStore(filepath.Join(dir, "device-sessions.lock"))
@@ -2639,6 +2644,35 @@ type WorkerHTTPError struct {
 	cause              error
 	sessionTraceID     string
 	failureStage       string
+	proxyCode          string
+	proxyDetail        string
+}
+
+const maxProxyFailureDetailRunes = 200
+
+var proxyFailureCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// proxyFailureSummary extracts the backend device proxy's error code and a
+// sanitized, capped detail from a 5xx body so they can be shown safely.
+func proxyFailureSummary(body []byte) (code, detail string) {
+	var failure struct {
+		Code   json.RawMessage `json:"code"`
+		Detail json.RawMessage `json:"detail"`
+	}
+	if json.Unmarshal(body, &failure) != nil {
+		return "", ""
+	}
+	if json.Unmarshal(failure.Code, &code) != nil || !proxyFailureCodePattern.MatchString(code) {
+		code = ""
+	}
+	if json.Unmarshal(failure.Detail, &detail) != nil {
+		detail = ""
+	}
+	detail = strings.Join(strings.Fields(analytics.SanitizeDiagnostic(detail)), " ")
+	if runes := []rune(detail); len(runes) > maxProxyFailureDetailRunes {
+		detail = string(runes[:maxProxyFailureDetailRunes]) + "..."
+	}
+	return code, detail
 }
 
 // WorkerActionResponse captures the standard worker action envelope used by
@@ -2845,6 +2879,18 @@ func (e *WorkerHTTPError) Error() string {
 	}
 	if e.cause != nil {
 		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassForError(e.cause))
+	} else if e.proxyCode != "" || e.proxyDetail != "" {
+		if e.proxyCode != "" {
+			message += "; proxy_code=" + e.proxyCode
+		}
+		if e.proxyDetail != "" {
+			message += "; detail=" + e.proxyDetail
+		}
+		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassServer)
+		action := strings.SplitN(strings.TrimPrefix(e.Path, "/"), "?", 2)[0]
+		if e.proxyCode == "worker_gone" && runtimeInputAction(action) {
+			message += "; the " + action + " never reached the device, so retrying the same command is safe"
+		}
 	}
 	if e.failureStage != "" {
 		message += "; failure_stage=" + e.failureStage
@@ -2861,6 +2907,9 @@ func (e *WorkerHTTPError) Error() string {
 func (e *WorkerHTTPError) Unwrap() error {
 	if e == nil {
 		return nil
+	}
+	if e.cause == nil && (e.proxyCode != "" || e.proxyDetail != "") {
+		return &api.APIError{StatusCode: e.StatusCode, Code: e.proxyCode}
 	}
 	return e.cause
 }
@@ -3588,6 +3637,9 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 			}
 			workerErr.sessionTraceID = session.TraceID
 			return nil, analytics.WithSafeDiagnostic(workerErr, workerErr.Error())
+		}
+		if statusCode >= http.StatusInternalServerError {
+			workerErr.proxyCode, workerErr.proxyDetail = proxyFailureSummary(respBody)
 		}
 		return nil, workerErr
 	}

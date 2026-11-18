@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.25-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.26-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -57,6 +57,12 @@ with `npx skills update`. For MCP and editor setup, see
 ```bash
 curl -fsSL https://revyl.com/install.sh | sh
 ```
+
+The `sh` installer runs on macOS, Linux, and Windows Git Bash, MSYS2, or
+Cygwin, where it installs `revyl.exe` into `~/.revyl/bin` and prints the PATH
+steps for Git Bash and PowerShell. When it cannot write your shell profile, for
+example one Nix manages, it still installs the binary and prints the `export
+PATH` line to add yourself.
 
 ### Windows PowerShell
 

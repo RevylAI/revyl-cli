@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 type configFileRead struct {
@@ -46,10 +47,12 @@ func FindConfigPathWithUncommittedMigration() (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	lookupContext, cancel := context.WithTimeout(context.Background(), gitLookupTimeout)
+	lookupContext, cancel := context.WithTimeout(context.Background(), gitLookupTimeout())
 	defer cancel()
 	// #nosec G204 -- Git receives a fixed command and a repository-relative path as argv, without a shell.
-	committedBytes, err := exec.CommandContext(lookupContext, "git", "-C", read.worktreeRoot, "cat-file", "blob", "HEAD:"+repositoryRelativeConfigPath).Output()
+	command := exec.CommandContext(lookupContext, "git", "-C", read.worktreeRoot, "cat-file", "blob", "HEAD:"+repositoryRelativeConfigPath)
+	command.WaitDelay = time.Second
+	committedBytes, err := command.Output()
 	if err != nil || len(committedBytes) > MaxConfigBytes {
 		return "", false
 	}
@@ -68,11 +71,13 @@ func FindPathsChangedSinceHEAD(worktreeRoot string, repositoryRelativePaths []st
 	if len(repositoryRelativePaths) == 0 {
 		return nil
 	}
-	lookupContext, cancel := context.WithTimeout(context.Background(), gitLookupTimeout)
+	lookupContext, cancel := context.WithTimeout(context.Background(), gitLookupTimeout())
 	defer cancel()
 	arguments := append([]string{"--literal-pathspecs", "-C", worktreeRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--"}, repositoryRelativePaths...)
 	// #nosec G204 -- Git receives a fixed flag set and literal repository-relative paths after --, without a shell.
-	output, err := exec.CommandContext(lookupContext, "git", arguments...).Output()
+	command := exec.CommandContext(lookupContext, "git", arguments...)
+	command.WaitDelay = time.Second
+	output, err := command.Output()
 	if err != nil {
 		return repositoryRelativePaths
 	}

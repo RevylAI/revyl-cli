@@ -481,3 +481,62 @@ func TestGithubStatusJSONProjectStates(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectGithubStatusUsesRepoFlagOverOrigin(t *testing.T) {
+	withFreshCheckout(t, "", "")
+	resolveProjectRepoSlug = gitremote.ResolveSlug
+	repos := connectedRepos()
+	repos.Repositories = append(repos.Repositories, api.GithubOrgRepository{Owner: "Owner", Repo: "app", InstallationID: 123})
+	command := githubStatusCommand(t, false)
+	command.Flags().String("repo", "", "")
+	if err := command.Flags().Set("repo", "Owner/app"); err != nil {
+		t.Fatal(err)
+	}
+
+	report := collectGithubStatus(command, &fakeProjectConfigurationClient{}, &repos)
+
+	if report.Repository == nil || report.Repository.FullName != "Owner/app" || !report.Repository.AccessGranted {
+		t.Fatalf("repository = %+v", report.Repository)
+	}
+}
+
+func TestGithubStatusRejectsInvalidRepoFlagBeforeOriginAdvice(t *testing.T) {
+	withFreshCheckout(t, "", "")
+	command := githubStatusCommand(t, true)
+	command.Flags().String("repo", "", "")
+	if err := command.Flags().Set("repo", "acme"); err != nil {
+		t.Fatal(err)
+	}
+
+	var runErr error
+	stdout, _ := captureStdoutAndStderrSeparate(t, func() { runErr = runGithubStatus(command, nil) })
+
+	if runErr == nil || !strings.Contains(runErr.Error(), "invalid --repo") || !strings.Contains(runErr.Error(), "owner/name") {
+		t.Fatalf("error = %v, want invalid --repo", runErr)
+	}
+	if strings.Contains(runErr.Error(), "remote") || strings.TrimSpace(stdout) != "" {
+		t.Fatalf("error = %v, stdout = %q; want no origin advice and no report", runErr, stdout)
+	}
+}
+
+func TestResolveProjectRepositoryWithOverride(t *testing.T) {
+	originalRepository := resolveProjectRepository
+	t.Cleanup(func() { resolveProjectRepository = originalRepository })
+	resolveProjectRepository = func(string) (gitremote.RepositoryReference, error) {
+		return gitremote.RepositoryReference{}, errors.New("unsupported origin")
+	}
+
+	got, err := resolveProjectRepositoryWithOverride("/repo", "Owner/app")
+	if err != nil || got.Provider != "github" || got.Namespace != "Owner" || got.Name != "app" {
+		t.Fatalf("override = (%+v, %v)", got, err)
+	}
+	if _, err := resolveProjectRepositoryWithOverride("/repo", "not-a-slug"); err == nil || !strings.Contains(err.Error(), "--repo") {
+		t.Fatalf("invalid override error = %v", err)
+	}
+	if _, err := resolveProjectRepositoryWithOverride("/repo", ""); err == nil || !strings.Contains(err.Error(), "origin") {
+		t.Fatalf("origin fallback error = %v", err)
+	}
+	if configPullCmd.Flags().Lookup("repo") == nil || githubStatusCmd.Flags().Lookup("repo") == nil {
+		t.Fatal("config pull and github status must register --repo")
+	}
+}

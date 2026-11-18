@@ -249,3 +249,94 @@ func writeCanonicalCreateConfig(t *testing.T, projectRoot, contents string) {
 		t.Fatal(err)
 	}
 }
+
+func TestCreateTestFromFileBindsAppFlagAndPrintsOneJSONObject(t *testing.T) {
+	for name, platformLine := range map[string]string{"platform in yaml": "    platform: ios\n", "platform from app": ""} {
+		t.Run(name, func(t *testing.T) { assertCreateTestFromFileBindsApp(t, platformLine) })
+	}
+}
+
+func assertCreateTestFromFileBindsApp(t *testing.T, platformLine string) {
+	t.Setenv("REVYL_API_KEY", "test-key")
+	testutil.SetHomeDir(t, t.TempDir())
+	const appID = "11111111-2222-4333-8444-555555555555"
+	var createReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-1","email":"test@example.com","concurrency_limit":1}`))
+		case "/api/v1/apps/" + appID:
+			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"Checkout App","platform":"ios"}`))
+		case "/api/v1/apps/":
+			_, _ = w.Write([]byte(`{"items":[{"id":"` + appID + `","name":"Checkout App","platform":"ios"}],"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false}`))
+		case "/api/v1/tests/create":
+			if err := json.NewDecoder(r.Body).Decode(&createReq); err != nil {
+				t.Errorf("decode create request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"remote-test-1","version":1}`))
+		case "/api/v1/tests/scripts":
+			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
+		case "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"message":"ok","result":[]}`))
+		case "/api/v1/variables/custom/delete_all":
+			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
+		case "/api/v1/tests/yaml/validate-yaml":
+			_, _ = w.Write([]byte(`{"is_valid":true,"validation_type":"full_test","errors":0,"warnings":0,"messages":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	workDir := t.TempDir()
+	gitInitBuildRepository(t, workDir)
+	writeProjectBuildConfig(t, workDir, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
+	withWorkingDir(t, workDir)
+	sourcePath := filepath.Join(workDir, "checkout.yaml")
+	source := "test:\n  metadata:\n    name: checkout\n" + platformLine + "  blocks:\n    - type: instructions\n      step_description: Open checkout\n"
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldFromFile, oldAppID, oldForce, oldDryRun := createTestFromFile, createTestAppID, createTestForce, createTestDryRun
+	oldPushForce, oldPushDryRun := testsForce, testsPushDryRun
+	t.Cleanup(func() {
+		createTestFromFile, createTestAppID, createTestForce, createTestDryRun = oldFromFile, oldAppID, oldForce, oldDryRun
+		testsForce, testsPushDryRun = oldPushForce, oldPushDryRun
+	})
+	createTestFromFile, createTestAppID, createTestForce, createTestDryRun = sourcePath, appID, false, false
+	testsPushDryRun = false
+	cmd := newLeafCommand("create", runCreateTestFromFile)
+	if err := cmd.Root().PersistentFlags().Set("json", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	var runErr error
+	stdout, _ := captureStdoutAndStderrSeparate(t, func() { runErr = runCreateTestFromFile(cmd, nil) })
+
+	if runErr != nil {
+		t.Fatalf("runCreateTestFromFile() error = %v", runErr)
+	}
+	if createReq["app_id"] != appID {
+		t.Fatalf("create app_id = %v, want %s", createReq["app_id"], appID)
+	}
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	var report map[string]any
+	if err := decoder.Decode(&report); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if decoder.More() {
+		t.Fatalf("stdout has more than one JSON value:\n%s", stdout)
+	}
+	if report["is_valid"] != true || report["files"] == nil {
+		t.Fatalf("report = %#v, want is_valid and files", report)
+	}
+	saved, err := os.ReadFile(filepath.Join(workDir, ".revyl", "tests", "checkout.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "platform: ios") {
+		t.Fatalf("saved test has no platform:\n%s", saved)
+	}
+}

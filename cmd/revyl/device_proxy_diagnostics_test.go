@@ -106,3 +106,53 @@ func TestGroundedTapFollowupTimeoutDoesNotRepeatDeliveredInput(t *testing.T) {
 		})
 	}
 }
+
+func TestMobileTapProxyFailureSurfacesSanitizedCodeAndDetail(t *testing.T) {
+	withWorkingDirectory(t, t.TempDir())
+	t.Setenv("REVYL_API_KEY", "fixture-key")
+	t.Setenv(sessionIDEnvVar, "")
+	tapCalls := 0
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-sessions/" + flowSessionID:
+			fmt.Fprintf(w, `{"id":%q,"org_id":"fixture-org","platform":"ios","status":"running","workflow_run_id":%q}`, flowSessionID, flowWorkflowRunID)
+		case "/api/v1/execution/device-proxy/" + flowWorkflowRunID + "/tap":
+			tapCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			fmt.Fprint(w, `{"detail":"Cannot reach device worker for tap. Please try again or contact support. https://worker.example/tap?token=fixture-secret","code":"worker_gone"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(backend.Close)
+	t.Setenv("REVYL_BACKEND_URL", backend.URL)
+	cmd := newStopTestCommand(t, "-s", flowSessionID)
+	cmd.Flags().String("target", "", "")
+	cmd.Flags().Int("x", 0, "")
+	cmd.Flags().Int("y", 0, "")
+	for name, value := range map[string]string{"x": "10", "y": "20"} {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var err error
+	captureStdoutAndStderrSeparate(t, func() { err = deviceTapCmd.RunE(cmd, nil) })
+
+	if err == nil || tapCalls != 1 {
+		t.Fatalf("tap 502 was swallowed or retried: calls=%d err=%v", tapCalls, err)
+	}
+	message := err.Error()
+	for _, want := range []string{"worker returned 502 on /tap", "proxy_code=worker_gone", "detail=Cannot reach device worker for tap", "failure_class=server", "never reached the device"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error %q is missing %q", message, want)
+		}
+	}
+	if strings.Contains(message, "fixture-secret") || strings.Contains(message, "worker.example") {
+		t.Fatalf("error leaked a URL or secret: %q", message)
+	}
+	if got := analytics.FailureClassForError(err); got != analytics.FailureClassServer {
+		t.Fatalf("failure class = %q, want server", got)
+	}
+}

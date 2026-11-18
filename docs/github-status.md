@@ -10,7 +10,10 @@ automation for a project:
 
 The repository question is answered from the Git `origin` of the worktree the
 command runs in (honoring `-C`), so it works before a `.revyl/config.yaml`
-exists. Use it on a fresh checkout to learn whether the repository still has
+exists. HTTPS, SSH, `git@github.com:` and `github:`/`gh:` shorthand origins are
+supported; when the configured origin is none of these, the URL after Git's
+`url.<base>.insteadOf` rewrites is tried. When the origin still cannot be read
+as a GitHub repository, pass `--repo owner/name`. Use it on a fresh checkout to learn whether the repository still has
 to be added to the GitHub App installation; `revyl github connect` installs
 the App but does not change which repositories an existing installation
 covers.
@@ -18,6 +21,7 @@ covers.
 ```bash
 revyl github status                      # Human summary on stderr
 revyl github status --json               # One JSON object on stdout
+revyl github status --repo owner/name    # Name the repository instead of reading origin
 revyl -C apps/mobile github status       # Nested monorepo project
 ```
 
@@ -125,6 +129,9 @@ after a new one is issued.
 | `timed_out`         | The wait ended before the installation was active; the command exits non-zero.          |
 
 `--no-open` alone still waits; it only skips the browser. Use it when a link
-has already been handed out, so the user isn't sent a second install page. If the user isn't an
+has already been handed out, so the user isn't sent a second install page. With
+`--json` and no `--no-wait`, one stderr line names `install_url` before the wait
+starts, so a caller can hand it to the user while stdout keeps only the final
+object. If the user isn't an
 owner of the GitHub organization, GitHub sends the install to an owner as a
 request, and the App stays disconnected until an owner approves it.

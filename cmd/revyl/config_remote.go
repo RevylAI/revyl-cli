@@ -80,8 +80,9 @@ enabled Cursor proof and the caller's live Cursor catalog includes the repositor
 }
 
 var (
-	configPullProjectID string
-	configPushForce     bool
+	configPullProjectID  string
+	configPullRepository string
+	configPushForce      bool
 )
 
 var configPullCmd = &cobra.Command{
@@ -105,6 +106,12 @@ func init() {
 		"project",
 		"",
 		"Assert the expected project ID",
+	)
+	configPullCmd.Flags().StringVar(
+		&configPullRepository,
+		"repo",
+		"",
+		"GitHub repository as owner/name, overriding the Git origin",
 	)
 	configCmd.AddCommand(
 		configValidateCmd,
@@ -171,11 +178,25 @@ func resolveLocalProjectConfiguration() (*config.ProjectContext, error) {
 func resolveConnectedProjectConfiguration(
 	local *config.ProjectContext,
 ) (*resolvedProjectConfiguration, error) {
-	repository, err := resolveProjectRepository(local.WorktreeRoot)
+	repository, err := resolveProjectRepositoryWithOverride(local.WorktreeRoot, "")
 	if err != nil {
-		return nil, actionableRepositoryOriginError(local.WorktreeRoot)
+		return nil, err
 	}
 	return connectProjectConfiguration(local, repository)
+}
+
+func resolveProjectRepositoryWithOverride(
+	worktreeRoot string,
+	repositoryOverride string,
+) (gitremote.RepositoryReference, error) {
+	if strings.TrimSpace(repositoryOverride) != "" {
+		return gitremote.ParseRepositorySlug(repositoryOverride)
+	}
+	repository, err := resolveProjectRepository(worktreeRoot)
+	if err != nil {
+		return gitremote.RepositoryReference{}, actionableRepositoryOriginError(worktreeRoot)
+	}
+	return repository, nil
 }
 
 func connectProjectConfiguration(
@@ -1204,13 +1225,21 @@ func runConfigPull(cmd *cobra.Command, _ []string) error {
 		Domain:       "project_configuration_pull",
 		DomainStatus: "failed",
 	})
-	resolved, err := resolveProjectConfiguration()
+	local, err := resolveLocalProjectConfiguration()
 	if err != nil {
 		var configError *config.ConfigError
 		if !errors.As(err, &configError) || configError.Code != "config_not_found" {
 			return actionableLocalConfigError(err)
 		}
 		return bootstrapConfigPull(cmd)
+	}
+	repository, err := resolveProjectRepositoryWithOverride(local.WorktreeRoot, configPullRepository)
+	if err != nil {
+		return actionableLocalConfigError(err)
+	}
+	resolved, err := connectProjectConfiguration(local, repository)
+	if err != nil {
+		return actionableLocalConfigError(err)
 	}
 	requestedProjectID := strings.TrimSpace(configPullProjectID)
 	projectIDMatchesLocal := requestedProjectID == "" || strings.EqualFold(
@@ -1497,9 +1526,9 @@ func resolveConfigPullBootstrapTarget(
 	if err != nil {
 		return nil, configPullBootstrapTarget{}, actionableLocalConfigError(err)
 	}
-	repository, err := resolveProjectRepository(worktreeRoot)
+	repository, err := resolveProjectRepositoryWithOverride(worktreeRoot, configPullRepository)
 	if err != nil {
-		return nil, configPullBootstrapTarget{}, actionableRepositoryOriginError(worktreeRoot)
+		return nil, configPullBootstrapTarget{}, err
 	}
 	token, err := requireProjectConfigurationToken()
 	if err != nil {

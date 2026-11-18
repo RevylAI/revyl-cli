@@ -467,6 +467,32 @@ func TestSaveCredentialsAtomicallyRestrictsExistingFile(t *testing.T) {
 	}
 }
 
+func TestSaveCredentialsOnReadOnlyHomeSuggestsAuthDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX directory permissions cannot make the directory read-only on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permissions")
+	}
+	readOnlyHome := t.TempDir()
+	if err := os.Chmod(readOnlyHome, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyHome, 0o700) })
+	manager := NewManagerWithDir(filepath.Join(readOnlyHome, ".revyl"))
+
+	err := manager.SaveAPIKeyCredentials("example-key", "", "", "")
+
+	if err == nil {
+		t.Fatal("SaveAPIKeyCredentials() succeeded in a read-only directory")
+	}
+	for _, want := range []string{"read-only", AuthDirectoryEnvironmentVariableName, filepath.Join(readOnlyHome, ".revyl")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+}
+
 func TestSaveCredentialsRejectsSymlinkDestination(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink privileges vary on Windows")

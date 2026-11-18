@@ -53,6 +53,12 @@ itself over and over, most visibly on Windows. Upgrade the Python package with
 `uv tool upgrade revyl`, `pipx upgrade revyl`, or `pip install --upgrade revyl`;
 current packages bundle the binary and never search `PATH` for it.
 
+Before it downloads anything, `revyl upgrade` checks that it can write the
+directory holding the installed binary. When it cannot, for example in a
+read-only image, it exits non-zero and names the recovery: reinstall with
+`REVYL_INSTALL_DIR="$HOME/.revyl/bin"` and put that directory first on `PATH`.
+A managed image or agent outpost install is updated by its image owner.
+
 The notice never writes to stdout, so `--json` output is unchanged. If a script
 parses stdout and stderr together, set `REVYL_NO_UPDATE_NOTIFIER=1`.
 

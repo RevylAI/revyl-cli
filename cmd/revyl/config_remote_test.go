@@ -638,6 +638,129 @@ func TestConfigValidateErrorNamesSelectedFileFromSubdirectory(t *testing.T) {
 	}
 }
 
+func TestConfigValidateHintsCanonicalShapeForMisplacedKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{
+			name: "top-level profiles",
+			yaml: "project: {id: " + configRemoteProjectID + "}\nprofiles:\n  dev: {}\n",
+			want: []string{"profiles is not a supported field", "Did you mean build.profiles?", "  build:\n      framework: <framework>\n      profiles:", configurationReferenceURL},
+		},
+		{
+			name: "top-level framework",
+			yaml: "project: {id: " + configRemoteProjectID + "}\nframework: expo\n",
+			want: []string{"framework is not a supported field", "Did you mean build.framework?"},
+		},
+		{
+			name: "scalar project",
+			yaml: "project: " + configRemoteProjectID + "\n",
+			want: []string{"project must be a YAML mapping", "Set project to a mapping that holds the project ID:", "  project:\n      id: <project-id>", configurationReferenceURL},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			gitInitForInitTest(t, workDir)
+			configPath := filepath.Join(workDir, ".revyl", "config.yaml")
+			if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(workDir)
+
+			_, _, runErr, _ := runConfigValidateWithAnalytics(t, testConfigCommand())
+
+			if runErr == nil {
+				t.Fatal("invalid config was accepted")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(runErr.Error(), want) {
+					t.Fatalf("missing %q in %q", want, runErr)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigValidateDoesNotHintUnrelatedUnknownFields(t *testing.T) {
+	workDir := t.TempDir()
+	gitInitForInitTest(t, workDir)
+	configPath := filepath.Join(workDir, ".revyl", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("project: {id: "+configRemoteProjectID+"}\npr_review: {bogus: true}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workDir)
+
+	_, _, runErr, _ := runConfigValidateWithAnalytics(t, testConfigCommand())
+
+	if runErr == nil || !strings.Contains(runErr.Error(), "pr_review.bogus is not a supported field") {
+		t.Fatalf("error = %v", runErr)
+	}
+	if strings.Contains(runErr.Error(), "Did you mean") || strings.Contains(runErr.Error(), configurationReferenceURL) {
+		t.Fatalf("unrelated field got a hint: %v", runErr)
+	}
+}
+
+func TestConfigValidateUnknownFieldTelemetryCarriesKeyNamesOnly(t *testing.T) {
+	const rawKey = "echo TOKEN=$DEPLOY_TOKEN"
+	for _, tc := range []struct {
+		name          string
+		yaml          string
+		wantReturned  string
+		wantTelemetry string
+		unwanted      []string
+	}{
+		{
+			name:          "build command parsed as a mapping key",
+			yaml:          "project: {id: " + configRemoteProjectID + "}\nbuild:\n  framework: ios\n  profiles:\n    dev:\n      ios:\n        build_commands:\n          - " + rawKey + ": /Users/jane/acme\n        output_path: a.app\n",
+			wantReturned:  "build.profiles.dev.ios.build_commands.0." + rawKey + " is not a supported field",
+			wantTelemetry: "build.profiles.dev.ios.build_commands.0.<unknown key, 24 characters> is not a supported field",
+			unwanted:      []string{"echo", "TOKEN", "DEPLOY", "jane", "acme"},
+		},
+		{
+			name:          "known schema key at the wrong level",
+			yaml:          "project: {id: " + configRemoteProjectID + "}\nprofiles:\n  dev: {}\n",
+			wantReturned:  "profiles is not a supported field",
+			wantTelemetry: "profiles is not a supported field",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			gitInitForInitTest(t, workDir)
+			configPath := filepath.Join(workDir, ".revyl", "config.yaml")
+			if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(workDir)
+
+			_, _, runErr, terminal := runConfigValidateWithAnalytics(t, testConfigCommand())
+
+			if runErr == nil || !strings.Contains(runErr.Error(), tc.wantReturned) {
+				t.Fatalf("returned error = %v, want %q", runErr, tc.wantReturned)
+			}
+			message, _ := terminal["error_message"].(string)
+			if !strings.Contains(message, tc.wantTelemetry) {
+				t.Fatalf("error_message = %q, want %q", message, tc.wantTelemetry)
+			}
+			for _, unwanted := range append(tc.unwanted, workDir) {
+				if strings.Contains(message, unwanted) {
+					t.Fatalf("error_message leaks %q: %q", unwanted, message)
+				}
+			}
+		})
+	}
+}
+
 func TestConfigValidateReportsWhetherRevylRunsThisConfiguration(t *testing.T) {
 	automated := prReviewConfigContext(t, true)
 	automatedHash := automated.Aggregate.ProjectConfigurationHash

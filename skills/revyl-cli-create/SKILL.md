@@ -119,7 +119,7 @@ Use these block types:
 - `validation`: a durable assertion about user-visible state.
 - `manual`: framework actions such as `wait`, `go_home`, `navigate`, `set_location`, `kill_app`, and `open_app`.
 - `extraction`: read screen data into `variable_name`.
-- `code_execution`: run a saved script or lightweight inline code.
+- `code_execution`: run a saved script, referenced by name with `script`.
 - `module_import`: import a reusable module by name or ID.
 - `if` / `while`: conditional branches and loops with nested blocks.
 
@@ -157,14 +157,7 @@ Use the snippet from `revyl script insert`, or write the block directly:
 
 Legacy YAML may use `step_description` to hold an internal script UUID, but new authored YAML should use `script`.
 
-Use inline code only for small one-offs when a saved script would be unnecessary:
-
-```yaml
-- type: code_execution
-  step_description: |
-    print("ready")
-  code_execution_runtime: python
-```
+Inline code is not supported. The runner treats `step_description` as a script ID, so code placed there fails at run time with a script fetch error. Save even a one-line script with `revyl script create` first, then reference it with `script`.
 
 ## Reusable Modules
 

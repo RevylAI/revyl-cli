@@ -608,7 +608,7 @@ func (s *Server) registerDeviceTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "poll_network_requests",
-		Description: "Poll live network requests from an active device session. Returns incremental request rows since the last cursor. Use with cursor=\"0\" for the first call, then pass next_cursor from the response for subsequent calls.",
+		Description: "Poll live network requests from an active iOS device session (iOS only; Android and Web sessions return an error). Returns incremental request rows since the last cursor. Use with cursor=\"0\" for the first call, then pass next_cursor from the response for subsequent calls.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "Poll Network Requests",
 			ReadOnlyHint: true,

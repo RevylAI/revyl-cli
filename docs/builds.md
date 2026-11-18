@@ -148,7 +148,10 @@ cancelled outcomes; follow `has_next` before drawing build-wide conclusions.
 See [agent investigations](agent-investigations.md) for report drill-down and
 Atlas comparison across builds.
 
-- `--json` returns the remote-build response.
+- `--json` returns the remote-build response. While a `--json` build waits,
+  the CLI prints the queued job ID and its `revyl build status <id> --follow`
+  command as one line on stderr as soon as the build is queued; stdout stays a
+  single JSON object.
 - Cloud builds wait for completion. Use `--detach` to return a job ID,
   `revyl build status <id> --follow` to follow it, or `revyl build cancel <id>`
   to cancel it. Ctrl-C stops following without cancelling the build.
@@ -163,6 +166,11 @@ pass `--remote`; test/workflow `--build` continuations remain local, and
 Use `revyl build upload` to upload an artifact produced by your own pipeline.
 To associate it with a GitHub PR, see
 [Use your own CI](https://docs.revyl.com/integrations/github#use-your-own-ci).
+
+To remove one uploaded build version, run
+`revyl build delete <build-version-id>`. It asks for confirmation; pass
+`--force` to skip the prompt and `--json` for a machine-readable result. Find
+build version IDs with `revyl build list --app <id>`.
 
 ## Web builds
 

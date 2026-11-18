@@ -429,6 +429,7 @@ func (e *ExpoDevServer) emitProcessOutput(callback hotreload.DevServerOutputCall
 // and synthesizes HMR events when Metro logs re-bundle activity.
 func (e *ExpoDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.DevServerOutputCallback, signalReady func()) {
 	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), hotreload.MaxDevServerOutputLineBytes)
 	for scanner.Scan() {
 		line := scanner.Text()
 		e.emitProcessOutput(outputCallback, hotreload.DevServerOutputStdout, line)

@@ -439,7 +439,10 @@ revyl device navigate http://localhost:3000
 ## Bounds and output
 
 A new run lives 2 hours from creation, or `--timeout` (1m..24h) when create sets
-it. `revyl computer extend C1 --timeout DURATION` moves `expires_at` to at least
+it. When no host serves a lifetime that long yet, create answers
+`lifetime_unsupported` (HTTP 409) without creating anything; its
+`max_timeout_seconds` is the longest lifetime a live host serves, and the CLI
+prints it as the largest `--timeout` to retry with. `revyl computer extend C1 --timeout DURATION` moves `expires_at` to at least
 DURATION from now, never earlier and never past 24 hours from creation; repeating
 it is safe. Extending past two hours counts toward the limit of 2 long computers
 (`computer_long_limit`). A computer whose host predates extend answers

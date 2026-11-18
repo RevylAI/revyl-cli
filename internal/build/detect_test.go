@@ -1257,3 +1257,69 @@ func keysOf(m map[string]BuildPlatform) []string {
 	}
 	return keys
 }
+
+func TestDetectKMP_ComposeMultiplatformTemplateWithoutShared(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "iosApp", "iosApp.xcodeproj"), 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeDetectTestFile(t, filepath.Join(dir, "settings.gradle.kts"), `include(":composeApp")`)
+	writeDetectTestFile(t, filepath.Join(dir, "build.gradle.kts"), `plugins { alias(libs.plugins.androidApplication) apply false }`)
+	writeDetectTestFile(t, filepath.Join(dir, "composeApp", "build.gradle.kts"),
+		`plugins { alias(libs.plugins.kotlinMultiplatform); alias(libs.plugins.androidApplication) }`)
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if detected.System != SystemKMP {
+		t.Fatalf("System = %v, want %v", detected.System, SystemKMP)
+	}
+	if ios := detected.Platforms["ios"]; !strings.Contains(ios.Command, "iosApp.xcodeproj") {
+		t.Fatalf("ios platform = %+v, want an iosApp.xcodeproj build", ios)
+	}
+	if android := detected.Platforms["android"]; !strings.Contains(android.Command, ":composeApp:assembleDebug") {
+		t.Fatalf("android platform = %+v, want a composeApp build", android)
+	}
+}
+
+func TestDetectKMP_AndroidAppAndIOSAppWithoutShared(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "iosApp", "iosApp.xcodeproj"), 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeDetectTestFile(t, filepath.Join(dir, "androidApp", "build.gradle.kts"), "android {}")
+	writeDetectTestFile(t, filepath.Join(dir, "common", "build.gradle.kts"),
+		`plugins { id("org.jetbrains.kotlin.multiplatform") }`)
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if detected.System != SystemKMP {
+		t.Fatalf("System = %v, want %v", detected.System, SystemKMP)
+	}
+	if _, ok := detected.Platforms["ios"]; !ok {
+		t.Fatal("expected ios platform for KMP project with iosApp/")
+	}
+	if android := detected.Platforms["android"]; !strings.Contains(android.Command, ":androidApp:assembleDebug") {
+		t.Fatalf("android platform = %+v, want an androidApp build", android)
+	}
+}
+
+func TestDetectKMP_NativeShellsWithoutKMPMarkerAreNotKMP(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "iosApp", "iosApp.xcodeproj"), 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeDetectTestFile(t, filepath.Join(dir, "androidApp", "build.gradle.kts"), `plugins { id("com.android.application") }`)
+	writeDetectTestFile(t, filepath.Join(dir, "build.gradle.kts"), `plugins { id("org.jetbrains.kotlin.android") }`)
+
+	detected, err := Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if detected.System == SystemKMP {
+		t.Fatal("native shells without a multiplatform Gradle plugin should not trigger KMP detection")
+	}
+}

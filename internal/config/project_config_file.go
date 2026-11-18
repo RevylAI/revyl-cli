@@ -8,13 +8,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-const gitLookupTimeout = 5 * time.Second
+const (
+	defaultGitLookupTimeout = 30 * time.Second
+	maxGitLookupTimeout     = 10 * time.Minute
+	gitLookupTimeoutEnvVar  = "REVYL_GIT_TIMEOUT"
+)
+
+// gitLookupTimeout resolves REVYL_GIT_TIMEOUT as a positive whole number of
+// seconds up to the maximum; unset or invalid values use the default.
+func gitLookupTimeout() time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(os.Getenv(gitLookupTimeoutEnvVar)))
+	if err != nil || seconds <= 0 || time.Duration(seconds)*time.Second > maxGitLookupTimeout {
+		return defaultGitLookupTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
 
 var configBackupNow = time.Now
 
@@ -153,17 +168,20 @@ func ResolveConfigFileContext(cwd, changeDirectory string) (*ConfigFileContext, 
 }
 
 func resolveGitWorktreeRoot(effectiveDirectory string) (string, error) {
-	lookupContext, cancel := context.WithTimeout(context.Background(), gitLookupTimeout)
+	timeout := gitLookupTimeout()
+	lookupContext, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	command := exec.CommandContext(lookupContext, "git", "-C", effectiveDirectory, "rev-parse", "--show-toplevel")
+	command.WaitDelay = time.Second
 	output, err := command.Output()
 	if err != nil {
-		code := "git_worktree_unavailable"
 		if errors.Is(lookupContext.Err(), context.DeadlineExceeded) {
-			code = "git_worktree_lookup_timed_out"
-			err = lookupContext.Err()
+			return "", fmt.Errorf(
+				"%w: git took longer than %s; rerun, or set %s to a longer number of seconds: %w",
+				newConfigError("read", "git_worktree_lookup_timed_out", nil, ""), timeout, gitLookupTimeoutEnvVar, lookupContext.Err(),
+			)
 		}
-		return "", fmt.Errorf("%w: %w", newConfigError("read", code, nil, ""), err)
+		return "", fmt.Errorf("%w: %w", newConfigError("read", "git_worktree_unavailable", nil, ""), err)
 	}
 	worktreeRoot := strings.TrimRight(string(output), "\r\n")
 	if worktreeRoot == "" {

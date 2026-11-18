@@ -685,8 +685,8 @@ func triggerRemoteDevBuild(
 	}
 	sizeMB := float64(archiveInfo.Size()) / (1024 * 1024)
 	ui.PrintDim("  Source snapshot: %.1f MB", sizeMB)
-	if sizeMB > 500 {
-		return remoteDevBuildJob{}, fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
+	if sizeMB > maxSourceArchiveMB {
+		return remoteDevBuildJob{}, sourceArchiveTooLargeError(archivePath, sizeMB)
 	}
 
 	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{

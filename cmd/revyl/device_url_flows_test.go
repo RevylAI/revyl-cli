@@ -8,12 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/ui"
 )
 
 type persistedDeviceSessionState struct {
@@ -826,5 +829,68 @@ func TestDeviceDownloadFileCommand_FailsWhenWorkerReportsFailure(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "download failed") {
 		t.Fatalf("device download-file error = %q, want worker failure", got)
+	}
+}
+
+func TestDeviceInstallCommand_HumanOutputOmitsArtifactURLUnlessDebug(t *testing.T) {
+	const signedURL = "https://artifact.example/app.ipa?X-Amz-Signature=fixture-signature"
+	tests := []struct {
+		name       string
+		jsonOutput bool
+		debug      bool
+	}{
+		{name: "human"},
+		{name: "human debug", debug: true},
+		{name: "json", jsonOutput: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			withWorkingDirectory(t, tmpDir)
+			writePersistedDeviceSession(t, tmpDir, "wf-install-ok")
+			t.Setenv("REVYL_API_KEY", "test-api-key")
+			ui.SetDebugMode(tt.debug)
+			t.Cleanup(func() { ui.SetDebugMode(false) })
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+					_, _ = w.Write([]byte(`{"org_id":"org-1","email":"fixture@example.test"}`))
+				case r.URL.Path == "/api/v1/execution/device-sessions/active":
+					_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[{"id":"sess-existing","workflow_run_id":"wf-install-ok","platform":"ios","user_email":"fixture@example.test"}]}`))
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device-proxy/wf-install-ok/install":
+					_, _ = w.Write([]byte(`{"success":true,"action":"install","bundle_id":"com.example.app"}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+			cmd := newDeviceInstallTestCommand(context.Background())
+			if err := cmd.Flags().Set("app-url", signedURL); err != nil {
+				t.Fatalf("set app-url flag: %v", err)
+			}
+			if err := cmd.Flags().Set("json", strconv.FormatBool(tt.jsonOutput)); err != nil {
+				t.Fatalf("set json flag: %v", err)
+			}
+			stdout, stderr := captureStdoutAndStderrSeparate(t, func() {
+				if err := deviceInstallCmd.RunE(cmd, nil); err != nil {
+					t.Fatalf("device install: %v", err)
+				}
+			})
+
+			if tt.jsonOutput {
+				assertJSONString(t, parseJSON(t, stdout), "app_url", signedURL)
+				return
+			}
+			if !strings.Contains(stderr, "Installed com.example.app from --app-url") {
+				t.Fatalf("human output lost the install summary: %q", stderr)
+			}
+			if got := strings.Contains(stdout+stderr, "X-Amz-Signature"); got != tt.debug {
+				t.Fatalf("artifact URL shown = %t, want %t (debug); output %q", got, tt.debug, stdout+stderr)
+			}
+		})
 	}
 }

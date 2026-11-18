@@ -526,3 +526,18 @@ func TestSkipBuildSetupForNowClearsConfigButKeepsPlatformKeys(t *testing.T) {
 		t.Fatalf("platform config not cleared: %+v", platformCfg)
 	}
 }
+
+func TestApplyXcodeSchemeOverridesExplainsUndetectedIOS(t *testing.T) {
+	cfg := &initConfigDraft{Build: initBuildDraft{Recipes: map[string]initBuildRecipeDraft{"android": {}}}}
+
+	err := applyXcodeSchemeOverrides(cfg, map[string]string{"ios": "MyScheme"})
+
+	if err == nil {
+		t.Fatal("expected error when iOS was not detected")
+	}
+	for _, want := range []string{`"ios"`, "available: android", "no iOS build was detected", "iosApp/", ".revyl/config.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+}

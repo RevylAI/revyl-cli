@@ -37,6 +37,10 @@ type DevServerOutput struct {
 	Line string
 }
 
+// MaxDevServerOutputLineBytes bounds one dev-server output line, so a long
+// bundler line is still read instead of stopping the stdout reader.
+const MaxDevServerOutputLineBytes = 16 * 1024 * 1024
+
 // DevServerOutputCallback receives streamed dev-server process output.
 type DevServerOutputCallback func(output DevServerOutput)
 

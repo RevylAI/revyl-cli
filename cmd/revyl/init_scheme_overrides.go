@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -562,6 +563,9 @@ func applyXcodeSchemeOverrides(cfg *initConfigDraft, overrides map[string]string
 			available := "(none)"
 			if len(availableKeys) > 0 {
 				available = strings.Join(availableKeys, ", ")
+			}
+			if strings.HasPrefix(platformKey, "ios") && !slices.ContainsFunc(availableKeys, func(key string) bool { return strings.HasPrefix(key, "ios") }) {
+				return fmt.Errorf("unknown build platform key %q in --xcode-scheme (available: %s): no iOS build was detected; init looks for an .xcodeproj or .xcworkspace in the project root, ios/, or iosApp/ (Kotlin Multiplatform with a multiplatform Gradle plugin). Run init from the app root, or add an iOS build recipe to .revyl/config.yaml", platformKey, available)
 			}
 			return fmt.Errorf("unknown build platform key %q in --xcode-scheme (available: %s)", platformKey, available)
 		}

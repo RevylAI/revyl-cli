@@ -475,3 +475,55 @@ func writeProjectFileTestConfig(t *testing.T, projectRoot, content string, mode 
 func projectFileTestConfig(projectID, command string) string {
 	return "project:\n  id: " + projectID + "\nbuild:\n  framework: expo\n  profiles:\n    dev:\n      ios:\n        build_commands:\n          - " + command + "\n"
 }
+
+func TestGitWorktreeLookupTimesOutWhenGitChildKeepsOutputOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell git stand-in")
+	}
+	binDirectory := t.TempDir()
+	fakeGit := "#!/bin/sh\nsleep 30 &\nwait\n"
+	if err := os.WriteFile(filepath.Join(binDirectory, "git"), []byte(fakeGit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(gitLookupTimeoutEnvVar, "1")
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := resolveGitWorktreeRoot(t.TempDir())
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "git_worktree_lookup_timed_out") {
+			t.Fatalf("error = %v, want git_worktree_lookup_timed_out", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("lookup kept waiting on git's output after the timeout")
+	}
+}
+
+func TestGitLookupTimeoutResolvesEnvironmentOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		want        time.Duration
+	}{
+		{"unset", "", defaultGitLookupTimeout},
+		{"seconds", "45", 45 * time.Second},
+		{"padded", " 90 ", 90 * time.Second},
+		{"maximum", "600", maxGitLookupTimeout},
+		{"zero", "0", defaultGitLookupTimeout},
+		{"negative", "-5", defaultGitLookupTimeout},
+		{"not a number", "slow", defaultGitLookupTimeout},
+		{"duration syntax", "45s", defaultGitLookupTimeout},
+		{"above maximum", "601", defaultGitLookupTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(gitLookupTimeoutEnvVar, tc.value)
+			if got := gitLookupTimeout(); got != tc.want {
+				t.Fatalf("gitLookupTimeout() with %s=%q = %s, want %s", gitLookupTimeoutEnvVar, tc.value, got, tc.want)
+			}
+		})
+	}
+}

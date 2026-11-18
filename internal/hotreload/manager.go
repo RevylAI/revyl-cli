@@ -157,6 +157,8 @@ type Manager struct {
 	// prove the manifest is ready yet. It does not bypass earlier startup errors.
 	forceHotReload bool
 
+	packagerHostLaunch bool
+
 	// readyTimeout bounds relay-readiness waits (transport probe at startup and
 	// after relay recovery). Resolved from REVYL_READY_TIMEOUT at construction;
 	// SetReadyTimeout overrides.
@@ -273,6 +275,13 @@ func (m *Manager) SetTargetPlatform(platform string) {
 // proof fails after the dev server and tunnel have started.
 func (m *Manager) SetForceHotReload(enabled bool) {
 	m.forceHotReload = enabled
+}
+
+// SetPackagerHostLaunch marks an Expo app without expo-dev-client: the app
+// loads Metro from the packager host passed at launch, so no dev-client
+// deep link, and therefore no app scheme, is needed.
+func (m *Manager) SetPackagerHostLaunch(enabled bool) {
+	m.packagerHostLaunch = enabled
 }
 
 // SetReadyTimeout overrides how long startup and relay recovery wait for the
@@ -1240,7 +1249,7 @@ func (m *Manager) attachDevServerDebugMode(devServer DevServer) {
 func (m *Manager) createDevServer() (DevServer, error) {
 	switch m.providerName {
 	case "expo":
-		if m.providerConfig.AppScheme == "" {
+		if m.providerConfig.AppScheme == "" && !m.packagerHostLaunch {
 			return nil, fmt.Errorf("app_scheme is required for Expo")
 		}
 		if expoDevServerFactory == nil {

@@ -572,7 +572,7 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 
 	ui.Println()
 	if !buildUploadJSON {
-		ui.PrintSuccess("Upload complete!")
+		ui.PrintSuccess("Uploaded %s %s → build %s", appID, result.Version, result.VersionID)
 	}
 	ui.PrintInfo("App:             %s", appID)
 	ui.PrintInfo("Build Version:   %s", result.Version)
@@ -775,7 +775,7 @@ func runURLUpload(cmd *cobra.Command, apiKey string, pin bool) error {
 		if result.WasReused {
 			ui.PrintSuccess("Version already exists (idempotent)")
 		} else {
-			ui.PrintSuccess("Upload complete!")
+			ui.PrintSuccess("Uploaded %s %s → build %s", appID, result.Version, result.ID)
 		}
 	}
 	if pin && result.WasReused {
