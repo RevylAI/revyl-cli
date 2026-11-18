@@ -178,6 +178,9 @@ func RunPostStartupDiagnosticsForPlatform(localPort int, tunnelURL string, provi
 	}
 	if providerName == "expo" {
 		checks = append(checks, func(localPort int, tunnelURL string) DiagnosticCheck {
+			if host := expectedRelayHost(tunnelURL); host == "localhost" || net.ParseIP(host).IsLoopback() {
+				localPort = 0
+			}
 			return checkManifestURLsForPlatform(localPort, tunnelURL, targetPlatform)
 		})
 		checks = append(checks, checkExpoDevtoolsPluginWebSocket)

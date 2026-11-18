@@ -96,6 +96,36 @@ func (e *ExternalTunnelBackend) Metadata() TunnelBackendInfo {
 	return TunnelBackendInfo{Transport: "external"}
 }
 
+// TransportLocal serves the dev server at its loopback address, for a device
+// that runs on the same machine as the dev server and shares its network.
+const TransportLocal = "local"
+
+// LocalTunnelBackend exposes no tunnel: the device reaches the dev server
+// over the shared loopback interface.
+type LocalTunnelBackend struct {
+	url string
+}
+
+// Start returns the dev server's loopback URL.
+func (l *LocalTunnelBackend) Start(_ context.Context, localPort int) (string, error) {
+	l.url = fmt.Sprintf("http://127.0.0.1:%d", localPort)
+	return l.url, nil
+}
+
+// StartHealthMonitor is a no-op; the local dev server health monitor covers it.
+func (l *LocalTunnelBackend) StartHealthMonitor(_ context.Context) {}
+
+// Stop is a no-op; there is no tunnel to tear down.
+func (l *LocalTunnelBackend) Stop() error { return nil }
+
+// PublicURL returns the loopback URL.
+func (l *LocalTunnelBackend) PublicURL() string { return l.url }
+
+// Metadata identifies this as the local transport.
+func (l *LocalTunnelBackend) Metadata() TunnelBackendInfo {
+	return TunnelBackendInfo{Transport: TransportLocal}
+}
+
 // ConnectivityCheckResult contains the result of network connectivity checks.
 type ConnectivityCheckResult struct {
 	// CanReachRevylAPI indicates if the Revyl backend is reachable.

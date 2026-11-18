@@ -437,8 +437,13 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 	// 5. Start health monitor for automatic tunnel reconnection
 	backend.StartHealthMonitor(m.ctx)
 
+	via := "relay"
+	unrewrittenPort := devServer.GetPort()
+	if m.transportPreference == TransportLocal {
+		via, unrewrittenPort = "localhost", 0
+	}
 	if m.providerName == "expo" {
-		m.log("Verifying Expo relay readiness...")
+		m.log("Verifying Expo %s readiness...", via)
 		m.debugLog("Waiting for Expo relay transport...")
 		if _, err := waitForExpoMetroTransport(
 			m.ctx,
@@ -453,17 +458,17 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			)
 		}
 		m.debugLog("Expo relay transport is ready")
-		m.log("Expo relay transport verified")
+		m.log("Expo %s transport verified", via)
 
 		if m.forceHotReload {
 			m.log("Skipped manifest and bundle proof because --force-hot-reload is set.")
 			m.debugLog("Launching anyway; the dev client may show a project load error if the first manifest or bundle is still generating.")
 		} else {
-			m.log("Warming Expo manifest through relay...")
+			m.log("Warming Expo manifest through %s...", via)
 			m.debugLog("Waiting for Expo manifest to be served through the relay...")
 			manifest, _, err := waitForExpoManifestFetchResult(
 				m.ctx,
-				devServer.GetPort(),
+				unrewrittenPort,
 				tunnelURL,
 				expoManifestReadyTimeout,
 				metroTunnelReadyPollInterval,
@@ -474,11 +479,11 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			}
 			m.debugLog("Expo manifest is being served through the relay")
 
-			m.log("Warming Expo bundle through relay...")
+			m.log("Warming Expo bundle through %s...", via)
 			m.debugLog("Prewarming Expo bundle through the relay...")
 			prewarmResult, err := waitForExpoBundlePrewarmFromManifest(
 				m.ctx,
-				devServer.GetPort(),
+				unrewrittenPort,
 				tunnelURL,
 				m.bundlePrewarmTimeout,
 				manifest,
@@ -495,7 +500,7 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 				m.debugLog("Expo bundle prewarm complete")
 			}
 
-			m.log("Checking device manifest path through relay...")
+			m.log("Checking device manifest path through %s...", via)
 			m.debugLog("Checking device-safe Expo manifest path through the relay...")
 			headResult, err := waitForExpoManifestHeadReady(
 				m.ctx,
@@ -516,7 +521,7 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			} else {
 				m.debugLog("Device-safe Expo manifest path verified")
 			}
-			m.log("Expo relay readiness verified")
+			m.log("Expo %s readiness verified", via)
 		}
 	}
 
@@ -599,6 +604,10 @@ func (m *Manager) createTunnelBackend(
 	switch strings.ToLower(strings.TrimSpace(m.transportPreference)) {
 	case "", "relay":
 		return m.startRelayTunnel(ctx, devServer)
+	case TransportLocal:
+		backend := &LocalTunnelBackend{}
+		url, err := backend.Start(ctx, devServer.GetPort())
+		return backend, url, err
 	default:
 		return nil, "", fmt.Errorf("unsupported hotreload transport %q", m.transportPreference)
 	}

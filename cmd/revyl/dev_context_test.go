@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/revyl/cli/internal/api"
+	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/testutil"
 )
 
@@ -72,7 +78,7 @@ func TestRunningDevGitBranchCompatibility(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, stderr := captureStdoutAndStderrSeparate(t, func() {
-				running, err := printIfDevStartContextAlreadyRunning(root, ctx.Name, projectDevInvocation{BranchID: "branch-id", GitBranchName: test.gitBranch})
+				running, err := printIfDevStartContextAlreadyRunning(root, ctx.Name, projectDevInvocation{BranchID: "branch-id", GitBranchName: test.gitBranch}, "")
 				if running != test.wantRunning || (err == nil) != test.wantRunning {
 					t.Fatalf("running = %t, error = %v", running, err)
 				}
@@ -673,7 +679,7 @@ func TestResolveDevContextName_RejectsTraversalFromFlag(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTryReuseDevContextSession_NilSaved(t *testing.T) {
-	result := tryReuseDevContextSession(nil, nil, nil, "ios")
+	result := tryReuseDevContextSession(nil, nil, nil, "ios", "")
 	if result != nil {
 		t.Fatal("expected nil for nil saved context")
 	}
@@ -681,7 +687,7 @@ func TestTryReuseDevContextSession_NilSaved(t *testing.T) {
 
 func TestTryReuseDevContextSession_EmptySessionID(t *testing.T) {
 	saved := &DevContext{Name: "test", Platform: "ios", SessionID: ""}
-	result := tryReuseDevContextSession(nil, nil, saved, "ios")
+	result := tryReuseDevContextSession(nil, nil, saved, "ios", "")
 	if result != nil {
 		t.Fatal("expected nil for empty SessionID")
 	}
@@ -693,9 +699,42 @@ func TestTryReuseDevContextSession_PlatformMismatch(t *testing.T) {
 		Platform:  "ios",
 		SessionID: "sess-abc",
 	}
-	result := tryReuseDevContextSession(nil, nil, saved, "android")
+	result := tryReuseDevContextSession(nil, nil, saved, "android", "")
 	if result != nil {
 		t.Fatal("expected nil when platform does not match")
+	}
+}
+
+func TestTryReuseDevContextSession_LooksUpOnlySessionsOfTheRequestedComputer(t *testing.T) {
+	const computerA, computerB = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	for _, tc := range []struct {
+		name, saved, requested string
+		lookedUp               bool
+	}{
+		{"standalone session, standalone requested", "", "", true},
+		{"hosted session, same computer requested", computerA, computerA, true},
+		{"standalone session, computer requested", "", computerA, false},
+		{"hosted session, standalone requested", computerA, "", false},
+		{"hosted session, other computer requested", computerA, computerB, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			var lookups atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				lookups.Add(1)
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			mgr := mcppkg.NewDeviceSessionManager(api.NewClientWithDevMode("fixture-key", false), t.TempDir())
+			saved := &DevContext{Name: "test", Platform: "ios", SessionID: "sess-abc", ComputerSessionID: tc.saved}
+
+			tryReuseDevContextSession(context.Background(), mgr, saved, "ios", tc.requested)
+
+			if got := lookups.Load() > 0; got != tc.lookedUp {
+				t.Fatalf("looked up saved session = %v, want %v", got, tc.lookedUp)
+			}
+		})
 	}
 }
 
@@ -705,7 +744,7 @@ func TestTryReuseDevContextSession_NilMgrFallsThrough(t *testing.T) {
 		Platform:  "ios",
 		SessionID: "sess-abc",
 	}
-	result := tryReuseDevContextSession(nil, nil, saved, "ios")
+	result := tryReuseDevContextSession(nil, nil, saved, "ios", "")
 	if result != nil {
 		t.Fatal("expected nil when mgr is nil (session cannot be resolved)")
 	}

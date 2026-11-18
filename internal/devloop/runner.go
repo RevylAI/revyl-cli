@@ -75,6 +75,9 @@ type StartRequest struct {
 	TimeoutSeconds             int
 	Remote                     bool
 	SeedLatest                 bool
+	// Computer runs the device inside this computer; "none" forces a
+	// standalone device. Empty inherits REVYL_COMPUTER_ID.
+	Computer string
 }
 
 // BuildStatus describes the latest build without conflating admission and execution.
@@ -331,6 +334,7 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 	if request.SeedLatest {
 		args = append(args, "--seed-latest")
 	}
+	args = appendStringFlag(args, "--computer", request.Computer)
 	var environment []commandEnvironmentValue
 	if request.GitBranchName != nil {
 		environment = []commandEnvironmentValue{{Key: GitBranchEnvironment, Value: *request.GitBranchName}}

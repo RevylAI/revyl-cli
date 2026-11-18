@@ -401,6 +401,32 @@ revyl build upload --file path/to/MyApp.app --platform ios --app "$APP" --json
 revyl device start --platform ios --app "$APP" --build-version-id "$BUILD_ID" --json
 ```
 
+### Hot reload inside a computer
+
+`revyl dev` on the computer runs its iOS device inside that computer too, the
+way `device start` does: `REVYL_COMPUTER_ID` supplies `--computer`, and
+`--computer=none` keeps a standalone cloud device. The hosted simulator shares
+the computer's network, so the dev loop starts Metro or Expo on the computer and
+the app loads its bundle from `http://127.0.0.1:<port>`: no Revyl relay or
+public tunnel is created, and the deep link and packager host name that address.
+A hosted Android device runs on its own network, so it keeps the relay.
+`revyl dev` checks the computer's hosting capability first and stops before any
+build or dev server starts when the computer isn't running or can't host the
+platform.
+
+```sh
+revyl dev --platform ios --no-build
+revyl dev --platform ios --computer=none   # standalone device through the relay
+```
+
+The dev loop uses an existing simulator build, as a standalone loop does.
+Inside a computer it launches that build with the app's defaults, so the
+project's `session.before_script` and `session.auth_bypass` don't run unless
+`--computer` is passed explicitly, and launch variables and arguments are
+refused. Passing `--computer` with another computer's ID, or from outside a
+computer, still hosts the device in that computer and keeps the relay, since the
+dev server isn't on that computer's network.
+
 `--url` refuses `localhost` and private addresses. To test a dev server running
 on the computer, start a hosted Web session on any public page, then navigate
 its browser, which runs on the computer:

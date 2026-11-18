@@ -67,4 +67,5 @@ type StartDevLoopInput struct {
 	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Device idle timeout in seconds (default 300)."`
 	Remote                     bool     `json:"remote,omitempty" jsonschema:"Build native changes on a remote Revyl build runner."`
 	SeedLatest                 bool     `json:"seed_latest,omitempty" jsonschema:"Install latest from the selected branch while a remote build runs."`
+	Computer                   string   `json:"computer,omitempty" jsonschema:"Computer ID to run the device inside, or none; defaults to REVYL_COMPUTER_ID."`
 }

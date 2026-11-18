@@ -2157,3 +2157,31 @@ func TestManagerReadyTimeoutEnvGarbageWarnsOnceAtStart(t *testing.T) {
 		t.Fatalf("logs mention %s %d times, want exactly 1; logs = %q", readyTimeoutEnvVar, warnings, logs)
 	}
 }
+
+func TestManagerStartLocalTransportProvesTheLoopbackDevServerWithoutARelay(t *testing.T) {
+	server := newExpoDogfoodServer(t, expoDogfoodScenario{})
+	port := serverPort(t, server)
+	previousFactory, previousTransport, previousHead := expoDevServerFactory, waitForExpoMetroTransport, waitForExpoManifestHeadReady
+	t.Cleanup(func() {
+		expoDevServerFactory, waitForExpoMetroTransport, waitForExpoManifestHeadReady = previousFactory, previousTransport, previousHead
+	})
+	expoDevServerFactory = func(string, string, int, bool) DevServer { return &fakePortDevServer{port: port} }
+	waitForExpoMetroTransport = func(context.Context, int, string, time.Duration, time.Duration) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestHeadReady = func(context.Context, string, time.Duration, time.Duration, string, func(DiagnosticCheck)) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetTransportPreference(TransportLocal)
+
+	result, err := m.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	if result.TunnelURL != server.URL || result.Transport != TransportLocal || result.RelayID != "" {
+		t.Fatalf("Start() = %+v, want the loopback dev server %s with no relay", result, server.URL)
+	}
+}

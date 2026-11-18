@@ -86,11 +86,12 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
+	computer := resolveDevComputerTarget(cmd)
 	ctxName, err := resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
 		return err
 	}
-	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation); err != nil {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation, computer.SessionID); err != nil {
 		return err
 	} else if running {
 		return nil
@@ -128,7 +129,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	var session *mcppkg.DeviceSession
 	sessionOwned := true
 	if savedCtx, _ := loadDevContext(cwd, ctxName); savedCtx != nil && savedCtx.SessionID != "" {
-		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform)
+		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform, computer.SessionID)
 		if reuse != nil {
 			if err := validateLaunchSettingsForSessionReuse(
 				devStartLaunchVars,
@@ -157,10 +158,10 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	startedHere := session == nil
 	if session == nil {
 		ui.PrintInfo("Starting cloud device session (build continues in background)...")
-		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
+		startOpts, prepErr := withDevStartLaunchVars(ctx, computer.startOptions(mcppkg.StartSessionOptions{
 			Platform:    devicePlatform,
 			IdleTimeout: time.Duration(timeout) * time.Second,
-		})
+		}))
 		if prepErr != nil {
 			return prepErr
 		}
@@ -209,22 +210,23 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	defer func() { _ = pidRoot.Remove(devContextPIDFileName) }()
 
 	devCtx := &DevContext{
-		Name:          ctxName,
-		Profile:       invocation.Profile,
-		BranchID:      invocation.BranchID,
-		BranchName:    invocation.BranchName,
-		Platform:      devicePlatform,
-		PlatformKey:   platformKey,
-		Provider:      "remote-xcode",
-		SessionID:     session.SessionID,
-		SessionIndex:  session.Index,
-		SessionOwned:  sessionOwned,
-		ViewerURL:     viewerURL,
-		PID:           os.Getpid(),
-		StartedAtNano: startNonce,
-		State:         devContextStateRunning,
-		CreatedAt:     time.Now(),
-		LastActivity:  time.Now(),
+		Name:              ctxName,
+		Profile:           invocation.Profile,
+		BranchID:          invocation.BranchID,
+		BranchName:        invocation.BranchName,
+		Platform:          devicePlatform,
+		PlatformKey:       platformKey,
+		Provider:          "remote-xcode",
+		SessionID:         session.SessionID,
+		SessionIndex:      session.Index,
+		SessionOwned:      sessionOwned,
+		ComputerSessionID: computer.SessionID,
+		ViewerURL:         viewerURL,
+		PID:               os.Getpid(),
+		StartedAtNano:     startNonce,
+		State:             devContextStateRunning,
+		CreatedAt:         time.Now(),
+		LastActivity:      time.Now(),
 	}
 	_ = saveDevContext(cwd, devCtx)
 	_ = setCurrentDevContext(cwd, ctxName)

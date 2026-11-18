@@ -36,6 +36,13 @@ case "$*" in
         exit 4
         ;;
     esac
+    case "$*" in
+      *"--computer none"*) ;;
+      *)
+        printf 'missing computer flag: %s\n' "$*" >&2
+        exit 7
+        ;;
+    esac
 	printf '%s\n' '{"context":"default","state":"preparing","pid":42,"profile":"development","platform":"ios","session_id":"session-1","session_index":0,"viewer_url":"https://viewer","build":{"status":"running"}}'
     ;;
   *"dev status"*)
@@ -65,6 +72,7 @@ esac
 		LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
 		DisableInheritedLaunchVars: true,
 		Remote:                     true,
+		Computer:                   "none",
 	})
 	if err != nil || start.ViewerURL != "https://viewer" {
 		t.Fatalf("Start() = %+v, %v", start, err)

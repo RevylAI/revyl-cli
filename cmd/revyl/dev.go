@@ -96,6 +96,11 @@ Auto-detects your project type (Expo, React Native, Swift, Android),
 starts hot reload, provisions a cloud device, installs the selected branch's
 dev build, and opens a live viewer.
 
+Inside a computer, REVYL_COMPUTER_ID supplies --computer: the device runs in
+that computer, and an iOS device reaches the dev server over its localhost,
+with no tunnel.
+Use --computer=none for a standalone cloud device.
+
 Run revyl dev for the common path. Dev contexts are worktree-local:
 separate worktrees can each use the default context automatically. Use
 --context only when intentionally targeting a specific named loop.
@@ -201,6 +206,7 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&devStartLaunchArguments, "launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")
 	cmd.Flags().BoolVar(&devDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	cmd.Flags().StringVar(&devStartDeviceRunnerID, "device-runner", "", "Target a specific device runner ID")
+	cmd.Flags().String("computer", "", "Run the device inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device")
 	cmd.Flags().IntVar(&devStartPort, "port", 8081, "Port for local dev server")
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
 	cmd.Flags().IntVar(&devStartReadyTimeout, "ready-timeout",
@@ -231,7 +237,7 @@ func effectiveDevOpenBrowser(cmd *cobra.Command, _ string) bool {
 	if cmd.Flags().Changed("open") {
 		return devStartOpen
 	}
-	return true
+	return computerSessionIDForStart(cmd) == ""
 }
 
 // withDevStartLaunchVars applies --launch-var overrides and then runs the
@@ -522,6 +528,12 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	}
 	selectionDevMode, _ := cmd.Flags().GetBool("dev")
 	selectionClient := api.NewClientWithDevMode(apiKey, selectionDevMode)
+	computer := resolveDevComputerTarget(cmd)
+	if computer.SessionID != "" {
+		if err := requireDevComputerHosts(cmd.Context(), selectionClient, computer.SessionID, invocation.Platform); err != nil {
+			return err
+		}
+	}
 	if invocation.AppID == "" && strings.TrimSpace(devStartBuildVerID) == "" {
 		if devStartRemote {
 			return fmt.Errorf("app_id is required for this development profile")
@@ -546,7 +558,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 
 	ctxName := getDevContextFlag(cmd)
 	configPath := invocation.ConfigPath
-	initDevSession(invocation.ProjectRoot, invocation.Session)
+	initDevSession(invocation.ProjectRoot, sessionConfigForComputer(cmd, computer.SessionID, invocation.Session))
 
 	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
 	if err != nil {
@@ -618,7 +630,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation); err != nil {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation, computer.SessionID); err != nil {
 		return err
 	} else if running {
 		return nil
@@ -801,6 +813,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	manager.SetAPIClient(client)
 	manager.SetTargetPlatform(devicePlatform)
 	manager.SetForceHotReload(devStartForceHotReload)
+	if computer.Local && devicePlatform == "ios" && externalTunnel.tunnelURL == "" {
+		manager.SetTransportPreference(hotreload.TransportLocal)
+	}
 	if cmd.Flags().Changed("ready-timeout") {
 		if devStartReadyTimeout > 0 {
 			manager.SetReadyTimeout(time.Duration(devStartReadyTimeout) * time.Second)
@@ -884,7 +899,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	var session *mcppkg.DeviceSession
 	sessionOwned := true
 	if savedCtx, _ := loadDevContext(cwd, ctxName); savedCtx != nil && savedCtx.SessionID != "" {
-		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform)
+		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform, computer.SessionID)
 		if reuse != nil {
 			if err := validateLaunchSettingsForSessionReuse(
 				devStartLaunchVars,
@@ -901,8 +916,8 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	}
 
 	if session == nil {
-		ui.PrintInfo("Starting cloud device session...")
-		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
+		printDevDeviceStart(computer)
+		startOpts, prepErr := withDevStartLaunchVars(ctx, computer.startOptions(mcppkg.StartSessionOptions{
 			Platform:       devicePlatform,
 			AppID:          selectedAppID,
 			BuildVersionID: buildVersionID,
@@ -912,7 +927,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			IdleTimeout:    time.Duration(timeout) * time.Second,
 			DeviceRunnerID: strings.TrimSpace(devStartDeviceRunnerID),
 			SkipAppInstall: true,
-		})
+		}))
 		if prepErr != nil {
 			return prepErr
 		}
@@ -1102,27 +1117,28 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	defer func() { _ = pidRoot.Remove(devContextPIDFileName) }()
 
 	devCtx := &DevContext{
-		Name:          ctxName,
-		Profile:       invocation.Profile,
-		BranchID:      invocation.BranchID,
-		BranchName:    invocation.BranchName,
-		Platform:      devicePlatform,
-		PlatformKey:   platformKey,
-		Provider:      provider.Name(),
-		SessionID:     session.SessionID,
-		SessionIndex:  session.Index,
-		SessionOwned:  sessionOwned,
-		ViewerURL:     viewerURL,
-		TunnelURL:     startResult.TunnelURL,
-		DeepLinkURL:   startResult.DeepLinkURL,
-		Transport:     startResult.Transport,
-		RelayID:       startResult.RelayID,
-		PID:           os.Getpid(),
-		StartedAtNano: startNonce,
-		State:         devContextStateRunning,
-		Port:          devContextPortFromStartResult(startResult, providerCfg.GetPort(provider.Name())),
-		CreatedAt:     time.Now(),
-		LastActivity:  time.Now(),
+		Name:              ctxName,
+		Profile:           invocation.Profile,
+		BranchID:          invocation.BranchID,
+		BranchName:        invocation.BranchName,
+		Platform:          devicePlatform,
+		PlatformKey:       platformKey,
+		Provider:          provider.Name(),
+		SessionID:         session.SessionID,
+		SessionIndex:      session.Index,
+		SessionOwned:      sessionOwned,
+		ComputerSessionID: computer.SessionID,
+		ViewerURL:         viewerURL,
+		TunnelURL:         startResult.TunnelURL,
+		DeepLinkURL:       startResult.DeepLinkURL,
+		Transport:         startResult.Transport,
+		RelayID:           startResult.RelayID,
+		PID:               os.Getpid(),
+		StartedAtNano:     startNonce,
+		State:             devContextStateRunning,
+		Port:              devContextPortFromStartResult(startResult, providerCfg.GetPort(provider.Name())),
+		CreatedAt:         time.Now(),
+		LastActivity:      time.Now(),
 	}
 	_ = saveDevContext(cwd, devCtx)
 	_ = setCurrentDevContext(cwd, ctxName)
@@ -1499,6 +1515,10 @@ func devBrowserOpenTarget(cockpitURL, viewerURL string) string {
 }
 
 func printHotReloadReady(providerDisplay string, startResult *hotreload.StartResult) {
+	if startResult != nil && startResult.Transport == hotreload.TransportLocal {
+		ui.PrintSuccess("Hot reload ready: %s server is running at %s; the device reaches it over this computer's localhost, with no tunnel", providerDisplay, startResult.TunnelURL)
+		return
+	}
 	ui.PrintSuccess("Hot reload ready: %s server and tunnel are running", providerDisplay)
 	if startResult == nil {
 		return
@@ -2214,6 +2234,7 @@ func resolveDevRebuildInitialBuild(
 // cloud device, builds and installs the app, then waits for the user to press
 // [r] to rebuild+reinstall or [q]/Ctrl+C to quit.
 func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiKey, ctxName string) error {
+	computer := resolveDevComputerTarget(cmd)
 	cwd := invocation.ProjectRoot
 	noBuild := devStartNoBuild
 	devMode, _ := cmd.Flags().GetBool("dev")
@@ -2226,7 +2247,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	if err != nil {
 		return err
 	}
-	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation); err != nil {
+	if running, err := printIfDevStartContextAlreadyRunning(cwd, ctxName, invocation, computer.SessionID); err != nil {
 		return err
 	} else if running {
 		return nil
@@ -2364,7 +2385,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	var session *mcppkg.DeviceSession
 	sessionOwned := true
 	if savedCtx, _ := loadDevContext(cwd, ctxName); savedCtx != nil && savedCtx.SessionID != "" {
-		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform)
+		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform, computer.SessionID)
 		if reuse != nil {
 			if err := validateLaunchSettingsForSessionReuse(
 				devStartLaunchVars,
@@ -2381,8 +2402,8 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	}
 
 	if session == nil {
-		ui.PrintInfo("Starting cloud device session...")
-		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
+		printDevDeviceStart(computer)
+		startOpts, prepErr := withDevStartLaunchVars(ctx, computer.startOptions(mcppkg.StartSessionOptions{
 			Platform:       devicePlatform,
 			AppID:          appID,
 			BuildVersionID: selectedVersion.ID,
@@ -2391,7 +2412,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			IdleTimeout:    time.Duration(timeout) * time.Second,
 			DeviceRunnerID: strings.TrimSpace(devStartDeviceRunnerID),
 			SkipAppInstall: true,
-		})
+		}))
 		if prepErr != nil {
 			return prepErr
 		}
@@ -2485,22 +2506,23 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	defer func() { _ = pidRoot.Remove(devContextPIDFileName) }()
 
 	devCtx := &DevContext{
-		Name:          ctxName,
-		Profile:       invocation.Profile,
-		BranchID:      invocation.BranchID,
-		BranchName:    invocation.BranchName,
-		Platform:      devicePlatform,
-		PlatformKey:   platformKey,
-		Provider:      devContextProvider(invocation.Recipe.Framework),
-		SessionID:     session.SessionID,
-		SessionIndex:  session.Index,
-		SessionOwned:  sessionOwned,
-		ViewerURL:     viewerURL,
-		PID:           os.Getpid(),
-		StartedAtNano: startNonce,
-		State:         devContextStateRunning,
-		CreatedAt:     time.Now(),
-		LastActivity:  time.Now(),
+		Name:              ctxName,
+		Profile:           invocation.Profile,
+		BranchID:          invocation.BranchID,
+		BranchName:        invocation.BranchName,
+		Platform:          devicePlatform,
+		PlatformKey:       platformKey,
+		Provider:          devContextProvider(invocation.Recipe.Framework),
+		SessionID:         session.SessionID,
+		SessionIndex:      session.Index,
+		SessionOwned:      sessionOwned,
+		ComputerSessionID: computer.SessionID,
+		ViewerURL:         viewerURL,
+		PID:               os.Getpid(),
+		StartedAtNano:     startNonce,
+		State:             devContextStateRunning,
+		CreatedAt:         time.Now(),
+		LastActivity:      time.Now(),
 	}
 	_ = saveDevContext(cwd, devCtx)
 	_ = setCurrentDevContext(cwd, ctxName)

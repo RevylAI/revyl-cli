@@ -53,27 +53,30 @@ import (
 //   - CreatedAt: when the context was first created
 //   - LastActivity: most recent activity timestamp
 type DevContext struct {
-	BranchID      string    `json:"branch_id,omitempty"`
-	BranchName    string    `json:"branch_name,omitempty"`
-	Name          string    `json:"name"`
-	Platform      string    `json:"platform"`
-	Profile       string    `json:"profile,omitempty"`
-	PlatformKey   string    `json:"platform_key,omitempty"`
-	Provider      string    `json:"provider,omitempty"`
-	SessionID     string    `json:"session_id,omitempty"`
-	SessionIndex  int       `json:"session_index"`
-	SessionOwned  bool      `json:"session_owned"`
-	ViewerURL     string    `json:"viewer_url,omitempty"`
-	TunnelURL     string    `json:"tunnel_url,omitempty"`
-	DeepLinkURL   string    `json:"deep_link_url,omitempty"`
-	Transport     string    `json:"transport,omitempty"`
-	RelayID       string    `json:"relay_id,omitempty"`
-	PID           int       `json:"pid"`
-	StartedAtNano int64     `json:"started_at_nano,omitempty"`
-	State         string    `json:"state"`
-	Port          int       `json:"port,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	LastActivity  time.Time `json:"last_activity"`
+	BranchID     string `json:"branch_id,omitempty"`
+	BranchName   string `json:"branch_name,omitempty"`
+	Name         string `json:"name"`
+	Platform     string `json:"platform"`
+	Profile      string `json:"profile,omitempty"`
+	PlatformKey  string `json:"platform_key,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	SessionIndex int    `json:"session_index"`
+	SessionOwned bool   `json:"session_owned"`
+	// ComputerSessionID is the computer the session runs inside, empty for a
+	// standalone device.
+	ComputerSessionID string    `json:"computer_session_id,omitempty"`
+	ViewerURL         string    `json:"viewer_url,omitempty"`
+	TunnelURL         string    `json:"tunnel_url,omitempty"`
+	DeepLinkURL       string    `json:"deep_link_url,omitempty"`
+	Transport         string    `json:"transport,omitempty"`
+	RelayID           string    `json:"relay_id,omitempty"`
+	PID               int       `json:"pid"`
+	StartedAtNano     int64     `json:"started_at_nano,omitempty"`
+	State             string    `json:"state"`
+	Port              int       `json:"port,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	LastActivity      time.Time `json:"last_activity"`
 }
 
 const (
@@ -393,10 +396,13 @@ func isDevContextRunning(repoRoot string, ctx *DevContext) bool {
 	return running
 }
 
-func printIfDevStartContextAlreadyRunning(repoRoot, ctxName string, invocation projectDevInvocation) (bool, error) {
+func printIfDevStartContextAlreadyRunning(repoRoot, ctxName string, invocation projectDevInvocation, computerSessionID string) (bool, error) {
 	existing, _ := loadDevContext(repoRoot, ctxName)
 	if !isDevContextRunning(repoRoot, existing) {
 		return false, nil
+	}
+	if !strings.EqualFold(existing.ComputerSessionID, computerSessionID) {
+		return false, fmt.Errorf("dev context %q is running with its device placed elsewhere (computer or standalone); stop that context or choose another --context", ctxName)
 	}
 	if existing.BranchID == "" && devSelectionIsAppDefault(invocation) {
 		ui.PrintWarning("Dev context %q was started without a recorded branch; showing its existing session", ctxName)
@@ -684,8 +690,13 @@ func tryReuseDevContextSession(
 	mgr *mcppkg.DeviceSessionManager,
 	saved *DevContext,
 	requestedPlatform string,
+	requestedComputerSessionID string,
 ) *SessionReuseResult {
 	if saved == nil || saved.SessionID == "" {
+		return nil
+	}
+	if !strings.EqualFold(saved.ComputerSessionID, requestedComputerSessionID) {
+		ui.PrintDebug("saved session computer %q != requested %q; skipping reuse", saved.ComputerSessionID, requestedComputerSessionID)
 		return nil
 	}
 	if saved.Platform != "" && saved.Platform != requestedPlatform {

@@ -116,6 +116,7 @@ func (s *Server) handleStartDevLoopCommand(
 		TimeoutSeconds:             input.Timeout,
 		Remote:                     input.Remote,
 		SeedLatest:                 input.SeedLatest,
+		Computer:                   input.Computer,
 	}
 	if err := devloop.ValidateStartProfileSelection(startRequest); err != nil {
 		return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{
