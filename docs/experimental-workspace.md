@@ -79,6 +79,15 @@ fixed height is filled as it is. A minimal centered loading state remains until 
 result, so device startup does not first load Atlas. Navigate using the embedded
 Revyl page; repeated tool results preserve its current frame.
 
+A device session that has ended plays its recording in the frame, on the same
+player as the session report, beside a short summary and **Open in Revyl**.
+The framed page fetches the recording's short-lived signed URL itself, so it
+never appears in a tool result, and its own content policy governs the
+recording; the host's CSP metadata still names only the frontend origin. While
+the recording is being saved the page checks again every five seconds for up
+to five minutes, then offers **Check again**. A session without a recording,
+such as one that failed before its device streamed, says why.
+
 Initialization failure or timeout, tool errors, failed device startup, missing
 viewer URLs, and rejected URLs replace the frame with a centered failure state.
 Its **Open in browser** button asks the host to open a validated URL through
