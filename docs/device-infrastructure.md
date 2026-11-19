@@ -61,8 +61,9 @@ the configured app's detected branch build. Pass `--app-id` or
 standalone device, or unset `REVYL_COMPUTER_ID` to disable the default.
 The viewer stays closed by default for an implicit computer start; pass
 `--open` to open it on the computer's desktop.
-Implicit computer starts skip `session.before_script` and `session.auth_bypass`
-and use the app's defaults; standalone starts keep those session settings.
+Every start inside a computer, implicit or through `--computer`, skips
+`session.before_script` and `session.auth_bypass` and uses the app's defaults;
+standalone starts keep those session settings.
 
 The start waits until the device is ready, which takes longer when devices are
 queued. As soon as Revyl accepts it, the command names the session on stderr,

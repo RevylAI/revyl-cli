@@ -170,10 +170,10 @@ func computerSessionIDForStart(cmd *cobra.Command) string {
 }
 
 // sessionConfigForComputer drops the project's standalone session settings
-// (auth bypass and before_script) when only REVYL_COMPUTER_ID places the
-// session inside a computer; an explicit --computer keeps them.
-func sessionConfigForComputer(cmd *cobra.Command, computerSessionID string, session config.AuthoredSession) config.AuthoredSession {
-	if computerSessionID != "" && !cmd.Flags().Changed("computer") {
+// (auth bypass and before_script) for every session inside a computer, which
+// launches the app with its defaults and refuses launch values.
+func sessionConfigForComputer(computerSessionID string, session config.AuthoredSession) config.AuthoredSession {
+	if computerSessionID != "" {
 		session.AuthBypass = nil
 		session.BeforeScript = nil
 	}
@@ -1013,7 +1013,7 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 		if !cmd.Flags().Changed("timeout") && sessionConfig.IdleTimeoutSeconds != nil {
 			timeout = *sessionConfig.IdleTimeoutSeconds
 		}
-		initDevSession(project.ProjectRoot, sessionConfigForComputer(cmd, computerSessionID, sessionConfig))
+		initDevSession(project.ProjectRoot, sessionConfigForComputer(computerSessionID, sessionConfig))
 
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {

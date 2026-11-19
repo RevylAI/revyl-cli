@@ -313,3 +313,48 @@ func TestResolveOptionalProjectContextRejectsConfigOutsideGit(t *testing.T) {
 		t.Fatalf("resolveOptionalProjectContext() = (%+v, %v), want Git boundary error", project, err)
 	}
 }
+
+func TestExplicitComputerSkipsBeforeScriptAndAuthBypass(t *testing.T) {
+	skipBeforeSessionPOSIXShellFixture(t)
+	resetSessionRuntimes(t)
+	t.Setenv("REVYL_COMPUTER_ID", "")
+	root := newBeforeSessionRepo(t, "", "#!/bin/sh\ntouch ran\necho \"E2E_AUTH_TOKEN=tok-123\"\n")
+	session := config.AuthoredSession{
+		BeforeScript: testAuthoredBeforeScript("./setup.sh"),
+		AuthBypass:   testAuthoredAuthBypass([]string{"E2E_AUTH_TOKEN"}, "myapp://auth?token=${E2E_AUTH_TOKEN}"),
+	}
+	computerSessionID := computerSessionIDForStart(devComputerTestCommand(t, "--computer", devTestComputerID))
+
+	initDevSession(root, sessionConfigForComputer(computerSessionID, session))
+	opts, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{Platform: "ios", ComputerSessionID: computerSessionID})
+
+	if err != nil {
+		t.Fatalf("prepareSessionStartOptions() error = %v, want the computer start accepted", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "ran")); !os.IsNotExist(statErr) {
+		t.Fatalf("before_script ran for an explicit --computer session (stat error = %v)", statErr)
+	}
+	if len(opts.LaunchVars) != 0 || len(opts.LaunchEnv) != 0 {
+		t.Fatalf("launch vars = %v, env keys = %d; want none for a computer session", opts.LaunchVars, len(opts.LaunchEnv))
+	}
+}
+
+func TestPrepareSessionStartOptions_RefusesComputerLaunchValuesBeforeRunningScript(t *testing.T) {
+	skipBeforeSessionPOSIXShellFixture(t)
+	resetSessionRuntimes(t)
+	root := newBeforeSessionRepo(t, "", "#!/bin/sh\ntouch ran\n")
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
+
+	_, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{
+		Platform:          "ios",
+		ComputerSessionID: devTestComputerID,
+		LaunchVars:        []string{"FEATURE_FLAG"},
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "omit launch variables") {
+		t.Fatalf("prepareSessionStartOptions() error = %v, want launch variables refused", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "ran")); !os.IsNotExist(statErr) {
+		t.Fatalf("before_script ran before the computer start was refused (stat error = %v)", statErr)
+	}
+}

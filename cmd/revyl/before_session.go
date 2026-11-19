@@ -285,6 +285,9 @@ func prepareSessionStartOptions(
 	ctx context.Context,
 	opts mcppkg.StartSessionOptions,
 ) (mcppkg.StartSessionOptions, error) {
+	if err := mcppkg.ValidateComputerSessionStart(opts, opts.Platform, opts.ComputerSessionID); err != nil {
+		return opts, err
+	}
 	if err := devBeforeSession.Run(ctx); err != nil {
 		return opts, err
 	}

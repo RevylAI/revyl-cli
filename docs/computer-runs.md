@@ -339,9 +339,11 @@ eligible build recipe. Managed Web bundles keep running as standalone Web
 sessions when only `REVYL_COMPUTER_ID` supplies the target; explicit
 `--computer` still requires a registered deployment URL build.
 
-Implicit mobile starts use the app's defaults instead of running the project's
-`session.before_script` or applying `session.auth_bypass`. Use `--computer=none`
-when those standalone session settings are required.
+Every mobile start inside a computer, whether `REVYL_COMPUTER_ID` or `--computer`
+places it there, uses the app's defaults: the project's `session.before_script`
+doesn't run, `session.auth_bypass` isn't applied, and launch variables,
+arguments and environment are refused before anything runs. Use
+`--computer=none` when those standalone session settings are required.
 
 On an agent outpost's computer, phones start inside that computer by default.
 Use `--computer=none` there only for a model the computer can't run; the
@@ -421,11 +423,11 @@ revyl dev --platform ios --computer=none   # standalone device through the relay
 
 The dev loop uses an existing simulator build, as a standalone loop does.
 Inside a computer it launches that build with the app's defaults, so the
-project's `session.before_script` and `session.auth_bypass` don't run unless
-`--computer` is passed explicitly, and launch variables and arguments are
-refused. Passing `--computer` with another computer's ID, or from outside a
-computer, still hosts the device in that computer and keeps the relay, since the
-dev server isn't on that computer's network.
+project's `session.before_script` and `session.auth_bypass` don't run, even
+with an explicit `--computer`, and launch variables and arguments are refused
+before any build starts. Passing `--computer` with another computer's ID, or
+from outside a computer, still hosts the device in that computer and keeps the
+relay, since the dev server isn't on that computer's network.
 
 `--url` refuses `localhost` and private addresses. To test a dev server running
 on the computer, start a hosted Web session on any public page, then navigate
