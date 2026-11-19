@@ -12721,6 +12721,12 @@ type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struc
 	FocusObservationId     *string                                                                           `form:"focus_observation_id,omitempty" json:"focus_observation_id,omitempty"`
 	DetailLevel            *GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel `form:"detail_level,omitempty" json:"detail_level,omitempty"`
 	IncludeScreenshots     *bool                                                                             `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+
+	// Launch Launch-variable filter term, the same terms the graph route takes: the node's evidence, counts and stacks then come only from runs that match every key. Runs with unknown launch configuration are excluded, and secret keys can be filtered only by whether they were set.
+	Launch *[]string `form:"launch,omitempty" json:"launch,omitempty"`
+
+	// XAtlasLaunchTerms Launch-variable terms as comma-separated, percent-encoded <key>:<value> or <key> terms. They combine with launch the same way and count toward its limit, and secret keys follow the same presence-only rule. Terms sent here keep their values out of the URL.
+	XAtlasLaunchTerms *string `json:"X-Atlas-Launch-Terms,omitempty"`
 }
 
 // GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDetailLevel defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
