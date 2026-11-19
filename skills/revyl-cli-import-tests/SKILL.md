@@ -311,11 +311,10 @@ comes from the asynchronous video check, one more step may run before the stop.
 For each failure, read the failed step's `effective_status_reason`, its
 actions' `reasoning` and their before and after screenshots (open the images).
 Validation steps carry the verdict text in `validation_reasoning` and only a
-`screenshot_before_url`. Judge every step only by `effective_status` (and
-`validation_result` for validations): a failed validation can still report
-`status: success` and count toward `passed_steps`. Then classify it. Trust the
-screenshots over the app's source code, because the build under test may not
-match the checkout:
+`screenshot_before_url`. Judge every step by `effective_status` (and
+`validation_result` for validations). Then classify it. Trust the screenshots
+over the app's source code, because the build under test may not match the
+checkout:
 
 | Class | Typical evidence | Action |
 | --- | --- | --- |
