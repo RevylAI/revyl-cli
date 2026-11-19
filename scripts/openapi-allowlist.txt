@@ -214,3 +214,4 @@ GET /api/v1/apps/{app_id}/branches/{branch_id}
 POST /api/v1/apps/{app_id}/branches
 PATCH /api/v1/apps/{app_id}/branches/{branch_id}
 POST /api/v1/apps/resolve
+POST /api/v1/shiptok/videos

@@ -207,6 +207,7 @@ func init() {
 	rootCmd.AddCommand(scriptCmd)
 	rootCmd.AddCommand(tagCmd)
 	rootCmd.AddCommand(fileCmd)
+	rootCmd.AddCommand(newShiptokCommand())
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(schemaCmd)
