@@ -2739,6 +2739,30 @@ func (e ExecuteTestAsyncAPIResponseTestDefinitionSource) Valid() bool {
 	}
 }
 
+// Defines values for ExplorationLaneStatus.
+const (
+	ExplorationLaneStatusBlocked   ExplorationLaneStatus = "blocked"
+	ExplorationLaneStatusCancelled ExplorationLaneStatus = "cancelled"
+	ExplorationLaneStatusCompleted ExplorationLaneStatus = "completed"
+	ExplorationLaneStatusFailed    ExplorationLaneStatus = "failed"
+)
+
+// Valid indicates whether the value is a known member of the ExplorationLaneStatus enum.
+func (e ExplorationLaneStatus) Valid() bool {
+	switch e {
+	case ExplorationLaneStatusBlocked:
+		return true
+	case ExplorationLaneStatusCancelled:
+		return true
+	case ExplorationLaneStatusCompleted:
+		return true
+	case ExplorationLaneStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FallbackTrigger.
 const (
 	FallbackTriggerFinalFail FallbackTrigger = "final_fail"
@@ -8614,6 +8638,21 @@ type ExplorationLaneConfig struct {
 	SeedInstructions *string `json:"seed_instructions,omitempty"`
 }
 
+// ExplorationLaneOutcome How one exploration lane ended, as the lane itself observed it.
+//
+// “blocked“ means the lane could not explore the app, such as at a sign-in
+// wall or a bot challenge; “detail“ says why, or why it failed.
+type ExplorationLaneOutcome struct {
+	Actions    int                   `json:"actions"`
+	Detail     *string               `json:"detail,omitempty"`
+	Status     ExplorationLaneStatus `json:"status"`
+	StopReason string                `json:"stop_reason"`
+	Turns      int                   `json:"turns"`
+}
+
+// ExplorationLaneStatus defines model for ExplorationLaneStatus.
+type ExplorationLaneStatus string
+
 // ExplorationLaunchRequest defines model for ExplorationLaunchRequest.
 type ExplorationLaunchRequest struct {
 	AuthInstructions   *string                  `json:"auth_instructions,omitempty"`
@@ -8650,30 +8689,36 @@ type ExplorationLaunchResponse struct {
 
 // ExplorationRunReportChild A single exploration lane shaped as a run-report child card.
 type ExplorationRunReportChild struct {
-	AppId         *string    `json:"app_id,omitempty"`
-	AppName       *string    `json:"app_name,omitempty"`
-	BranchId      *string    `json:"branch_id,omitempty"`
-	BranchName    *string    `json:"branch_name,omitempty"`
-	BuildId       *string    `json:"build_id,omitempty"`
-	BuildVersion  *string    `json:"build_version,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	DeviceModel   *string    `json:"device_model,omitempty"`
-	Duration      *float32   `json:"duration,omitempty"`
-	ErrorMessage  *string    `json:"error_message,omitempty"`
-	LaneIndex     int        `json:"lane_index"`
-	LaneLabel     string     `json:"lane_label"`
-	LaneRole      *string    `json:"lane_role,omitempty"`
-	Platform      *string    `json:"platform,omitempty"`
-	ReportId      *string    `json:"report_id,omitempty"`
-	SessionId     *string    `json:"session_id,omitempty"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	Status        *string    `json:"status,omitempty"`
-	StepCount     *int       `json:"step_count,omitempty"`
-	Success       *bool      `json:"success,omitempty"`
-	TaskId        string     `json:"task_id"`
-	TraceId       *string    `json:"trace_id,omitempty"`
-	WhepUrl       *string    `json:"whep_url,omitempty"`
-	WorkflowRunId *string    `json:"workflow_run_id,omitempty"`
+	AppId        *string    `json:"app_id,omitempty"`
+	AppName      *string    `json:"app_name,omitempty"`
+	BranchId     *string    `json:"branch_id,omitempty"`
+	BranchName   *string    `json:"branch_name,omitempty"`
+	BuildId      *string    `json:"build_id,omitempty"`
+	BuildVersion *string    `json:"build_version,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	DeviceModel  *string    `json:"device_model,omitempty"`
+	Duration     *float32   `json:"duration,omitempty"`
+	ErrorMessage *string    `json:"error_message,omitempty"`
+	LaneIndex    int        `json:"lane_index"`
+	LaneLabel    string     `json:"lane_label"`
+	LaneRole     *string    `json:"lane_role,omitempty"`
+
+	// Outcome How one exploration lane ended, as the lane itself observed it.
+	//
+	// ``blocked`` means the lane could not explore the app, such as at a sign-in
+	// wall or a bot challenge; ``detail`` says why, or why it failed.
+	Outcome       *ExplorationLaneOutcome `json:"outcome,omitempty"`
+	Platform      *string                 `json:"platform,omitempty"`
+	ReportId      *string                 `json:"report_id,omitempty"`
+	SessionId     *string                 `json:"session_id,omitempty"`
+	StartedAt     *time.Time              `json:"started_at,omitempty"`
+	Status        *string                 `json:"status,omitempty"`
+	StepCount     *int                    `json:"step_count,omitempty"`
+	Success       *bool                   `json:"success,omitempty"`
+	TaskId        string                  `json:"task_id"`
+	TraceId       *string                 `json:"trace_id,omitempty"`
+	WhepUrl       *string                 `json:"whep_url,omitempty"`
+	WorkflowRunId *string                 `json:"workflow_run_id,omitempty"`
 }
 
 // ExplorationRunReportResponse defines model for ExplorationRunReportResponse.
