@@ -146,9 +146,9 @@ func TestStartSessionInsideComputerRefusesBeforeAPIWork(t *testing.T) {
 		{"device runner", StartSessionOptions{Platform: "ios", AppID: "app-123", DeviceRunnerID: "runner-1", ComputerSessionID: computerSessionID}},
 		{"app URL", StartSessionOptions{Platform: "ios", AppURL: "https://example.test/app.zip", ComputerSessionID: computerSessionID}},
 		{"test", StartSessionOptions{Platform: "ios", AppID: "app-123", TestID: "test-1", ComputerSessionID: computerSessionID}},
-		{"launch variable", StartSessionOptions{Platform: "ios", AppID: "app-123", LaunchVars: []string{"API_URL"}, ComputerSessionID: computerSessionID}},
-		{"launch environment", StartSessionOptions{Platform: "ios", AppID: "app-123", LaunchEnv: map[string]string{"A": "1"}, ComputerSessionID: computerSessionID}},
-		{"launch argument", StartSessionOptions{Platform: "ios", AppID: "app-123", LaunchArguments: []string{"-flag"}, ComputerSessionID: computerSessionID}},
+		{"android launch variable", StartSessionOptions{Platform: "android", AppID: "app-123", LaunchVars: []string{"API_URL"}, ComputerSessionID: computerSessionID}},
+		{"android launch environment", StartSessionOptions{Platform: "android", AppID: "app-123", LaunchEnv: map[string]string{"A": "1"}, ComputerSessionID: computerSessionID}},
+		{"android launch argument", StartSessionOptions{Platform: "android", AppID: "app-123", LaunchArguments: []string{"-flag"}, ComputerSessionID: computerSessionID}},
 		{"run option", StartSessionOptions{Platform: "ios", AppID: "app-123", InitialLocale: "fr_FR", ComputerSessionID: computerSessionID}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

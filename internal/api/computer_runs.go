@@ -143,7 +143,7 @@ func (c *Client) ListComputerRuns(ctx context.Context, limit int) (*ComputerRunL
 // GetComputerHosting reads which app-session platforms a running computer can
 // host now. It is empty until the computer is running.
 func (c *Client) GetComputerHosting(ctx context.Context, id uuid.UUID) (*ComputerHostingCapability, error) {
-	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/hosting", id))
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/hosting?launch_values=true", id))
 	body, err := readComputerBody(response, err)
 	if err != nil {
 		return nil, err

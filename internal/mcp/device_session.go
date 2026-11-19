@@ -476,8 +476,11 @@ func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSe
 	if opts.DeviceRunnerID != "" || strings.TrimSpace(opts.AppURL) != "" || strings.TrimSpace(opts.TestID) != "" {
 		return fmt.Errorf("a session inside a computer uses an uploaded build; omit the device runner, app URL and test")
 	}
-	if len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || len(opts.LaunchArguments) > 0 || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
-		return fmt.Errorf("a session inside a computer launches the app with its defaults; omit launch variables, arguments, environment and run options")
+	if platform != "ios" && (len(opts.LaunchVars) > 0 || len(opts.LaunchArgSets) > 0 || len(opts.LaunchEnv) > 0 || len(opts.LaunchArguments) > 0) {
+		return fmt.Errorf("only iOS sessions inside a computer accept launch variables, arguments and environment; omit them")
+	}
+	if (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
+		return fmt.Errorf("a session inside a computer launches the app with its default run options; omit secret Web environment, install skip, orientation and locale")
 	}
 	return nil
 }

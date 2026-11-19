@@ -816,6 +816,12 @@
           "title": "Browsers",
           "type": "array"
         },
+        "launch_values": {
+          "default": false,
+          "description": "Whether the computer's host delivers launch variables, environment and arguments to the iOS apps it hosts. Reported only when the request asks for it.",
+          "title": "Launch Values",
+          "type": "boolean"
+        },
         "max_children": {
           "maximum": 8.0,
           "minimum": 0.0,

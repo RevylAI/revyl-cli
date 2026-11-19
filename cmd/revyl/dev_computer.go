@@ -46,8 +46,9 @@ func (t devComputerTarget) startOptions(opts mcppkg.StartSessionOptions) mcppkg.
 }
 
 // requireDevComputerHosts refuses a dev loop whose computer cannot host the
-// platform's device right now, before any build, dev server or session starts.
-func requireDevComputerHosts(ctx context.Context, client *api.Client, computerSessionID, platform string) error {
+// platform's device right now, or cannot deliver the launch values it carries,
+// before any build, dev server or session starts.
+func requireDevComputerHosts(ctx context.Context, client *api.Client, computerSessionID, platform string, carriesLaunchValues bool) error {
 	id, err := uuid.Parse(computerSessionID)
 	if err != nil {
 		return fmt.Errorf("--computer must be a computer ID or none")
@@ -59,14 +60,17 @@ func requireDevComputerHosts(ctx context.Context, client *api.Client, computerSe
 	if len(hosting.Platforms) == 0 {
 		return fmt.Errorf("computer %s isn't running, so it can't host a device; start one with `revyl computer create --os macos --wait`, or pass --computer=none for a standalone device", computerSessionID)
 	}
-	if slices.Contains(hosting.Platforms, api.ComputerHostingCapabilityPlatforms(platform)) {
-		return nil
+	if !slices.Contains(hosting.Platforms, api.ComputerHostingCapabilityPlatforms(platform)) {
+		hosted := make([]string, 0, len(hosting.Platforms))
+		for _, hostedPlatform := range hosting.Platforms {
+			hosted = append(hosted, string(hostedPlatform))
+		}
+		return fmt.Errorf("computer %s can't host %s devices (it hosts %s); pass --computer=none for a standalone device", computerSessionID, platform, strings.Join(hosted, ", "))
 	}
-	hosted := make([]string, 0, len(hosting.Platforms))
-	for _, hostedPlatform := range hosting.Platforms {
-		hosted = append(hosted, string(hostedPlatform))
+	if carriesLaunchValues && (hosting.LaunchValues == nil || !*hosting.LaunchValues) {
+		return fmt.Errorf("computer %s can't deliver launch variables or arguments to its apps yet; start without them, or pass --computer=none for a standalone device", computerSessionID)
 	}
-	return fmt.Errorf("computer %s can't host %s devices (it hosts %s); pass --computer=none for a standalone device", computerSessionID, platform, strings.Join(hosted, ", "))
+	return nil
 }
 
 func printDevDeviceStart(computer devComputerTarget) {

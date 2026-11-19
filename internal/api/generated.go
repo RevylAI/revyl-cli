@@ -7299,10 +7299,13 @@ type ComputerFileWriteSummary struct {
 
 // ComputerHostingCapability defines model for ComputerHostingCapability.
 type ComputerHostingCapability struct {
-	Browsers              *[]CognisimSchemasSchemasWebSchemaWebBrowser `json:"browsers,omitempty"`
-	MaxChildren           int                                          `json:"max_children"`
-	MaxChildrenByPlatform *map[string]int                              `json:"max_children_by_platform,omitempty"`
-	Platforms             []ComputerHostingCapabilityPlatforms         `json:"platforms"`
+	Browsers *[]CognisimSchemasSchemasWebSchemaWebBrowser `json:"browsers,omitempty"`
+
+	// LaunchValues Whether the computer's host delivers launch variables, environment and arguments to the iOS apps it hosts. Reported only when the request asks for it.
+	LaunchValues          *bool                                `json:"launch_values,omitempty"`
+	MaxChildren           int                                  `json:"max_children"`
+	MaxChildrenByPlatform *map[string]int                      `json:"max_children_by_platform,omitempty"`
+	Platforms             []ComputerHostingCapabilityPlatforms `json:"platforms"`
 }
 
 // ComputerHostingCapabilityPlatforms defines model for ComputerHostingCapability.Platforms.
@@ -12813,6 +12816,11 @@ type CreateSessionGroundedAnnotationThreadParams struct {
 type ListComputerRunsApiV1ComputerRunsGetParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// GetComputerHostingApiV1ComputerRunsComputerSessionIdHostingGetParams defines parameters for GetComputerHostingApiV1ComputerRunsComputerSessionIdHostingGet.
+type GetComputerHostingApiV1ComputerRunsComputerSessionIdHostingGetParams struct {
+	LaunchValues *bool `form:"launch_values,omitempty" json:"launch_values,omitempty"`
 }
 
 // SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostParams defines parameters for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost.

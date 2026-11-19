@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 // newBeforeSessionRepo creates a repo-shaped temp directory with a
@@ -314,47 +319,101 @@ func TestResolveOptionalProjectContextRejectsConfigOutsideGit(t *testing.T) {
 	}
 }
 
-func TestExplicitComputerSkipsBeforeScriptAndAuthBypass(t *testing.T) {
-	skipBeforeSessionPOSIXShellFixture(t)
-	resetSessionRuntimes(t)
-	t.Setenv("REVYL_COMPUTER_ID", "")
-	root := newBeforeSessionRepo(t, "", "#!/bin/sh\ntouch ran\necho \"E2E_AUTH_TOKEN=tok-123\"\n")
+func TestSessionConfigForComputerKeepsSettingsOnlyForExplicitIOSOnACapableHost(t *testing.T) {
 	session := config.AuthoredSession{
 		BeforeScript: testAuthoredBeforeScript("./setup.sh"),
 		AuthBypass:   testAuthoredAuthBypass([]string{"E2E_AUTH_TOKEN"}, "myapp://auth?token=${E2E_AUTH_TOKEN}"),
 	}
-	computerSessionID := computerSessionIDForStart(devComputerTestCommand(t, "--computer", devTestComputerID))
+	for _, tc := range []struct {
+		name, environment, platform, hosting string
+		args                                 []string
+		hostingStatus                        int
+		wantKept, wantHostingRead, wantError bool
+	}{
+		{name: "explicit iOS whose hosting read fails", platform: "ios", args: []string{"--computer", devTestComputerID}, hostingStatus: http.StatusServiceUnavailable, hosting: `{"detail":"unavailable"}`, wantHostingRead: true, wantError: true},
+		{name: "explicit iOS on a capable host", platform: "ios", args: []string{"--computer", devTestComputerID}, hosting: `{"platforms":["ios"],"max_children":2,"launch_values":true}`, wantKept: true, wantHostingRead: true},
+		{name: "explicit iOS on an older host", platform: "ios", args: []string{"--computer", devTestComputerID}, hosting: `{"platforms":["ios"],"max_children":2}`, wantHostingRead: true},
+		{name: "explicit Android", platform: "android", args: []string{"--computer", devTestComputerID}},
+		{name: "implicit computer default", environment: devTestComputerID, platform: "ios"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			hostingRead := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hostingRead = true
+				if r.URL.Path != "/api/v1/computer-runs/"+devTestComputerID+"/hosting" || r.URL.Query().Get("launch_values") != "true" {
+					t.Errorf("unexpected request %s", r.URL)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if tc.hostingStatus != 0 {
+					w.WriteHeader(tc.hostingStatus)
+				}
+				fmt.Fprint(w, tc.hosting)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			t.Setenv("REVYL_COMPUTER_ID", tc.environment)
+			cmd := devComputerTestCommand(t, tc.args...)
 
-	initDevSession(root, sessionConfigForComputer(computerSessionID, session))
-	opts, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{Platform: "ios", ComputerSessionID: computerSessionID})
+			got, err := sessionConfigForComputer(context.Background(), cmd, api.NewClientWithDevMode("fixture-key", false), computerSessionIDForStart(cmd), tc.platform, session)
 
-	if err != nil {
-		t.Fatalf("prepareSessionStartOptions() error = %v, want the computer start accepted", err)
-	}
-	if _, statErr := os.Stat(filepath.Join(root, "ran")); !os.IsNotExist(statErr) {
-		t.Fatalf("before_script ran for an explicit --computer session (stat error = %v)", statErr)
-	}
-	if len(opts.LaunchVars) != 0 || len(opts.LaunchEnv) != 0 {
-		t.Fatalf("launch vars = %v, env keys = %d; want none for a computer session", opts.LaunchVars, len(opts.LaunchEnv))
+			if hostingRead != tc.wantHostingRead {
+				t.Fatalf("hosting read = %t, want %t", hostingRead, tc.wantHostingRead)
+			}
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "revyl computer get "+devTestComputerID) {
+					t.Fatalf("error = %v, want a failed hosting read to stop the start", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("sessionConfigForComputer() error = %v", err)
+			}
+			kept := got.BeforeScript != nil && got.AuthBypass != nil
+			dropped := got.BeforeScript == nil && got.AuthBypass == nil
+			if (tc.wantKept && !kept) || (!tc.wantKept && !dropped) {
+				t.Fatalf("session settings = %+v, want kept %t", got, tc.wantKept)
+			}
+		})
 	}
 }
 
-func TestPrepareSessionStartOptions_RefusesComputerLaunchValuesBeforeRunningScript(t *testing.T) {
-	skipBeforeSessionPOSIXShellFixture(t)
-	resetSessionRuntimes(t)
-	root := newBeforeSessionRepo(t, "", "#!/bin/sh\ntouch ran\n")
-	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
+func TestPrepareSessionStartOptions_RunsScriptOnlyForComputerStartsThatTakeLaunchValues(t *testing.T) {
+	for _, tc := range []struct {
+		platform  string
+		wantError string
+	}{
+		{platform: "ios"},
+		{platform: "android", wantError: "only iOS sessions inside a computer accept launch variables"},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			skipBeforeSessionPOSIXShellFixture(t)
+			resetSessionRuntimes(t)
+			root := newBeforeSessionRepo(t, "", "#!/bin/sh\ntouch ran\necho \"E2E_AUTH_TOKEN=tok-123\"\n")
+			initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 
-	_, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{
-		Platform:          "ios",
-		ComputerSessionID: devTestComputerID,
-		LaunchVars:        []string{"FEATURE_FLAG"},
-	})
+			opts, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{
+				Platform:          tc.platform,
+				ComputerSessionID: devTestComputerID,
+				LaunchVars:        []string{"FEATURE_FLAG"},
+			})
 
-	if err == nil || !strings.Contains(err.Error(), "omit launch variables") {
-		t.Fatalf("prepareSessionStartOptions() error = %v, want launch variables refused", err)
-	}
-	if _, statErr := os.Stat(filepath.Join(root, "ran")); !os.IsNotExist(statErr) {
-		t.Fatalf("before_script ran before the computer start was refused (stat error = %v)", statErr)
+			_, statErr := os.Stat(filepath.Join(root, "ran"))
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("prepareSessionStartOptions() error = %v, want %q", err, tc.wantError)
+				}
+				if !os.IsNotExist(statErr) {
+					t.Fatalf("before_script ran before the computer start was refused (stat error = %v)", statErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("prepareSessionStartOptions() error = %v", err)
+			}
+			if statErr != nil || opts.LaunchEnv["E2E_AUTH_TOKEN"] != "tok-123" {
+				t.Fatalf("script ran = %t, minted value applied = %t; want both", statErr == nil, opts.LaunchEnv["E2E_AUTH_TOKEN"] == "tok-123")
+			}
+		})
 	}
 }

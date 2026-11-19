@@ -91,8 +91,11 @@ func TestRequireDevComputerHostsRefusesComputersThatCannotHostThePlatform(t *tes
 	for _, tc := range []struct {
 		name, computerID, hosting, wantError string
 		status                               int
+		carriesLaunchValues                  bool
 	}{
 		{name: "running Mac hosts iOS", computerID: devTestComputerID, status: http.StatusOK, hosting: `{"platforms":["web","ios"],"max_children":2}`},
+		{name: "launch values on a capable host", computerID: devTestComputerID, status: http.StatusOK, hosting: `{"platforms":["ios"],"max_children":2,"launch_values":true}`, carriesLaunchValues: true},
+		{name: "launch values on an older host", computerID: devTestComputerID, status: http.StatusOK, hosting: `{"platforms":["ios"],"max_children":2}`, carriesLaunchValues: true, wantError: "can't deliver launch variables or arguments to its apps yet"},
 		{name: "not running", computerID: devTestComputerID, status: http.StatusOK, hosting: `{"platforms":[],"max_children":0}`, wantError: "isn't running"},
 		{name: "cannot host iOS", computerID: devTestComputerID, status: http.StatusOK, hosting: `{"platforms":["web","android"],"max_children":2}`, wantError: "can't host ios devices (it hosts web, android); pass --computer=none"},
 		{name: "unknown computer", computerID: devTestComputerID, status: http.StatusNotFound, hosting: `{"detail":"not found"}`, wantError: "revyl computer get " + devTestComputerID},
@@ -111,7 +114,7 @@ func TestRequireDevComputerHostsRefusesComputersThatCannotHostThePlatform(t *tes
 			defer server.Close()
 			t.Setenv("REVYL_BACKEND_URL", server.URL)
 
-			err := requireDevComputerHosts(context.Background(), api.NewClientWithDevMode("fixture-key", false), tc.computerID, "ios")
+			err := requireDevComputerHosts(context.Background(), api.NewClientWithDevMode("fixture-key", false), tc.computerID, "ios", tc.carriesLaunchValues)
 
 			if tc.wantError == "" {
 				if err != nil {

@@ -339,10 +339,12 @@ eligible build recipe. Managed Web bundles keep running as standalone Web
 sessions when only `REVYL_COMPUTER_ID` supplies the target; explicit
 `--computer` still requires a registered deployment URL build.
 
-Every mobile start inside a computer, whether `REVYL_COMPUTER_ID` or `--computer`
-places it there, uses the app's defaults: the project's `session.before_script`
-doesn't run, `session.auth_bypass` isn't applied, and launch variables,
-arguments and environment are refused before anything runs. Use
+An iOS start that passes `--computer` explicitly runs the project's
+`session.before_script` and applies `session.auth_bypass`, as a standalone
+start does, when the computer's host can deliver launch values to its apps.
+When it can't yet, the CLI warns and starts the app with its defaults instead
+of running either. Implicit starts, where only `REVYL_COMPUTER_ID` places the
+session in the computer, and Android starts always use the app's defaults. Use
 `--computer=none` when those standalone session settings are required.
 
 On an agent outpost's computer, phones start inside that computer by default.
@@ -362,9 +364,13 @@ start is refused with `409 computer_cannot_host_browser`, and Safari outside a
 computer is refused locally and with `422 web_browser_unsupported`. Select an
 app and one of its builds (`--app`, optionally
 `--build-version-id`); the computer chooses
-the device and the app launches with its defaults, so `--app-url`, launch
-variables, arguments and environment, run options and test-backed starts are
-refused. For hosted iOS starts, `--device-model "iPhone Air"` runs an iPhone
+the device, so `--app-url`, run options and test-backed starts are refused.
+An iOS app accepts launch variables (`--launch-var`), argument sets, arguments
+and environment (`--launch-env`) when the computer's host can deliver them;
+otherwise the start is refused with `409 computer_launch_values_unsupported`
+before anything runs. Secret launch variables are refused with
+`422 secret_launch_variable_refused`, and Android apps inside a computer accept
+no launch values. For hosted iOS starts, `--device-model "iPhone Air"` runs an iPhone
 Air when the computer's image supports it; otherwise the backend refuses the
 start.
 An iOS or Android start with no app selected or configured runs the device with no app.
@@ -422,10 +428,11 @@ revyl dev --platform ios --computer=none   # standalone device through the relay
 ```
 
 The dev loop uses an existing simulator build, as a standalone loop does.
-Inside a computer it launches that build with the app's defaults, so the
-project's `session.before_script` and `session.auth_bypass` don't run, even
-with an explicit `--computer`, and launch variables and arguments are refused
-before any build starts. Passing `--computer` with another computer's ID, or
+Inside a computer it runs the project's `session.before_script` and
+`session.auth_bypass` only for an iOS loop started with an explicit
+`--computer` whose host can deliver launch values; otherwise it launches that
+build with the app's defaults. Launch variables and arguments that the computer
+can't take are refused before any build starts. Passing `--computer` with another computer's ID, or
 from outside a computer, still hosts the device in that computer and keeps the
 relay, since the dev server isn't on that computer's network.
 

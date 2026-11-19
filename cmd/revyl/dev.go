@@ -538,7 +538,8 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		}, invocation.Platform, computer.SessionID); err != nil {
 			return err
 		}
-		if err := requireDevComputerHosts(cmd.Context(), selectionClient, computer.SessionID, invocation.Platform); err != nil {
+		carriesLaunchValues := len(devStartLaunchVars) > 0 || len(devStartLaunchArgSets) > 0 || len(devStartLaunchArguments) > 0
+		if err := requireDevComputerHosts(cmd.Context(), selectionClient, computer.SessionID, invocation.Platform, carriesLaunchValues); err != nil {
 			return err
 		}
 	}
@@ -566,7 +567,11 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 
 	ctxName := getDevContextFlag(cmd)
 	configPath := invocation.ConfigPath
-	initDevSession(invocation.ProjectRoot, sessionConfigForComputer(computer.SessionID, invocation.Session))
+	computerSessionConfig, err := sessionConfigForComputer(cmd.Context(), cmd, selectionClient, computer.SessionID, invocation.Platform, invocation.Session)
+	if err != nil {
+		return err
+	}
+	initDevSession(invocation.ProjectRoot, computerSessionConfig)
 
 	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
@@ -169,15 +170,32 @@ func computerSessionIDForStart(cmd *cobra.Command) string {
 	return computerID
 }
 
-// sessionConfigForComputer drops the project's standalone session settings
-// (auth bypass and before_script) for every session inside a computer, which
-// launches the app with its defaults and refuses launch values.
-func sessionConfigForComputer(computerSessionID string, session config.AuthoredSession) config.AuthoredSession {
-	if computerSessionID != "" {
-		session.AuthBypass = nil
-		session.BeforeScript = nil
+// sessionConfigForComputer keeps the project's auth bypass and before_script
+// for an iOS session an explicit --computer places in a computer whose host
+// delivers launch values to its apps. Any other session inside a computer,
+// including the implicit REVYL_COMPUTER_ID default, launches with the app's
+// defaults, so neither runs.
+func sessionConfigForComputer(ctx context.Context, cmd *cobra.Command, client *api.Client, computerSessionID, platform string, session config.AuthoredSession) (config.AuthoredSession, error) {
+	if computerSessionID == "" || (session.AuthBypass == nil && session.BeforeScript == nil) {
+		return session, nil
 	}
-	return session
+	if cmd.Flags().Changed("computer") && platform == "ios" {
+		id, err := uuid.Parse(computerSessionID)
+		if err != nil {
+			return session, fmt.Errorf("--computer must be a computer ID or none")
+		}
+		hosting, err := client.GetComputerHosting(ctx, id)
+		if err != nil {
+			return session, fmt.Errorf("read what computer %s can host: %w; check it with `revyl computer get %s`, or pass --computer=none for a standalone device", computerSessionID, err, computerSessionID)
+		}
+		if hosting.LaunchValues != nil && *hosting.LaunchValues {
+			return session, nil
+		}
+		ui.PrintWarning("Computer %s can't deliver launch values to its apps yet, so the project's session.before_script and session.auth_bypass don't run; pass --computer=none to use them", computerSessionID)
+	}
+	session.AuthBypass = nil
+	session.BeforeScript = nil
+	return session, nil
 }
 
 // deviceStartOutput is the device start --json contract: the session plus the
@@ -1013,7 +1031,6 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 		if !cmd.Flags().Changed("timeout") && sessionConfig.IdleTimeoutSeconds != nil {
 			timeout = *sessionConfig.IdleTimeoutSeconds
 		}
-		initDevSession(project.ProjectRoot, sessionConfigForComputer(computerSessionID, sessionConfig))
 
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -1137,6 +1154,11 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			}
 			gitBranchName = gitBranch.Name
 		}
+		computerSessionConfig, err := sessionConfigForComputer(ctx, cmd, mgr.APIClient(), computerSessionID, platform, sessionConfig)
+		if err != nil {
+			return err
+		}
+		initDevSession(project.ProjectRoot, computerSessionConfig)
 		startOpts, prepErr := prepareSessionStartOptions(ctx, mcppkg.StartSessionOptions{
 			Platform:       platform,
 			AppID:          appID,
