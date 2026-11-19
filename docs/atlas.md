@@ -229,11 +229,31 @@ it was set; a term that gives a secret key a value is refused:
 revyl atlas graph --app "My App" --launch API_TOKEN --json
 ```
 
+A run's start values, such as its starting locale or orientation, filter the
+same way. Each is keyed by its launch setting behind `@`, so it never matches a
+launch variable that shares the name, and `filters` labels it, for example
+`@initial_locale` as `Starting locale`. An argument set named like a start
+value, such as `@initial_locale`, filters with one more `@`
+(`@@initial_locale`). Runs started before Atlas recorded start values count as
+unknown for them:
+
+```bash
+revyl atlas graph --app "My App" --launch @initial_locale=ja_JP --json
+```
+
 The response's `projection.launch_filter` reports how many runs matched and how
-many had no recorded launch data. Reads whose endpoint can't apply launch
-filters (`screen --details`, `edge --runs`) refuse `--launch` instead of
-silently returning unfiltered evidence. Suggested follow-up commands don't
-carry launch filters, so add them again when you follow one.
+many had no recorded launch data. `screen --details` applies the same launch
+terms, start values included, to the screen's state stacks and observation
+evidence:
+
+```bash
+revyl atlas screen home --app "My App" --details --launch @initial_locale=ja_JP --json
+```
+
+`edge --runs`
+can't apply launch filters yet, so it refuses `--launch` instead of silently
+returning unfiltered evidence. Suggested follow-up commands don't carry launch
+filters, so add them again when you follow one.
 
 `graph --flows` adds the map's largest observed flows, up to `--limit`, to the
 graph contract with `flow_count` for the total and `flows_truncated` when some

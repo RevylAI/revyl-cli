@@ -5311,6 +5311,9 @@ type AtlasGraphFilterGroupId string
 type AtlasGraphFilterKey struct {
 	Key string `json:"key"`
 
+	// Label Display name of a run-configuration start value, such as Starting locale; its key starts with @. Launch variables and arguments have none.
+	Label *string `json:"label,omitempty"`
+
 	// NotRecordedCount Runs in the time scope where this key's value is not recorded.
 	NotRecordedCount *int `json:"not_recorded_count,omitempty"`
 

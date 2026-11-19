@@ -1,6 +1,6 @@
 [project]
 name = "revyl"
-version = "0.2.27"
+version = "0.2.28"
 description = "Revyl CLI - AI-powered app testing"
 readme = "README.md"
 license = "MIT"

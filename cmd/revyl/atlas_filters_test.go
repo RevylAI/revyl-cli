@@ -241,32 +241,70 @@ func TestApplyAtlasRangeMatchesMapTimePicker(t *testing.T) {
 	}
 }
 
-func TestAtlasReadsWithoutLaunchSupportRefuseLaunchFilters(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		args []string
-		run  func(*cobra.Command, []string) error
-		flag string
-	}{
-		{"screen details", []string{"home"}, runAtlasScreen, "--details"},
-		{"edge runs", []string{"home", "expenses"}, runAtlasEdge, "--runs"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			resetAtlasFilterGlobals(t)
-			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				t.Errorf("refused read still called the backend: %s", r.URL)
-			}))
-			defer backend.Close()
-			t.Setenv("REVYL_API_KEY", "fixture-key")
-			t.Setenv("REVYL_BACKEND_URL", backend.URL)
-			cmd := newAtlasGraphFamilyCommand(test.name, test.run)
-			cmd.Flags().BoolVar(&atlasScreenDetails, "details", false, "")
-			cmd.Flags().BoolVar(&atlasEdgeRuns, "runs", false, "")
-			cmd.SetArgs(append(test.args, "--app", "11111111-1111-4111-8111-111111111111", "--launch", "REGION=EU", test.flag))
-			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "does not apply launch-variable filters") {
-				t.Fatalf("err = %v", err)
-			}
-		})
+func TestAtlasEdgeRunsRefusesLaunchFiltersBeforeCallingTheBackend(t *testing.T) {
+	resetAtlasFilterGlobals(t)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("refused read still called the backend: %s", r.URL)
+	}))
+	defer backend.Close()
+	t.Setenv("REVYL_API_KEY", "fixture-key")
+	t.Setenv("REVYL_BACKEND_URL", backend.URL)
+	cmd := newAtlasGraphFamilyCommand("edge", runAtlasEdge)
+	cmd.Flags().BoolVar(&atlasEdgeRuns, "runs", false, "")
+	cmd.SetArgs([]string{"home", "expenses", "--app", "11111111-1111-4111-8111-111111111111", "--launch", "REGION=EU", "--runs"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "atlas edge --runs does not apply launch-variable filters") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAtlasScreenDetailsSendsLaunchAndStartValueTermsInTheHeader(t *testing.T) {
+	resetAtlasFilterGlobals(t)
+	const appID = "11111111-1111-4111-8111-111111111111"
+	const wantHeader = "REGION:EU,API_TOKEN,@initial_locale:ja_JP,URL:https:%2F%2Fa.example%2Fx%3Fy=1"
+	detailsHeader := ""
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.String(), "REGION") || strings.Contains(r.URL.String(), "initial_locale") || r.URL.Query().Has("launch") {
+			t.Errorf("launch term reached the URL: %s", r.URL)
+		}
+		switch r.URL.Path {
+		case "/api/v1/apps/" + appID:
+			_ = json.NewEncoder(w).Encode(api.App{ID: appID})
+		case "/api/v1/apps/" + appID + "/builds":
+			_, _ = w.Write([]byte(`{"items":[],"total":0}`))
+		case "/api/v1/atlas/v2/apps/" + appID + "/graph":
+			graph := atlasContractFixture()
+			graph["app_id"] = appID
+			_ = json.NewEncoder(w).Encode(graph)
+		case "/api/v1/atlas/v2/apps/" + appID + "/nodes/home/details":
+			detailsHeader = r.Header.Get(api.AtlasLaunchTermsHeader)
+			_, _ = w.Write([]byte(`{"nodes":[{"id":"home","state_stacks":[{"id":"stack-1"}]}]}`))
+		default:
+			t.Errorf("unexpected lookup: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer backend.Close()
+	t.Setenv("REVYL_API_KEY", "fixture-key")
+	t.Setenv("REVYL_BACKEND_URL", backend.URL)
+
+	cmd := newAtlasGraphFamilyCommand("screen", runAtlasScreen)
+	cmd.Flags().BoolVar(&atlasScreenDetails, "details", false, "")
+	cmd.SetArgs([]string{"home", "--app", appID, "--launch", "REGION=EU", "--launch", "API_TOKEN", "--launch", "@initial_locale=ja_JP", "--launch", "URL=https://a.example/x?y=1", "--details", "--json"})
+	var runErr error
+	output := captureStdout(t, func() { runErr = cmd.Execute() })
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if detailsHeader != wantHeader {
+		t.Fatalf("details launch header = %q, want %q", detailsHeader, wantHeader)
+	}
+	var result api.AtlasResponse
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(atlasMaps(atlasMap(result["details"])["state_stacks"])) != 1 {
+		t.Fatalf("details missing from output: %s", output)
 	}
 }
 

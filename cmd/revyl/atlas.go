@@ -1133,11 +1133,6 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 }
 
 func runAtlasScreen(cmd *cobra.Command, args []string) error {
-	if atlasScreenDetails {
-		if err := refuseAtlasLaunchFilter("atlas screen --details"); err != nil {
-			return err
-		}
-	}
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err

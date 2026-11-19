@@ -16,7 +16,7 @@ var toolInputRefusal = regexp.MustCompile(
 		`--since must be a whole number of hours or days above zero, such as 24h or 7d|` +
 		`at most \d+ launch filters are allowed|a scope may combine at most \d+ launch filters|` +
 		`launch filter \d+ (?:must be KEY=VALUE or KEY with a key of at most 256 characters and no colon|has an invalid value)|` +
-		`atlas (?:screen --details|edge --runs) does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph|` +
+		`atlas edge --runs does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph|` +
 		`Launch filter term \d+ names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone`,
 )
 

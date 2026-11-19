@@ -559,8 +559,8 @@ func TestToolCallInvalidArgumentsNameTheParameterAndLimit(t *testing.T) {
 func TestToolCallPassesThroughOnlyTheAtlasInputRefusal(t *testing.T) {
 	for stderr, want := range map[string]string{
 		"Error: at most 8 launch filters are allowed\n": "at most 8 launch filters are allowed",
-		"Error: Launch filter term 2 names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone\n":                  "Launch filter term 2 names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone",
-		"Error: atlas screen --details does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph\n": "atlas screen --details does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph",
+		"Error: Launch filter term 2 names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone\n":             "Launch filter term 2 names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone",
+		"Error: atlas edge --runs does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph\n": "atlas edge --runs does not apply launch-variable filters; drop --launch to read it unfiltered, or use a graph read such as atlas screen or atlas graph",
 	} {
 		code, message := classifyInvestigationFailure(stderr + "TOKEN=private-value https://private.example.com")
 		if code != "invalid_arguments" || message != want {

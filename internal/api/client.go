@@ -3662,7 +3662,7 @@ func (c *Client) GetAtlasEntityObservations(ctx context.Context, query AtlasQuer
 }
 
 // GetAtlasNodeDetails reads one node's full detail payload, such as its state
-// stacks and observation evidence. The endpoint applies no launch filters.
+// stacks and observation evidence, scoped by the same launch terms as the graph.
 func (c *Client) GetAtlasNodeDetails(ctx context.Context, query AtlasQuery, nodeID string) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/nodes/%s/details", url.PathEscape(query.AppID), url.PathEscape(nodeID)), query)
 }
