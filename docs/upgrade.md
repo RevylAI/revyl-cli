@@ -57,7 +57,9 @@ Before it downloads anything, `revyl upgrade` checks that it can write the
 directory holding the installed binary. When it cannot, for example in a
 read-only image, it exits non-zero and names the recovery: reinstall with
 `REVYL_INSTALL_DIR="$HOME/.revyl/bin"` and put that directory first on `PATH`.
-A managed image or agent outpost install is updated by its image owner.
+A managed image or agent outpost install is updated by its image owner. Agent
+outposts set `REVYL_NO_UPDATE_NOTIFIER=1` for their agents, so an outpost agent
+never gets an update notice it cannot act on.
 
 The notice never writes to stdout, so `--json` output is unchanged. If a script
 parses stdout and stderr together, set `REVYL_NO_UPDATE_NOTIFIER=1`.
