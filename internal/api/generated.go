@@ -6003,6 +6003,16 @@ type BlocksCreationRequest_Blocks_Item struct {
 	union json.RawMessage
 }
 
+// BonusCredits Compute credits granted once outside the plan, such as a manual grant.
+//
+// They never reset, Autumn spends them after the plan's recurring allowance,
+// and they are priced at the list rates in the compute-credit conversions.
+type BonusCredits struct {
+	Granted   float32 `json:"granted"`
+	Remaining float32 `json:"remaining"`
+	Usage     float32 `json:"usage"`
+}
+
 // BranchSource Where the branch a run, session, or resolution used came from.
 //
 // Results leave it absent or null when an exact build or All branches ·
@@ -9740,6 +9750,12 @@ type PlanInfo struct {
 	AutoTopup      *AutoTopup             `json:"auto_topup,omitempty"`
 	AvailablePlans *[]BillingPlanTerms    `json:"available_plans,omitempty"`
 	BillingPeriod  *PlanInfoBillingPeriod `json:"billing_period,omitempty"`
+
+	// BonusCredits Compute credits granted once outside the plan, such as a manual grant.
+	//
+	// They never reset, Autumn spends them after the plan's recurring allowance,
+	// and they are priced at the list rates in the compute-credit conversions.
+	BonusCredits *BonusCredits `json:"bonus_credits,omitempty"`
 
 	// BuildPromo An active promo code that discounts cloud build credits.
 	BuildPromo            *BuildPromo            `json:"build_promo,omitempty"`
