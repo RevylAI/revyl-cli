@@ -56,6 +56,7 @@ session. A snapshot-backed branch query has this response shape:
   "branch": "<branch-name>",
   "items": [
     {
+      "test_id": "<test-id>",
       "test_name": "<test-name>",
       "status": "starting",
       "session_id": "<session-id>",
@@ -155,7 +156,8 @@ runs; they do not list the `.revyl/` files that currently exist on a branch.
 If the Revyl server doesn't support Git branch and commit filters yet,
 `revyl device history --branch <branch-name>` with `--app` or `--app-id` falls
 back to sessions whose build came from that Revyl branch of the app and prints a
-warning on stderr. Every other `--branch` query, and every `--git-commit-sha`
+warning on stderr; with `--json`, the output adds
+`"branch_matched_revyl_build_branch_only": true`. Every other `--branch` query, and every `--git-commit-sha`
 query, fails with an error instead of returning unfiltered results. For
 `revyl device history --branch <branch-name>` without an app, the error
 suggests adding `--app-id`.
@@ -545,9 +547,9 @@ With a test name, `--json` prints that test's object in the layout of
 
 If the Revyl server can't show test status by branch or commit yet, the
 command exits `1` with
-`this Revyl server can't show test status by branch or commit yet`,
-followed by the server's response. `revyl test status <test-name>` without
-these flags works on every Revyl server.
+`this Revyl server can't show test status by branch or commit yet`.
+`revyl test status <test-name>` without these flags works on every Revyl
+server, and the error says so when you didn't name a test.
 
 ## Prerequisites
 

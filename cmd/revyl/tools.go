@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -237,7 +238,12 @@ func executeInvestigationTool(cmd *cobra.Command, tool toolcatalog.Definition, i
 	stdout := &boundedToolOutput{limit: outputLimit, cancel: cancel}
 	stderr := &boundedToolOutput{limit: 16000, cancel: cancel}
 	child.Stdout, child.Stderr = stdout, stderr
-	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "investigation." + tool.Name, DomainStatus: "attempted"})
+	argumentNames := make([]string, 0, len(input))
+	for key := range input {
+		argumentNames = append(argumentNames, key)
+	}
+	sort.Strings(argumentNames)
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "investigation." + tool.Name, DomainStatus: "attempted", Properties: map[string]interface{}{"argument_names": argumentNames}})
 	if err = child.Run(); err != nil {
 		if !tool.ReadOnly {
 			return toolFailure(tool, input, "write_outcome_unknown", "The write did not return a confirmed result and may have completed. Inspect existing results before retrying; preserve client_request_id when supported.")

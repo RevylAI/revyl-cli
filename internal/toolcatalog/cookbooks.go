@@ -23,7 +23,7 @@ func Cookbooks() []Cookbook {
 		}, Boundaries: []string{"Existing annotations are claims, not independently confirmed bugs.", "No matching threads is not proof the app has no issues.", "This workflow is read-only; do not call annotation mutations."}},
 		{Name: "explore-diagnostics", Goal: "Find app activity, including Explore sessions without test executions, and trace diagnostics back into Atlas.", Steps: []CookbookStep{
 			{"apps.list", "Resolve the app by name; keep its exact app UUID."},
-			{"sessions.list", "Filter by app and optionally build/source/time/status before pagination. All statuses are included by default; use status=running for only active sessions. Preserve total and offset."},
+			{"sessions.list", "Filter by app and optionally build/source/time/status, or a Git branch or commit with branch/git_commit_sha, before pagination. All statuses are included by default; use status=running for only active sessions. Preserve total and offset."},
 			{"reports.inspect", "Start with overview using reference_id=session UUID and id_kind=session. Select 1-5 reports. Page/filter steps or actions, follow next_offset, and read omitted fields in chunks; preserve report_id and session_id even when execution_id is null."},
 			{"sessions.performance", "Read CPU/memory for selected sessions. Compare samples and duration; do not claim screen-specific CPU."},
 			{"sessions.logs", "Inspect selected session device logs, filtered by level or grep."},
@@ -40,6 +40,13 @@ func Cookbooks() []Cookbook {
 			{"reports.network", "Inspect failed requests or a relevant run-relative time interval if captured. Correlation is not proof of causation."},
 			{"reports.performance", "Check run-level CPU/memory summaries when relevant. These cannot rank individual screens."},
 		}, Boundaries: []string{"Stop when the claim has supporting evidence or the selected evidence is insufficient.", "Do not crawl diagnostic artifacts across the organization.", "Use tools call --view on the supported read to produce a replayable native view recipe."}},
+		{Name: "branch-status", Goal: "Find which tests fail on a Git branch or at an exact commit, and trace each failure to its report and diagnostics.", Steps: []CookbookStep{
+			{"tests.status", "Pass branch or git_commit_sha, and since such as 7d for pass rates over a window. Read the counts and each test's newest run, failed first. A queued row has workflow_task_id and no session yet; a quarantined failure has was_quarantined=true."},
+			{"tests.history", "Pass a failing test's test_id with the same branch or git_commit_sha to compare its newest failure with earlier passes there. Check git_commit_sha and has_uncommitted_definition_changes on each run before blaming a code change."},
+			{"reports.inspect", "Start with overview using reference_id=the run's task_id and id_kind=execution for up to five selected failures. Page/filter steps and actions, then read omitted field chunks."},
+			{"reports.logs", "Inspect each selected execution's device logs, narrowing grep and level. Preserve truncation."},
+			{"sessions.list", "With the same branch or git_commit_sha, and app to keep one app's sessions, find the branch's other sessions; one without test_execution_id ran no test."},
+		}, Boundaries: []string{"A test with no run on the branch or commit isn't listed; absence is not a pass.", "tests.status puts a run on a branch by the Git branch its tests came from, else its build's Revyl branch; tests.history and sessions.list match either branch.", "A test run as saved in Revyl counts only once its session starts, so a queued workflow can hide it.", "One failing run is not proof of a regression; compare runs of the same commit and build."}},
 		{Name: "atlas-drilldown", Goal: "Start from an app or flow question and trace exact observations into originating reports.", Steps: []CookbookStep{
 			{"apps.list", "Resolve the app UUID by name and platform, preserving pagination."},
 			{"atlas.brief", "Orient on graph anchors; these are suggestions, not a hierarchy. Its inline filters list the builds, branches, devices, OS versions and launch keys to scope later reads with; call atlas.filters only for tests, reports, workflow executions or launch values."},

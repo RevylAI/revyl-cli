@@ -35,19 +35,21 @@ type InputSchema struct {
 }
 
 type Definition struct {
-	Name           string      `json:"name"`
-	Description    string      `json:"description"`
-	ReadOnly       bool        `json:"read_only"`
-	Command        []string    `json:"command"`
-	InputSchema    InputSchema `json:"input_schema"`
-	ViewRenderer   string      `json:"view_renderer,omitempty"`
-	Positionals    []string    `json:"-"`
-	FixedArguments []string    `json:"-"`
+	Name                string      `json:"name"`
+	Description         string      `json:"description"`
+	ReadOnly            bool        `json:"read_only"`
+	Command             []string    `json:"command"`
+	InputSchema         InputSchema `json:"input_schema"`
+	ViewRenderer        string      `json:"view_renderer,omitempty"`
+	Positionals         []string    `json:"-"`
+	OptionalPositionals []string    `json:"-"`
+	FixedArguments      []string    `json:"-"`
 }
 
 type Spec struct {
 	Name, Command, Description   string
 	Flags, Required, Positionals []string
+	OptionalPositionals          []string
 	FixedArguments               []string
 	Write                        bool
 	Defaults                     map[string]any
@@ -154,7 +156,7 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 			}
 			properties[key] = parameter
 		}
-		for _, key := range spec.Positionals {
+		for _, key := range append(append([]string{}, spec.Positionals...), spec.OptionalPositionals...) {
 			parameter := Parameter{Type: "string", Description: key, MaxLength: 500}
 			if strings.HasSuffix(key, "_id") {
 				parameter.Format = "uuid"
@@ -163,7 +165,7 @@ func Build(root *cobra.Command, specs []Spec) ([]Definition, error) {
 		}
 		required := append([]string{}, spec.Positionals...)
 		required = append(required, spec.Required...)
-		definitions = append(definitions, Definition{Name: spec.Name, Description: spec.Description, ReadOnly: !spec.Write, Command: path, InputSchema: InputSchema{Type: "object", Properties: properties, Required: required}, ViewRenderer: viewRenderers[spec.Name], Positionals: spec.Positionals, FixedArguments: spec.FixedArguments})
+		definitions = append(definitions, Definition{Name: spec.Name, Description: spec.Description, ReadOnly: !spec.Write, Command: path, InputSchema: InputSchema{Type: "object", Properties: properties, Required: required}, ViewRenderer: viewRenderers[spec.Name], Positionals: spec.Positionals, OptionalPositionals: spec.OptionalPositionals, FixedArguments: spec.FixedArguments})
 	}
 	sort.Slice(definitions, func(i, j int) bool { return definitions[i].Name < definitions[j].Name })
 	return definitions, nil
@@ -225,8 +227,9 @@ func (d Definition) Arguments(input map[string]any) ([]string, error) {
 	args := append([]string{}, d.Command...)
 	args = append(args, "--json")
 	args = append(args, d.FixedArguments...)
+	positionalKeys := append(append([]string{}, d.Positionals...), d.OptionalPositionals...)
 	positionals := map[string]bool{}
-	for _, key := range d.Positionals {
+	for _, key := range positionalKeys {
 		positionals[key] = true
 	}
 	keys := make([]string, 0, len(values))
@@ -273,11 +276,15 @@ func (d Definition) Arguments(input map[string]any) ([]string, error) {
 		}
 		args = append(args, "--"+strings.ReplaceAll(key, "_", "-")+"="+encoded)
 	}
-	if len(d.Positionals) > 0 {
-		args = append(args, "--")
+	positionalArguments := []string{}
+	for _, key := range positionalKeys {
+		if value, ok := values[key].(string); ok {
+			positionalArguments = append(positionalArguments, value)
+		}
 	}
-	for _, key := range d.Positionals {
-		args = append(args, values[key].(string))
+	if len(positionalArguments) > 0 {
+		args = append(args, "--")
+		args = append(args, positionalArguments...)
 	}
 	return args, nil
 }

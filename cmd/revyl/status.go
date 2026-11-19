@@ -116,15 +116,7 @@ Examples:
   revyl test history login-flow --limit 20 --json
   revyl test history --branch feature/login --json
   revyl test history login-flow --git-commit-sha <commit-sha> --json`,
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) > 1 {
-			return cobra.MaximumNArgs(1)(cmd, args)
-		}
-		if len(args) == 0 && historyBranch == "" && historyGitCommit == "" {
-			return fmt.Errorf("provide a test name or ID, or use --branch or --git-commit-sha")
-		}
-		return nil
-	},
+	Args: cobra.MaximumNArgs(1),
 	RunE: runTestHistory,
 }
 
@@ -446,6 +438,9 @@ func showEveryTestStatus(cmd *cobra.Command, client *api.Client, devMode, jsonOu
 	results, err := getEveryLatestRunResult(cmd.Context(), client, filter)
 	if !jsonOutput {
 		ui.StopSpinner()
+	}
+	if errors.Is(err, api.ErrLatestRunResultsUnsupported) {
+		err = fmt.Errorf("%w; name a test without --branch, --git-commit-sha and --since to read its newest run", api.ErrLatestRunResultsUnsupported)
 	}
 	if err != nil {
 		ui.PrintError("Failed to fetch test status: %v", err)
@@ -810,6 +805,10 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 
+	if len(args) == 0 && historyBranch == "" && historyGitCommit == "" {
+		return usageErrorf("provide a test name or ID, or use --branch or --git-commit-sha")
+	}
+
 	var (
 		cfg          *config.ProjectConfig
 		client       *api.Client
@@ -863,6 +862,9 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 		ui.StopSpinner()
 	}
 
+	if testID == "" && errors.Is(err, api.ErrRunBranchAndGitCommitFiltersUnsupported) {
+		err = fmt.Errorf("%w; name a test without --branch and --git-commit-sha to read its runs", api.ErrRunBranchAndGitCommitFiltersUnsupported)
+	}
 	if err != nil {
 		ui.PrintError("Failed to fetch history: %v", err)
 		return err
@@ -925,6 +927,9 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 				entry["success"] = item.EnhancedTask.Success
 				if item.EnhancedTask.SessionID != "" {
 					entry["session_id"] = item.EnhancedTask.SessionID
+				}
+				if item.EnhancedTask.TestID != "" {
+					entry["test_id"] = item.EnhancedTask.TestID
 				}
 				if item.EnhancedTask.TestName != "" {
 					entry["test_name"] = item.EnhancedTask.TestName

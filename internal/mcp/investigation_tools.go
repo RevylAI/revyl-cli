@@ -38,7 +38,7 @@ type investigationRunner func(ctx context.Context, args []string, stdin []byte) 
 func (s *Server) registerInvestigateTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name: "investigate",
-		Description: "Read Revyl evidence through the same catalog as `revyl tools` and Atlas Chat: Atlas maps (atlas.graph, atlas.filters, atlas.screen, atlas.search, atlas.edge and more), reports, sessions, builds and annotations. " +
+		Description: "Read Revyl evidence through the same catalog as `revyl tools` and Atlas Chat: Atlas maps (atlas.graph, atlas.filters, atlas.screen, atlas.search, atlas.edge and more), reports, sessions, builds, tests and annotations, including each test's newest run and history on a Git branch or commit (tests.status, tests.history, sessions.list). " +
 			"Start with action=search or action=cookbook, read a tool's schema with action=describe, then action=call with name and arguments. " +
 			"Atlas graph reads accept the map's filters: build, branch_id, range, device_model, runtime, report_id, test_id, workflow_execution_id and launch (KEY=VALUE list, or KEY for runs launched with it set; secret keys filter only by whether they were set; values travel on stdin, never in argv or URLs). " +
 			"atlas.brief returns the common build, branch, device and OS values and launch keys inline (atlas.graph only with with_filters=true); atlas.diff compares two filter scopes or lists screens unique to each value of one filter in a single call. A search matching at most 6 tools includes their input schemas. " +

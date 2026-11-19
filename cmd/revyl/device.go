@@ -2828,7 +2828,9 @@ var deviceHistoryCmd = &cobra.Command{
 		}
 
 		if jsonOutput {
-			data, _ := json.MarshalIndent(newDeviceHistoryJSONOutput(result), "", "  ")
+			output := newDeviceHistoryJSONOutput(result)
+			output.BranchMatchedRevylBuildBranchOnly = matchedBuildBranchOnly
+			data, _ := json.MarshalIndent(output, "", "  ")
 			fmt.Println(string(data))
 			return nil
 		}
@@ -2880,10 +2882,11 @@ type deviceHistoryJSONSession struct {
 }
 
 type deviceHistoryJSONOutput struct {
-	Sessions []deviceHistoryJSONSession `json:"sessions"`
-	Total    int                        `json:"total"`
-	Limit    int                        `json:"limit"`
-	Offset   int                        `json:"offset"`
+	Sessions                          []deviceHistoryJSONSession `json:"sessions"`
+	Total                             int                        `json:"total"`
+	Limit                             int                        `json:"limit"`
+	Offset                            int                        `json:"offset"`
+	BranchMatchedRevylBuildBranchOnly bool                       `json:"branch_matched_revyl_build_branch_only,omitempty"`
 }
 
 func newDeviceHistoryJSONOutput(result *api.CLIDeviceSessionHistoryResponse) deviceHistoryJSONOutput {

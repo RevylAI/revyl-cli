@@ -20,6 +20,17 @@ var toolInputRefusal = regexp.MustCompile(
 		`Launch filter term \d+ names a secret variable; secret launch variables can be filtered only by whether they were set, so send the key alone`,
 )
 
+// serverFilterRefusals map the CLI's refusals of a filter the Revyl server
+// doesn't support yet to what a caller can do instead, most specific first.
+// They name filters, never values.
+var serverFilterRefusals = []struct{ refusal, recovery string }{
+	{"this Revyl server can't filter history by Git branch or Git commit yet; add --app-id", "this Revyl server can't filter sessions by Git branch yet; pass app to list only sessions whose build came from that Revyl branch, or call it again without branch"},
+	{"this Revyl server can't filter history by Git branch or Git commit yet; name a test", "this Revyl server can't list every test's runs on a Git branch or commit yet; pass test_id without branch and git_commit_sha to read one test's runs on any branch"},
+	{"this Revyl server can't filter history by Git branch or Git commit yet", "this Revyl server can't filter history by Git branch or Git commit yet; call it again without branch and git_commit_sha"},
+	{"this Revyl server can't show test status by branch or commit yet; name a test", "this Revyl server can't show every test's status on a branch or commit yet; pass test_id without branch, git_commit_sha and since to read one test's newest run on any branch"},
+	{"this Revyl server can't show test status by branch or commit yet", "this Revyl server can't show test status by branch or commit yet; call it again without branch, git_commit_sha and since"},
+}
+
 // atlasArgumentConflict matches the CLI's refusals of two scope arguments
 // that exclude each other. They name flags only, never values.
 var atlasArgumentConflict = regexp.MustCompile(
@@ -77,7 +88,15 @@ func toolFailure(tool toolcatalog.Definition, input map[string]any, code, messag
 }
 
 func classifyInvestigationFailure(stderr string) (string, string) {
+	for _, filter := range serverFilterRefusals {
+		if strings.Contains(stderr, filter.refusal) {
+			return "invalid_arguments", filter.recovery
+		}
+	}
 	if refusal := toolInputRefusal.FindString(stderr); refusal != "" {
+		if refusal == "provide a test name or ID, or use --branch or --git-commit-sha" {
+			return "invalid_arguments", "pass test_id, branch or git_commit_sha"
+		}
 		return "invalid_arguments", refusal
 	}
 	if conflict := atlasArgumentConflict.FindStringSubmatch(stderr); conflict != nil {

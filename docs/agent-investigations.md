@@ -81,11 +81,11 @@ an agent has permission from the user.
 | Family | Capabilities |
 | --- | --- |
 | `apps`, `builds` | Find apps, list builds, inspect a build job, page through exactly attributed executions |
-| `tests` | Find a bounded test sample, read current instructions/device targets/configuration, page through history, inspect saved versions, launch an existing test when authorized |
+| `tests` | Find a bounded test sample, read current instructions/device targets/configuration, check each test's newest run on a Git branch or commit, page through one test's history or every test's on a branch or commit, inspect saved versions, launch an existing test when authorized |
 | `explorations` | Launch a focused exploration when authorized and read its progress/report |
 | `atlas` | Orient, search, inspect exact captures, traverse neighbors/edges, inspect source reports, project selected reports, compare observed build evidence |
 | `reports` | Read a report/summary and drill into device logs, network, CPU/memory, or captured device state |
-| `sessions` | Discover Explore and test sessions for an app/build, read their reports, and inspect performance, logs, network or device state without a test execution |
+| `sessions` | Discover Explore and test sessions for an app, build, Git branch or commit, read their reports, and inspect performance, logs, network or device state without a test execution |
 | `annotations` | Read threads, create a grounded annotation, reply with an idempotency key |
 
 `revyl tools search` is the current executable inventory. Its schema is derived
@@ -95,7 +95,7 @@ are not part of this catalog. Existing CLI commands remain available separately.
 
 `revyl tools cookbook` lists reusable workflows. Read a specific one with
 `revyl tools cookbook failed-build`, `atlas-drilldown`, `compare-builds`,
-`explore-diagnostics`, `existing-findings`, or `annotate-evidence`. These instructions are available inside the binary, so
+`explore-diagnostics`, `branch-status`, `existing-findings`, or `annotate-evidence`. These instructions are available inside the binary, so
 local agents and sandbox agents can learn the same investigation patterns.
 
 ## Cookbook: failures into Atlas, then down into logs
@@ -126,7 +126,8 @@ local agents and sandbox agents can learn the same investigation patterns.
 
 Start app-activity questions with `sessions.list`, not `builds.runs`: Explore
 reports can exist without any test execution. The server applies `app`, `build`,
-`source`, `status`, `platform`, `from` and `to` before pagination. The tool defaults
+`source`, `status`, `platform`, `from`, `to`, `branch` and `git_commit_sha`
+before pagination. The tool defaults
 to `status: "all"`, including active sessions; use `status: "running"` for only
 active sessions. Direct `device history` retains its finished-session default
 unless `--status all` is supplied. Date boundaries
@@ -270,8 +271,12 @@ must retain its scope, especially after recovering from a failed broader read.
 and labels; it is not embedding search. Use short concepts, then traverse
 `atlas.neighbors` to build the connected scope.
 
-For a test-first investigation, use `tests.history` with `limit` and `offset`.
-Read `has_more` before claiming a complete execution history. Compare relevant
+For a test-first investigation, use `tests.history` with `test_id`, `limit` and
+`offset`. Add `branch` or `git_commit_sha` to keep only that test's runs on a
+Git branch or at a commit, or pass either one without `test_id` to read every
+test's runs there, newest first. Each run names its test in `test_id` and
+`test_name`. Read `has_more`, and add `shown_count` to `offset` for the next
+page, before claiming a complete execution history. Compare relevant
 successful runs of the same test/build/configuration; differing context is a
 confounder, not proof of the cause.
 
@@ -279,7 +284,11 @@ For a branch-first investigation, use `tests.status` with `branch` or
 `git_commit_sha`. It returns every test's newest matching run in one response,
 failed first, with counts across all of them, so there is no page to follow. A
 test with no matching run isn't listed. Add `since`, such as `7d`, to count
-each test's finished runs and passes in that window.
+each test's finished runs and passes in that window. Pass `test_id` to read only
+that test's newest matching run; with `test_id` alone, it reads that test's
+newest run on any branch. A test that a workflow run has queued before its
+device session starts counts as running, with `status: "queued"` and a
+`workflow_task_id` instead of a `task_id` and `session_id`.
 
 `tests.get` (also `revyl test inspect <TEST_UUID> --json`) reads the current
 definition, including instructions, validations, saved device targets and
@@ -295,6 +304,50 @@ sort by name. The optional `tag` name filter applies to the fetched page.
 `next_offset` while `has_more` is true, even when tag filtering leaves an empty
 page. `total` describes the server-filtered cohort before local tag filtering,
 and is null if unavailable; a full page then conservatively indicates more rows.
+
+## Cookbook: test status on a Git branch or commit
+
+`revyl tools cookbook branch-status` prints the recipe for finding which tests
+fail on a Git branch or at an exact commit and tracing each failure to its
+report:
+
+1. Call `tests.status` with `branch` or `git_commit_sha`. Each row has the
+   test's `test_id`, its newest run's `run_result` (`failed`, `running`,
+   `unknown` or `passed`, failed first) and that run's `task_id`, which is its
+   execution ID. Add `since`, such as `7d`, to count only runs in that window
+   and add each test's finished runs and passes.
+2. Call `tests.history` with a failing test's `test_id` and the same `branch` or
+   `git_commit_sha` to compare its newest failure with earlier runs there.
+   Check each run's `git_commit_sha` and `has_uncommitted_definition_changes`
+   before blaming a code change.
+3. For up to five failures, call `reports.inspect` with `reference_id` set to
+   the `task_id` and `id_kind: "execution"`, then `reports.logs` with that
+   `execution_id`.
+4. Call `sessions.list` with the same `branch` or `git_commit_sha`, adding `app`
+   to keep one app's sessions. A session without a `test_execution_id` ran no
+   test, such as an Explore session.
+
+```bash
+revyl tools call tests.status '{"branch":"<branch-name>","since":"7d"}' --read-only
+revyl tools call tests.history '{"test_id":"<TEST_UUID>","branch":"<branch-name>"}' --read-only
+revyl tools call reports.inspect '{"reference_id":"<TASK_UUID>","id_kind":"execution","section":"overview"}' --read-only
+revyl tools call sessions.list '{"branch":"<branch-name>"}' --read-only
+```
+
+`git_commit_sha` takes a full lowercase 40- or 64-character SHA and matches only
+runs whose test definitions came from that commit. `tests.history` and
+`sessions.list` match `branch` against the Git branch a run's tests came from
+and the Revyl branch its build came from. `tests.status` uses the Git branch,
+else the build's Revyl branch, as
+[How test status matches and counts runs](run-tests-from-git.md#how-test-status-matches-and-counts-runs)
+explains. A test with no run on the branch or commit isn't listed, so its
+absence isn't a pass.
+
+A Revyl server that can't filter by Git branch or commit yet refuses these
+arguments with `invalid_arguments`, never with unfiltered results. The one
+exception is `sessions.list` with `app` and `branch`: it lists sessions whose
+build came from that Revyl branch and adds
+`"branch_matched_revyl_build_branch_only": true`.
 
 ## Cookbook: compare build evidence
 
