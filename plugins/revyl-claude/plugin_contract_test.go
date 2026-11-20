@@ -71,8 +71,9 @@ func TestSkillUsesOnlyHostedTools(t *testing.T) {
 			t.Fatalf("SKILL.md does not cover %s", tool)
 		}
 	}
-	// Claude does not show the embedded views, so the browser links are the
-	// only way to see Atlas or a live device.
+	// Claude shows the embedded views only under a Verified listing or where it
+	// allows embedded sites, so the browser links stay the way to see Atlas or a
+	// live device everywhere else.
 	for _, link := range []string{"`workspace_url`", "`viewer_url`"} {
 		if !strings.Contains(skill, link) {
 			t.Fatalf("SKILL.md does not give the user %s", link)

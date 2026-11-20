@@ -701,6 +701,7 @@ func printRemoteBuildStatusSummary(ctx context.Context, client *api.Client, jobI
 		for _, event := range events {
 			formatter.Print(event)
 		}
+		ui.PrintDim("Full log: revyl build logs %s", jobID)
 		ui.Println()
 	}
 	if status.Platform != nil && strings.TrimSpace(*status.Platform) != "" {
@@ -881,6 +882,7 @@ func printRemoteBuildLogTail(ctx context.Context, client *api.Client, jobID stri
 	for _, event := range events {
 		formatter.Print(event)
 	}
+	fmt.Fprintf(os.Stderr, "Full log: revyl build logs %s\n", jobID)
 }
 
 // fetchRemoteBuildLogEvents returns the latest structured log events for a

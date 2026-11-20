@@ -155,6 +155,9 @@ Atlas comparison across builds.
 - Cloud builds wait for completion. Use `--detach` to return a job ID,
   `revyl build status <id> --follow` to follow it, or `revyl build cancel <id>`
   to cancel it. Ctrl-C stops following without cancelling the build.
+- `revyl build logs <id>` prints a build's full log from the start, where
+  `build status` shows only the latest events. Add `--follow` to stream it
+  until the build ends, or `--json` for one log event per line.
 - `--image`, `--env`, `--timeout`, `--detach`, and `--no-cache` are cloud-only.
 
 This default changes only `revyl build`. `revyl dev` remains local unless you

@@ -56,8 +56,11 @@ you ask, and it creates or changes a saved test only when you ask.
 | `validate_test`         | Checks test YAML and saves nothing                               |
 | `connect_gitlab`        | Reports whether GitLab is connected and where to connect it      |
 
-Claude does not show embedded views that frame another site, so the Atlas and
-device views open from the link each tool returns.
+Claude can show the Atlas and device views inside the conversation under a
+Verified directory listing, or, for a custom connector, where Claude offers
+embedded websites and after you allow Revyl's site when Claude asks. Revyl's
+production server doesn't support this yet. Until it does, and wherever Claude
+can't embed them, the views open from the link each tool returns.
 
 ## Privacy
 

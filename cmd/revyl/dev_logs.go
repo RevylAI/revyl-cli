@@ -22,6 +22,8 @@ var (
 
 var devLogsJobPollInterval = 500 * time.Millisecond
 
+var remoteBuildLogPollInterval = 2 * time.Second
+
 var devLogsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Stream logs from the running dev session",
@@ -71,7 +73,8 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	return streamRemoteBuildLogs(cmd.Context(), client, jobID, devLogsFollow)
+	formatter := &remoteBuildLogFormatter{}
+	return streamRemoteBuildLogs(cmd.Context(), client, jobID, devLogsFollow, formatter.Print)
 }
 
 type devBuildJobRegistration struct {
@@ -222,10 +225,9 @@ func readDevBuildJobRegistration(cwd, ctxName string) (devBuildJobRegistration, 
 	return registration, nil
 }
 
-// streamRemoteBuildLogs prints remote build runner logs from the beginning.
+// streamRemoteBuildLogs passes remote build runner log events to printEvent from the beginning.
 // With follow, it keeps polling until the job reaches a terminal state.
-func streamRemoteBuildLogs(ctx context.Context, client *api.Client, jobID string, follow bool) error {
-	formatter := &remoteBuildLogFormatter{}
+func streamRemoteBuildLogs(ctx context.Context, client *api.Client, jobID string, follow bool, printEvent func(api.RemoteBuildLogEvent)) error {
 	cursor := "0-0"
 
 	printAvailable := func() error {
@@ -237,7 +239,7 @@ func streamRemoteBuildLogs(ctx context.Context, client *api.Client, jobID string
 			printed := 0
 			if logs.Events != nil {
 				for _, event := range *logs.Events {
-					formatter.Print(event)
+					printEvent(event)
 					printed++
 				}
 			}
@@ -257,7 +259,7 @@ func streamRemoteBuildLogs(ctx context.Context, client *api.Client, jobID string
 		return nil
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(remoteBuildLogPollInterval)
 	defer ticker.Stop()
 	for {
 		select {
