@@ -4068,6 +4068,7 @@ func reportNoAppDetected(cwd string, setUpHere bool) error {
 		ui.PrintWarning("No app found in this folder, so no build profiles were added")
 		ui.PrintInfo("Run revyl init from your app's folder: the one with app.json, pubspec.yaml, an .xcodeproj, or build.gradle.")
 		ui.PrintDim("Web apps are configured by hand: https://docs.revyl.com/remote-builds/configuration#web-recipes")
+		ui.PrintDim("To find the iOS, Android, and Web apps in this repository, run revyl setup detect.")
 		return nil
 	}
 

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
@@ -158,6 +159,11 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "device_session_start",
+		DomainStatus: "web_started",
+		Properties:   map[string]interface{}{"entity_id": session.SessionID},
+	})
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if jsonOutput {
 		output := struct {

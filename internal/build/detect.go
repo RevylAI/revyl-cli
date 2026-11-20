@@ -191,7 +191,7 @@ func isJSApp(dir string) bool {
 }
 
 func fileContains(path, text string) bool {
-	content, err := os.ReadFile(path) // #nosec G304 -- callers pass a fixed file name inside the local project.
+	content, err := readLocalFile(path)
 	return err == nil && strings.Contains(string(content), text)
 }
 
@@ -199,7 +199,7 @@ func fileContains(path, text string) bool {
 // which lets revyl dev open the app on Metro with a deep link. Without it, a
 // Debug build is told where Metro is when it launches, like bare React Native.
 func HasExpoDevClient(dir string) bool {
-	data, err := os.ReadFile(filepath.Join(dir, "package.json")) // #nosec G304 -- the path uses the local project root and a fixed file name.
+	data, err := readLocalFile(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return false
 	}
@@ -498,7 +498,7 @@ func JSInstallCommand(dir string) string {
 // usesModernYarn reports whether package.json in dir pins Yarn 2 or later
 // with its packageManager field, such as "yarn@4.10.2".
 func usesModernYarn(dir string) bool {
-	data, err := os.ReadFile(filepath.Join(dir, "package.json")) // #nosec G304 -- the path uses a local project directory and a fixed file name.
+	data, err := readLocalFile(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return false
 	}
@@ -764,7 +764,7 @@ func parseBazelAndroidTarget(dir string) string {
 			continue
 		}
 
-		content, err := os.ReadFile(buildFile)
+		content, err := readLocalFile(buildFile)
 		if err != nil {
 			continue
 		}
@@ -850,7 +850,7 @@ func parseBazelIOSTarget(dir string) string {
 			continue
 		}
 
-		content, err := os.ReadFile(buildFile)
+		content, err := readLocalFile(buildFile)
 		if err != nil {
 			continue
 		}
@@ -936,7 +936,7 @@ func hasKMPGradleMarker(dir string) bool {
 		if !fileExists(candidate) {
 			continue
 		}
-		content, err := os.ReadFile(candidate)
+		content, err := readLocalFile(candidate)
 		if err != nil {
 			continue
 		}
@@ -1145,7 +1145,7 @@ func isFlutterProject(dir string) bool {
 	if !fileExists(pubspecPath) {
 		return false
 	}
-	content, err := os.ReadFile(pubspecPath)
+	content, err := readLocalFile(pubspecPath)
 	if err != nil {
 		return false
 	}

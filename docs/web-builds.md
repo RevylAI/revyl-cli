@@ -116,6 +116,10 @@ and output_path, or register previews with revyl build upload --url`.
 
 ## Set up a project manually
 
+To find the Web apps in a repository, with their dev commands and the public
+addresses their files name, run `revyl setup detect`; check an address with
+`revyl setup check-url <url>` before you register it. See [setup](setup.md).
+
 `revyl init` creates the local project config but does not detect Web frameworks,
 package managers, or preview hosts, create a Web app, or write a Web recipe.
 Configure Web explicitly in `.revyl/config.yaml`:

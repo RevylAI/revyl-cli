@@ -12,6 +12,7 @@ See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the
 - [Limit concurrent workflow tests](workflow-concurrency.md)
 - [Run tests from Git](run-tests-from-git.md)
 - [Explore from the CLI](explore.md)
+- [Find apps and check Web addresses](setup.md)
 - [Build with Revyl](builds.md)
 - [Upload existing builds](build-uploads.md)
 - [Build Web bundles or register preview deployments](web-builds.md)

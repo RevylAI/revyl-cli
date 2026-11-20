@@ -73,7 +73,7 @@ func NormalizeWebURL(raw string) (string, error) {
 	host := strings.ToLower(parsed.Hostname())
 	name := strings.TrimSuffix(host, ".")
 	if address, err := netip.ParseAddr(host); err == nil {
-		if address.Is4In6() || !address.IsGlobalUnicast() || address.IsPrivate() || webURLSharedAddressPrefix.Contains(address) {
+		if IsNonPublicWebAddress(address) {
 			return "", errWebURLNonPublic
 		}
 		if address.Is6() {
@@ -358,4 +358,16 @@ func applyBackendRuntimeInfo(session *DeviceSession, detail *api.DeviceSessionDe
 		session.TraceID = stringValue(detail.TraceID)
 	}
 	applyBackendScreenDimensions(session, detail.ScreenWidth, detail.ScreenHeight)
+}
+
+// IsNonPublicWebAddress reports whether an IP address is loopback, link-local,
+// private, or shared, which Revyl's cloud browser can't reach.
+func IsNonPublicWebAddress(address netip.Addr) bool {
+	return address.Is4In6() || !address.IsGlobalUnicast() || address.IsPrivate() || webURLSharedAddressPrefix.Contains(address)
+}
+
+// IsNonPublicWebURL reports whether NormalizeWebURL refused an address because
+// it names localhost or a private network, which Revyl's cloud browser can't reach.
+func IsNonPublicWebURL(err error) bool {
+	return errors.Is(err, errWebURLNonPublic)
 }

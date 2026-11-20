@@ -948,6 +948,7 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
   revyl device start --platform ios --json
   revyl device start --platform ios --no-open`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		recordSetupRef(cmd)
 		platform, _ := cmd.Flags().GetString("platform")
 		if !cmd.Flags().Changed("platform") {
 			inferred, err := inferDeviceStartPlatform(cmd)
