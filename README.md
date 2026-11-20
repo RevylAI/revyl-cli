@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.35-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.36-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -123,8 +123,8 @@ revyl doctor                            # Check CLI, auth, connectivity
 revyl auth login                        # Approve in a browser (if not already authed)
 revyl init                              # Detect and write the local project config
 revyl skill install                     # Install recommended agent skills (picker preselects them)
-revyl build --profile development --platform ios  # Build one recipe in the cloud
-revyl dev --profile development --platform ios    # Launch TUI: live-device development loop
+revyl build --build-profile development --platform ios  # Build one recipe in the cloud
+revyl dev --build-profile development --platform ios    # Launch TUI: live-device development loop
 ```
 
 `revyl init` always writes a stable `project.id` in `.revyl/config.yaml`. When
@@ -211,7 +211,7 @@ platform per invocation. `revyl build` executes the recipe on a Revyl cloud
 runner by default, with its remote image and caches:
 
 ```bash
-revyl build --profile development --platform ios
+revyl build --build-profile development --platform ios
 ```
 
 When omitted values have exactly one eligible choice, the CLI resolves them.
@@ -258,7 +258,7 @@ project; it never creates or migrates project configuration.
 See the [Revyl Docs](https://docs.revyl.com/) for the full authoring workflow, YAML examples, module imports, and troubleshooting.
 
 > `revyl dev` starts a live-device development loop and installs a build from one
-> named profile/platform recipe. Pass `--profile` and
+> named profile/platform recipe. Pass `--build-profile` and
 > `--platform` explicitly, or let Revyl resolve a unique development-like or
 > sole eligible choice. Ambiguous interactive runs prompt; non-interactive runs
 > fail with the valid choices. No profile or platform is stored as active or

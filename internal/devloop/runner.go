@@ -56,9 +56,12 @@ const (
 
 // StartRequest contains the focused inputs supported by MCP start_dev_loop.
 type StartRequest struct {
-	Context  string
-	Profile  string
-	Platform string
+	Context string
+	// Profile is the named build profile.
+	Profile string
+	// SessionProfile is the explicit session profile pick, "none" included.
+	SessionProfile string
+	Platform       string
 	// PlatformKey is retained only so older MCP clients decode predictably.
 	// New requests must use Profile; CommandRunner rejects this field.
 	PlatformKey                string
@@ -188,20 +191,21 @@ func (s *BuildStatus) UnmarshalJSON(data []byte) error {
 
 // StartResult is the structured detach handshake returned by the canonical CLI.
 type StartResult struct {
-	BranchID      string      `json:"branch_id,omitempty"`
-	BranchName    string      `json:"branch_name,omitempty"`
-	Context       string      `json:"context"`
-	State         string      `json:"state"`
-	PID           int         `json:"pid"`
-	Profile       string      `json:"profile,omitempty"`
-	Platform      string      `json:"platform"`
-	SessionID     string      `json:"session_id"`
-	SessionIndex  int         `json:"session_index"`
-	ViewerURL     string      `json:"viewer_url"`
-	LogPath       string      `json:"log_path,omitempty"`
-	SeededVersion string      `json:"seeded_version,omitempty"`
-	InstalledSeed bool        `json:"installed_seed,omitempty"`
-	Build         BuildStatus `json:"build"`
+	BranchID       string      `json:"branch_id,omitempty"`
+	BranchName     string      `json:"branch_name,omitempty"`
+	Context        string      `json:"context"`
+	State          string      `json:"state"`
+	PID            int         `json:"pid"`
+	Profile        string      `json:"profile,omitempty"`
+	SessionProfile string      `json:"session_profile,omitempty"`
+	Platform       string      `json:"platform"`
+	SessionID      string      `json:"session_id"`
+	SessionIndex   int         `json:"session_index"`
+	ViewerURL      string      `json:"viewer_url"`
+	LogPath        string      `json:"log_path,omitempty"`
+	SeededVersion  string      `json:"seeded_version,omitempty"`
+	InstalledSeed  bool        `json:"installed_seed,omitempty"`
+	Build          BuildStatus `json:"build"`
 }
 
 // StatusResult is the stable subset of revyl dev status consumed by MCP.
@@ -212,6 +216,7 @@ type StatusResult struct {
 	Context           string                 `json:"context"`
 	State             string                 `json:"state"`
 	Profile           string                 `json:"profile,omitempty"`
+	SessionProfile    string                 `json:"session_profile,omitempty"`
 	Platform          string                 `json:"platform"`
 	BuildMode         string                 `json:"build_mode,omitempty"`
 	SessionID         string                 `json:"session_id"`
@@ -308,7 +313,8 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 		args = append([]string{"-C", workDir}, args...)
 	}
 	args = appendStringFlag(args, "--context", request.Context)
-	args = appendStringFlag(args, "--profile", request.Profile)
+	args = appendStringFlag(args, "--build-profile", request.Profile)
+	args = appendStringFlag(args, "--session-profile", request.SessionProfile)
 	args = appendStringFlag(args, "--platform", request.Platform)
 	args = appendStringFlag(args, "--app-id", request.AppID)
 	args = appendStringFlag(args, "--build-version-id", request.BuildVersionID)
@@ -350,7 +356,7 @@ func ValidateStartProfileSelection(request StartRequest) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"platform_key/--platform-key is no longer supported; use profile/--profile to select a named build profile and platform/--platform to select ios or android",
+		"platform_key/--platform-key is no longer supported; use build_profile/--build-profile to select a named build profile and platform/--platform to select ios or android",
 	)
 }
 

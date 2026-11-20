@@ -179,8 +179,9 @@ when it says `stopped: true`. Retry once, never more.
   If both pass, diagnose the relay with `--debug` on the startup command.
 - **Repeated login:** use the
   [auth-bypass skill](https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/SKILL.md)
-  when the task calls for test authentication. With `session.auth_bypass`
-  configured, Revyl applies it on launch. Use `revyl dev auth refresh -s <session-id>` to
+  when the task calls for test authentication. With a session profile
+  (`session.profiles`) or `session.auth_bypass` configured, Revyl applies it on
+  launch. Use `revyl dev auth refresh -s <session-id>` to
   restore a logged-out session; it re-fires the boot token and does not mint a
   new one. Restart the loop if its token has expired. Never paste launch-var
   values into code, logs, screenshots, or PRs.

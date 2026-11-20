@@ -64,7 +64,8 @@ The viewer stays closed by default for an implicit computer start; pass
 Implicit computer starts skip `session.before_script` and `session.auth_bypass`
 and use the app's defaults. An iOS start with an explicit `--computer` keeps
 them when the computer's host can deliver launch values, and skips them with a
-warning otherwise; standalone starts keep those session settings.
+warning otherwise. No start inside a computer runs a session profile;
+standalone starts keep those session settings.
 
 The start waits until the device is ready, which takes longer when devices are
 queued. As soon as Revyl accepts it, the command names the session on stderr,
@@ -107,6 +108,11 @@ still overrides the config. Invalid session settings, malformed YAML, and
 unsafe config or script paths still fail before provisioning. Actions on an
 existing session do not parse the config. `revyl build`, `revyl config validate`,
 and `revyl config push` continue to require the canonical format.
+
+When the config declares `session.profiles`, `device start` runs a
+[session profile](https://docs.revyl.com/devices/session-profiles) script before
+the device or browser starts: the one `--session-profile <name>` picks, otherwise
+`session.default_profile`. `--session-profile none` starts without one.
 
 ## 3. Control the device and capture evidence
 
@@ -159,7 +165,11 @@ session. Web starts do not run `session.before_script` or the mobile
 launch-variable or deep-link preparation pipeline. Use
 `session.auth_bypass.sign_in` for Web sign-in; any data a Web proof needs must
 already exist in the preview environment, for example seeded by the preview's
-own deploy or a test-login route.
+own deploy or a test-login route. A
+[session profile](https://docs.revyl.com/devices/session-profiles) runs before
+Web starts. Its script can seed data and write browser storage state, and it
+can set the launch environment of a Web app Revyl runs with a start command
+([Platform rules and limits](https://docs.revyl.com/devices/session-profiles#platform-rules-and-limits)).
 
 A pull request comment's Open preview link signs its Web preview in with
 the project's published `sign_in`, as mobile previews apply
@@ -223,8 +233,13 @@ overrides can't use them. A plain override can't use a name in the run's
 `secret_names` or an encrypted organization launch variable; pass those as
 secret overrides.
 
-A session with any override gets none of the organization's secrets: no
-`secret_names` values and no organization sign-in secret. Secret overrides
+A session with any `--launch-env` or MCP `launch_env` override gets none of the
+organization's secrets: no `secret_names` values and no organization sign-in
+secret. A session profile's launch environment isn't an override, so on its
+own it keeps them;
+[Precedence](https://docs.revyl.com/devices/session-profiles#precedence) and
+[Platform rules and limits](https://docs.revyl.com/devices/session-profiles#platform-rules-and-limits)
+describe how it combines with overrides. Secret overrides
 reach the app process as its secrets instead. If one is named by
 `session.auth_bypass.sign_in.secret`, it becomes the session's sign-in secret:
 the worker signs the sign-in code with it, and it never enters the app's

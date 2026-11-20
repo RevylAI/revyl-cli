@@ -205,6 +205,7 @@ type deviceStartOutput struct {
 	ComputerSessionID *string                    `json:"computer_session_id"`
 	UsageNotice       *api.UsageNotice           `json:"billing_notice,omitempty"`
 	QueueNotice       *billingstatus.QueueNotice `json:"queue_notice,omitempty"`
+	SessionProfile    string                     `json:"session_profile,omitempty"`
 }
 
 func deviceStartOpensBrowser(cmd *cobra.Command, computerSessionID string) bool {
@@ -1032,9 +1033,19 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 		if !cmd.Flags().Changed("timeout") && sessionConfig.IdleTimeoutSeconds != nil {
 			timeout = *sessionConfig.IdleTimeoutSeconds
 		}
+		sessionProfilePick, _ := cmd.Flags().GetString("session-profile")
+		sessionProfilePick = strings.TrimSpace(sessionProfilePick)
+		if computerSessionID != "" {
+			if sessionConfig, err = sessionWithoutProfilesInsideComputer(sessionConfig, sessionProfilePick); err != nil {
+				return err
+			}
+		}
 
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
+			return err
+		}
+		if err := initDevSessionProfile(mgr.APIClient(), project.ProjectRoot, project.ConfigPath, sessionConfig, sessionProfilePick); err != nil {
 			return err
 		}
 
@@ -1219,6 +1230,10 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			return err
 		}
 		rememberBeforeSessionBootValues(mgr.WorkDir(), session.SessionID)
+		if appLink != "" {
+			devSessionProfile.dropDeepLink()
+		}
+		devSessionProfile.rememberAppliedProfile(mgr.WorkDir(), session.SessionID)
 		if notice := ui.BranchSelectionNotice(session.GitBranchName, session.BranchName, string(session.BranchSource), session.AutoGitBranchEnabled); notice != "" {
 			ui.PrintWarning("%s", notice)
 		}
@@ -1228,13 +1243,15 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			postLaunchErr = openURLAfterLaunch(ctx, mgr, session, appLink)
 		} else if devAuthBypass != nil {
 			postLaunchErr = devAuthBypass.FireDeepLink(ctx, mgr, session)
+		} else {
+			postLaunchErr = devSessionProfile.openStartDeepLink(ctx, mgr, session)
 		}
 		if postLaunchErr != nil {
 			return handleDeviceStartPostLaunchFailure(cmd, mgr, session, postLaunchErr)
 		}
 
 		if jsonOutput {
-			output := deviceStartOutput{DeviceSession: session, UsageNotice: session.UsageNotice, QueueNotice: queueNotice}
+			output := deviceStartOutput{DeviceSession: session, UsageNotice: session.UsageNotice, QueueNotice: queueNotice, SessionProfile: devSessionProfile.appliedProfileName()}
 			if computerSessionID != "" {
 				output.ComputerSessionID = &computerSessionID
 			}
@@ -4005,7 +4022,8 @@ func init() {
 	deviceStartCmd.Flags().Bool(allBranchesFlagName, false, allBranchesFlagUsage)
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
-	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
+	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start (replaces the session profile's deep link)")
+	deviceStartCmd.Flags().String("session-profile", "", sessionProfileFlagUsage)
 	deviceStartCmd.Flags().StringArray("launch-var", nil, "Org launch variable key or ID to apply to a raw session (repeatable)")
 	deviceStartCmd.Flags().StringArray("launch-arg-set", nil, "Stored iOS argument-set name or ID to apply (repeatable)")
 	deviceStartCmd.Flags().StringArray("launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")

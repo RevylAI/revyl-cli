@@ -307,8 +307,27 @@ func (m *DeviceSessionManager) resolveWebStartBuild(ctx context.Context, appID s
 	}
 	artifact.BuildID = build.ID
 	artifact.ArtifactKind = build.ArtifactKind
+	switch build.ArtifactKind {
+	case "web_bundle":
+		port := config.DefaultWebRun().Port
+		if web := build.Metadata.Web; web != nil && web.Run != nil {
+			if web.Run.Port != nil {
+				port = *web.Run.Port
+			}
+			artifact.WebAcceptsLaunchEnv = web.Run.Start != nil
+		}
+		artifact.WebOrigin = fmt.Sprintf("http://%s:%d", webAppBrowserHost, port)
+	case "web_external":
+		if deployURL, parseErr := url.Parse(build.DeployURL); parseErr == nil && deployURL.Host != "" {
+			artifact.WebOrigin = deployURL.Scheme + "://" + deployURL.Host
+		}
+	}
 	return artifact, nil
 }
+
+// webAppBrowserHost is the host a Web bundle's app answers on inside the
+// session's browser, matching WEB_APP_BROWSER_HOST in cognisim_schemas.
+const webAppBrowserHost = "revyl-app.localhost"
 
 func isWebSessionDetail(detail *api.DeviceSessionDetail) bool {
 	return detail != nil && detail.Platform != nil && *detail.Platform == "web"

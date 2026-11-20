@@ -306,7 +306,7 @@ func TestSelectionResolverBranches(t *testing.T) {
 		t.Fatalf("sole = %#v, %v", sole, err)
 	}
 	ambiguous, err := ResolveProfilePlatform(*aggregate, "", "", false)
-	if err != nil || ambiguous.Ambiguity == nil || ambiguous.Ambiguity.RequiredFlag != "--profile" || len(ambiguous.Ambiguity.Choices) != 2 {
+	if err != nil || ambiguous.Ambiguity == nil || ambiguous.Ambiguity.RequiredFlag != "--build-profile" || len(ambiguous.Ambiguity.Choices) != 2 {
 		t.Fatalf("ambiguity = %#v, %v", ambiguous, err)
 	}
 }

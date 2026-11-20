@@ -584,7 +584,7 @@ func TestHandleStartDevLoopCommandRejectsDeprecatedPlatformKey(t *testing.T) {
 	if output.Outcome.OutcomeCode != "dev_loop_platform_key_removed" || output.Outcome.Retryable {
 		t.Fatalf("outcome = %+v, want non-retryable removed-key failure", output.Outcome)
 	}
-	if !strings.Contains(output.Error, "profile/--profile") {
+	if !strings.Contains(output.Error, "build_profile/--build-profile") {
 		t.Fatalf("error = %q, want actionable profile guidance", output.Error)
 	}
 	if runner.startCallCount != 0 {

@@ -18,6 +18,7 @@ import (
 	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/sessionprofile"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -630,7 +631,8 @@ type StartDeviceSessionInput struct {
 	AppID                      string                 `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`
 	BuildVersionID             string                 `json:"build_version_id,omitempty" jsonschema:"Specific build version ID"`
 	AppURL                     string                 `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
-	AppLink                    string                 `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
+	AppLink                    string                 `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional). Replaces the session profile's deep link."`
+	SessionProfile             string                 `json:"session_profile,omitempty" jsonschema:"Optional session profile from the project's session.profiles to run before the session starts, or none to skip default_profile. When omitted, default_profile applies."`
 	LaunchVars                 []string               `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
 	LaunchArgSets              []string               `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs to apply at boot."`
 	LaunchArguments            []string               `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
@@ -654,6 +656,7 @@ type StartDeviceSessionOutput struct {
 	SessionIndex         int              `json:"session_index"`
 	DeviceReady          *bool            `json:"device_ready,omitempty" jsonschema:"True only after the worker reported a connected device; false means the session was accepted but its device is not confirmed connected yet, so actions can fail"`
 	Platform             string           `json:"platform,omitempty"`
+	SessionProfile       string           `json:"session_profile,omitempty" jsonschema:"The session profile the session started with"`
 	ViewerURL            string           `json:"viewer_url,omitempty"`
 	WhepURL              string           `json:"whep_url,omitempty"`
 	IdleTimeoutSeconds   float64          `json:"idle_timeout_seconds,omitempty"`
@@ -737,6 +740,12 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	if err := ValidateWebSessionStartOptions(opts); err != nil {
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
+	opts, appliedProfile, err := s.prepareSessionProfileStart(ctx, opts, strings.TrimSpace(input.SessionProfile))
+	if err != nil {
+		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+	}
+	appLink := opts.AppLink
+	opts.AppLink = ""
 	var queueNotice *billingstatus.QueueNotice
 	opts.OnQueued = func(notice *billingstatus.QueueNotice) { queueNotice = notice }
 	idx, session, err := s.sessionMgr.StartSession(ctx, opts)
@@ -747,6 +756,33 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 			output.BillingNextStep = billingNextStep(refusal.BillingURL, refusal.BillingAction, refusal.UpgradeBenefits, nil)
 		}
 		return nil, output, nil
+	}
+	sessionProfileName := ""
+	if appliedProfile != nil {
+		sessionProfileName = appliedProfile.Name
+		if appLink != "" {
+			appliedProfile.MobileDeepLink = nil
+		}
+		err = sessionprofile.SaveAppliedProfile(s.sessionMgr.WorkDir(), session.SessionID, *appliedProfile)
+		if err != nil {
+			err = fmt.Errorf("session profile %q: could not record it for this session, which reuse and auth refresh read: %w", appliedProfile.Name, err)
+		} else if appliedProfile.MobileDeepLink != nil {
+			if err = OpenSessionProfileDeepLink(ctx, s.sessionMgr, session, appliedProfile.Name, *appliedProfile.MobileDeepLink); err != nil {
+				recordSessionProfileOutcome(ctx, sessionprofile.OutcomeDeepLinkFailed)
+			}
+		}
+	}
+	if err == nil && appLink != "" {
+		if err = OpenURLAfterLaunch(ctx, s.sessionMgr, session, appLink); err != nil {
+			err = fmt.Errorf("app_link failed to open: %w", err)
+		}
+	}
+	if err != nil {
+		message := err.Error() + "; the session was stopped"
+		if stopErr := s.sessionMgr.StopSession(context.Background(), idx); stopErr != nil {
+			message = fmt.Sprintf("%v; stopping the session failed: %v", err, stopErr)
+		}
+		return nil, StartDeviceSessionOutput{Success: false, Error: message, SessionID: session.SessionID}, nil
 	}
 
 	if !input.NoOpen && !s.experimentalWorkspace {
@@ -777,6 +813,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		SessionIndex:       idx,
 		DeviceReady:        boolPointer(session.DeviceConnectionConfirmed()),
 		Platform:           session.Platform,
+		SessionProfile:     sessionProfileName,
 		ViewerURL:          session.ViewerURL,
 		WhepURL:            stringValue(session.WhepURL),
 		IdleTimeoutSeconds: timeout.Seconds(),

@@ -287,7 +287,7 @@ func startRunInterruptHandler(
 func runTestExec(cmd *cobra.Command, args []string) error {
 	warnDeprecatedWholeTestRetries(cmd)
 	if strings.TrimSpace(runTestProfile) != "" && !runTestBuild {
-		return fmt.Errorf("--profile requires --build")
+		return fmt.Errorf("--build-profile requires --build")
 	}
 	if strings.TrimSpace(runTestPlatform) != "" && !runTestBuild {
 		return fmt.Errorf("--platform requires --build")
@@ -950,7 +950,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--android-build-id requires --android-app and cannot be combined with --android-build")
 	}
 	if strings.TrimSpace(runWorkflowProfile) != "" && !runWorkflowBuild {
-		return fmt.Errorf("--profile requires --build")
+		return fmt.Errorf("--build-profile requires --build")
 	}
 	if strings.TrimSpace(runWorkflowPlatform) != "" && !runWorkflowBuild {
 		return fmt.Errorf("--platform requires --build")

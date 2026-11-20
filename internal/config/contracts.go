@@ -40,9 +40,19 @@ type AuthoredProject struct {
 
 // AuthoredSession groups project-wide session behavior.
 type AuthoredSession struct {
-	IdleTimeoutSeconds *int                  `json:"idle_timeout_seconds,omitempty" yaml:"idle_timeout_seconds,omitempty"`
-	BeforeScript       *AuthoredBeforeScript `json:"before_script,omitempty" yaml:"before_script,omitempty"`
-	AuthBypass         *AuthoredAuthBypass   `json:"auth_bypass,omitempty" yaml:"auth_bypass,omitempty"`
+	IdleTimeoutSeconds *int                              `json:"idle_timeout_seconds,omitempty" yaml:"idle_timeout_seconds,omitempty"`
+	BeforeScript       *AuthoredBeforeScript             `json:"before_script,omitempty" yaml:"before_script,omitempty"`
+	AuthBypass         *AuthoredAuthBypass               `json:"auth_bypass,omitempty" yaml:"auth_bypass,omitempty"`
+	DefaultProfile     *string                           `json:"default_profile,omitempty" yaml:"default_profile,omitempty"`
+	Profiles           map[string]AuthoredSessionProfile `json:"profiles,omitempty" yaml:"profiles,omitempty"`
+}
+
+// AuthoredSessionProfile names the script that prepares a session's start
+// state. Script holds a repository path when it contains "/", else a script
+// name resolved in .revyl/scripts and then the org's script library.
+type AuthoredSessionProfile struct {
+	Script                     string `json:"script" yaml:"script"`
+	RequiresRepositoryCheckout bool   `json:"requires_repository_checkout,omitempty" yaml:"requires_repository_checkout,omitempty"`
 }
 
 // AuthoredBeforeScript is the canonical session setup shape.
@@ -285,6 +295,9 @@ func (c AuthoredConfig) ValidateContract() error {
 			if err := validateAuthoredSignIn(c.Session.AuthBypass.SignIn); err != nil {
 				return err
 			}
+		}
+		if err := validateAuthoredSessionProfiles(*c.Session); err != nil {
+			return err
 		}
 	}
 

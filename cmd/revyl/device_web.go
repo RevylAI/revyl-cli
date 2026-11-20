@@ -114,6 +114,11 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		return actionableLocalConfigError(err)
 	}
 	opts.Web.SignIn = mcppkg.WebSignInFromSession(&sessionConfig)
+	sessionProfilePick, _ := cmd.Flags().GetString("session-profile")
+	sessionProfilePick = strings.TrimSpace(sessionProfilePick)
+	if err := checkSessionProfilePick(sessionConfig, sessionProfilePick); err != nil {
+		return err
+	}
 	timeout, _ := cmd.Flags().GetInt("timeout")
 	if !cmd.Flags().Changed("timeout") {
 		timeout = 600
@@ -150,6 +155,17 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		return err
 	}
 	opts.ResolvedWebArtifact = &artifact
+	if opts.ComputerSessionID != "" || (opts.DefaultComputerSessionID != "" && artifact.ArtifactKind != "web_bundle") {
+		if sessionConfig, err = sessionWithoutProfilesInsideComputer(sessionConfig, sessionProfilePick); err != nil {
+			return err
+		}
+	}
+	if err := initDevSessionProfile(mgr.APIClient(), project.ProjectRoot, project.ConfigPath, sessionConfig, sessionProfilePick); err != nil {
+		return err
+	}
+	if opts, err = devSessionProfile.prepareStart(ctx, opts, &artifact); err != nil {
+		return err
+	}
 	var queueNotice *billingstatus.QueueNotice
 	opts.OnQueued = func(notice *billingstatus.QueueNotice) {
 		queueNotice = notice
@@ -164,12 +180,14 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 		DomainStatus: "web_started",
 		Properties:   map[string]interface{}{"entity_id": session.SessionID},
 	})
+	devSessionProfile.rememberAppliedProfile(mgr.WorkDir(), session.SessionID)
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if jsonOutput {
 		output := struct {
 			*mcppkg.DeviceSession
-			QueueNotice *billingstatus.QueueNotice `json:"queue_notice,omitempty"`
-		}{session, queueNotice}
+			QueueNotice    *billingstatus.QueueNotice `json:"queue_notice,omitempty"`
+			SessionProfile string                     `json:"session_profile,omitempty"`
+		}{session, queueNotice, devSessionProfile.appliedProfileName()}
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(withAppliedDefaults(cmd, output)); err != nil {
 			return err
 		}

@@ -69,19 +69,21 @@ func isDetachedDevAppDefault(branchID, branchName, buildID, mode string) bool {
 // the background loop has a live device session. The build may still be
 // running; poll `revyl dev status` for build progress and install completion.
 type devDetachHandshake struct {
-	BranchID     string            `json:"branch_id,omitempty"`
-	BranchName   string            `json:"branch_name,omitempty"`
-	Context      string            `json:"context"`
-	State        string            `json:"state"`
-	PID          int               `json:"pid"`
-	Platform     string            `json:"platform,omitempty"`
-	Profile      string            `json:"profile,omitempty"`
-	SessionID    string            `json:"session_id,omitempty"`
-	SessionIndex int               `json:"session_index"`
-	ViewerURL    string            `json:"viewer_url,omitempty"`
-	LogPath      string            `json:"log_path,omitempty"`
-	Build        *devRebuildInfo   `json:"build,omitempty"`
-	AuthBypass   *authBypassStatus `json:"auth_bypass,omitempty"`
+	BranchID       string            `json:"branch_id,omitempty"`
+	BranchName     string            `json:"branch_name,omitempty"`
+	Context        string            `json:"context"`
+	State          string            `json:"state"`
+	PID            int               `json:"pid"`
+	Platform       string            `json:"platform,omitempty"`
+	Profile        string            `json:"profile,omitempty"`
+	BuildProfile   string            `json:"build_profile,omitempty"`
+	SessionProfile string            `json:"session_profile,omitempty"`
+	SessionID      string            `json:"session_id,omitempty"`
+	SessionIndex   int               `json:"session_index"`
+	ViewerURL      string            `json:"viewer_url,omitempty"`
+	LogPath        string            `json:"log_path,omitempty"`
+	Build          *devRebuildInfo   `json:"build,omitempty"`
+	AuthBypass     *authBypassStatus `json:"auth_bypass,omitempty"`
 	// SeededVersion / InstalledSeed surface a prior build installed immediately
 	// (revyl dev --remote --seed-latest) so consumers know the app is already
 	// interactive while the fresh build is still compiling.
@@ -155,11 +157,11 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 		case strings.HasPrefix(arg, "--branch=") || strings.HasPrefix(arg, "--branch-id="):
 			namedBranch = true
 			continue
-		case arg == "-C" || arg == "--chdir" || arg == "--profile" || arg == "--platform":
+		case arg == "-C" || arg == "--chdir" || arg == "--build-profile" || arg == "--profile" || arg == "--platform":
 			index++
 			continue
 		case strings.HasPrefix(arg, "-C=") || strings.HasPrefix(arg, "--chdir=") ||
-			strings.HasPrefix(arg, "--profile=") || strings.HasPrefix(arg, "--platform="):
+			strings.HasPrefix(arg, "--build-profile=") || strings.HasPrefix(arg, "--profile=") || strings.HasPrefix(arg, "--platform="):
 			continue
 		}
 		if arg == "--build-selection" || arg == "--build-version-id" || arg == "--seed-latest" ||
@@ -180,7 +182,7 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 	} else if invocation.BranchName != "" && !invocation.AutomaticBranchSelection {
 		result = append(result, "--branch", invocation.BranchName)
 	}
-	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)
+	return append(result, "--build-profile", invocation.Profile, "--platform", invocation.Platform)
 }
 
 func devDetachLogPath(cwd string) privateRuntimePath {
@@ -257,6 +259,9 @@ func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs, chi
 			}
 			return emitDetachFailure(cwd, "detach_failed", message, logPath)
 		default:
+		}
+		if claim, readErr := readManagedRuntimeFile(devActiveLoopPath(cwd, childPID)); readErr == nil && string(claim) == devLoopRunningSessionProfileScript {
+			deadline = time.Now().Add(devDetachReadyTimeout)
 		}
 		if time.Now().After(deadline) {
 			message := fmt.Sprintf("timed out after %v waiting for the background dev loop (pid %d)", devDetachReadyTimeout, childPID)
@@ -339,7 +344,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 		State:    "ready",
 		PID:      devCtx.PID,
 		Platform: devCtx.Platform,
-		Profile:  devCtx.Profile,
+		Profile:  devCtx.Profile, BuildProfile: devCtx.Profile,
 		BranchID: devCtx.BranchID, BranchName: devCtx.BranchName,
 		SessionID:    devCtx.SessionID,
 		SessionIndex: devCtx.SessionIndex,
@@ -352,6 +357,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 		if json.Unmarshal(data, &ds) == nil {
 			handshake.Build = ds.LastRebuild
 			handshake.AuthBypass = ds.AuthBypass
+			handshake.SessionProfile = ds.SessionProfile
 			handshake.SeededVersion = ds.SeededVersion
 			handshake.InstalledSeed = ds.InstalledSeed
 			handshake.BillingNotice = ds.BillingNotice

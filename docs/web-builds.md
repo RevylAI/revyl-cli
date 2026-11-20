@@ -52,8 +52,8 @@ build:
 ```
 
 ```bash
-revyl build --profile preview --platform web
-revyl build --profile preview --platform web --local
+revyl build --build-profile preview --platform web
+revyl build --build-profile preview --platform web --local
 ```
 
 The default runs remotely; `--remote` is also accepted. `--local` uses your

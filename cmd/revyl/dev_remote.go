@@ -139,6 +139,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 			); err != nil {
 				return err
 			}
+			if err := devSessionProfile.adoptReusedSession(deviceMgr.WorkDir(), reuse.Session.SessionID); err != nil {
+				return err
+			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
 			warnInheritedLaunchSettingsIgnoredForReusedDevSession()
@@ -182,6 +185,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 			return err
 		}
 		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
+		devSessionProfile.rememberAppliedProfile(deviceMgr.WorkDir(), session.SessionID)
 	}
 
 	if sessionOwned {
@@ -314,6 +318,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 			bundleID = seededBundleID
 			setDevStatusSeedInstalled(statusPath, seededVersion)
 			ui.PrintSuccess("Seeded build on device (%s) — hot-swap when the fresh build lands", seededVersion)
+			if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+				return err
+			}
 		} else {
 			ui.PrintInfo("No existing build to seed; device stays on the home screen until the fresh build lands.")
 		}
@@ -372,6 +379,8 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 				}
 				ui.PrintWarning("%v", installErr)
 				ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
+			} else if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+				return err
 			}
 		}
 	}
@@ -507,6 +516,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 			State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching rebuilt app",
 		})
 		tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
+		if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+			return err
+		}
 		result.elapsed = time.Since(rebuildStart)
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
 

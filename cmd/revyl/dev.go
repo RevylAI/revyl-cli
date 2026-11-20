@@ -40,6 +40,7 @@ import (
 
 var (
 	devStartProfile               string
+	devStartSessionProfile        string
 	devStartPlatform              string
 	devStartPlatformKey           string
 	devStartAppID                 string
@@ -192,7 +193,8 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&devStartBranchID, "branch-id", "", "Stable Revyl branch ID for continuation")
 	_ = cmd.Flags().MarkHidden("branch-id")
 	cmd.Flags().StringVar(&devStartBuildSelection, "build-selection", "", "Initial build: inherit (Automatic), latest, or pinned with --build-version-id")
-	cmd.Flags().StringVar(&devStartProfile, "profile", "", "Named build profile to use")
+	registerRenamedStringFlag(cmd.Flags(), &devStartProfile, "build-profile", "profile", "Named build profile to use")
+	cmd.Flags().StringVar(&devStartSessionProfile, "session-profile", "", sessionProfileFlagUsage)
 	cmd.Flags().StringVar(&devStartPlatform, "platform", "", "Device platform to start (ios or android)")
 	cmd.Flags().StringVar(&devStartAppID, "app-id", "", "App ID to resolve the initial build from")
 	cmd.Flags().StringVar(&devStartBuildVerID, "build-version-id", "", "Specific build version ID to use")
@@ -529,6 +531,8 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	selectionDevMode, _ := cmd.Flags().GetBool("dev")
 	selectionClient := api.NewClientWithDevMode(apiKey, selectionDevMode)
 	computer := resolveDevComputerTarget(cmd)
+	sessionProfilePick := strings.TrimSpace(devStartSessionProfile)
+	profileSession := invocation.Session
 	if computer.SessionID != "" {
 		if err := mcppkg.ValidateComputerSessionStart(mcppkg.StartSessionOptions{
 			LaunchVars:      devStartLaunchVars,
@@ -542,6 +546,12 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		if err := requireDevComputerHosts(cmd.Context(), selectionClient, computer.SessionID, invocation.Platform, carriesLaunchValues); err != nil {
 			return err
 		}
+		if profileSession, err = sessionWithoutProfilesInsideComputer(profileSession, sessionProfilePick); err != nil {
+			return err
+		}
+	}
+	if err := initDevSessionProfile(selectionClient, invocation.ProjectRoot, invocation.ConfigPath, profileSession, sessionProfilePick); err != nil {
+		return err
 	}
 	if invocation.AppID == "" && strings.TrimSpace(devStartBuildVerID) == "" {
 		if devStartRemote {
@@ -923,6 +933,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			); err != nil {
 				return err
 			}
+			if err := devSessionProfile.adoptReusedSession(deviceMgr.WorkDir(), reuse.Session.SessionID); err != nil {
+				return err
+			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
 			warnInheritedLaunchSettingsIgnoredForReusedDevSession()
@@ -959,6 +972,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			return err
 		}
 		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
+		devSessionProfile.rememberAppliedProfile(deviceMgr.WorkDir(), session.SessionID)
 		reportDeviceReadiness(cmd, session, "Device session ready")
 	}
 
@@ -1105,6 +1119,10 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	// The dev-client link must open first; then authenticate the running app.
 	if !manualDeepLinkRequired {
 		fireAuthBypassAfterLaunch(ctx, deviceMgr, session)
+	}
+	devSessionProfile.reopenDeepLinkAfterRelaunch(ctx, deviceMgr, session)
+	if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+		return err
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
@@ -2165,6 +2183,7 @@ func launchInstalledApp(
 
 	// A (re)launch starts a fresh app process, so re-authenticate it.
 	fireAuthBypassAfterLaunch(ctx, requester, session)
+	devSessionProfile.reopenDeepLinkAfterRelaunch(ctx, requester, session)
 	return nil
 }
 
@@ -2409,6 +2428,9 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			); err != nil {
 				return err
 			}
+			if err := devSessionProfile.adoptReusedSession(deviceMgr.WorkDir(), reuse.Session.SessionID); err != nil {
+				return err
+			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
 			warnInheritedLaunchSettingsIgnoredForReusedDevSession()
@@ -2444,6 +2466,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			return err
 		}
 		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
+		devSessionProfile.rememberAppliedProfile(deviceMgr.WorkDir(), session.SessionID)
 	}
 
 	if sessionOwned {
@@ -2502,6 +2525,9 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		bundleID = extractInstallBundleID(installResp)
 	}
 	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
+	if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+		return err
+	}
 
 	deviceMgr.StopIdleTimer(session.Index)
 
@@ -3721,6 +3747,7 @@ type devStatus struct {
 	State               string               `json:"state"`
 	PID                 int                  `json:"pid"`
 	Profile             string               `json:"profile,omitempty"`
+	BuildProfile        string               `json:"build_profile,omitempty"`
 	Platform            string               `json:"platform"`
 	BuildDefinitionHash string               `json:"build_definition_hash,omitempty"`
 	BuildMode           string               `json:"build_mode,omitempty"`
@@ -3737,6 +3764,8 @@ type devStatus struct {
 	Build               *devloop.BuildStatus `json:"build,omitempty"`
 	AuthBypass          *authBypassStatus    `json:"auth_bypass,omitempty"`
 	BeforeSession       *beforeSessionStatus `json:"before_session,omitempty"`
+	// SessionProfile is the session profile the device session started with.
+	SessionProfile string `json:"session_profile,omitempty"`
 	// SeededVersion / InstalledSeed describe a prior build installed
 	// immediately (revyl dev --remote --seed-latest) so the app is interactive
 	// while the fresh remote build is still compiling.
@@ -4035,6 +4064,10 @@ func writeDevStatusSnapshotLocked(statusPath privateRuntimePath, ds devStatus) {
 	if ds.BeforeSession == nil {
 		ds.BeforeSession = devBeforeSession.Status()
 	}
+	if ds.SessionProfile == "" {
+		ds.SessionProfile = devSessionProfile.appliedProfileName()
+	}
+	ds.BuildProfile = ds.Profile
 	if ds.BillingNotice == nil {
 		ds.BillingNotice = devBillingNotice
 	}
@@ -5175,6 +5208,7 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"pid":                      pid,
 		"context":                  ctxName,
 		"profile":                  profile,
+		"build_profile":            profile,
 		"platform":                 platform,
 		"build_definition_hash":    buildDefinitionHash,
 		"session_id":               sessionID,
@@ -5203,6 +5237,9 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	}
 	if ds != nil && ds.BillingNotice != nil {
 		output["billing_notice"] = ds.BillingNotice
+	}
+	if ds != nil && ds.SessionProfile != "" {
+		output["session_profile"] = ds.SessionProfile
 	}
 	return output
 }

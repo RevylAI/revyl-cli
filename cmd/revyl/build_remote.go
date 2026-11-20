@@ -362,12 +362,13 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	if !opts.Wait {
 		if opts.JSON {
 			printRemoteBuildJSON(remoteBuildJSONResult{
-				Status:     "pending",
-				BranchID:   branchID,
-				Profile:    opts.Profile,
-				Platform:   resolved.Platform,
-				BuildJobID: jobID,
-				AppID:      resolved.AppID,
+				Status:       "pending",
+				BranchID:     branchID,
+				Profile:      opts.Profile,
+				BuildProfile: opts.Profile,
+				Platform:     resolved.Platform,
+				BuildJobID:   jobID,
+				AppID:        resolved.AppID,
 			})
 		} else {
 			printRemoteBuildQueuedNextSteps(jobID)
@@ -385,6 +386,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		if opts.JSON {
 			result := remoteBuildFailureJSON(resolved, jobID, status, err)
 			result.Profile = opts.Profile
+			result.BuildProfile = opts.Profile
 			result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
 			printRemoteBuildJSON(result)
 		}
@@ -393,6 +395,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	if opts.JSON {
 		result := remoteBuildSuccessJSON(resolved, jobID, status)
 		result.Profile = opts.Profile
+		result.BuildProfile = opts.Profile
 		result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
 		printRemoteBuildJSON(result)
 	}
@@ -927,6 +930,7 @@ type remoteBuildJSONResult struct {
 	BranchID           string                       `json:"branch_id,omitempty"`
 	Status             string                       `json:"status"`
 	Profile            string                       `json:"profile,omitempty"`
+	BuildProfile       string                       `json:"build_profile,omitempty"`
 	Platform           string                       `json:"platform,omitempty"`
 	BuildJobID         string                       `json:"build_job_id,omitempty"`
 	BuildVersionID     string                       `json:"build_version_id,omitempty"`
@@ -1627,10 +1631,14 @@ func shouldSkipStandaloneSourcePath(rel string, entry os.DirEntry) bool {
 	switch rel {
 	case ".revyl/.dev-push-manifest.json",
 		".revyl/.dev-status.json",
+		".revyl/applied-session-profiles.json",
+		".revyl/applied-session-profiles.lock",
+		".revyl/before-session-values.json",
 		".revyl/device-sessions.json":
 		return true
 	}
-	return strings.HasPrefix(rel, ".revyl/dev-sessions/")
+	return strings.HasPrefix(rel, ".revyl/dev-sessions/") ||
+		strings.HasPrefix(rel, ".revyl/.applied-session-profiles-")
 }
 
 func pathBase(rel string) string {

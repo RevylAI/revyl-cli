@@ -17,7 +17,7 @@ func TestCommandRunnerDelegatesCanonicalCommands(t *testing.T) {
 case "$*" in
   *"dev --detach"*)
 	case "$*" in
-	  *"--profile development"*) ;;
+	  *"--build-profile development"*) ;;
 	  *)
 		printf 'missing profile flag: %s\n' "$*" >&2
 		exit 5
@@ -144,7 +144,7 @@ func TestCommandRunnerRejectsDeprecatedPlatformKeyBeforeStartingChild(t *testing
 		t.Fatal("Start() error = nil, want deprecated platform_key error")
 	}
 	if !strings.Contains(err.Error(), "platform_key/--platform-key is no longer supported") ||
-		!strings.Contains(err.Error(), "profile/--profile") {
+		!strings.Contains(err.Error(), "build_profile/--build-profile") {
 		t.Fatalf("Start() error = %q, want actionable profile guidance", err)
 	}
 }

@@ -147,7 +147,7 @@ project, and environment should the sandbox create cloud resources. Use the
 smallest approved proof, capture the requested evidence, then clean it up:
 
 ```bash
-revyl build --remote --profile development --platform android
+revyl build --remote --build-profile development --platform android
 revyl device start --platform android --timeout 600
 revyl device screenshot --out revyl-sandbox-proof.png
 revyl device stop

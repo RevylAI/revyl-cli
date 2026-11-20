@@ -344,8 +344,10 @@ An iOS start that passes `--computer` explicitly runs the project's
 start does, when the computer's host can deliver launch values to its apps.
 When it can't yet, the CLI warns and starts the app with its defaults instead
 of running either. Implicit starts, where only `REVYL_COMPUTER_ID` places the
-session in the computer, and Android starts always use the app's defaults. Use
-`--computer=none` when those standalone session settings are required.
+session in the computer, and Android starts always use the app's defaults. No
+start inside a computer runs a session profile, and a
+`--session-profile <name>` pick there is refused. Use `--computer=none` when
+those standalone session settings are required.
 
 On an agent outpost's computer, phones start inside that computer by default.
 Use `--computer=none` there only for a model the computer can't run; the

@@ -39,10 +39,12 @@ import (
 	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/filelock"
 	"github.com/revyl/cli/internal/launcharguments"
 	"github.com/revyl/cli/internal/launchenv"
 	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/privatefs"
+	"github.com/revyl/cli/internal/sessionprofile"
 	"github.com/revyl/cli/internal/ui"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -423,6 +425,12 @@ type StartSessionOptions struct {
 	// LaunchArguments are inline, non-secret iOS app argument tokens.
 	LaunchArguments []string
 
+	// SessionProfile is the applied session profile, sent only when one
+	// applies; StartSession fails and stops the session when the backend does
+	// not echo it, calling OnSessionProfileNotApplied first.
+	SessionProfile             *api.AppliedSessionProfile
+	OnSessionProfileNotApplied func()
+
 	// Optional test/session metadata.
 	TestID string
 
@@ -481,6 +489,9 @@ func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSe
 	}
 	if (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
 		return fmt.Errorf("a session inside a computer launches the app with its default run options; omit secret Web environment, install skip, orientation and locale")
+	}
+	if opts.SessionProfile != nil {
+		return fmt.Errorf("a session inside a computer starts without a session profile; pick none")
 	}
 	return nil
 }
@@ -657,6 +668,7 @@ func (m *DeviceSessionManager) StartSession(
 	if len(opts.LaunchArguments) > 0 {
 		req.LaunchArguments = append([]string(nil), opts.LaunchArguments...)
 	}
+	req.SessionProfile = opts.SessionProfile
 	initialOrientation := strings.TrimSpace(opts.InitialOrientation)
 	initialLocale := strings.TrimSpace(opts.InitialLocale)
 	if opts.SkipAppInstall || initialOrientation != "" || initialLocale != "" {
@@ -729,6 +741,23 @@ func (m *DeviceSessionManager) StartSession(
 	}
 	if platform == "web" && sessionID != req.SessionID {
 		return -1, nil, m.requestRuntimeStartCleanup(req.SessionID, fmt.Errorf("web start acknowledgement did not preserve its canonical session ID"))
+	}
+	if opts.SessionProfile != nil && (resp.SessionProfileName == nil || *resp.SessionProfileName != opts.SessionProfile.Name) {
+		if opts.OnSessionProfileNotApplied != nil {
+			opts.OnSessionProfileNotApplied()
+		}
+		profileErr := fmt.Errorf("session profile %q: the Revyl backend started the session without it", opts.SessionProfile.Name)
+		if platform == "web" {
+			if cleanupErr := m.requestRuntimeStartCleanup(req.SessionID, profileErr); cleanupErr != profileErr {
+				return -1, nil, cleanupErr
+			}
+		} else if _, err := m.apiClient.CancelDevice(context.Background(), workflowRunID); err != nil {
+			var pending *api.DeviceSessionStopPendingError
+			if !errors.As(err, &pending) {
+				return -1, nil, fmt.Errorf("%w; cleanup request failed; run 'revyl device stop -s %s'", profileErr, sessionID)
+			}
+		}
+		return -1, nil, fmt.Errorf("%w, so the session was stopped", profileErr)
 	}
 	if opts.OnStartAccepted != nil {
 		opts.OnStartAccepted(sessionID)
@@ -1050,6 +1079,9 @@ func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session 
 	// Drop boot-time before_session secrets once the session is gone so a
 	// later auth refresh cannot reuse another session's token by ID collision.
 	_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
+	if err := sessionprofile.ClearAppliedProfile(m.workDir, session.SessionID); err != nil {
+		ui.PrintWarning("%v", err)
+	}
 	return nil
 }
 
@@ -1748,6 +1780,9 @@ func (m *DeviceSessionManager) applySessionStopLocked(index int, session *Device
 	// later auth refresh cannot reuse another session's token by ID collision.
 	if session != nil {
 		_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
+		if err := sessionprofile.ClearAppliedProfile(m.workDir, session.SessionID); err != nil {
+			ui.PrintWarning("%v", err)
+		}
 	}
 
 	delete(m.sessions, index)
@@ -2731,6 +2766,59 @@ func EnsureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
 		return errors.New(errMsg)
 	}
 	return nil
+}
+
+// WorkerSessionRequester sends a request to a session's worker through the
+// backend proxy.
+type WorkerSessionRequester interface {
+	WorkerRequestOnSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error)
+}
+
+// openAfterLaunchDeviceWait bounds how long an open after launch waits for a
+// device that a start returned before it connected.
+const openAfterLaunchDeviceWait = 90 * time.Second
+
+// OpenURLAfterLaunch opens a URL on a session's launched app. A value with a
+// ${NAME} reference goes to the worker proxy's template route, which fills it
+// from the organization's stored launch configurations.
+func OpenURLAfterLaunch(ctx context.Context, requester WorkerSessionRequester, session *DeviceSession, urlOrTemplate string) error {
+	value := strings.TrimSpace(urlOrTemplate)
+	if value == "" {
+		return nil
+	}
+	if strings.Contains(value, "${") {
+		return openOnLaunchedApp(ctx, requester, session, "/open_url_template", api.DeviceOpenURLTemplateRequest{URLTemplate: value})
+	}
+	return openOnLaunchedApp(ctx, requester, session, "/open_url", api.DeviceOpenURLRequest{URL: value})
+}
+
+// openOnLaunchedApp sends one open to the worker. While the worker answers 503
+// because the device hasn't connected yet, nothing has opened, so the open is
+// retried until openAfterLaunchDeviceWait passes. An open that succeeds proves
+// the device is connected, so the session is marked ready.
+func openOnLaunchedApp(ctx context.Context, requester WorkerSessionRequester, session *DeviceSession, path string, body interface{}) error {
+	open := func() error {
+		respBody, err := requester.WorkerRequestOnSession(ctx, session, path, body)
+		if err != nil {
+			return err
+		}
+		return EnsureWorkerActionSucceeded(respBody, "open_url")
+	}
+	deadline := time.Now().Add(openAfterLaunchDeviceWait)
+	err := open()
+	var workerErr *WorkerHTTPError
+	for errors.As(err, &workerErr) && workerErr.StatusCode == http.StatusServiceUnavailable && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-time.After(deviceHealthPollDelay):
+			err = open()
+		}
+	}
+	if err == nil {
+		session.DeviceReady = boolPointer(true)
+	}
+	return err
 }
 
 func EnsureWorkerNavigationSucceeded(respBody []byte, platform string) error {
@@ -3776,7 +3864,7 @@ func (m *DeviceSessionManager) lockInputAction(ctx context.Context, session *Dev
 	}
 	digest := sha256.Sum256([]byte(identity))
 	lockName := fmt.Sprintf("device-input-%x.lock", digest[:10])
-	return lockDeviceFile(ctx, filepath.Join(dir, lockName))
+	return filelock.Acquire(ctx, filepath.Join(dir, lockName))
 }
 
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
@@ -4651,6 +4739,9 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		// without StopSession (idle expiry on the backend, crash, etc.).
 		if ls != nil {
 			_ = beforesession.ClearSessionValues(m.workDir, ls.SessionID)
+			if err := sessionprofile.ClearAppliedProfile(m.workDir, ls.SessionID); err != nil {
+				ui.PrintWarning("%v", err)
+			}
 			removedSessions = append(removedSessions, sessionCacheIdentityFor(ls))
 			endedSessions = append(endedSessions, endedSessionFromPrune(ls, detail, pruneTime))
 		}

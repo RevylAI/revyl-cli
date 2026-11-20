@@ -25,6 +25,7 @@ type DevLoopStartOutput struct {
 	Screenshot  *ScreenshotOutput   `json:"screenshot,omitempty"`
 	Remediation *Remediation        `json:"remediation,omitempty"`
 	Error       string              `json:"error,omitempty"`
+	Warnings    []string            `json:"warnings,omitempty"`
 }
 
 // GetDevStatusInput selects an optional named context.
@@ -100,9 +101,23 @@ func (s *Server) handleStartDevLoopCommand(
 	req *mcp.CallToolRequest,
 	input StartDevLoopInput,
 ) (*mcp.CallToolResult, DevLoopStartOutput, error) {
+	var warnings []string
+	if input.Profile != "" {
+		if input.BuildProfile != "" && input.BuildProfile != input.Profile {
+			message := "profile and build_profile differ; pass only build_profile"
+			return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{
+				Success: false,
+				Outcome: outcome.Failed("dev_loop_build_profile_conflict", message, false),
+				Error:   message,
+			}, nil
+		}
+		input.BuildProfile = input.Profile
+		warnings = append(warnings, "profile is renamed build_profile; pass build_profile")
+	}
 	startRequest := devloop.StartRequest{
 		Context:        input.Context,
-		Profile:        input.Profile,
+		Profile:        input.BuildProfile,
+		SessionProfile: input.SessionProfile,
 		Platform:       input.Platform,
 		PlatformKey:    input.PlatformKey,
 		AppID:          input.AppID,
@@ -213,7 +228,7 @@ func (s *Server) handleStartDevLoopCommand(
 	startOutcome.SessionID = result.SessionID
 	startOutcome.SessionIndex = &result.SessionIndex
 	startOutcome.ViewerURL = result.ViewerURL
-	output := DevLoopStartOutput{Success: true, Outcome: startOutcome, Result: result}
+	output := DevLoopStartOutput{Success: true, Outcome: startOutcome, Result: result, Warnings: warnings}
 	if !captureBaseline {
 		return nil, output, nil
 	}

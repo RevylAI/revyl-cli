@@ -34,7 +34,7 @@ func TestPublishedWorkspaceCommandReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"revyl mcp serve --profile core --experimental-workspace",
+		"revyl mcp serve --tool-profile core --experimental-workspace",
 		"opt-in",
 		"compatible MCP Apps hosts",
 	} {

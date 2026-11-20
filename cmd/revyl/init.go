@@ -4562,7 +4562,7 @@ func printInitNextSteps(cfg *initConfigDraft, includeAuthLogin bool) {
 	printStep("%s", cliRecoveryCommand("config", "validate"))
 	printStep("%s   # if GitHub is not connected: %s", cliRecoveryCommand("github", "status"), cliRecoveryCommand("github", "connect"))
 	printStep("%s", cliRecoveryCommand("config", "push"))
-	printStep("%s", cliRecoveryCommand("build", "--profile", profile, "--platform", platformArgument, "--remote"))
+	printStep("%s", cliRecoveryCommand("build", "--build-profile", profile, "--platform", platformArgument, "--remote"))
 	printStep("%s", cliRecoveryCommand("device", "start", "--app-id", "<app-id>"))
 	if agentinfo.Detect().Name != "" {
 		ui.PrintInfo("If a setup step fails, report it with `revyl feedback --type bug`; if it works but is harder than it should be, use `revyl feedback --type friction`. Name the step and what blocked it.")

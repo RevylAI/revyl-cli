@@ -23,8 +23,6 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-const savedScriptsPageSize = 1000
-
 const revylDefinitionGitignoreContent = `# Most files in .revyl are local runtime state.
 # Only the shared project config and test definitions belong in git.
 *
@@ -120,7 +118,7 @@ func planModuleAndScriptFilePush(ctx context.Context, client *api.Client, projec
 		savedModuleByName[strings.TrimSpace(module.Name)] = module
 		moduleNameByID[module.ID] = module.Name
 	}
-	savedScripts, err := listAllSavedScripts(ctx, client)
+	savedScripts, err := client.ListAllScripts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +426,7 @@ func listSavedDefinitionsUsedBy(ctx context.Context, client *api.Client, moduleR
 		ui.StopSpinner()
 		return used, fmt.Errorf("list saved modules: %w", err)
 	}
-	savedScripts, err := listAllSavedScripts(ctx, client)
+	savedScripts, err := client.ListAllScripts(ctx)
 	ui.StopSpinner()
 	if err != nil {
 		return used, err
@@ -548,21 +546,6 @@ func printModuleAndScriptFilesPullWouldWrite(ctx context.Context, client *api.Cl
 		}
 	}
 	return nil
-}
-
-// listAllSavedScripts pages through every saved script in the organization.
-func listAllSavedScripts(ctx context.Context, client *api.Client) ([]api.CLIScriptInfo, error) {
-	var scripts []api.CLIScriptInfo
-	for {
-		page, err := client.ListScripts(ctx, "", savedScriptsPageSize, len(scripts))
-		if err != nil {
-			return nil, fmt.Errorf("list saved scripts: %w", err)
-		}
-		scripts = append(scripts, page.Scripts...)
-		if len(page.Scripts) < savedScriptsPageSize || len(scripts) >= page.Count {
-			return scripts, nil
-		}
-	}
 }
 
 // pullableDefinitionName reports whether a saved module or script name can be

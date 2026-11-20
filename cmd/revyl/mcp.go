@@ -22,6 +22,8 @@ Commands:
   serve  - Start the MCP server over stdio`,
 }
 
+var mcpServeToolProfile string
+
 // mcpServeCmd starts the MCP server.
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
@@ -32,21 +34,21 @@ This command starts an MCP server that communicates via JSON-RPC
 over stdin/stdout. It's designed to be launched by AI hosts like
 Cursor or Claude Desktop.
 
-PROFILES:
+TOOL PROFILES:
 
-  --profile dev
+  --tool-profile dev
     11 focused tools: setup diagnostics, dev loop, device lifecycle,
     screenshots, interactions, navigation, instructions, and validation.
     Recommended for Cursor.
 
-  --profile core
+  --tool-profile core
     Broad flat device surface plus test/build management, schema, and auth.
     Kept for compatibility and advanced development/test workflows.
 
-  --profile full
+  --tool-profile full
     Adds workflow, module, script, tag, file, and variable management.
 
-  (no --profile flag)
+  (no --tool-profile flag)
     Legacy mode: all ~95 individual tools registered flat.
     Kept for backward compatibility; not recommended for new setups.
 The server exposes the following tools:
@@ -124,18 +126,18 @@ EXAMPLE CURSOR CONFIGURATION:
     "mcpServers": {
       "revyl": {
         "command": "revyl",
-        "args": ["mcp", "serve", "--profile", "dev"]
+        "args": ["mcp", "serve", "--tool-profile", "dev"]
       }
     }
   }`,
-	Example: `  revyl mcp serve --profile dev
-  revyl --dev mcp serve --profile dev`,
+	Example: `  revyl mcp serve --tool-profile dev
+  revyl --dev mcp serve --tool-profile dev`,
 	RunE: runMCPServe,
 }
 
 func init() {
 	mcpCmd.AddCommand(mcpServeCmd)
-	mcpServeCmd.Flags().String("profile", "", "Tool profile: 'dev' (focused), 'core', or 'full'. Omit for legacy flat mode.")
+	registerRenamedStringFlag(mcpServeCmd.Flags(), &mcpServeToolProfile, "tool-profile", "profile", "Tool profile: 'dev' (focused), 'core', or 'full'. Omit for legacy flat mode.")
 	mcpServeCmd.Flags().Bool("experimental-workspace", false, "Enable the experimental embedded Atlas and device workspace (MCP Apps hosts only)")
 	mcpServeCmd.Flags().Bool("experimental-computer", false, "Enable the unreleased computer screen tool")
 }
@@ -143,7 +145,6 @@ func init() {
 // runMCPServe starts the MCP server.
 func runMCPServe(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
-	profileStr, _ := cmd.Flags().GetString("profile")
 
 	var opts []mcp.ServerOption
 	if enabled, _ := cmd.Flags().GetBool("experimental-workspace"); enabled {
@@ -152,7 +153,7 @@ func runMCPServe(cmd *cobra.Command, args []string) error {
 	if enabled, _ := cmd.Flags().GetBool("experimental-computer"); enabled {
 		opts = append(opts, mcp.WithExperimentalComputer())
 	}
-	switch profileStr {
+	switch mcpServeToolProfile {
 	case "dev":
 		opts = append(opts, mcp.WithProfile(mcp.ProfileDev))
 	case "core":
@@ -162,7 +163,7 @@ func runMCPServe(cmd *cobra.Command, args []string) error {
 	case "":
 		// Legacy flat mode — no profile option
 	default:
-		ui.PrintError("Unknown profile %q; valid values: dev, core, full", profileStr)
+		ui.PrintError("Unknown tool profile %q; valid values: dev, core, full", mcpServeToolProfile)
 		return nil
 	}
 

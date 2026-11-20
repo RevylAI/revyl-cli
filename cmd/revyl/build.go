@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--profile <name>] [--platform ios|android|web] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--pin] [--detach] [--no-cache] [--json]",
+	Use:   "build [--build-profile <name>] [--platform ios|android|web] [--local | --remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--branch <name>] [--pin] [--detach] [--no-cache] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -45,7 +45,7 @@ app's default branch. A branch that follows Latest build runs it because it is
 the newest; a pinned branch keeps its pin. Pass --pin to pin the branch to the
 new build.
 
-Use --profile and --platform to resolve ambiguous choices in CI or --json mode.
+Use --build-profile and --platform to resolve ambiguous choices in CI or --json mode.
 Cloud failures are reported without falling back to local execution.`,
 	DisableFlagsInUseLine: true,
 	Args:                  cobra.NoArgs,
@@ -219,7 +219,7 @@ func init() {
 	buildUploadCmd.Flags().SortFlags = false
 	buildStatusCmd.Flags().SortFlags = false
 
-	buildCmd.Flags().StringVar(&buildCommandProfile, "profile", "", "Named build profile from .revyl/config.yaml")
+	registerRenamedStringFlag(buildCmd.Flags(), &buildCommandProfile, "build-profile", "profile", "Named build profile from .revyl/config.yaml")
 	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform (ios, android, or web)")
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
 	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", true, "Run on Revyl cloud build runners (default unless REVYL_COMPUTER_ID is set; --remote overrides it; --remote=false selects local execution)")
@@ -232,7 +232,7 @@ func init() {
 	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run a cold remote build with all caches disabled")
 	registerBuildPinFlags(buildCmd)
 	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
-	analytics.MarkFlagValue(buildCmd, "profile")
+	analytics.MarkFlagValue(buildCmd, "build-profile")
 	analytics.MarkFlagValue(buildCmd, "platform")
 	analytics.MarkFlagValue(buildCmd, "image")
 	analytics.MarkFlagValue(buildCmd, "version")
@@ -1070,6 +1070,7 @@ type BuildUploadJSONBuild struct {
 	BranchID             string           `json:"branch_id,omitempty"`
 	BranchName           string           `json:"branch_name,omitempty"`
 	Profile              string           `json:"profile,omitempty"`
+	BuildProfile         string           `json:"build_profile,omitempty"`
 	PlatformKey          string           `json:"platform_key"`
 	Platform             string           `json:"platform"`
 	AppID                string           `json:"app_id"`
@@ -1791,7 +1792,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 		}
 		if branchFilter != "" {
 			ui.PrintInfo("No builds on this page match branch %q", branchFilter)
-			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android|web%s", buildBranchArgument)
+			ui.PrintDim("Build one with: revyl build --build-profile <name> --platform ios|android|web%s", buildBranchArgument)
 		} else {
 			ui.PrintInfo("No builds on this page")
 		}

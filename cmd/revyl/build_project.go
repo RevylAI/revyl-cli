@@ -287,7 +287,7 @@ func resolveBuildInvocation(
 		if selectErr != nil {
 			return projectBuildInvocation{}, fmt.Errorf("build selection: %w", selectErr)
 		}
-		if selection.Ambiguity.RequiredFlag == "--profile" {
+		if selection.Ambiguity.RequiredFlag == "--build-profile" {
 			profile = selected
 		} else {
 			platform = selected
@@ -674,6 +674,7 @@ func renderLocalBuildResult(ctx context.Context, client *api.Client, result loca
 			result.Upload,
 		)
 		buildResult.Profile = invocation.Profile
+		buildResult.BuildProfile = invocation.Profile
 		outputBuildUploadJSON([]BuildUploadJSONBuild{buildResult})
 		return nil
 	}

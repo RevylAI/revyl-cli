@@ -55,7 +55,7 @@ Make your change, then replace `YOUR_PROFILE` with the build profile name in
 your config (`preview` for Expo):
 
 ```bash
-revyl build --platform ios --profile YOUR_PROFILE --json
+revyl build --platform ios --build-profile YOUR_PROFILE --json
 ```
 
 Revyl builds the app in the cloud and uploads the result. Wait for the command

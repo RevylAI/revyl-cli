@@ -312,6 +312,12 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 			}
 			session["auth_bypass"] = authBypass
 		}
+		if authored.Session.DefaultProfile != nil {
+			session["default_profile"] = *authored.Session.DefaultProfile
+		}
+		if authored.Session.Profiles != nil {
+			session["profiles"] = sessionProfilesProjection(authored.Session.Profiles)
+		}
 		projection["session"] = session
 	}
 	if authored.Build != nil {
@@ -478,8 +484,11 @@ func nonNilMap(values map[string]string) map[string]string {
 
 func configCollectionItemCount(authored AuthoredConfig) int {
 	count := 0
-	if authored.Session != nil && authored.Session.AuthBypass != nil {
-		count += len(authored.Session.AuthBypass.LaunchVars)
+	if authored.Session != nil {
+		count += len(authored.Session.Profiles)
+		if authored.Session.AuthBypass != nil {
+			count += len(authored.Session.AuthBypass.LaunchVars)
+		}
 	}
 	if authored.Build != nil {
 		build := authored.Build
@@ -733,6 +742,20 @@ func normalizeSessionProjection(session AuthoredSession) map[string]any {
 		}
 		result["auth_bypass"] = auth
 	}
+	if session.DefaultProfile != nil && *session.DefaultProfile != NoSessionProfile {
+		result["default_profile"] = *session.DefaultProfile
+	}
+	if session.Profiles != nil {
+		result["profiles"] = sessionProfilesProjection(session.Profiles)
+	}
+	return result
+}
+
+func sessionProfilesProjection(profiles map[string]AuthoredSessionProfile) map[string]any {
+	result := make(map[string]any, len(profiles))
+	for name, profile := range profiles {
+		result[name] = map[string]any{"script": profile.Script, "requires_repository_checkout": profile.RequiresRepositoryCheckout}
+	}
 	return result
 }
 
@@ -751,7 +774,13 @@ func signInProjection(signIn AuthoredSignIn) map[string]any {
 }
 
 func cloneAuthoredSession(session AuthoredSession) AuthoredSession {
-	result := AuthoredSession{IdleTimeoutSeconds: cloneIntPointer(session.IdleTimeoutSeconds)}
+	result := AuthoredSession{IdleTimeoutSeconds: cloneIntPointer(session.IdleTimeoutSeconds), DefaultProfile: cloneStringPointer(session.DefaultProfile)}
+	if session.Profiles != nil {
+		result.Profiles = make(map[string]AuthoredSessionProfile, len(session.Profiles))
+		for name, profile := range session.Profiles {
+			result.Profiles[name] = profile
+		}
+	}
 	if session.BeforeScript != nil {
 		result.BeforeScript = &AuthoredBeforeScript{ScriptPath: cloneStringPointer(session.BeforeScript.ScriptPath), TimeoutSeconds: cloneIntPointer(session.BeforeScript.TimeoutSeconds)}
 	}

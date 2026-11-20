@@ -532,12 +532,12 @@ func TestRunCommandsRejectBuildSelectorsWithoutBuild(t *testing.T) {
 	})
 
 	runTestBuild, runTestProfile = false, "development"
-	if err := runTestExec(&cobra.Command{}, []string{"test"}); err == nil || !strings.Contains(err.Error(), "--profile requires --build") {
+	if err := runTestExec(&cobra.Command{}, []string{"test"}); err == nil || !strings.Contains(err.Error(), "--build-profile requires --build") {
 		t.Fatalf("test run error = %v", err)
 	}
 
 	runWorkflowBuild, runWorkflowProfile = false, "development"
-	if err := runWorkflowExec(&cobra.Command{}, []string{"workflow"}); err == nil || !strings.Contains(err.Error(), "--profile requires --build") {
+	if err := runWorkflowExec(&cobra.Command{}, []string{"workflow"}); err == nil || !strings.Contains(err.Error(), "--build-profile requires --build") {
 		t.Fatalf("workflow run error = %v", err)
 	}
 

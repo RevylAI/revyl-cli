@@ -27,6 +27,7 @@ type StartDevLoopOutput struct {
 	DeepLinkURL        string              `json:"deep_link_url,omitempty"`
 	ViewerURL          string              `json:"viewer_url,omitempty"`
 	BuildSelection     string              `json:"build_selection,omitempty"`
+	SessionProfile     string              `json:"session_profile,omitempty"`
 	Preflight          *BuildPreflightInfo `json:"preflight,omitempty"`
 	Warnings           []string            `json:"warnings,omitempty"`
 	Error              string              `json:"error,omitempty"`
@@ -43,6 +44,7 @@ type StartDevLoopCoreOutput struct {
 	DeepLinkURL        string              `json:"deep_link_url,omitempty"`
 	ViewerURL          string              `json:"viewer_url,omitempty"`
 	BuildSelection     string              `json:"build_selection,omitempty"`
+	SessionProfile     string              `json:"session_profile,omitempty"`
 	Preflight          *BuildPreflightInfo `json:"preflight,omitempty"`
 	Warnings           []string            `json:"warnings,omitempty"`
 	Outcome            outcome.Envelope    `json:"outcome"`
@@ -78,11 +80,13 @@ func (s *Server) handleStartDevLoopCompat(
 	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
 	output := StartDevLoopOutput{
 		BranchID: canonical.Result.BranchID, BranchName: canonical.Result.BranchName,
-		Success:      canonical.Success,
-		SessionID:    canonical.Result.SessionID,
-		SessionIndex: canonical.Result.SessionIndex,
-		ViewerURL:    canonical.Result.ViewerURL,
-		Error:        canonical.Error,
+		Success:        canonical.Success,
+		SessionID:      canonical.Result.SessionID,
+		SessionIndex:   canonical.Result.SessionIndex,
+		ViewerURL:      canonical.Result.ViewerURL,
+		SessionProfile: canonical.Result.SessionProfile,
+		Warnings:       canonical.Warnings,
+		Error:          canonical.Error,
 	}
 	if canonical.Outcome.SessionIndex != nil {
 		output.SessionIndex = *canonical.Outcome.SessionIndex
@@ -104,13 +108,15 @@ func (s *Server) handleStartDevLoopCoreCompat(
 	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
 	output := StartDevLoopCoreOutput{
 		BranchID: canonical.Result.BranchID, BranchName: canonical.Result.BranchName,
-		Success:      canonical.Success,
-		SessionID:    canonical.Result.SessionID,
-		SessionIndex: canonical.Result.SessionIndex,
-		ViewerURL:    canonical.Result.ViewerURL,
-		Outcome:      canonical.Outcome,
-		Remediation:  canonical.Remediation,
-		Error:        canonical.Error,
+		Success:        canonical.Success,
+		SessionID:      canonical.Result.SessionID,
+		SessionIndex:   canonical.Result.SessionIndex,
+		ViewerURL:      canonical.Result.ViewerURL,
+		SessionProfile: canonical.Result.SessionProfile,
+		Warnings:       canonical.Warnings,
+		Outcome:        canonical.Outcome,
+		Remediation:    canonical.Remediation,
+		Error:          canonical.Error,
 	}
 	if canonical.Outcome.SessionIndex != nil {
 		output.SessionIndex = *canonical.Outcome.SessionIndex

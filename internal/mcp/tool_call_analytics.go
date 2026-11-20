@@ -33,6 +33,7 @@ func toolCallAnalyticsMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 			return result, err
 		}
 		intent := takeToolCallIntent(call.Params)
+		ctx = analytics.ContextWithMCPToolCall(ctx)
 		startedAt := time.Now()
 		result, err := next(ctx, method, request)
 		toolResult, _ := result.(*mcp.CallToolResult)

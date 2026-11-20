@@ -298,7 +298,7 @@ func prepareSessionStartOptions(
 	if err := validateDeepLinkResolution(values); err != nil {
 		return opts, err
 	}
-	return applyBeforeSessionLaunchEnv(opts, values), nil
+	return devSessionProfile.prepareStart(ctx, applyBeforeSessionLaunchEnv(opts, values), nil)
 }
 
 // applyBeforeSessionLaunchEnv merges minted values into the session's launch

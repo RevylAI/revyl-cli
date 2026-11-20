@@ -1015,7 +1015,7 @@ func ResolveProfilePlatform(aggregate NormalizedProjectAggregate, explicitProfil
 			}
 		}
 		if len(candidates) != 1 {
-			return ProfilePlatformSelection{Ambiguity: &SelectionAmbiguity{RequiredFlag: "--profile", Choices: candidates}}, nil
+			return ProfilePlatformSelection{Ambiguity: &SelectionAmbiguity{RequiredFlag: "--build-profile", Choices: candidates}}, nil
 		}
 		profileName = candidates[0]
 	}

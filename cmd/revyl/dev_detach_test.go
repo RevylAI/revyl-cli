@@ -29,7 +29,7 @@ func TestProjectDetachArgsPinsResolvedSelectionAndRemovesChdir(t *testing.T) {
 	got := projectDetachArgs([]string{
 		"-C", "apps/old", "dev", "--profile=old", "--platform", "android", "--detach",
 	}, projectDevInvocation{Profile: "development", Platform: "ios"})
-	want := []string{"dev", "--profile", "development", "--platform", "ios"}
+	want := []string{"dev", "--build-profile", "development", "--platform", "ios"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("projectDetachArgs() = %v, want %v", got, want)
 	}
@@ -202,7 +202,7 @@ func TestPrintDetachHandshakeReportsBuildingDuringDetailedBuildPhase(t *testing.
 
 func TestProjectDetachArgsFreezesBranchIdentity(t *testing.T) {
 	got := projectDetachArgs([]string{"dev", "--branch", "main", "--branch-id=old", "--detach", "--build-selection", "latest"}, projectDevInvocation{Profile: "development", Platform: "ios", BranchID: "frozen-id", BranchName: "main"})
-	want := []string{"dev", "--build-selection", "latest", "--branch-id", "frozen-id", "--profile", "development", "--platform", "ios"}
+	want := []string{"dev", "--build-selection", "latest", "--branch-id", "frozen-id", "--build-profile", "development", "--platform", "ios"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("child selectors = %v, want %v", got, want)
 	}
@@ -210,7 +210,7 @@ func TestProjectDetachArgsFreezesBranchIdentity(t *testing.T) {
 
 func TestProjectDetachArgsFreezesUnnamedBranchAndPreservesLatest(t *testing.T) {
 	got := projectDetachArgs([]string{"dev", "--detach"}, projectDevInvocation{Profile: "development", Platform: "ios", BranchID: "default-id", BranchName: "base"})
-	want := []string{"dev", "--branch-id", "default-id", "--build-selection", "latest", "--profile", "development", "--platform", "ios"}
+	want := []string{"dev", "--branch-id", "default-id", "--build-selection", "latest", "--build-profile", "development", "--platform", "ios"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("child selectors = %v, want %v", got, want)
 	}
@@ -235,7 +235,7 @@ func TestProjectDetachArgsKeepsInferredBranchDefaultAndExplicitSelections(t *tes
 			if test.name != "false seed flag retains legacy latest" {
 				want = append(want, "--branch-id", "frozen-id")
 			}
-			want = append(want, "--profile", "development", "--platform", "ios")
+			want = append(want, "--build-profile", "development", "--platform", "ios")
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("child selectors = %v, want %v", got, want)
 			}

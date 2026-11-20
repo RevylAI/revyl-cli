@@ -229,6 +229,37 @@ func SetCommandCompletion(ctx context.Context, completion CommandCompletion) {
 	run.setCompletion(completion)
 }
 
+type mcpToolCallKey struct{}
+
+type mcpToolCall struct {
+	mu         sync.Mutex
+	properties map[string]interface{}
+}
+
+// ContextWithMCPToolCall lets the tool serving one MCP call add bounded domain
+// properties to that call's mcp_tool_called event.
+func ContextWithMCPToolCall(ctx context.Context) context.Context {
+	return context.WithValue(ctx, mcpToolCallKey{}, &mcpToolCall{})
+}
+
+// SetMCPToolCallProperties merges bounded domain properties into the
+// mcp_tool_called event of the MCP tool call in ctx; outside one it does
+// nothing.
+func SetMCPToolCallProperties(ctx context.Context, properties map[string]interface{}) {
+	call, _ := ctx.Value(mcpToolCallKey{}).(*mcpToolCall)
+	if call == nil || len(properties) == 0 {
+		return
+	}
+	call.mu.Lock()
+	defer call.mu.Unlock()
+	if call.properties == nil {
+		call.properties = map[string]interface{}{}
+	}
+	for key, value := range properties {
+		call.properties[key] = value
+	}
+}
+
 // RecordMCPToolCall captures one MCP tool call served by the command in ctx,
 // with the same base properties as its lifecycle events, and hands it to the
 // best-effort sender without waiting. The event carries only the tool call's
@@ -238,13 +269,19 @@ func RecordMCPToolCall(ctx context.Context, tool string, duration time.Duration,
 	if run == nil {
 		return
 	}
-	props := map[string]interface{}{
-		"mcp_tool":    tool,
-		"mcp_server":  "local",
-		"duration_ms": duration.Milliseconds(),
-		"error":       failed,
-		"intent":      nil,
+	props := map[string]interface{}{}
+	if call, _ := ctx.Value(mcpToolCallKey{}).(*mcpToolCall); call != nil {
+		call.mu.Lock()
+		for key, value := range call.properties {
+			props[key] = value
+		}
+		call.mu.Unlock()
 	}
+	props["mcp_tool"] = tool
+	props["mcp_server"] = "local"
+	props["duration_ms"] = duration.Milliseconds()
+	props["error"] = failed
+	props["intent"] = nil
 	if intent = sanitizeString(intent); intent != "" {
 		props["intent"] = intent
 	}

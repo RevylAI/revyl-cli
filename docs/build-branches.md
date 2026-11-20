@@ -39,7 +39,7 @@ revyl app branch unpin staging --app "My App"
 ## Upload and list builds
 
 ```bash
-revyl build --profile preview --platform ios --branch staging
+revyl build --build-profile preview --platform ios --branch staging
 revyl build upload --file ./app.apk --app "My App" --branch staging --pin
 revyl build list --app "My App"
 revyl build list --app "My App" --branch staging --page 2 --page-size 50

@@ -226,7 +226,7 @@ func TestActionableLocalConfigErrorProvidesRecoveryCommands(t *testing.T) {
 		{
 			name: "unknown build profile",
 			err:  &config.ConfigError{Stage: "selection", Code: "unknown_or_ineligible_profile", Path: []string{"build", "profiles", "release"}},
-			want: []string{`build profile "release" is not configured`, "revyl config show", "--profile <name>"},
+			want: []string{`build profile "release" is not configured`, "revyl config show", "--build-profile <name>"},
 		},
 		{
 			name: "profile platform unavailable",

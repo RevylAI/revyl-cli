@@ -311,7 +311,7 @@ build:
 	if err == nil {
 		t.Fatal("resolveDevInvocation() error = nil, want profile ambiguity")
 	}
-	if got := err.Error(); !strings.Contains(got, "require --profile") ||
+	if got := err.Error(); !strings.Contains(got, "require --build-profile") ||
 		!strings.Contains(got, "device, production") {
 		t.Fatalf("error = %q, want --profile choices", got)
 	}

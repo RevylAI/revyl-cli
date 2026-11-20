@@ -621,6 +621,27 @@ func (e BranchSource) Valid() bool {
 	}
 }
 
+// Defines values for BrowserCookieSameSite.
+const (
+	BrowserCookieSameSiteLax    BrowserCookieSameSite = "Lax"
+	BrowserCookieSameSiteNone   BrowserCookieSameSite = "None"
+	BrowserCookieSameSiteStrict BrowserCookieSameSite = "Strict"
+)
+
+// Valid indicates whether the value is a known member of the BrowserCookieSameSite enum.
+func (e BrowserCookieSameSite) Valid() bool {
+	switch e {
+	case BrowserCookieSameSiteLax:
+		return true
+	case BrowserCookieSameSiteNone:
+		return true
+	case BrowserCookieSameSiteStrict:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildConfigPlatform.
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
@@ -3618,6 +3639,30 @@ func (e SessionHistoryStatus) Valid() bool {
 	}
 }
 
+// Defines values for SessionProfileInstructionKind.
+const (
+	SessionProfileInstructionKindApplied SessionProfileInstructionKind = "applied"
+	SessionProfileInstructionKindDefault SessionProfileInstructionKind = "default"
+	SessionProfileInstructionKindNamed   SessionProfileInstructionKind = "named"
+	SessionProfileInstructionKindNone    SessionProfileInstructionKind = "none"
+)
+
+// Valid indicates whether the value is a known member of the SessionProfileInstructionKind enum.
+func (e SessionProfileInstructionKind) Valid() bool {
+	switch e {
+	case SessionProfileInstructionKindApplied:
+		return true
+	case SessionProfileInstructionKindDefault:
+		return true
+	case SessionProfileInstructionKindNamed:
+		return true
+	case SessionProfileInstructionKindNone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionRecordingStatus.
 const (
 	SessionRecordingStatusPending     SessionRecordingStatus = "pending"
@@ -5846,17 +5891,37 @@ type AuthoredRevylConfig struct {
 	RunTestDefinitionsFromGit *bool           `json:"run_test_definitions_from_git,omitempty"`
 
 	// Session Authored project-wide device-session settings.
+	//
+	// ``profiles`` and ``before_script`` with ``auth_bypass`` are two ways to
+	// prepare a session; a session uses one or the other. ``default_profile``
+	// names a profile, or is "none" for no default.
 	Session *AuthoredSession `json:"session,omitempty"`
 }
 
 // AuthoredSession Authored project-wide device-session settings.
+//
+// “profiles“ and “before_script“ with “auth_bypass“ are two ways to
+// prepare a session; a session uses one or the other. “default_profile“
+// names a profile, or is "none" for no default.
 type AuthoredSession struct {
 	// AuthBypass Optional launch-variable, deep-link, and sign-in-link auth bypass.
 	AuthBypass *AuthoredAuthBypass `json:"auth_bypass,omitempty"`
 
 	// BeforeScript Optional setup script run before a device session.
-	BeforeScript       *AuthoredBeforeScript `json:"before_script,omitempty"`
-	IdleTimeoutSeconds *int                  `json:"idle_timeout_seconds,omitempty"`
+	BeforeScript       *AuthoredBeforeScript              `json:"before_script,omitempty"`
+	DefaultProfile     *string                            `json:"default_profile,omitempty"`
+	IdleTimeoutSeconds *int                               `json:"idle_timeout_seconds,omitempty"`
+	Profiles           *map[string]AuthoredSessionProfile `json:"profiles,omitempty"`
+}
+
+// AuthoredSessionProfile One named script that sets up a session's start state before it starts.
+//
+// “script“ is a repository path from the project root when it contains a
+// "/", otherwise the name of a Revyl script. It is stored and hashed exactly
+// as authored.
+type AuthoredSessionProfile struct {
+	RequiresRepositoryCheckout *bool  `json:"requires_repository_checkout,omitempty"`
+	Script                     string `json:"script"`
 }
 
 // AuthoredSignIn Worker-minted sign-in link opened before a session is handed over.
@@ -5962,6 +6027,11 @@ type AutoTopup struct {
 
 	// ThresholdUsd A refill runs when prepaid credit falls below this balance.
 	ThresholdUsd float32 `json:"threshold_usd"`
+}
+
+// BackendCapabilities Optional backend behaviors a client checks for before relying on them.
+type BackendCapabilities struct {
+	Capabilities *[]string `json:"capabilities,omitempty"`
 }
 
 // BatchTestInfoRequest Batch request for test metadata lookups.
@@ -6081,6 +6151,40 @@ type BonusCredits struct {
 // Results leave it absent or null when an exact build or All branches ·
 // Latest build chose the build, because then no branch was chosen.
 type BranchSource string
+
+// BrowserCookie One cookie in Playwright storage-state form.
+type BrowserCookie struct {
+	Domain       string                 `json:"domain"`
+	Expires      *float32               `json:"expires,omitempty"`
+	HttpOnly     *bool                  `json:"httpOnly,omitempty"`
+	Name         string                 `json:"name"`
+	PartitionKey *string                `json:"partitionKey,omitempty"`
+	Path         *string                `json:"path,omitempty"`
+	SameSite     *BrowserCookieSameSite `json:"sameSite,omitempty"`
+	Secure       *bool                  `json:"secure,omitempty"`
+	Value        string                 `json:"value"`
+}
+
+// BrowserCookieSameSite defines model for BrowserCookie.SameSite.
+type BrowserCookieSameSite string
+
+// BrowserLocalStorageEntry One localStorage item for an origin.
+type BrowserLocalStorageEntry struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// BrowserOriginStorage The localStorage items Playwright saved for one origin.
+type BrowserOriginStorage struct {
+	LocalStorage *[]BrowserLocalStorageEntry `json:"localStorage,omitempty"`
+	Origin       string                      `json:"origin"`
+}
+
+// BrowserStorageState Playwright storage state: the cookies and localStorage a web session starts with.
+type BrowserStorageState struct {
+	Cookies *[]BrowserCookie        `json:"cookies,omitempty"`
+	Origins *[]BrowserOriginStorage `json:"origins,omitempty"`
+}
 
 // BuildArtifact Artifact produced by a sandbox build.
 type BuildArtifact struct {
@@ -8909,6 +9013,9 @@ type GlobalVariableCreate struct {
 	// IsSecret Whether the value should be encrypted and masked
 	IsSecret *bool `json:"is_secret,omitempty"`
 
+	// ReadableByAutomatedRuns Whether any automated run in the organization can reveal this secret. Only secrets carry it, and only a member signed in with their own login or personal API key can set it.
+	ReadableByAutomatedRuns *bool `json:"readable_by_automated_runs,omitempty"`
+
 	// VariableName Name of the variable
 	VariableName string `json:"variable_name"`
 
@@ -8948,13 +9055,16 @@ type GlobalVariableRow struct {
 	// OrgId Organization ID
 	OrgId openapi_types.UUID `json:"org_id"`
 
+	// ReadableByAutomatedRuns Whether any automated run in the organization can reveal this secret
+	ReadableByAutomatedRuns *bool `json:"readable_by_automated_runs,omitempty"`
+
 	// UpdatedAt Last update timestamp
 	UpdatedAt time.Time `json:"updated_at"`
 
 	// VariableName Name of the variable
 	VariableName string `json:"variable_name"`
 
-	// VariableValue Value
+	// VariableValue Value. Null for a secret, except in a reveal response, which carries the secret's plaintext.
 	VariableValue *string `json:"variable_value,omitempty"`
 }
 
@@ -8965,6 +9075,9 @@ type GlobalVariableUpdate struct {
 
 	// IsSecret New secret flag
 	IsSecret *bool `json:"is_secret,omitempty"`
+
+	// ReadableByAutomatedRuns Whether any automated run in the organization can reveal this secret; omission keeps the current state, and making the variable non-secret clears it
+	ReadableByAutomatedRuns *bool `json:"readable_by_automated_runs,omitempty"`
 
 	// VariableName New name
 	VariableName *string `json:"variable_name,omitempty"`
@@ -9609,6 +9722,9 @@ type OrgLaunchEnvVarCreate struct {
 	// Kind Stored app-launch configuration payload type.
 	Kind *LaunchConfigurationKind `json:"kind,omitempty"`
 
+	// ReadableByAutomatedRuns Whether any automated run in the organization can reveal this secret. Only secrets carry it, and only a member signed in with their own login or personal API key can set it.
+	ReadableByAutomatedRuns *bool `json:"readable_by_automated_runs,omitempty"`
+
 	// Value Launch variable value
 	Value *string `json:"value,omitempty"`
 }
@@ -9636,7 +9752,7 @@ type OrgLaunchEnvVarResponse struct {
 
 // OrgLaunchEnvVarRow Row model for an org launch configuration.
 type OrgLaunchEnvVarRow struct {
-	// Arguments Ordered tokens for a non-secret iOS argument set. Secret argument sets are write-only and always returned as null.
+	// Arguments Ordered tokens for a non-secret iOS argument set. Secret argument sets are returned as null, except in a reveal response, which carries the tokens.
 	Arguments *[]string `json:"arguments,omitempty"`
 
 	// AttachedTestCount Number of tests currently attached to this launch variable
@@ -9669,10 +9785,13 @@ type OrgLaunchEnvVarRow struct {
 	// OrgId Organization ID
 	OrgId openapi_types.UUID `json:"org_id"`
 
+	// ReadableByAutomatedRuns Whether any automated run in the organization can reveal this secret
+	ReadableByAutomatedRuns *bool `json:"readable_by_automated_runs,omitempty"`
+
 	// UpdatedAt Last update timestamp
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// Value Plaintext value for non-secret launch variables. Secret values are write-only and always returned as null.
+	// Value Plaintext value for non-secret launch variables. Secret values are returned as null, except in a reveal response, which carries the plaintext.
 	Value *string `json:"value,omitempty"`
 }
 
@@ -9692,6 +9811,9 @@ type OrgLaunchEnvVarUpdate struct {
 
 	// Kind Stored app-launch configuration payload type.
 	Kind *LaunchConfigurationKind `json:"kind,omitempty"`
+
+	// ReadableByAutomatedRuns Whether any automated run in the organization can reveal this secret; omission keeps the current state, and making the configuration non-secret clears it
+	ReadableByAutomatedRuns *bool `json:"readable_by_automated_runs,omitempty"`
 
 	// Value Updated launch variable value
 	Value *string `json:"value,omitempty"`
@@ -10802,6 +10924,44 @@ type SessionHistorySource string
 // SessionHistoryStatus defines model for SessionHistoryStatus.
 type SessionHistoryStatus string
 
+// SessionProfileInstruction The one session-profile instruction a start request carries.
+//
+// applied: the caller already ran the named profile and sends its outputs
+// (possibly empty). none: no profile, not even the project default. named:
+// the backend runs the named profile. default: the backend runs the
+// project's default profile, if it has one.
+type SessionProfileInstruction struct {
+	// Instruction What a start request asks the backend to do about session profiles.
+	Instruction SessionProfileInstructionKind `json:"instruction"`
+	Name        *string                       `json:"name,omitempty"`
+
+	// Outputs The validated contents of a profile script's output files.
+	//
+	// Secret fields hold plaintext so they can travel to the worker the way
+	// resolved secret launch configurations do. They are excluded from repr, and
+	// every consumer keeps them out of logs, metadata and snapshots.
+	Outputs *SessionProfileOutputs `json:"outputs,omitempty"`
+}
+
+// SessionProfileInstructionKind What a start request asks the backend to do about session profiles.
+type SessionProfileInstructionKind string
+
+// SessionProfileOutputs The validated contents of a profile script's output files.
+//
+// Secret fields hold plaintext so they can travel to the worker the way
+// resolved secret launch configurations do. They are excluded from repr, and
+// every consumer keeps them out of logs, metadata and snapshots.
+type SessionProfileOutputs struct {
+	// BrowserStorageState Playwright storage state: the cookies and localStorage a web session starts with.
+	BrowserStorageState *BrowserStorageState `json:"browser_storage_state,omitempty"`
+	DeepLink            *string              `json:"deep_link,omitempty"`
+	IosLaunchArguments  *[]string            `json:"ios_launch_arguments,omitempty"`
+	LaunchEnv           *map[string]string   `json:"launch_env,omitempty"`
+	SecretLaunchEnv     *map[string]string   `json:"secret_launch_env,omitempty"`
+	SecretVariables     *map[string]string   `json:"secret_variables,omitempty"`
+	Variables           *map[string]string   `json:"variables,omitempty"`
+}
+
 // SessionRecordingStatus defines model for SessionRecordingStatus.
 type SessionRecordingStatus string
 
@@ -10931,9 +11091,17 @@ type StartDeviceInfo struct {
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 
 	// ScmPreviewId Optional SCM preview context for an exact build launch. The backend validates the frozen review/build association and applies its session authentication, timeout, and attribution settings.
-	ScmPreviewId                 *openapi_types.UUID `json:"scm_preview_id,omitempty"`
-	SessionId                    *openapi_types.UUID `json:"session_id,omitempty"`
-	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic,omitempty"`
+	ScmPreviewId *openapi_types.UUID `json:"scm_preview_id,omitempty"`
+	SessionId    *openapi_types.UUID `json:"session_id,omitempty"`
+
+	// SessionProfile The one session-profile instruction a start request carries.
+	//
+	// applied: the caller already ran the named profile and sends its outputs
+	// (possibly empty). none: no profile, not even the project default. named:
+	// the backend runs the named profile. default: the backend runs the
+	// project's default profile, if it has one.
+	SessionProfile               *SessionProfileInstruction `json:"session_profile,omitempty"`
+	StartupSessionStartMonotonic *float32                   `json:"startup_session_start_monotonic,omitempty"`
 
 	// StorekitConfig Resolved iOS StoreKit config snapshot carried to worker launch.
 	StorekitConfig *IosStoreKitConfigSnapshot `json:"storekit_config,omitempty"`
@@ -10995,7 +11163,10 @@ type StartDeviceResponse struct {
 	QueueNotice  *DeviceQueueNotice  `json:"queue_notice,omitempty"`
 	RetryAllowed *bool               `json:"retry_allowed,omitempty"`
 	SessionId    *openapi_types.UUID `json:"session_id,omitempty"`
-	Status       AsyncStatus         `json:"status"`
+
+	// SessionProfileName The session profile this session starts with, if any
+	SessionProfileName *string     `json:"session_profile_name,omitempty"`
+	Status             AsyncStatus `json:"status"`
 
 	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
 	TraceId *string `json:"trace_id,omitempty"`
@@ -13070,8 +13241,9 @@ type GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams struct {
 
 // ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPutParams defines parameters for ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPut.
 type ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPutParams struct {
-	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
-	XCISystem    *string `json:"X-CI-System,omitempty"`
+	XRevylClient             *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                *string `json:"X-CI-System,omitempty"`
+	XRevylClientCapabilities *string `json:"X-Revyl-Client-Capabilities,omitempty"`
 }
 
 // PutProjectCursorProofAuthorizationApiV1ProjectsProjectIdCursorProofAuthorizationPutParams defines parameters for PutProjectCursorProofAuthorizationApiV1ProjectsProjectIdCursorProofAuthorizationPut.

@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
@@ -107,21 +106,7 @@ func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSe
 // openURLAfterLaunch opens a literal URL or delegates template resolution to
 // the existing backend worker proxy.
 func openURLAfterLaunch(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession, urlOrTemplate string) error {
-	value := strings.TrimSpace(urlOrTemplate)
-	if value == "" {
-		return nil
-	}
-	path := "/open_url"
-	body := interface{}(api.DeviceOpenURLRequest{URL: value})
-	if strings.Contains(value, "${") {
-		path = "/open_url_template"
-		body = api.DeviceOpenURLTemplateRequest{URLTemplate: value}
-	}
-	respBody, err := requester.WorkerRequestOnSession(ctx, session, path, body)
-	if err != nil {
-		return err
-	}
-	return ensureWorkerActionSucceeded(respBody, "open_url")
+	return mcppkg.OpenURLAfterLaunch(ctx, requester, session, urlOrTemplate)
 }
 
 // authBypassPublicError converts an internal failure into a secret-free message.
@@ -250,10 +235,13 @@ var devAuthCmd = &cobra.Command{
 
 var devAuthRefreshCmd = &cobra.Command{
 	Use:   "refresh",
-	Short: "Re-fire the auth bypass deep link from session boot values",
+	Short: "Reopen the session's sign-in deep link without reminting",
 	Long: `Re-open the auth_bypass deep link on the active dev session using the same
 launch values applied at session boot. Use when the app under test shows a
 logged-out state mid-session but the boot token is still valid.
+
+For a project with session.profiles, reopen the deep link the session's
+profile wrote when the session started, without rerunning its script.
 
 Does not remint session.before_script or org launch variables: launch environment is
 fixed at boot, and apps that compare the deep-link token to
@@ -303,6 +291,9 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 			action)
 	}
 	authoredSession := project.Aggregate.Session
+	if len(authoredSession.Profiles) > 0 {
+		return refreshSessionProfileDeepLink(cmd)
+	}
 	if !authoredAuthBypassConfigured(authoredSession.AuthBypass) {
 		return devAuthRefreshError(cmd, "no_auth_bypass",
 			fmt.Sprintf("no session.auth_bypass section in %s", project.ConfigPath),

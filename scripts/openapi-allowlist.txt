@@ -43,6 +43,7 @@ GET /api/v1/atlas/v2/apps/{app_id}/structure
 GET /api/v1/atlas/v2/apps/{app_id}/share
 GET /api/v1/atlas/v2/annotations/feedback
 GET /api/v1/atlas/v2/index
+GET /api/v1/backend-capabilities
 GET /api/v1/entity/orgs/members
 GET /api/v1/entity/users/get_dashboard_metrics
 GET /api/v1/entity/users/get_user_uuid
@@ -92,9 +93,11 @@ GET /api/v1/tests/{test_id}/versions
 GET /api/v1/variables/custom/check_exists
 GET /api/v1/variables/custom/read_variables
 GET /api/v1/variables/global
+GET /api/v1/variables/global/{variable_id}/plaintext
 GET /api/v1/variables/ios_storekit/refs
 GET /api/v1/variables/org_launch_env
 GET /api/v1/variables/org_launch_env/test-attachments
+GET /api/v1/variables/org_launch_env/{env_var_id}/plaintext
 GET /api/v1/workflows/get_info/{workflow_id}
 GET /api/v1/workflows/get_with_last_status
 GET /api/v1/workflows/get_workflow_info

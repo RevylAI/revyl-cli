@@ -121,7 +121,7 @@ def main() -> None:
                 "build",
                 "--remote",
                 "--detach",
-                "--profile",
+                "--build-profile",
                 os.environ["REVYL_PROFILE"],
                 "--platform",
                 os.environ["REVYL_PLATFORM"],

@@ -230,7 +230,7 @@ func runScriptPull(cmd *cobra.Command, args []string) error {
 		}
 		scripts = []api.CLIScriptInfo{*script}
 	} else {
-		scripts, err = listAllSavedScripts(cmd.Context(), client)
+		scripts, err = client.ListAllScripts(cmd.Context())
 		if err != nil {
 			ui.StopSpinner()
 			ui.PrintError("%v", err)

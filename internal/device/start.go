@@ -93,6 +93,11 @@ type ResolvedStartArtifact struct {
 	BranchName           string
 	AppURL               string
 	AppPackage           string
+	// WebOrigin is the scheme://host[:port] a Web build opens in the browser.
+	WebOrigin string
+	// WebAcceptsLaunchEnv is true for a bundle Revyl starts with a start
+	// command, the only Web build whose app process takes launch env.
+	WebAcceptsLaunchEnv bool
 }
 
 // ResolveStartArtifact resolves app-selection inputs into a concrete artifact URL.

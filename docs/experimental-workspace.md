@@ -1,8 +1,8 @@
 # Experimental embedded workspace
 
 The local CLI prototype is explicitly opt-in: add `--experimental-workspace`
-to `revyl mcp serve` (for example, `revyl mcp serve --profile core
---experimental-workspace`). Existing profiles behave as before when omitted.
+to `revyl mcp serve` (for example, `revyl mcp serve --tool-profile core
+--experimental-workspace`). Existing tool profiles behave as before when omitted.
 This does not install or change a plugin package. For MCP client installation,
 see [MCP Setup](https://docs.revyl.com/cli/mcp-setup).
 

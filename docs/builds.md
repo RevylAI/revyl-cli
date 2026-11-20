@@ -3,7 +3,7 @@
 `revyl build` runs a configured recipe in the cloud:
 
 ```bash
-revyl build --profile development --platform ios
+revyl build --build-profile development --platform ios
 ```
 
 The recipe lives in `.revyl/config.yaml`. If the profile or platform is

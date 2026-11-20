@@ -108,3 +108,8 @@ example to seed test data); do not claim that YAML makes it run automatically or
 copy its secret output into config. The worker mints the short-lived sign-in code
 itself. Keep dynamic values and credentials in approved secret storage, not
 checked-in profiles or prompts.
+
+A [session profile](https://docs.revyl.com/devices/session-profiles)
+(`session.profiles`) is the other way to prepare a session, and a config uses
+one or the other. A profile does run before Web starts: its script can seed
+data, write browser storage state, or set a Revyl-run app's launch environment.

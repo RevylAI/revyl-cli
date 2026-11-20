@@ -4660,6 +4660,48 @@ type StartDeviceRequest struct {
 
 	// RunConfig contains optional execution configuration.
 	RunConfig *DeviceRunConfig `json:"run_config,omitempty"`
+
+	// SessionProfile carries the outputs of the session profile the CLI ran
+	// before this start. Nil starts the session without a profile.
+	SessionProfile *AppliedSessionProfile `json:"session_profile,omitempty"`
+}
+
+// AppliedSessionProfile is the "applied" session_profile instruction: the CLI
+// already ran the named profile's script and sends its validated outputs.
+type AppliedSessionProfile struct {
+	Instruction SessionProfileInstructionKind `json:"instruction"`
+	Name        string                        `json:"name"`
+	Outputs     AppliedSessionProfileOutputs  `json:"outputs"`
+}
+
+// AppliedSessionProfileOutputs mirrors SessionProfileOutputs but keeps browser
+// storage state as the validated JSON document: the generated cookie expiry is
+// float32, which would round real expiry timestamps.
+type AppliedSessionProfileOutputs struct {
+	LaunchEnv           map[string]string `json:"launch_env,omitempty"`
+	SecretLaunchEnv     map[string]string `json:"secret_launch_env,omitempty"`
+	IOSLaunchArguments  []string          `json:"ios_launch_arguments,omitempty"`
+	BrowserStorageState json.RawMessage   `json:"browser_storage_state,omitempty"`
+	DeepLink            *string           `json:"deep_link,omitempty"`
+	Variables           map[string]string `json:"variables,omitempty"`
+	SecretVariables     map[string]string `json:"secret_variables,omitempty"`
+}
+
+// GetBackendCapabilities lists the optional behaviors the backend supports.
+// A backend older than the route answers 404 as an *APIError.
+func (c *Client) GetBackendCapabilities(ctx context.Context) ([]string, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/backend-capabilities", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result BackendCapabilities
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	if result.Capabilities == nil {
+		return nil, nil
+	}
+	return *result.Capabilities, nil
 }
 
 // DeviceRunConfig contains optional execution configuration for device sessions.
@@ -6775,6 +6817,22 @@ func (c *Client) ListScripts(ctx context.Context, runtime string, limit, offset 
 	return &result, nil
 }
 
+// ListAllScripts pages through every saved script in the organization.
+func (c *Client) ListAllScripts(ctx context.Context) ([]CLIScriptInfo, error) {
+	const pageSize = 1000
+	var scripts []CLIScriptInfo
+	for {
+		page, err := c.ListScripts(ctx, "", pageSize, len(scripts))
+		if err != nil {
+			return nil, fmt.Errorf("list saved scripts: %w", err)
+		}
+		scripts = append(scripts, page.Scripts...)
+		if len(page.Scripts) < pageSize || len(scripts) >= page.Count {
+			return scripts, nil
+		}
+	}
+}
+
 // GetScript retrieves a script by ID.
 func (c *Client) GetScript(ctx context.Context, scriptID string) (*CLIScriptInfo, error) {
 	resp, err := c.doRequest(ctx, "GET",
@@ -7520,19 +7578,20 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 
 // OrgLaunchVariable represents an org-scoped reusable launch variable.
 type OrgLaunchVariable struct {
-	ID                string   `json:"id"`
-	OrgID             string   `json:"org_id"`
-	Key               string   `json:"key"`
-	Kind              string   `json:"kind"`
-	Value             string   `json:"value"`
-	Arguments         []string `json:"arguments,omitempty"`
-	IsSecret          bool     `json:"is_secret"`
-	HasValue          *bool    `json:"has_value,omitempty"`
-	Description       string   `json:"description,omitempty"`
-	CreatedBy         string   `json:"created_by,omitempty"`
-	CreatedAt         string   `json:"created_at,omitempty"`
-	UpdatedAt         string   `json:"updated_at,omitempty"`
-	AttachedTestCount int      `json:"attached_test_count,omitempty"`
+	ID                      string   `json:"id"`
+	OrgID                   string   `json:"org_id"`
+	Key                     string   `json:"key"`
+	Kind                    string   `json:"kind"`
+	Value                   string   `json:"value"`
+	Arguments               []string `json:"arguments,omitempty"`
+	IsSecret                bool     `json:"is_secret"`
+	ReadableByAutomatedRuns *bool    `json:"readable_by_automated_runs,omitempty"`
+	HasValue                *bool    `json:"has_value,omitempty"`
+	Description             string   `json:"description,omitempty"`
+	CreatedBy               string   `json:"created_by,omitempty"`
+	CreatedAt               string   `json:"created_at,omitempty"`
+	UpdatedAt               string   `json:"updated_at,omitempty"`
+	AttachedTestCount       int      `json:"attached_test_count,omitempty"`
 }
 
 // UnmarshalJSON keeps launch variables from older API versions secret by
@@ -7551,7 +7610,8 @@ func (v *OrgLaunchVariable) UnmarshalJSON(data []byte) error {
 
 // OrgLaunchVariableWriteOptions controls optional launch-variable write fields.
 type OrgLaunchVariableWriteOptions struct {
-	IsSecret *bool
+	IsSecret                *bool
+	ReadableByAutomatedRuns *bool
 }
 
 // OrgLaunchVariablesResponse represents the response from listing org launch variables.
@@ -7590,7 +7650,25 @@ func (c *Client) ListGlobalVariables(ctx context.Context) (*GlobalVariablesRespo
 
 // GlobalVariableWriteOptions controls optional global variable write fields.
 type GlobalVariableWriteOptions struct {
-	IsSecret *bool
+	IsSecret                *bool
+	ReadableByAutomatedRuns *bool
+}
+
+// RevealGlobalVariable returns one global variable with its plaintext value,
+// a secret's included. The backend audits every secret reveal.
+func (c *Client) RevealGlobalVariable(ctx context.Context, variableID string) (*GlobalVariableResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/global/%s/plaintext", variableID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GlobalVariableResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 // AddGlobalVariable creates a new global variable for the authenticated user's org.
@@ -7601,6 +7679,9 @@ func (c *Client) AddGlobalVariable(ctx context.Context, name, value string, opts
 	}
 	if opts.IsSecret != nil {
 		body["is_secret"] = *opts.IsSecret
+	}
+	if opts.ReadableByAutomatedRuns != nil {
+		body["readable_by_automated_runs"] = *opts.ReadableByAutomatedRuns
 	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/global", body)
 	if err != nil {
@@ -7625,6 +7706,9 @@ func (c *Client) UpdateGlobalVariable(ctx context.Context, variableID, name stri
 	}
 	if opts.IsSecret != nil {
 		body["is_secret"] = *opts.IsSecret
+	}
+	if opts.ReadableByAutomatedRuns != nil {
+		body["readable_by_automated_runs"] = *opts.ReadableByAutomatedRuns
 	}
 	path := fmt.Sprintf("/api/v1/variables/global/%s", variableID)
 	resp, err := c.doRequest(ctx, "PUT", path, body)
@@ -7678,6 +7762,9 @@ func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, de
 	if opts.IsSecret != nil {
 		body["is_secret"] = *opts.IsSecret
 	}
+	if opts.ReadableByAutomatedRuns != nil {
+		body["readable_by_automated_runs"] = *opts.ReadableByAutomatedRuns
+	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/org_launch_env", body)
 	if err != nil {
 		return nil, err
@@ -7706,9 +7793,29 @@ func (c *Client) UpdateOrgLaunchVariable(ctx context.Context, variableID string,
 	if opts.IsSecret != nil {
 		body["is_secret"] = *opts.IsSecret
 	}
+	if opts.ReadableByAutomatedRuns != nil {
+		body["readable_by_automated_runs"] = *opts.ReadableByAutomatedRuns
+	}
 
 	path := fmt.Sprintf("/api/v1/variables/org_launch_env/%s", variableID)
 	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result OrgLaunchVariableResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// RevealOrgLaunchVariable returns one org launch variable with its plaintext
+// value or arguments, a secret's included. The backend audits every secret reveal.
+func (c *Client) RevealOrgLaunchVariable(ctx context.Context, variableID string) (*OrgLaunchVariableResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/org_launch_env/%s/plaintext", variableID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}

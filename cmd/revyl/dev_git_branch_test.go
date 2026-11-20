@@ -99,7 +99,7 @@ func TestDevKeepsAMissingExplicitBranchForItsFirstUpload(t *testing.T) {
 		t.Fatalf("first upload destination = %q, %q, %q; want the branch name", branchID, branchName, gitBranchName)
 	}
 	args := projectDetachArgs([]string{"dev", "--branch", "release", "--detach"}, invocation)
-	if strings.Join(args, " ") != "dev --branch release --profile dev --platform android" {
+	if strings.Join(args, " ") != "dev --branch release --build-profile dev --platform android" {
 		t.Fatalf("detached child lost the new branch: %v", args)
 	}
 }

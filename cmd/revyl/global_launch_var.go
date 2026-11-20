@@ -14,13 +14,17 @@ import (
 )
 
 var (
-	globalLaunchVarCreateDescription string
-	globalLaunchVarCreateSecret      bool
+	globalLaunchVarGetReveal bool
 
-	globalLaunchVarUpdateKey         string
-	globalLaunchVarUpdateValue       string
-	globalLaunchVarUpdateDescription string
-	globalLaunchVarUpdateSecret      bool
+	globalLaunchVarCreateDescription             string
+	globalLaunchVarCreateSecret                  bool
+	globalLaunchVarCreateReadableByAutomatedRuns bool
+
+	globalLaunchVarUpdateKey                     string
+	globalLaunchVarUpdateValue                   string
+	globalLaunchVarUpdateDescription             string
+	globalLaunchVarUpdateSecret                  bool
+	globalLaunchVarUpdateReadableByAutomatedRuns bool
 
 	globalLaunchVarDeleteForce bool
 )
@@ -45,8 +49,21 @@ var globalLaunchVarListCmd = &cobra.Command{
 var globalLaunchVarGetCmd = &cobra.Command{
 	Use:   "get <key|id>",
 	Short: "Get a single launch variable",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGlobalLaunchVarGet,
+	Long: `Get a single launch variable. Secret values print masked.
+
+With --reveal, the plaintext value prints exactly, with no trailing newline, a
+secret's included; with --json, the variable comes back with its plaintext
+value, or arguments for an iOS argument set. Argument sets need --json. Your own
+login or personal API key reveals any secret unless your role is Viewer. Any
+other key (for example a CI or agent key) reveals only secrets marked readable
+by automated runs. Revyl audits every secret reveal.
+
+EXAMPLES:
+  revyl global launch-var get API_URL
+  revyl global launch-var get API_TOKEN --reveal
+  revyl global launch-var get LAUNCH_ARGS --reveal --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGlobalLaunchVarGet,
 }
 
 var globalLaunchVarCreateCmd = &cobra.Command{
@@ -54,9 +71,16 @@ var globalLaunchVarCreateCmd = &cobra.Command{
 	Short: "Create a launch variable",
 	Long: `Create a reusable org launch variable.
 
+--readable-by-automated-runs lets credentials other than an organization
+member's own login or personal API key (for example a CI, agent or hosted
+session-profile run key) reveal a secret; any automated run in the organization
+can then read it. Only a member signed in with their own login or personal API
+key can set it.
+
 EXAMPLES:
   revyl global launch-var create API_URL=https://staging.example.com
-  revyl global launch-var create DEBUG=true --description "Enable debug startup"`,
+  revyl global launch-var create DEBUG=true --description "Enable debug startup"
+  revyl global launch-var create API_TOKEN=token --secret --readable-by-automated-runs`,
 	Args: cobra.ExactArgs(1),
 	RunE: runGlobalLaunchVarCreate,
 }
@@ -69,6 +93,8 @@ var globalLaunchVarUpdateCmd = &cobra.Command{
 EXAMPLES:
   revyl global launch-var update API_URL --value https://prod.example.com
   revyl global launch-var update API_URL --key API_BASE_URL --description "Shared API endpoint"
+  revyl global launch-var update API_TOKEN --readable-by-automated-runs
+  revyl global launch-var update API_TOKEN --readable-by-automated-runs=false
   revyl global launch-var update 11111111-1111-1111-1111-111111111111 --description ""`,
 	Args: cobra.ExactArgs(1),
 	RunE: runGlobalLaunchVarUpdate,
@@ -95,11 +121,14 @@ func init() {
 
 	globalLaunchVarListCmd.Flags().Bool("show-values", false, "Deprecated: non-secret values are always shown; secret values stay masked")
 	globalLaunchVarCreateCmd.Flags().StringVar(&globalLaunchVarCreateDescription, "description", "", "Optional description")
-	globalLaunchVarCreateCmd.Flags().BoolVar(&globalLaunchVarCreateSecret, "secret", false, "Encrypt the value and hide it from reads")
+	globalLaunchVarGetCmd.Flags().BoolVar(&globalLaunchVarGetReveal, "reveal", false, "Print the plaintext value exactly, a secret's included (audited)")
+	globalLaunchVarCreateCmd.Flags().BoolVar(&globalLaunchVarCreateSecret, "secret", false, "Encrypt the value and mask it on reads")
+	globalLaunchVarCreateCmd.Flags().BoolVar(&globalLaunchVarCreateReadableByAutomatedRuns, "readable-by-automated-runs", false, "Let any automated run in the organization reveal this secret")
 	globalLaunchVarUpdateCmd.Flags().StringVar(&globalLaunchVarUpdateKey, "key", "", "New key")
 	globalLaunchVarUpdateCmd.Flags().StringVar(&globalLaunchVarUpdateValue, "value", "", "New value")
 	globalLaunchVarUpdateCmd.Flags().StringVar(&globalLaunchVarUpdateDescription, "description", "", "New description (use empty string to clear)")
 	globalLaunchVarUpdateCmd.Flags().BoolVar(&globalLaunchVarUpdateSecret, "secret", false, "Set secrecy state (use --secret=false for non-secret)")
+	globalLaunchVarUpdateCmd.Flags().BoolVar(&globalLaunchVarUpdateReadableByAutomatedRuns, "readable-by-automated-runs", false, "Let any automated run in the organization reveal this secret (=false clears)")
 	globalLaunchVarDeleteCmd.Flags().BoolVarP(&globalLaunchVarDeleteForce, "force", "f", false, "Skip confirmation prompt")
 }
 
@@ -204,6 +233,9 @@ func runGlobalLaunchVarGet(cmd *cobra.Command, args []string) error {
 	}
 
 	jsonMode, _ := cmd.Root().PersistentFlags().GetBool("json")
+	if globalLaunchVarGetReveal {
+		return revealGlobalLaunchVar(cmd, client, variable, jsonMode)
+	}
 	if jsonMode {
 		return encodeJSON(variable)
 	}
@@ -224,6 +256,25 @@ func runGlobalLaunchVarGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func revealGlobalLaunchVar(cmd *cobra.Command, client *api.Client, variable api.OrgLaunchVariable, jsonMode bool) error {
+	if variable.Kind == string(api.LaunchConfigurationKindIosArguments) && !jsonMode {
+		return fmt.Errorf("launch variable '%s' is an iOS argument set; reveal it with --reveal --json", variable.Key)
+	}
+
+	ui.StartSpinner("Revealing launch variable...")
+	resp, err := client.RevealOrgLaunchVariable(cmd.Context(), variable.ID)
+	ui.StopSpinner()
+	if err != nil {
+		return fmt.Errorf("failed to reveal launch variable '%s': %w", variable.Key, err)
+	}
+
+	if jsonMode {
+		return encodeJSON(resp.Result)
+	}
+	fmt.Print(resp.Result.Value)
+	return nil
+}
+
 func runGlobalLaunchVarCreate(cmd *cobra.Command, args []string) error {
 	key, value, err := parseKeyValueArg(args[0])
 	if err != nil {
@@ -241,17 +292,26 @@ func runGlobalLaunchVarCreate(cmd *cobra.Command, args []string) error {
 		descPtr = &globalLaunchVarCreateDescription
 	}
 
+	opts := api.OrgLaunchVariableWriteOptions{IsSecret: &globalLaunchVarCreateSecret}
+	if cmd.Flags().Changed("readable-by-automated-runs") {
+		opts.ReadableByAutomatedRuns = &globalLaunchVarCreateReadableByAutomatedRuns
+	}
+
 	ui.StartSpinner("Creating launch variable...")
 	resp, err := client.AddOrgLaunchVariable(
 		cmd.Context(),
 		key,
 		value,
 		descPtr,
-		api.OrgLaunchVariableWriteOptions{IsSecret: &globalLaunchVarCreateSecret},
+		opts,
 	)
 	ui.StopSpinner()
 	if err != nil {
 		ui.PrintError("Failed to create launch variable: %v", err)
+		return err
+	}
+	if err := requireAutomatedRunsMarkApplied(opts.ReadableByAutomatedRuns, resp.Result.ReadableByAutomatedRuns); err != nil {
+		ui.PrintError("%v", err)
 		return err
 	}
 
@@ -282,7 +342,7 @@ func runGlobalLaunchVarUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var keyPtr, valuePtr, descPtr *string
-	var secretPtr *bool
+	var secretPtr, readableByAutomatedRunsPtr *bool
 	if cmd.Flags().Changed("key") {
 		keyPtr = &globalLaunchVarUpdateKey
 	}
@@ -295,8 +355,11 @@ func runGlobalLaunchVarUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("secret") {
 		secretPtr = &globalLaunchVarUpdateSecret
 	}
-	if keyPtr == nil && valuePtr == nil && descPtr == nil && secretPtr == nil {
-		err := fmt.Errorf("nothing to update; provide at least one of --key, --value, --description, or --secret")
+	if cmd.Flags().Changed("readable-by-automated-runs") {
+		readableByAutomatedRunsPtr = &globalLaunchVarUpdateReadableByAutomatedRuns
+	}
+	if keyPtr == nil && valuePtr == nil && descPtr == nil && secretPtr == nil && readableByAutomatedRunsPtr == nil {
+		err := fmt.Errorf("nothing to update; provide at least one of --key, --value, --description, --secret, or --readable-by-automated-runs")
 		ui.PrintError("%v", err)
 		return err
 	}
@@ -308,11 +371,15 @@ func runGlobalLaunchVarUpdate(cmd *cobra.Command, args []string) error {
 		keyPtr,
 		valuePtr,
 		descPtr,
-		api.OrgLaunchVariableWriteOptions{IsSecret: secretPtr},
+		api.OrgLaunchVariableWriteOptions{IsSecret: secretPtr, ReadableByAutomatedRuns: readableByAutomatedRunsPtr},
 	)
 	ui.StopSpinner()
 	if err != nil {
 		ui.PrintError("Failed to update launch variable: %v", err)
+		return err
+	}
+	if err := requireAutomatedRunsMarkApplied(readableByAutomatedRunsPtr, resp.Result.ReadableByAutomatedRuns); err != nil {
+		ui.PrintError("%v", err)
 		return err
 	}
 

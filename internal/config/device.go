@@ -98,6 +98,9 @@ func (c DeviceConfigContext) ReadSession() (AuthoredSession, error) {
 	if err := sessionNode.Decode(&session); err != nil {
 		return AuthoredSession{}, newConfigError("contract", "invalid_contract", []string{"session"}, "")
 	}
+	if err := validateAuthoredSessionProfiles(session); err != nil {
+		return AuthoredSession{}, err
+	}
 	return normalizeSession(session, c.repositoryRelativeProjectRoot)
 }
 

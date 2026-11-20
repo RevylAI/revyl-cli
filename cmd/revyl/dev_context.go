@@ -409,6 +409,9 @@ func printIfDevStartContextAlreadyRunning(repoRoot, ctxName string, invocation p
 	} else if existing.BranchID != invocation.BranchID || invocation.branchAwaitsFirstUpload() {
 		return false, fmt.Errorf("dev context %q is running on a different or unrecorded branch; stop that context or choose another --context", ctxName)
 	}
+	if err := devSessionProfile.refusePickForRunningSession(repoRoot, existing.SessionID); err != nil {
+		return false, err
+	}
 	printDevContextAlreadyRunning(existing)
 	return true, nil
 }
@@ -1055,7 +1058,15 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 	current, _ := readCurrentDevContext(cwd)
 
 	if jsonOutput {
-		out, _ := json.MarshalIndent(contexts, "", "  ")
+		type devListEntry struct {
+			*DevContext
+			BuildProfile string `json:"build_profile,omitempty"`
+		}
+		entries := make([]devListEntry, 0, len(contexts))
+		for _, ctx := range contexts {
+			entries = append(entries, devListEntry{DevContext: ctx, BuildProfile: ctx.Profile})
+		}
+		out, _ := json.MarshalIndent(entries, "", "  ")
 		fmt.Println(string(out))
 		return nil
 	}

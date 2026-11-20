@@ -57,8 +57,9 @@ To **create** the scheduled Automation (CI upload + paste-ready prompt), use
    revyl device start --build-version-id <build-version-id> --json
    ```
 
-   Run from the directory that owns `.revyl/config.yaml` so
-   `session.auth_bypass` / `session.before_script` apply.
+   Run from the directory that owns `.revyl/config.yaml` so its session
+   settings (`session.profiles`, or `session.auth_bypass` /
+   `session.before_script`) apply.
 
 3. **Exercise the diff**
    - Read the PR diff; verify the behaviour it changes

@@ -15,8 +15,10 @@ import (
 const globalVarSecretMask = "********"
 
 var (
-	globalVarSetSecret   bool
-	globalVarSetNoSecret bool
+	globalVarGetReveal                  bool
+	globalVarSetSecret                  bool
+	globalVarSetNoSecret                bool
+	globalVarSetReadableByAutomatedRuns bool
 )
 
 // globalCmd is the parent command for org-wide global resources.
@@ -48,8 +50,10 @@ COMMANDS:
 EXAMPLES:
   revyl global var list
   revyl global var get login-email
+  revyl global var get password --reveal
   revyl global var set login-email=testuser@example.com
   revyl global var set "password=my secret" --secret
+  revyl global var set password --readable-by-automated-runs
   revyl global var delete login-email`,
 }
 
@@ -63,8 +67,20 @@ var globalVarListCmd = &cobra.Command{
 var globalVarGetCmd = &cobra.Command{
 	Use:   "get <NAME>",
 	Short: "Get a global variable's value",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGlobalVarGet,
+	Long: `Get a global variable's value. Secret values print masked.
+
+With --reveal, the plaintext value prints exactly, with no trailing newline, a
+secret's included; with --json, the variable comes back with its plaintext
+value. Your own login or personal API key reveals any secret unless your role
+is Viewer. Any other key (for example a CI or agent key) reveals only secrets
+marked readable by automated runs. Revyl audits every secret reveal.
+
+EXAMPLES:
+  revyl global var get login-email
+  revyl global var get password --reveal
+  revyl global var get password --reveal --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGlobalVarGet,
 }
 
 var globalVarSetCmd = &cobra.Command{
@@ -78,10 +94,19 @@ created.
 Value is optional -- omit the '=' to create a name-only variable (useful for
 variables that are filled at runtime by extraction or code blocks).
 
+--readable-by-automated-runs lets credentials other than an organization
+member's own login or personal API key (for example a CI, agent or hosted
+session-profile run key) reveal a secret; any automated run in the organization
+can then read it. Only a member signed in with their own login or personal API
+key can set or clear it (--readable-by-automated-runs=false). Without '=VALUE',
+it changes only the mark of an existing variable.
+
 EXAMPLES:
   revyl global var set login-email=testuser@example.com
   revyl global var set "password=my secret" --secret
   revyl global var set "password=new value" --no-secret
+  revyl global var set password --readable-by-automated-runs
+  revyl global var set password --readable-by-automated-runs=false
   revyl global var set otp-code`,
 	Args: cobra.ExactArgs(1),
 	RunE: runGlobalVarSet,
@@ -101,8 +126,10 @@ func init() {
 	globalVarCmd.AddCommand(globalVarSetCmd)
 	globalVarCmd.AddCommand(globalVarDeleteCmd)
 
+	globalVarGetCmd.Flags().BoolVar(&globalVarGetReveal, "reveal", false, "Print the plaintext value exactly, a secret's included (audited)")
 	globalVarSetCmd.Flags().BoolVar(&globalVarSetSecret, "secret", false, "Store the value as an encrypted secret")
 	globalVarSetCmd.Flags().BoolVar(&globalVarSetNoSecret, "no-secret", false, "Store the value as plaintext")
+	globalVarSetCmd.Flags().BoolVar(&globalVarSetReadableByAutomatedRuns, "readable-by-automated-runs", false, "Let any automated run in the organization reveal this secret (=false clears)")
 }
 
 // globalVarSetupClient creates an API client for global variable operations.
@@ -134,25 +161,37 @@ func formatGlobalVarValue(v api.GlobalVariableRow) string {
 	return *v.VariableValue
 }
 
+// requireAutomatedRunsMarkApplied fails a write whose requested mark the
+// server did not return: a backend that predates the mark ignores the field.
+func requireAutomatedRunsMarkApplied(requested, returned *bool) error {
+	if requested == nil || (returned != nil && *returned == *requested) {
+		return nil
+	}
+	return fmt.Errorf("the variable was saved, but the server did not apply --readable-by-automated-runs=%t; it may not support this flag yet", *requested)
+}
+
 func globalVarWriteOptions(cmd *cobra.Command, existing *api.GlobalVariableRow) (api.GlobalVariableWriteOptions, error) {
 	secretChanged := cmd.Flags().Changed("secret")
 	noSecretChanged := cmd.Flags().Changed("no-secret")
 	if secretChanged && noSecretChanged {
 		return api.GlobalVariableWriteOptions{}, fmt.Errorf("use either --secret or --no-secret, not both")
 	}
-	if secretChanged {
+	var opts api.GlobalVariableWriteOptions
+	if cmd.Flags().Changed("readable-by-automated-runs") {
+		opts.ReadableByAutomatedRuns = &globalVarSetReadableByAutomatedRuns
+	}
+	switch {
+	case secretChanged:
 		isSecret := true
-		return api.GlobalVariableWriteOptions{IsSecret: &isSecret}, nil
-	}
-	if noSecretChanged {
+		opts.IsSecret = &isSecret
+	case noSecretChanged:
 		isSecret := false
-		return api.GlobalVariableWriteOptions{IsSecret: &isSecret}, nil
-	}
-	if existing != nil && globalVarIsSecret(*existing) {
+		opts.IsSecret = &isSecret
+	case existing != nil && globalVarIsSecret(*existing):
 		keepSecret := true
-		return api.GlobalVariableWriteOptions{IsSecret: &keepSecret}, nil
+		opts.IsSecret = &keepSecret
 	}
-	return api.GlobalVariableWriteOptions{}, nil
+	return opts, nil
 }
 
 func runGlobalVarList(cmd *cobra.Command, args []string) error {
@@ -230,6 +269,9 @@ func runGlobalVarGet(cmd *cobra.Command, args []string) error {
 
 	for _, v := range resp.Result {
 		if v.VariableName == name {
+			if globalVarGetReveal {
+				return revealGlobalVar(cmd, client, v, jsonMode)
+			}
 			if jsonMode {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -244,6 +286,23 @@ func runGlobalVarGet(cmd *cobra.Command, args []string) error {
 	return fmt.Errorf("variable not found")
 }
 
+func revealGlobalVar(cmd *cobra.Command, client *api.Client, v api.GlobalVariableRow, jsonMode bool) error {
+	ui.StartSpinner("Revealing variable...")
+	resp, err := client.RevealGlobalVariable(cmd.Context(), v.Id.String())
+	ui.StopSpinner()
+	if err != nil {
+		return fmt.Errorf("failed to reveal global variable '%s': %w", v.VariableName, err)
+	}
+
+	if jsonMode {
+		return encodeJSON(resp.Result)
+	}
+	if resp.Result.VariableValue != nil {
+		fmt.Print(*resp.Result.VariableValue)
+	}
+	return nil
+}
+
 func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 	nameValueArg := args[0]
 
@@ -255,7 +314,8 @@ func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 
 	var name, value string
 	idx := strings.Index(nameValueArg, "=")
-	if idx >= 0 {
+	hasValue := idx >= 0
+	if hasValue {
 		name = nameValueArg[:idx]
 		value = nameValueArg[idx+1:]
 	} else {
@@ -299,22 +359,34 @@ func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 	}
 
 	if existingVar != nil {
+		valuePtr := &value
+		if !hasValue && opts.ReadableByAutomatedRuns != nil {
+			valuePtr = nil
+		}
 		ui.StartSpinner("Updating variable...")
-		_, err = client.UpdateGlobalVariable(cmd.Context(), existingVar.Id.String(), name, &value, opts)
+		resp, err := client.UpdateGlobalVariable(cmd.Context(), existingVar.Id.String(), name, valuePtr, opts)
 		ui.StopSpinner()
 
 		if err != nil {
 			ui.PrintError("Failed to update variable: %v", err)
 			return err
 		}
+		if err := requireAutomatedRunsMarkApplied(opts.ReadableByAutomatedRuns, resp.Result.ReadableByAutomatedRuns); err != nil {
+			ui.PrintError("%v", err)
+			return err
+		}
 		ui.PrintSuccess("Updated global variable '%s'", name)
 	} else {
 		ui.StartSpinner("Adding variable...")
-		_, err = client.AddGlobalVariable(cmd.Context(), name, value, opts)
+		resp, err := client.AddGlobalVariable(cmd.Context(), name, value, opts)
 		ui.StopSpinner()
 
 		if err != nil {
 			ui.PrintError("Failed to add variable: %v", err)
+			return err
+		}
+		if err := requireAutomatedRunsMarkApplied(opts.ReadableByAutomatedRuns, resp.Result.ReadableByAutomatedRuns); err != nil {
+			ui.PrintError("%v", err)
 			return err
 		}
 		ui.PrintSuccess("Added global variable '%s' (use as {{global.%s}} in step descriptions)", name, name)

@@ -189,9 +189,16 @@ screenshot.
 
 ## Automate the Mint (optional)
 
-If the repo has a mint script, add a `session.before_script` block so the CLI
-runs it before every session instead of asking someone to refresh launch vars
-by hand:
+If the repo can mint a test token, have Revyl run the mint before every session
+instead of asking someone to refresh launch vars by hand. There are two ways,
+and a config uses one or the other: `session.before_script` with
+`session.auth_bypass`, or a session profile, which also runs for web sessions
+and for the Open preview link in pull request comments.
+
+### session.before_script
+
+Add a `session.before_script` block so the CLI runs the mint script before
+every iOS or Android session:
 
 ```yaml
 session:
@@ -224,3 +231,56 @@ matter when writing the script:
 
 Values never appear in CLI output; `revyl dev status` reports the produced key
 names and nothing else.
+
+### Session profile
+
+A session profile mints with one script. For an iOS or Android app (a web
+profile writes browser storage state instead; see `references/web.md`):
+
+```yaml
+session:
+  default_profile: signed-in
+  profiles:
+    signed-in:
+      script: scripts/revyl/signed-in.sh
+```
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+token="$(curl -fsS --max-time 20 https://staging.example.com/test-tokens | jq -er .token)"
+
+echo "REVYL_AUTH_BYPASS_ENABLED=true" >> "$REVYL_LAUNCH_ENV_FILE"
+echo "REVYL_AUTH_BYPASS_TOKEN=$token" >> "$REVYL_SECRET_LAUNCH_ENV_FILE"
+echo "myapp://revyl-auth?token=$token&redirect=%2Fhome" > "$REVYL_DEEP_LINK_FILE"
+```
+
+Rules that matter when writing the profile:
+
+1. A config uses one way or the other: one with `session.profiles` can't set
+   `session.auth_bypass` or `session.before_script`.
+2. The script writes files, not stdout. Write each value as its own
+   `KEY=VALUE` line to `$REVYL_LAUNCH_ENV_FILE`, or to
+   `$REVYL_SECRET_LAUNCH_ENV_FILE` for a secret, and the deep link to
+   `$REVYL_DEEP_LINK_FILE`. Values are scoped to the one session, so
+   parallel runs cannot clobber each other.
+3. A `${NAME}` in a launch value or the deep link fills from the stored launch
+   variable `NAME` when the session starts. To keep an org-stored token, write
+   `REVYL_AUTH_BYPASS_TOKEN=${REVYL_AUTH_BYPASS_TOKEN}` with single quotes so
+   the shell leaves it as written.
+4. Commit the script with a `#!` line and the executable bit (`chmod +x`). A
+   `script` with a `/` is a path from the project root and must stay inside the
+   repository.
+5. A non-zero exit, a run past 300 seconds, or a malformed output file fails
+   the start. Revyl never shows the script's output, so debug it by running it
+   yourself with those variables pointed at files.
+6. The script runs once per session, so mint tokens that last the whole
+   session. `revyl dev auth refresh` reopens the deep link without running the
+   script again.
+7. Run `revyl config validate`. If it reports
+   `session.default_profile is not a supported field` or
+   `session.profiles is not a supported field`, the CLI predates session
+   profiles: update it, or use `session.before_script` above.
+
+Full contract: [Session profiles](https://docs.revyl.com/devices/session-profiles).

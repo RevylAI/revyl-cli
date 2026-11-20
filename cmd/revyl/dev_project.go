@@ -260,7 +260,7 @@ func resolveDevInvocation(
 		if selectErr != nil {
 			return projectDevInvocation{}, fmt.Errorf("development selection: %w", selectErr)
 		}
-		if selection.Ambiguity.RequiredFlag == "--profile" {
+		if selection.Ambiguity.RequiredFlag == "--build-profile" {
 			profile = selected
 		} else {
 			platform = selected
@@ -318,6 +318,16 @@ func cloneDevSession(session config.AuthoredSession) config.AuthoredSession {
 		if session.AuthBypass.DeepLink != nil {
 			value := *session.AuthBypass.DeepLink
 			cloned.AuthBypass.DeepLink = &value
+		}
+	}
+	if session.DefaultProfile != nil {
+		value := *session.DefaultProfile
+		cloned.DefaultProfile = &value
+	}
+	if session.Profiles != nil {
+		cloned.Profiles = make(map[string]config.AuthoredSessionProfile, len(session.Profiles))
+		for name, profile := range session.Profiles {
+			cloned.Profiles[name] = profile
 		}
 	}
 	return cloned
