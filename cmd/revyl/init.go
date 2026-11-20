@@ -1386,6 +1386,7 @@ func wizardAuth(ctx context.Context, devMode bool, configOrgID string) (*api.Cli
 		Timeout:          5 * time.Minute,
 		ClientInstanceID: clientInstanceID,
 		DeviceLabel:      auth.CurrentDeviceLabel(),
+		Attribution:      auth.SignupAttribution{Command: auth.SignupCommandInit, Version: version},
 	})
 
 	result, err := browserAuth.Authenticate(ctx)

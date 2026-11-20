@@ -71,6 +71,9 @@ type BrowserAuthConfig struct {
 
 	// DeviceLabel is a human-readable device label attached to the CLI key.
 	DeviceLabel string
+
+	// Attribution names the command and version that opened the sign-in.
+	Attribution SignupAttribution
 }
 
 // BrowserAuth handles browser-based OAuth authentication.
@@ -183,20 +186,8 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 	}
 	defer server.Stop()
 
-	authURL.Path = "/cli/auth"
-	query := authURL.Query()
-	query.Set("port", fmt.Sprintf("%d", port))
-	query.Set("state", state)
-	if b.config.ClientInstanceID != "" {
-		query.Set("client_instance_id", b.config.ClientInstanceID)
-	}
-	if b.config.DeviceLabel != "" {
-		query.Set("device_label", b.config.DeviceLabel)
-	}
-	authURL.RawQuery = query.Encode()
-
 	// Open browser
-	if err := ui.OpenBrowser(authURL.String()); err != nil {
+	if err := ui.OpenBrowser(b.GetAuthURL(port, state)); err != nil {
 		return nil, fmt.Errorf("failed to open browser: %w", err)
 	}
 
@@ -246,6 +237,7 @@ func (b *BrowserAuth) GetAuthURL(port int, state string) string {
 	if b.config.DeviceLabel != "" {
 		query.Set("device_label", b.config.DeviceLabel)
 	}
+	addSignupAttribution(query, SignupFlowBrowserLogin, b.config.Attribution)
 	authURL.RawQuery = query.Encode()
 	return authURL.String()
 }

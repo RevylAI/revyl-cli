@@ -297,6 +297,7 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 		Timeout:          5 * time.Minute,
 		ClientInstanceID: clientInstanceID,
 		DeviceLabel:      auth.CurrentDeviceLabel(),
+		Attribution:      auth.SignupAttribution{Command: auth.SignupCommandAuthLogin, Version: version},
 	})
 
 	// Create context that can be cancelled
@@ -367,14 +368,19 @@ func loginWithDeviceApproval(cmd *cobra.Command, mgr *auth.Manager, devMode bool
 		return err
 	}
 
+	approvalURL := auth.WithSignupAttribution(
+		authorization.VerificationUriComplete,
+		auth.SignupFlowDeviceApproval,
+		auth.SignupAttribution{Command: auth.SignupCommandAuthLogin, Version: version},
+	)
 	ui.PrintInfo("Open this URL to approve, then confirm the code below:")
 	ui.Println()
-	ui.PrintInfo("  %s", authorization.VerificationUriComplete)
+	ui.PrintInfo("  %s", approvalURL)
 	ui.PrintInfo("  Code: %s", authorization.UserCode)
 	ui.Println()
 	// Opening the browser is a convenience on a desktop and impossible
 	// elsewhere, so a failure here is not a failure of the login.
-	_ = ui.OpenBrowser(authorization.VerificationUriComplete)
+	_ = ui.OpenBrowser(approvalURL)
 
 	ui.PrintInfo("Waiting for approval (press Ctrl+C to cancel)...")
 
