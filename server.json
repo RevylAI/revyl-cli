@@ -1,0 +1,27 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.revyl/revyl",
+  "title": "Revyl",
+  "description": "iOS simulators, Android emulators, web browsers and macOS computers for agents to verify their work",
+  "websiteUrl": "https://revyl.com",
+  "repository": {
+    "url": "https://github.com/RevylAI/revyl-cli",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "icons": [
+    {
+      "src": "https://revyl.com/icon-512.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://backend.revyl.ai/api/v1/mcp"
+    }
+  ]
+}

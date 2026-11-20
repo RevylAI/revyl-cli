@@ -1,0 +1,15 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Revyl",
+  "description": "Revyl CLI, MCP server and agent skills: real iOS simulators, Android emulators, web browsers and macOS computers your agent uses to verify its own work.",
+  "excludeFolders": [
+    "e2e",
+    "internal",
+    "cmd",
+    "npm",
+    "python",
+    "pkg",
+    "tmp",
+    "scripts"
+  ]
+}
