@@ -138,7 +138,7 @@ func configureExploreRunFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&exploreNoInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore inherited launch variables")
 	cmd.Flags().StringVar(&exploreDeviceModel, "device-model", "", "Device model target")
 	cmd.Flags().StringVar(&exploreOSVersion, "os-version", "", "OS version target")
-	cmd.Flags().DurationVar(&exploreMaxDuration, "max-duration", 30*time.Minute, "Maximum exploration duration (web: at most 30m)")
+	cmd.Flags().DurationVar(&exploreMaxDuration, "max-duration", 30*time.Minute, "Maximum exploration duration (at most 90m; web: at most 30m)")
 	cmd.Flags().DurationVar(&exploreIdleTimeout, "idle-timeout", 15*time.Minute, "Stop an idle explorer after this duration (web: at most 60m)")
 	cmd.Flags().DurationVar(&exploreTimeout, "timeout", defaultExploreTimeout, "Maximum time to wait locally")
 	cmd.Flags().BoolVar(&exploreNoWait, "no-wait", false, "Return after the exploration is queued")
@@ -378,7 +378,7 @@ func buildExploreLaunchRequest(
 		return nil, nil, fmt.Errorf("--platform %s does not match app platform %s", platform, appPlatform)
 	}
 	platform = appPlatform
-	maxDuration, maxIdleTimeout := 2*time.Hour, 2*time.Hour
+	maxDuration, maxIdleTimeout := 90*time.Minute, 2*time.Hour
 	if platform == "web" {
 		for _, name := range []string{"device-model", "os-version", "launch-var", "launch-env", "no-inherited-launch-vars"} {
 			if cmd.Flags().Changed(name) {

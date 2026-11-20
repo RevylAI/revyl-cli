@@ -30,7 +30,8 @@ revyl explore run "My App" --branch staging \
 Strategies are `balanced`, `surface-sweep`, `journey-focus`, and `hard-edges`.
 Explorers beyond available device concurrency wait in the queue. Use
 `--device-model`, `--os-version` and `--idle-timeout` for runtime targeting.
-Queue time can require a longer local wait than the exploration duration.
+`--max-duration` defaults to 30 minutes and cannot exceed `90m`. Queue time can
+require a longer local wait than the exploration duration.
 
 `--instructions` and `--auth-instructions` each accept at most 4,000 characters.
 For longer or shared text, use `--instructions-file <path>` (or `-` for stdin)

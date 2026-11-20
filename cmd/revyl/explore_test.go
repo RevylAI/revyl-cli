@@ -255,12 +255,12 @@ func TestExploreWebRejectsInvalidFlagsBeforeLaunch(t *testing.T) {
 	}
 }
 
-func TestExploreMobileDurationLimitsRemainUnchanged(t *testing.T) {
+func TestExploreMobileDurationAllowsNinetyMinutesAndRejectsLonger(t *testing.T) {
 	for _, platform := range []string{"ios", "android"} {
 		t.Run(platform, func(t *testing.T) {
 			resetExploreFlagsForTest(t)
 			exploreNoInheritedLaunchVars = true
-			exploreMaxDuration, exploreIdleTimeout = 2*time.Hour, 2*time.Hour
+			exploreMaxDuration, exploreIdleTimeout = 90*time.Minute, 2*time.Hour
 			appID := uuid.NewString()
 			client := &fakeExploreAPI{apps: map[string]*api.App{
 				appID: {ID: appID, Name: "Mobile App", Platform: platform},
@@ -269,8 +269,16 @@ func TestExploreMobileDurationLimitsRemainUnchanged(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if *request.MaxDurationSeconds != 7200 || *request.IdleTimeoutSeconds != 7200 {
+			if *request.MaxDurationSeconds != 5400 || *request.IdleTimeoutSeconds != 7200 {
 				t.Fatalf("mobile durations = %d, %d", *request.MaxDurationSeconds, *request.IdleTimeoutSeconds)
+			}
+
+			exploreMaxDuration = 90*time.Minute + time.Second
+			if _, _, err := buildExploreLaunchRequest(&cobra.Command{}, client, []string{appID}); err == nil || !strings.Contains(err.Error(), "--max-duration must be between") {
+				t.Fatalf("90m1s error = %v", err)
+			}
+			if client.launchCalls != 0 {
+				t.Fatalf("rejected duration made %d launch calls", client.launchCalls)
 			}
 		})
 	}
