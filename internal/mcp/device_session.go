@@ -2482,6 +2482,8 @@ type workerHealthResponse struct {
 	DeviceConnected bool   `json:"device_connected"`
 	ScreenWidth     int    `json:"screen_width"`
 	ScreenHeight    int    `json:"screen_height"`
+
+	SupportsHardwareKeys bool `json:"supports_hardware_keys"`
 }
 
 // healthCheckSession pings the worker /health endpoint to verify the session is live

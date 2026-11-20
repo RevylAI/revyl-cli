@@ -290,9 +290,13 @@ Keys are case-insensitive: Enter (Return), Backspace, Tab, Escape (Esc), Delete,
 Space, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, and PageDown.
 Chords use `+` with distinct Ctrl, Alt, Meta, or Shift modifiers and a named key
 or one ASCII letter/digit. Bare letters/digits, function keys, and arbitrary
-text are rejected; use `device type` for text. On iOS and Android only the
-existing Enter and Backspace keys are supported; Return and Delete remain
-their existing aliases.
+text are rejected; use `device type` for text. iOS simulators and Android
+emulators accept the same keys and chords, sent as a hardware keyboard to the
+focused field: Meta is Command and Alt is Option on iOS, so use `Meta+A` there
+and `Ctrl+A` on Android. On phones a bare Delete keeps its Backspace alias,
+while Delete in a chord is forward delete. Physical iPhones and devices on an
+older worker accept only Enter and Backspace; other keys fail before anything
+is sent.
 
 `scroll` accepts `up`, `down`, `left`, or `right`, either positionally or through
 `--direction`. `--amount` is 1–16384 pixels (default 600). Down and right move

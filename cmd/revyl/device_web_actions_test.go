@@ -90,8 +90,8 @@ func TestWebActionCommandsWireAndValidation(t *testing.T) {
 		{name: "select missing target", command: deviceSelectCmd, args: []string{"Canada"}, wantError: "target"},
 		{name: "select empty label", command: deviceSelectCmd, args: []string{""}, flags: []string{"--x", "20", "--y", "30"}, wantError: "label"},
 		{name: "select long label", command: deviceSelectCmd, args: []string{strings.Repeat("a", 257)}, flags: []string{"--x", "20", "--y", "30"}, wantError: "label"},
-		{name: "ios key refusal", platform: "ios", command: deviceKeyCmd, args: []string{"Escape"}, wantError: "not supported on this platform"},
-		{name: "android key refusal", platform: "android", command: deviceKeyCmd, args: []string{"Meta+K"}, wantError: "not supported on this platform"},
+		{name: "ios key refusal", platform: "ios", command: deviceKeyCmd, args: []string{"Escape"}, wantError: "accepts only ENTER and BACKSPACE"},
+		{name: "android key refusal", platform: "android", command: deviceKeyCmd, args: []string{"Meta+K"}, wantError: "accepts only ENTER and BACKSPACE"},
 		{name: "ios scroll refusal", platform: "ios", command: deviceScrollCmd, args: []string{"down"}, wantError: "not supported on this platform"},
 		{name: "android select refusal", platform: "android", command: deviceSelectCmd, args: []string{"Canada"}, flags: []string{"--target", "Country"}, wantError: "not supported on this platform"},
 		{name: "ios legacy return", platform: "ios", command: deviceKeyCmd, args: []string{"return"}, action: "key", wantBody: `{"key":"ENTER"}`},
@@ -112,6 +112,8 @@ func TestWebActionCommandsWireAndValidation(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/v1/execution/device-sessions/" + flowSessionID:
 					fmt.Fprintf(w, `{"id":%q,"org_id":"fixture-org","platform":%q,"viewer_kind":"whep","status":"running","workflow_run_id":%q}`, flowSessionID, platform, flowWorkflowRunID)
+				case "/api/v1/execution/device-proxy/" + flowWorkflowRunID + "/health":
+					io.WriteString(w, `{"status":"ok","device_connected":true}`)
 				case "/api/v1/execution/device-proxy/" + flowWorkflowRunID + "/resolve_target":
 					resolveCalls++
 					io.WriteString(w, `{"found":true,"x":12,"y":34,"screen_token":"fixture-observation"}`)

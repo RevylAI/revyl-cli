@@ -346,7 +346,7 @@ func (s *Server) registerDeviceTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_key",
-		Description: "Press a key or keyboard shortcut. Phones support ENTER/BACKSPACE; Web also supports named keys and Ctrl/Alt/Meta/Shift chords such as Meta+K.",
+		Description: "Press a key or keyboard shortcut: named keys and Ctrl/Alt/Meta/Shift chords such as Meta+K or Alt+ArrowLeft. Physical iPhones support only ENTER/BACKSPACE.",
 		InputSchema: deviceActionInputSchema("key"),
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Send Key",
@@ -1916,7 +1916,7 @@ func (s *Server) handleDeviceBack(ctx context.Context, req *mcp.CallToolRequest,
 // --- Device Key ---
 
 type DeviceKeyInput struct {
-	Key          string `json:"key" jsonschema:"Phones: ENTER/BACKSPACE. Web: named key or Ctrl/Alt/Meta/Shift chord (for example Meta+K)."`
+	Key          string `json:"key" jsonschema:"Named key or Ctrl/Alt/Meta/Shift chord (for example Meta+K or Alt+ArrowLeft). Physical iPhones: ENTER/BACKSPACE only."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }

@@ -2143,12 +2143,14 @@ var deviceBackCmd = &cobra.Command{
 
 var deviceKeyCmd = &cobra.Command{
 	Use:   "key [key]",
-	Short: "Press a key or Web keyboard shortcut",
+	Short: "Press a key or keyboard shortcut",
 	Example: `  revyl device key ENTER
   revyl device key BACKSPACE
   revyl device key --key ENTER
   revyl device key Escape
-  revyl device key "Meta+K"`,
+  revyl device key ArrowLeft
+  revyl device key "Meta+K"
+  revyl device key "Alt+Backspace"`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rawKey, _ := cmd.Flags().GetString("key")
@@ -2174,7 +2176,7 @@ var deviceKeyCmd = &cobra.Command{
 		message := "Pressed key"
 		if session.Platform != "web" {
 			key, _ := mcppkg.ParseDeviceKey(rawKey, session.Platform)
-			message = fmt.Sprintf("Sent key %s", key.Key)
+			message = fmt.Sprintf("Sent key %s", strings.Join(append(key.Modifiers, key.Key), "+"))
 		}
 		jsonOrPrint(cmd, result, message)
 		return nil
@@ -4128,7 +4130,7 @@ func init() {
 	sessionFlag(deviceBackCmd)
 
 	// Key
-	deviceKeyCmd.Flags().String("key", "", "Key or Web chord (Escape, Tab, Enter, Meta+K); phones support ENTER/BACKSPACE")
+	deviceKeyCmd.Flags().String("key", "", "Key or chord (Escape, Tab, ArrowLeft, Meta+K); physical iPhones support only ENTER/BACKSPACE")
 	deviceKeyCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceKeyCmd)
 

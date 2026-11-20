@@ -12,22 +12,13 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
+// ParseDeviceKey validates a key name or Ctrl/Alt/Meta/Shift chord in the
+// Web key vocabulary, which phones share. On a phone, a bare Enter, Backspace,
+// or Delete keeps the ENTER/BACKSPACE wire form every device worker accepts,
+// including the documented Delete-as-Backspace alias.
 func ParseDeviceKey(raw string, platform string) (*api.DeviceKeyRequest, error) {
-	if platform != "web" {
-		key := strings.ToUpper(strings.TrimSpace(raw))
-		switch key {
-		case "RETURN":
-			key = "ENTER"
-		case "DELETE":
-			key = "BACKSPACE"
-		}
-		if key != "ENTER" && key != "BACKSPACE" {
-			return nil, fmt.Errorf("key is not supported on this platform; use ENTER or BACKSPACE, or use a Web session")
-		}
-		return &api.DeviceKeyRequest{Key: key}, nil
-	}
 	if len(raw) > 64 {
-		return nil, fmt.Errorf("invalid key; use a named Web key or a Ctrl/Alt/Meta/Shift chord")
+		return nil, fmt.Errorf("invalid key; use a named key or a Ctrl/Alt/Meta/Shift chord")
 	}
 	for _, character := range raw {
 		if character > 127 {
@@ -66,9 +57,17 @@ func ParseDeviceKey(raw string, platform string) (*api.DeviceKeyRequest, error) 
 		canonical = strings.ToLower(key)
 	}
 	if canonical == "" {
-		return nil, fmt.Errorf("invalid key; use a named Web key or a modified ASCII letter or digit")
+		return nil, fmt.Errorf("invalid key; use a named key or a modified ASCII letter or digit")
 	}
 	request.Key = canonical
+	if platform != "web" && len(request.Modifiers) == 0 {
+		switch canonical {
+		case "Enter":
+			request.Key = "ENTER"
+		case "Backspace", "Delete":
+			request.Key = "BACKSPACE"
+		}
+	}
 	return request, nil
 }
 
@@ -81,7 +80,21 @@ func (m *DeviceSessionManager) PressKeyOnSession(ctx context.Context, session *D
 		return nil, err
 	}
 	if session.Platform != "web" {
-		return m.WorkerRequestOnSession(ctx, session, "/key", map[string]string{"key": request.Key})
+		if request.Key == "ENTER" || request.Key == "BACKSPACE" {
+			return m.WorkerRequestOnSession(ctx, session, "/key", map[string]string{"key": request.Key})
+		}
+		healthBody, err := m.WorkerRequestOnSession(ctx, session, "/health", nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not check whether this device accepts named keys and chords: %w", err)
+		}
+		health, err := parseWorkerHealth(healthBody)
+		if err != nil {
+			return nil, err
+		}
+		if !health.SupportsHardwareKeys {
+			return nil, fmt.Errorf("this device accepts only ENTER and BACKSPACE; named keys and chords need an iOS simulator or Android emulator on a current device worker")
+		}
+		return m.WorkerRequestOnSession(ctx, session, "/key", request)
 	}
 	return m.performWebAction(ctx, session, "key", request)
 }
@@ -251,7 +264,7 @@ func deviceActionInputSchema(action string) map[string]any {
 	}
 	schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
 	if action == "key" {
-		properties["key"] = map[string]any{"type": "string", "minLength": 1, "maxLength": 64, "description": "Phones: ENTER/BACKSPACE. Web: Enter, Backspace, Tab, Escape (Esc), Delete, Space, ArrowUp/Down/Left/Right, Home, End, PageUp/Down; Ctrl/Alt/Meta/Shift chords also accept ASCII letters/digits. RETURN aliases Enter. No F keys."}
+		properties["key"] = map[string]any{"type": "string", "minLength": 1, "maxLength": 64, "description": "Enter, Backspace, Tab, Escape (Esc), Delete, Space, ArrowUp/Down/Left/Right, Home, End, PageUp/Down; Ctrl/Alt/Meta/Shift chords also accept ASCII letters/digits. RETURN aliases Enter; on phones a bare Delete aliases Backspace. No F keys. Physical iPhones accept only Enter and Backspace."}
 		schema["required"] = []string{"key"}
 		return schema
 	}
