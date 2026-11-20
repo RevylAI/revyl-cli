@@ -2,6 +2,7 @@ package revylplugin_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,6 +105,11 @@ func TestHookScriptsCallOnlyReadOnlyCLICommands(t *testing.T) {
 	}
 }
 
+func pinnedRuntimeVersion(t *testing.T) string {
+	t.Helper()
+	return strings.TrimSpace(string(readFile(t, filepath.Join(pluginRoot(t), "runtime-version"))))
+}
+
 type sessionCheckFixture struct {
 	project string
 	home    string
@@ -182,7 +188,7 @@ func (f sessionCheckFixture) setDoctor(t *testing.T, auth string) {
 		Message string `json:"message"`
 	}
 	checks := []check{
-		{"Version", "ok", "v0.1.215"},
+		{"Version", "ok", "v" + pinnedRuntimeVersion(t)},
 		{"Authentication", auth, message},
 		{"Project Config", "ok", "Found at " + filepath.Join(f.project, ".revyl/config.yaml")},
 	}
@@ -241,7 +247,7 @@ func TestSessionCheckInstallsTheRuntimeAndReportsStateOnTheFirstSession(t *testi
 	f := newSessionCheckFixture(t)
 	runtimeMarker := filepath.Join(f.data, "runtime-installed")
 	output := f.run(t, true, "FAKE_RUNTIME="+runtimeMarker)
-	if !strings.Contains(output, "CLI v0.1.215 ready, signed in; project config at apps/mobile/.revyl/config.yaml.") {
+	if want := fmt.Sprintf("CLI v%s ready, signed in; project config at apps/mobile/.revyl/config.yaml.", pinnedRuntimeVersion(t)); !strings.Contains(output, want) {
 		t.Fatalf("first session output = %q", output)
 	}
 	want := []string{"doctor --json|1|1", "version|1|", "doctor --json|1|1", "github status --json|1|1"}
@@ -285,7 +291,7 @@ func TestSessionCheckReportsReadyProjectAndCachesGitHubStatus(t *testing.T) {
 	f := newSessionCheckFixture(t)
 	for range 2 {
 		output := f.run(t, true, "CLAUDECODE=1")
-		for _, want := range []string{"CLI v0.1.215 ready, signed in; project config at apps/mobile/.revyl/config.yaml.", "pull-request automation is on for this project"} {
+		for _, want := range []string{fmt.Sprintf("CLI v%s ready, signed in; project config at apps/mobile/.revyl/config.yaml.", pinnedRuntimeVersion(t)), "pull-request automation is on for this project"} {
 			if !strings.Contains(output, want) {
 				t.Fatalf("output %q is missing %q", output, want)
 			}
@@ -327,13 +333,13 @@ func TestSessionCheckOffersGitHubAtMostOnceAWeek(t *testing.T) {
 
 func TestSessionCheckPointsToNestedProjects(t *testing.T) {
 	f := newSessionCheckFixture(t)
-	writeTestFile(t, f.doctor, `{
+	writeTestFile(t, f.doctor, fmt.Sprintf(`{
   "checks": [
-    {"name": "Version", "status": "ok", "message": "v0.1.215"},
+    {"name": "Version", "status": "ok", "message": "v%s"},
     {"name": "Authentication", "status": "ok", "message": "Authenticated"},
     {"name": "Project Config", "status": "warning", "message": "Nested project selection required"}
   ]
-}`, 0600)
+}`, pinnedRuntimeVersion(t)), 0600)
 	output := f.run(t, true)
 	if !strings.Contains(output, "configured in subdirectories") || strings.Contains(output, "no .revyl/config.yaml applies") || strings.Contains(output, "GitHub") {
 		t.Fatalf("nested-project output = %q", output)
