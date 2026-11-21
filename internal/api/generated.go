@@ -3561,6 +3561,24 @@ func (e RevylProofHarnessModelId) Valid() bool {
 	}
 }
 
+// Defines values for ScreenComparisonSide.
+const (
+	ScreenComparisonSideBaseline  ScreenComparisonSide = "baseline"
+	ScreenComparisonSideCandidate ScreenComparisonSide = "candidate"
+)
+
+// Valid indicates whether the value is a known member of the ScreenComparisonSide enum.
+func (e ScreenComparisonSide) Valid() bool {
+	switch e {
+	case ScreenComparisonSideBaseline:
+		return true
+	case ScreenComparisonSideCandidate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionHistorySource.
 const (
 	SessionHistorySourceAdaptiveReport SessionHistorySource = "adaptive_report"
@@ -5180,6 +5198,7 @@ type AtlasAnnotationFeedbackItem struct {
 	PreviewMentions          *[]AtlasAnnotationMention                  `json:"preview_mentions,omitempty"`
 	PreviewText              *string                                    `json:"preview_text,omitempty"`
 	ReplyCount               *int                                       `json:"reply_count,omitempty"`
+	ScreenComparisonPair     *AtlasAnnotationScreenComparisonPair       `json:"screen_comparison_pair,omitempty"`
 	ScreenLabel              *string                                    `json:"screen_label,omitempty"`
 	ScreenshotHeight         int                                        `json:"screenshot_height"`
 	ScreenshotWidth          int                                        `json:"screenshot_width"`
@@ -5217,6 +5236,14 @@ type AtlasAnnotationMentionInput struct {
 	UserId     string `json:"user_id"`
 }
 
+// AtlasAnnotationNormalizedRectangle defines model for AtlasAnnotationNormalizedRectangle.
+type AtlasAnnotationNormalizedRectangle struct {
+	Height float32 `json:"height"`
+	Width  float32 `json:"width"`
+	X      float32 `json:"x"`
+	Y      float32 `json:"y"`
+}
+
 // AtlasAnnotationObservationThreadsResponse defines model for AtlasAnnotationObservationThreadsResponse.
 type AtlasAnnotationObservationThreadsResponse struct {
 	ClosedCount   int                     `json:"closed_count"`
@@ -5242,6 +5269,28 @@ type AtlasAnnotationReplyRequest struct {
 // AtlasAnnotationReplyRequest_AgentToolMentions_Item defines model for AtlasAnnotationReplyRequest.agent_tool_mentions.Item.
 type AtlasAnnotationReplyRequest_AgentToolMentions_Item struct {
 	union json.RawMessage
+}
+
+// AtlasAnnotationScreenComparisonPair defines model for AtlasAnnotationScreenComparisonPair.
+type AtlasAnnotationScreenComparisonPair struct {
+	DrawnBoxes          *[]AtlasAnnotationNormalizedRectangle `json:"drawn_boxes,omitempty"`
+	PairedBranchId      *string                               `json:"paired_branch_id,omitempty"`
+	PairedBranchName    *string                               `json:"paired_branch_name,omitempty"`
+	PairedBuildId       *string                               `json:"paired_build_id,omitempty"`
+	PairedBuildVersion  *string                               `json:"paired_build_version,omitempty"`
+	PairedCommitSha     *string                               `json:"paired_commit_sha,omitempty"`
+	PairedObservationId *string                               `json:"paired_observation_id,omitempty"`
+	Pinned              *bool                                 `json:"pinned,omitempty"`
+	PinnedBranchId      string                                `json:"pinned_branch_id"`
+	PinnedBranchName    *string                               `json:"pinned_branch_name,omitempty"`
+	PinnedBuildId       string                                `json:"pinned_build_id"`
+	PinnedBuildVersion  string                                `json:"pinned_build_version"`
+	PinnedCommitSha     *string                               `json:"pinned_commit_sha,omitempty"`
+	PinnedObservationId string                                `json:"pinned_observation_id"`
+	PinnedSide          ScreenComparisonSide                  `json:"pinned_side"`
+
+	// ScreenshotsAvailable False once a build of the pair, or the other side's screenshot, was deleted: compare can no longer show the screenshots the comment was made on.
+	ScreenshotsAvailable *bool `json:"screenshots_available,omitempty"`
 }
 
 // AtlasAnnotationSeverity Finding severity. Presence marks a thread as a ranked finding;
@@ -5292,13 +5341,14 @@ type AtlasAnnotationThread struct {
 	// ``user_id`` is the authenticated PropelAuth user id (authorization and
 	// audit key); ``display_name``/``avatar_url`` are snapshots taken at write
 	// time so attribution survives membership changes.
-	CreatedBy      AtlasAnnotationAuthor        `json:"created_by"`
-	Id             string                       `json:"id"`
-	LastActivityAt time.Time                    `json:"last_activity_at"`
-	NodeEntityId   *string                      `json:"node_entity_id,omitempty"`
-	OriginSurface  AtlasAnnotationOriginSurface `json:"origin_surface"`
-	ReplyCount     *int                         `json:"reply_count,omitempty"`
-	ReportId       *string                      `json:"report_id,omitempty"`
+	CreatedBy            AtlasAnnotationAuthor                `json:"created_by"`
+	Id                   string                               `json:"id"`
+	LastActivityAt       time.Time                            `json:"last_activity_at"`
+	NodeEntityId         *string                              `json:"node_entity_id,omitempty"`
+	OriginSurface        AtlasAnnotationOriginSurface         `json:"origin_surface"`
+	ReplyCount           *int                                 `json:"reply_count,omitempty"`
+	ReportId             *string                              `json:"report_id,omitempty"`
+	ScreenComparisonPair *AtlasAnnotationScreenComparisonPair `json:"screen_comparison_pair,omitempty"`
 
 	// ScreenshotUrl Short-lived presigned URL for the pinned evidence screenshot. Served straight from the observation's storage key, so it works for capture-minted observations that have no screen assignment yet (the 'organizing' state).
 	ScreenshotUrl *string `json:"screenshot_url,omitempty"`
@@ -10872,6 +10922,9 @@ type RunResultCounts struct {
 	UnknownCount int `json:"unknown_count"`
 }
 
+// ScreenComparisonSide defines model for ScreenComparisonSide.
+type ScreenComparisonSide string
+
 // ScriptUsageModuleItem A module that uses a specific script as a step, and is itself used by
 // at least one test
 type ScriptUsageModuleItem struct {
@@ -12831,6 +12884,9 @@ type ListAtlasAnnotationFeedbackParams struct {
 	Severity         *ListAtlasAnnotationFeedbackParamsSeverity   `form:"severity,omitempty" json:"severity,omitempty"`
 	Cursor           *string                                      `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit            *int                                         `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// IncludeScreenComparisonThreads Include threads made in compare; ordinary Atlas leaves them out, since they show only in compare.
+	IncludeScreenComparisonThreads *bool `form:"include_screen_comparison_threads,omitempty" json:"include_screen_comparison_threads,omitempty"`
 }
 
 // ListAtlasAnnotationFeedbackParamsStatus defines parameters for ListAtlasAnnotationFeedback.
@@ -13044,6 +13100,12 @@ type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParam
 // PreviewAtlasAnnotationAnchorParams defines parameters for PreviewAtlasAnnotationAnchor.
 type PreviewAtlasAnnotationAnchorParams struct {
 	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+}
+
+// ListAtlasObservationAnnotationThreadsParams defines parameters for ListAtlasObservationAnnotationThreads.
+type ListAtlasObservationAnnotationThreadsParams struct {
+	// IncludeScreenComparisonThreads Include threads made in compare; ordinary Atlas leaves them out, since they show only in compare.
+	IncludeScreenComparisonThreads *bool `form:"include_screen_comparison_threads,omitempty" json:"include_screen_comparison_threads,omitempty"`
 }
 
 // CreateGroundedAtlasAnnotationThreadParams defines parameters for CreateGroundedAtlasAnnotationThread.
