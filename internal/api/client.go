@@ -21,6 +21,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -760,6 +761,18 @@ func isRetryableError(err error, statusCode int) bool {
 	}
 
 	return false
+}
+
+// isTransientTransportError reports whether err is a network failure before any
+// HTTP response arrived: a timeout, including a TLS handshake timeout, or a
+// dial, read or write failure such as a refused or reset connection.
+func isTransientTransportError(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var opErr *net.OpError
+	return errors.As(err, &opErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // calculateBackoff calculates the delay for the next retry attempt using exponential backoff.
@@ -5088,9 +5101,27 @@ func (c *Client) StopDeviceSession(ctx context.Context, sessionID string) (*Canc
 	return c.requestDeviceSessionStop(ctx, fmt.Sprintf("/api/v1/execution/device/sessions/%s/stop", url.PathEscape(sessionID)))
 }
 
+const deviceStopRequestAttempts = 3
+
+// requestDeviceSessionStop resends the stop only after a transport failure
+// before any response: the backend reuses a recorded stop request, so asking
+// again cannot stop anything twice.
 func (c *Client) requestDeviceSessionStop(ctx context.Context, path string) (*CancelDeviceResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", path, nil)
+	attempts := 1
+	for ; err != nil && attempts < deviceStopRequestAttempts && ctx.Err() == nil && isTransientTransportError(err); attempts++ {
+		debugLogf("retrying device stop request (attempt %d/%d): %v", attempts+1, deviceStopRequestAttempts, err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(calculateBackoff(attempts-1, c.retryBaseDelay, c.retryMaxDelay)):
+		}
+		resp, err = c.doRequest(ctx, "POST", path, nil)
+	}
 	if err != nil {
+		if attempts > 1 {
+			return nil, fmt.Errorf("device stop request failed after %d attempts: %w", attempts, err)
+		}
 		return nil, err
 	}
 

@@ -84,6 +84,7 @@ const (
 	// Interactive device tasks may wait in Hatchet for up to 30 minutes. Keep
 	// the client alive through that queue SLA plus terminal-state propagation.
 	deviceWorkerReadyTimeout = 35 * time.Minute
+	deviceHealthWaitTimeout  = 30 * time.Second
 	deviceStopReasonMaxRunes = 200
 )
 
@@ -792,23 +793,27 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, startErr
 	}
 
-	// Wait for the device to actually be connected (up to 30 seconds).
+	// Wait for the device to actually be connected (up to deviceHealthWaitTimeout).
 	// The worker URL can exist before the device is fully provisioned,
 	// so we poll /health until device_connected is true.
 	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 	deviceReady := false
 	var lastHealth workerHealthResponse
-	for i := 0; i < 15; i++ {
+	healthDeadline := time.Now().Add(deviceHealthWaitTimeout)
+	for {
 		if health, err := m.healthCheckSession(tmpSession); err == nil {
 			lastHealth = health
 			deviceReady = true
+			break
+		}
+		if !time.Now().Before(healthDeadline) {
 			break
 		}
 		select {
 		case <-ctx.Done():
 			_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
 			return -1, nil, fmt.Errorf("cancelled while waiting for device to connect: %w", ctx.Err())
-		case <-time.After(deviceHealthPollDelay):
+		case <-time.After(readinessPollInterval(0)):
 		}
 	}
 	// A device that never reported ready is not an error: the worker exists, the
@@ -960,9 +965,9 @@ func (m *DeviceSessionManager) readRuntimeReadyLocked(ctx context.Context, sessi
 	return frame, screenToken, nil
 }
 
-// webReadinessPollInterval polls quickly while a warm Web start is expected to
-// become usable, then slows down for a start that is waiting in a queue.
-func webReadinessPollInterval(elapsed time.Duration) time.Duration {
+// readinessPollInterval polls quickly while a warm start is expected to become
+// usable, then slows down for a start that is waiting in a queue.
+func readinessPollInterval(elapsed time.Duration) time.Duration {
 	if elapsed < time.Minute {
 		return 500 * time.Millisecond
 	}
@@ -991,7 +996,7 @@ func (m *DeviceSessionManager) waitForRuntimeReadyLocked(ctx context.Context, se
 		select {
 		case <-ctx.Done():
 			return nil, "", fmt.Errorf("web readiness observation timed out or was cancelled: %w", ctx.Err())
-		case <-time.After(webReadinessPollInterval(time.Since(pollStarted))):
+		case <-time.After(readinessPollInterval(time.Since(pollStarted))):
 		}
 	}
 }
@@ -1848,8 +1853,9 @@ func (m *DeviceSessionManager) resetIdleTimerForSessionLocked(index int, ctx con
 // a session start again, while the worker-connection endpoint keeps reporting
 // it as not ready.
 func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRunID, sessionID string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	nextSessionCheck := time.Now()
+	pollStarted := time.Now()
+	deadline := pollStarted.Add(timeout)
+	nextSessionCheck := pollStarted
 
 	for time.Now().Before(deadline) {
 		resp, err := m.apiClient.GetWorkerWSURL(ctx, workflowRunID)
@@ -1890,7 +1896,7 @@ func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRun
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-time.After(readinessPollInterval(time.Since(pollStarted))):
 		}
 	}
 
@@ -5195,7 +5201,7 @@ func (m *DeviceSessionManager) readSessionDetailByID(ctx context.Context, sessio
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(webReadinessPollInterval(0)):
+		case <-time.After(readinessPollInterval(0)):
 		}
 		detail, err = m.apiClient.GetDeviceSessionByID(ctx, sessionID)
 	}
