@@ -168,7 +168,7 @@ func parseOutputTexts(texts map[string]string, platform string) (api.AppliedSess
 	}
 	var storageState json.RawMessage
 	if text, ok := texts[browserStorageStateFile.kind]; ok {
-		if storageState, err = parseBrowserStorageState(text); err != nil {
+		if storageState, err = parseBrowserStorageState(browserStorageStateFile, text); err != nil {
 			return outputs, err
 		}
 	}
@@ -682,13 +682,12 @@ func decodeOrderedJSON(decoder *json.Decoder) (any, error) {
 
 // parseBrowserStorageState validates a Playwright storage state document the
 // way BrowserStorageState does in pydantic's lax mode and returns its
-// canonical form.
-func parseBrowserStorageState(text string) (json.RawMessage, error) {
-	file := browserStorageStateFile
+// canonical form. Errors name file and never echo a value.
+func parseBrowserStorageState(file outputFile, text string) (json.RawMessage, error) {
 	data := []byte(text)
 	var raw json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, storageStateSyntaxError(data, err)
+		return nil, storageStateSyntaxError(file, data, err)
 	}
 	if line, found := unpairedSurrogateEscapeLine(data); found {
 		return nil, invalidLine(file, line, "contains an unpaired UTF-16 surrogate escape")
@@ -701,7 +700,7 @@ func parseBrowserStorageState(text string) (json.RawMessage, error) {
 	}
 	state, issue := validateStorageState(document)
 	if issue != nil {
-		return nil, issue.err()
+		return nil, issue.err(file)
 	}
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
@@ -718,8 +717,7 @@ func parseBrowserStorageState(text string) (json.RawMessage, error) {
 
 // storageStateSyntaxError names the line Python's json.loads stops at, or the
 // NaN, Infinity or -Infinity constant it refuses.
-func storageStateSyntaxError(data []byte, err error) error {
-	file := browserStorageStateFile
+func storageStateSyntaxError(file outputFile, data []byte, err error) error {
 	position := len(data)
 	var syntaxErr *json.SyntaxError
 	if errors.As(err, &syntaxErr) && syntaxErr.Offset > 0 && syntaxErr.Offset <= int64(len(data)) && err.Error() != "unexpected end of JSON input" {
@@ -781,8 +779,7 @@ type storageStateIssue struct {
 	reason   string
 }
 
-func (issue *storageStateIssue) err() error {
-	file := browserStorageStateFile
+func (issue *storageStateIssue) err(file outputFile) error {
 	if issue.reason != "" {
 		return invalidOutput("%s: %s", file.envName, issue.reason)
 	}
@@ -1031,6 +1028,12 @@ func validateCookie(value any, location []any) (canonicalCookie, *storageStateIs
 				return issue
 			}
 			cookie.PartitionKey = &partitionKey
+			return nil
+		}},
+		{alias: "_crHasCrossSiteAncestor", name: "chromium_has_cross_site_ancestor", validate: func(value any, location []any) *storageStateIssue {
+			if _, ok := laxBool(value); value != nil && !ok {
+				return &storageStateIssue{location: location}
+			}
 			return nil
 		}},
 	})

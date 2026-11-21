@@ -12,9 +12,9 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// backendCapabilitySessionProfiles is the backend capability that accepts an
+// BackendCapabilitySessionProfiles is the backend capability that accepts an
 // applied session_profile on a start request.
-const backendCapabilitySessionProfiles = "session_profiles"
+const BackendCapabilitySessionProfiles = "session_profiles"
 
 // Backend is what preparing a session profile needs from the Revyl API.
 type Backend interface {
@@ -71,7 +71,7 @@ func Prepare(ctx context.Context, request PrepareRequest) (Preparation, error) {
 	preparation := Preparation{Pick: pick}
 
 	capabilities, capabilitiesErr := request.Backend.GetBackendCapabilities(ctx)
-	preparation.backendSupportsProfiles = capabilitiesErr == nil && slices.Contains(capabilities, backendCapabilitySessionProfiles)
+	preparation.backendSupportsProfiles = capabilitiesErr == nil && slices.Contains(capabilities, BackendCapabilitySessionProfiles)
 	if pick.Name == "" {
 		return preparation, nil
 	}

@@ -549,6 +549,24 @@ func (e AuthoredBuildFramework) Valid() bool {
 	}
 }
 
+// Defines values for BackendCapabilitiesCapabilities.
+const (
+	BackendCapabilitiesCapabilitiesSessionProfiles        BackendCapabilitiesCapabilities = "session_profiles"
+	BackendCapabilitiesCapabilitiesWebTestSessionProfiles BackendCapabilitiesCapabilities = "web_test_session_profiles"
+)
+
+// Valid indicates whether the value is a known member of the BackendCapabilitiesCapabilities enum.
+func (e BackendCapabilitiesCapabilities) Valid() bool {
+	switch e {
+	case BackendCapabilitiesCapabilitiesSessionProfiles:
+		return true
+	case BackendCapabilitiesCapabilitiesWebTestSessionProfiles:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BillingPlanTermsBillingPeriod.
 const (
 	BillingPlanTermsBillingPeriodMonthly BillingPlanTermsBillingPeriod = "monthly"
@@ -6081,8 +6099,11 @@ type AutoTopup struct {
 
 // BackendCapabilities Optional backend behaviors a client checks for before relying on them.
 type BackendCapabilities struct {
-	Capabilities *[]string `json:"capabilities,omitempty"`
+	Capabilities *[]BackendCapabilitiesCapabilities `json:"capabilities,omitempty"`
 }
+
+// BackendCapabilitiesCapabilities defines model for BackendCapabilities.Capabilities.
+type BackendCapabilitiesCapabilities string
 
 // BatchTestInfoRequest Batch request for test metadata lookups.
 type BatchTestInfoRequest struct {
@@ -6204,15 +6225,17 @@ type BranchSource string
 
 // BrowserCookie One cookie in Playwright storage-state form.
 type BrowserCookie struct {
-	Domain       string                 `json:"domain"`
-	Expires      *float32               `json:"expires,omitempty"`
-	HttpOnly     *bool                  `json:"httpOnly,omitempty"`
-	Name         string                 `json:"name"`
-	PartitionKey *string                `json:"partitionKey,omitempty"`
-	Path         *string                `json:"path,omitempty"`
-	SameSite     *BrowserCookieSameSite `json:"sameSite,omitempty"`
-	Secure       *bool                  `json:"secure,omitempty"`
-	Value        string                 `json:"value"`
+	// UnderscoreCrHasCrossSiteAncestor Written by Playwright's Chromium storageState() and ignored
+	UnderscoreCrHasCrossSiteAncestor *bool                  `json:"_crHasCrossSiteAncestor,omitempty"`
+	Domain                           string                 `json:"domain"`
+	Expires                          *float32               `json:"expires,omitempty"`
+	HttpOnly                         *bool                  `json:"httpOnly,omitempty"`
+	Name                             string                 `json:"name"`
+	PartitionKey                     *string                `json:"partitionKey,omitempty"`
+	Path                             *string                `json:"path,omitempty"`
+	SameSite                         *BrowserCookieSameSite `json:"sameSite,omitempty"`
+	Secure                           *bool                  `json:"secure,omitempty"`
+	Value                            string                 `json:"value"`
 }
 
 // BrowserCookieSameSite defines model for BrowserCookie.SameSite.
@@ -11388,6 +11411,14 @@ type TaskID struct {
 
 	// SessionId Client-generated device-session ID reused when retrying this exact test start
 	SessionId *openapi_types.UUID `json:"session_id,omitempty"`
+
+	// SessionProfile The one session-profile instruction a start request carries.
+	//
+	// applied: the caller already ran the named profile and sends its outputs
+	// (possibly empty). none: no profile, not even the project default. named:
+	// the backend runs the named profile. default: the backend runs the
+	// project's default profile, if it has one.
+	SessionProfile *SessionProfileInstruction `json:"session_profile,omitempty"`
 
 	// Source Execution source: ui, cli, api, ci_cd, or workflow. Defaults to 'api' for direct API calls.
 	Source *string `json:"source,omitempty"`

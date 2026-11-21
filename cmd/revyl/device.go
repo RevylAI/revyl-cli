@@ -963,7 +963,7 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 		if strings.EqualFold(strings.TrimSpace(platform), "web") {
 			return runWebDeviceStart(cmd)
 		}
-		for _, name := range []string{"url", "commit", "viewport", "browser"} {
+		for _, name := range []string{"url", "commit", "viewport", "browser", "cookies-file"} {
 			if cmd.Flags().Changed(name) {
 				return fmt.Errorf("--%s is only available on platform web; pass --platform web", name)
 			}
@@ -4015,6 +4015,7 @@ func init() {
 	deviceStartCmd.Flags().String("commit", "", "Commit SHA identity for --url on platform web")
 	deviceStartCmd.Flags().String("viewport", "1280x800", "Web viewport WIDTHxHEIGHT (width 320–3840, height 240–2160)")
 	deviceStartCmd.Flags().String("browser", "chrome", "Web browser: chrome, or safari inside a Mac computer (--computer)")
+	deviceStartCmd.Flags().String("cookies-file", "", "Web only: Playwright storage state or a JSON array of cookies the browser holds before it opens the app")
 	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().Bool("no-open", false, "Do not open the viewer in a browser (same as --open=false; wins over --open)")

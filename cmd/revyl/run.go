@@ -28,6 +28,7 @@ import (
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/launchenv"
+	"github.com/revyl/cli/internal/sessionprofile"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -67,6 +68,7 @@ var (
 	runLaunchVars                 []string
 	runLaunchArgSets              []string
 	runLaunchArguments            []string
+	runCookiesFile                string
 	runDisableInheritedLaunchVars bool
 	runVars                       []string
 	runFromCheckout               bool
@@ -420,6 +422,19 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if len(launchEnvVars) > 0 {
 		ui.PrintInfo("Launch env vars: %d", len(launchEnvVars))
 	}
+	var sessionProfile *api.AppliedSessionProfile
+	if runCookiesFile != "" {
+		cookiesState, err := sessionprofile.ReadCookiesFile(runCookiesFile)
+		if err != nil {
+			return err
+		}
+		if err := sessionprofile.RequireBackendCapability(cmd.Context(), validationClient, sessionprofile.BackendCapabilityWebTestSessionProfiles, "--cookies-file"); err != nil {
+			return err
+		}
+		if sessionProfile, err = sessionprofile.WithBrowserStorageState(nil, cookiesState); err != nil {
+			return err
+		}
+	}
 
 	variableOverrides, err := parseRuntimeVars(runVars)
 	if err != nil {
@@ -539,6 +554,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		LaunchVars:                 append([]string(nil), runLaunchVars...),
 		LaunchArgSets:              append([]string(nil), runLaunchArgSets...),
 		LaunchArguments:            append([]string(nil), runLaunchArguments...),
+		SessionProfile:             sessionProfile,
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
 		TestDefinitionFiles:        checkoutUpload.RequestFiles(),
 		OnTestDefinitionGitRead: func(read api.TestDefinitionGitRead) {

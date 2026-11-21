@@ -228,6 +228,7 @@ func init() {
 	testRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply to this run (repeatable)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchArgSets, "launch-arg-set", nil, "Stored iOS argument-set name or ID to apply to this run (repeatable)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchArguments, "launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")
+	testRunCmd.Flags().StringVar(&runCookiesFile, "cookies-file", "", "Web tests only: Playwright storage state or a JSON array of cookies the browser holds before it opens the app")
 	testRunCmd.Flags().BoolVar(&runDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	testRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override as key=value (repeatable, referenced as {{key}})")
 	testRunCmd.Flags().BoolVar(&runFromCheckout, fromCheckoutFlagName, false, fromCheckoutFlagUsage)

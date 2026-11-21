@@ -1010,6 +1010,8 @@ type ExecuteTestRequest struct {
 	LaunchEnvVars map[string]string `json:"launch_env_vars,omitempty"`
 	// LaunchArguments are non-secret inline iOS app arguments in exact token order.
 	LaunchArguments []string `json:"launch_arguments,omitempty"`
+	// SessionProfile is the applied session profile a Web test's browser starts with.
+	SessionProfile *AppliedSessionProfile `json:"session_profile,omitempty"`
 	// VariableOverrides are runtime variable overrides for this execution.
 	VariableOverrides map[string]string `json:"variable_overrides,omitempty"`
 	// TestDefinitionFiles are the checkout's files the run executes instead of saved copies.
@@ -4714,7 +4716,11 @@ func (c *Client) GetBackendCapabilities(ctx context.Context) ([]string, error) {
 	if result.Capabilities == nil {
 		return nil, nil
 	}
-	return *result.Capabilities, nil
+	capabilities := make([]string, 0, len(*result.Capabilities))
+	for _, capability := range *result.Capabilities {
+		capabilities = append(capabilities, string(capability))
+	}
+	return capabilities, nil
 }
 
 // DeviceRunConfig contains optional execution configuration for device sessions.

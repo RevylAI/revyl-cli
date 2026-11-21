@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"github.com/revyl/cli/internal/billingstatus"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
+	"github.com/revyl/cli/internal/sessionprofile"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -93,10 +95,19 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	var cookiesState json.RawMessage
+	if cookiesFile, _ := cmd.Flags().GetString("cookies-file"); cookiesFile != "" {
+		if cookiesState, err = sessionprofile.ReadCookiesFile(cookiesFile); err != nil {
+			return err
+		}
+	}
 	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport, Browser: browser}, ComputerSessionID: computerSessionID}
 	if !cmd.Flags().Changed("computer") {
 		opts.DefaultComputerSessionID = opts.ComputerSessionID
 		opts.ComputerSessionID = ""
+	}
+	if cookiesState != nil && opts.ComputerSessionID != "" {
+		return errCookiesFileInsideComputer
 	}
 	if err := mcppkg.ValidateWebSessionStartOptions(opts); err != nil {
 		return err
@@ -156,6 +167,9 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	}
 	opts.ResolvedWebArtifact = &artifact
 	if opts.ComputerSessionID != "" || (opts.DefaultComputerSessionID != "" && artifact.ArtifactKind != "web_bundle") {
+		if cookiesState != nil {
+			return errCookiesFileInsideComputer
+		}
 		if sessionConfig, err = sessionWithoutProfilesInsideComputer(sessionConfig, sessionProfilePick); err != nil {
 			return err
 		}
@@ -165,6 +179,14 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	}
 	if opts, err = devSessionProfile.prepareStart(ctx, opts, &artifact); err != nil {
 		return err
+	}
+	if cookiesState != nil {
+		if err := sessionprofile.RequireBackendCapability(ctx, mgr.APIClient(), sessionprofile.BackendCapabilitySessionProfiles, "--cookies-file"); err != nil {
+			return err
+		}
+		if opts.SessionProfile, err = sessionprofile.WithBrowserStorageState(opts.SessionProfile, cookiesState); err != nil {
+			return err
+		}
 	}
 	var queueNotice *billingstatus.QueueNotice
 	opts.OnQueued = func(notice *billingstatus.QueueNotice) {
@@ -202,6 +224,8 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 	}
 	return nil
 }
+
+var errCookiesFileInsideComputer = errors.New("--cookies-file can't apply inside a computer; pass --computer none")
 
 // parseWebLaunchEnv splits Web --launch-env entries into plain KEY=VALUE
 // overrides and secret NAME overrides, whose values come from the local

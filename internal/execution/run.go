@@ -109,6 +109,9 @@ type RunTestParams struct {
 	LaunchEnvVars map[string]string
 	// LaunchArguments are non-secret inline iOS app arguments in exact order.
 	LaunchArguments []string
+	// SessionProfile is the applied session profile a Web test's browser
+	// starts with, such as a --cookies-file's storage state.
+	SessionProfile *api.AppliedSessionProfile
 	// VariableOverrides are test variable values applied to this run. They are
 	// referenced as {{name}} and override test/global variables for that run only.
 	VariableOverrides map[string]string
@@ -245,6 +248,7 @@ func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params
 		OsVersion:           params.OsVersion,
 		LaunchEnvVars:       params.LaunchEnvVars,
 		LaunchArguments:     params.LaunchArguments,
+		SessionProfile:      params.SessionProfile,
 		VariableOverrides:   params.VariableOverrides,
 		TestDefinitionFiles: params.TestDefinitionFiles,
 	}

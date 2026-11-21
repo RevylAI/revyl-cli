@@ -170,6 +170,8 @@ own deploy or a test-login route. A
 Web starts. Its script can seed data and write browser storage state, and it
 can set the launch environment of a Web app Revyl runs with a start command
 ([Platform rules and limits](https://docs.revyl.com/devices/session-profiles#platform-rules-and-limits)).
+To start with cookies or localStorage and no script, pass `--cookies-file`
+([Cookies without a script](https://docs.revyl.com/devices/session-profiles#cookies-without-a-script)).
 
 A pull request comment's Open preview link signs its Web preview in with
 the project's published `sign_in`, as mobile previews apply
