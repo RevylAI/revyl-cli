@@ -22,6 +22,10 @@ func safeComputerTransportError(err error) error {
 }
 
 func (c *Client) doComputerMutationOnce(ctx context.Context, path string, body any, requestID string, timeout time.Duration, extraHeaders ...map[string]string) (*http.Response, error) {
+	return c.doComputerRequestOnce(ctx, http.MethodPost, path, body, requestID, timeout, extraHeaders...)
+}
+
+func (c *Client) doComputerRequestOnce(ctx context.Context, method, path string, body any, requestID string, timeout time.Duration, extraHeaders ...map[string]string) (*http.Response, error) {
 	if timeout <= 0 {
 		return nil, errors.New("computer request requires a positive timeout")
 	}
@@ -34,7 +38,7 @@ func (c *Client) doComputerMutationOnce(ctx context.Context, path string, body a
 	for _, extra := range extraHeaders {
 		maps.Copy(headers, extra)
 	}
-	response, err := c.doRequestOnceWithClient(ctx, http.MethodPost, path, body, &client, headers)
+	response, err := c.doRequestOnceWithClient(ctx, method, path, body, &client, headers)
 	if err != nil {
 		return nil, safeComputerTransportError(err)
 	}

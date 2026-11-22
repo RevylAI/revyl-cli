@@ -152,6 +152,96 @@ func writeComputerList(writer io.Writer, list *api.ComputerRunListResponse) erro
 	return nil
 }
 
+// persistentComputerSaveWhere says where a stopped computer's save is: on the
+// Mac that saved it only, or also copied off it.
+func persistentComputerSaveWhere(computer api.PersistentComputerStatus) string {
+	if computer.Durable {
+		return "saved off host"
+	}
+	return "saved on host"
+}
+
+func persistentComputerListState(computer api.PersistentComputerStatus) string {
+	if computer.State != api.PersistentComputerStatusStateStopped {
+		return string(computer.State)
+	}
+	return fmt.Sprintf("%s (%s)", computer.State, persistentComputerSaveWhere(computer))
+}
+
+func persistentComputerStateText(computer api.PersistentComputerStatus) string {
+	if computer.SavedAt == nil {
+		return string(computer.State)
+	}
+	if computer.State != api.PersistentComputerStatusStateStopped {
+		return fmt.Sprintf("%s (saved %s)", computer.State, computerTime(*computer.SavedAt))
+	}
+	return fmt.Sprintf("%s (%s %s)", computer.State, persistentComputerSaveWhere(computer), computerTime(*computer.SavedAt))
+}
+
+func writePersistentComputerStatus(writer io.Writer, computer *api.PersistentComputerStatus) error {
+	line := fmt.Sprintf("computer_id=%s state=%s run_session_id=%s", computer.ComputerId, computer.State, computer.RunSessionId)
+	if computer.SavedAt != nil {
+		line += fmt.Sprintf(" saved_at=%s durable=%t", computer.SavedAt.UTC().Format(time.RFC3339), computer.Durable)
+	}
+	_, err := fmt.Fprintln(writer, line)
+	return err
+}
+
+func writePersistentComputerList(writer io.Writer, list *api.PersistentComputerListResponse) error {
+	if len(list.Computers) == 0 {
+		_, err := fmt.Fprintln(writer, "No persistent computers yet. Start one with: revyl computer create --os macos --persistent")
+		return err
+	}
+	rows := [][]string{{"ID", "STATE", "SAVED", "CREATED"}}
+	for _, computer := range list.Computers {
+		saved := "-"
+		if computer.SavedAt != nil {
+			saved = computerTime(*computer.SavedAt)
+		}
+		rows = append(rows, []string{computer.ComputerId.String(), persistentComputerListState(computer), saved, computerTime(computer.CreatedAt)})
+	}
+	if err := writeComputerTable(writer, rows); err != nil {
+		return err
+	}
+	if list.Total > len(list.Computers) {
+		_, err := fmt.Fprintf(writer, "Showing the newest %d of %d persistent computers; use --limit (up to %d) for more.\n", len(list.Computers), list.Total, api.ComputerListMaxLimit)
+		return err
+	}
+	return nil
+}
+
+func writeComputerSnapshot(writer io.Writer, snapshot *api.ComputerSnapshot) error {
+	line := fmt.Sprintf("snapshot_id=%s name=%s computer_id=%s saved_at=%s", snapshot.ID, snapshot.Name, snapshot.ComputerID, snapshot.SavedAt.UTC().Format(time.RFC3339))
+	if snapshot.ExpiresAt != nil {
+		line += " expires_at=" + snapshot.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	_, err := fmt.Fprintln(writer, line)
+	return err
+}
+
+func writeComputerSnapshotList(writer io.Writer, list *api.ComputerSnapshotListResponse) error {
+	if len(list.Snapshots) == 0 {
+		_, err := fmt.Fprintln(writer, "No snapshots yet. Save one with: revyl computer snapshot save C1 --name NAME")
+		return err
+	}
+	rows := [][]string{{"ID", "NAME", "COMPUTER", "SAVED", "EXPIRES"}}
+	for _, snapshot := range list.Snapshots {
+		expires := "-"
+		if snapshot.ExpiresAt != nil {
+			expires = computerTime(*snapshot.ExpiresAt)
+		}
+		rows = append(rows, []string{snapshot.ID.String(), snapshot.Name, snapshot.ComputerID.String(), computerTime(snapshot.SavedAt), expires})
+	}
+	if err := writeComputerTable(writer, rows); err != nil {
+		return err
+	}
+	if list.Total > len(list.Snapshots) {
+		_, err := fmt.Fprintf(writer, "Showing the newest %d of %d snapshots; use --limit (up to %d) for more.\n", len(list.Snapshots), list.Total, api.ComputerListMaxLimit)
+		return err
+	}
+	return nil
+}
+
 func writeComputerHosting(writer io.Writer, hosting *api.ComputerHostingCapability) error {
 	if len(hosting.Platforms) == 0 {
 		_, err := fmt.Fprintln(writer, "This computer can't host app sessions right now; it may still be starting.")
@@ -199,6 +289,9 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 		{"Computer", detail.ComputerSessionId.String()},
 		{"OS", string(detail.Os)},
 		{"State", computerStateText(status.State, status.Release)},
+	}
+	if detail.Persistent != nil {
+		rows = append(rows, []string{"Persistent", persistentComputerStateText(*detail.Persistent)})
 	}
 	if detail.FailureReason != nil {
 		reason, ok := computerFailureReasons[*detail.FailureReason]

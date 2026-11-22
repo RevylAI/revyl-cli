@@ -27,3 +27,13 @@
 # Computer screen control uses handwritten CLI transport models.
 /api/v1/computer-runs/%s/screen/actions
 /api/v1/computer-runs/%s/screen/screenshot
+
+# Persistent computers are an internal preview gated to Revyl's own
+# organizations, so their routes stay off the public generated surface and use
+# handwritten CLI transport models. DELETE shares its path with the allowlisted
+# computer read and is omitted from the allowlist instead.
+/api/v1/computer-runs/persistent
+/api/v1/computer-runs/%s/start
+/api/v1/computer-runs/%s/snapshots
+/api/v1/computer-runs/snapshots
+/api/v1/computer-runs/snapshots/%s

@@ -13,6 +13,7 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/ui"
 )
 
 const computerStopReleaseWait = time.Minute
@@ -26,7 +27,7 @@ type computerInvocation struct {
 	BillingURL        string `json:"billing_url,omitempty"`
 	BillingAction     string `json:"billing_action,omitempty"`
 	NextStep          string `json:"next_step,omitempty"`
-	waitedForActive   bool
+	waited            bool
 	createdDisplay    *api.ComputerDisplaySize
 	execOptions       bool
 }
@@ -74,22 +75,38 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	create.Flags().Duration("timeout", 0, "Lifetime from creation (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
 	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --wait-timeout")
 	create.Flags().Duration("wait-timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
+	create.Flags().Bool("persistent", false, "Keep the whole disk when it stops or reaches its lifetime end, so it can start again under the same ID (macOS only)")
+	_ = create.Flags().MarkHidden("persistent")
+	create.Flags().String("from-snapshot", "", "Create a persistent macOS computer whose disk starts as this snapshot's (ID or name)")
+	_ = create.Flags().MarkHidden("from-snapshot")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
 			if len(args) != 0 {
 				return nil, errors.New("computer create does not accept positional arguments")
 			}
 			osName, _ := cmd.Flags().GetString("os")
+			fromSnapshot, _ := cmd.Flags().GetString("from-snapshot")
+			if cmd.Flags().Changed("from-snapshot") {
+				if !api.ValidComputerSnapshotReference(fromSnapshot) {
+					return nil, errors.New("--from-snapshot requires a snapshot ID or name")
+				}
+				if osName == "" {
+					osName = "macos"
+				}
+				if osName != "macos" {
+					return nil, errors.New("--from-snapshot requires --os macos")
+				}
+			}
 			if osName != "macos" && osName != "linux" {
 				return nil, errors.New("specify --os macos")
 			}
-			wait, _ := cmd.Flags().GetBool("wait")
-			waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
-			if cmd.Flags().Changed("wait-timeout") && !wait {
-				return nil, errors.New("--wait-timeout requires --wait")
+			persistent, _ := cmd.Flags().GetBool("persistent")
+			if persistent && osName != "macos" {
+				return nil, errors.New("--persistent requires --os macos")
 			}
-			if waitTimeout < time.Second || waitTimeout > 30*time.Minute {
-				return nil, errors.New("--wait-timeout must be from 1s to 30m")
+			wait, waitTimeout, err := computerWaitFlags(cmd)
+			if err != nil {
+				return nil, err
 			}
 			displayText, _ := cmd.Flags().GetString("display")
 			display, err := computerDisplaySize(displayText)
@@ -126,7 +143,14 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				ctx, cancel = context.WithTimeout(ctx, waitTimeout)
 				defer cancel()
 			}
-			report, err := client.CreateComputerRun(ctx, api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display, TimeoutSeconds: timeoutSeconds})
+			request := api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display, TimeoutSeconds: timeoutSeconds}
+			if persistent {
+				request.Persistent = &persistent
+			}
+			if fromSnapshot != "" {
+				request.FromSnapshot = &fromSnapshot
+			}
+			report, err := client.CreateComputerRun(ctx, request)
 			var refusal *api.APIError
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
 				switch refusal.Code {
@@ -143,7 +167,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			if err != nil || !wait {
 				return report, err
 			}
-			invocation.waitedForActive = true
+			invocation.waited = true
 			if api.InspectComputerReport(*report).State == "starting" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "waiting for the computer to become active")
 			}
@@ -157,6 +181,8 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	command.AddCommand(create)
 	listComputers := &cobra.Command{Use: "list", Short: "Show your organization's newest computers"}
 	listComputers.Flags().Int("limit", 25, fmt.Sprintf("How many computers to show (1-%d)", api.ComputerListMaxLimit))
+	listComputers.Flags().Bool("persistent", false, "Show persistent computers, stopped ones included")
+	_ = listComputers.Flags().MarkHidden("persistent")
 	listComputers.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(*computerInvocation) (any, error) {
 			if len(args) != 0 {
@@ -167,10 +193,97 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			if err != nil {
 				return nil, err
 			}
+			if persistent, _ := cmd.Flags().GetBool("persistent"); persistent {
+				return client.ListPersistentComputers(cmd.Context(), limit)
+			}
 			return client.ListComputerRuns(cmd.Context(), limit)
 		})
 	}
 	command.AddCommand(listComputers)
+	start := &cobra.Command{Use: "start C1", Hidden: true, Short: "Boot a stopped persistent computer from its saved disk", Long: "Boot a stopped persistent computer from its saved disk as a new run.\n\n" + computerPersistentHelp}
+	start.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
+	start.Flags().Duration("timeout", 0, "Lifetime of the new run from the start (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
+	start.Flags().Bool("wait", false, "Wait until the computer is running; exits non-zero if it is not by --wait-timeout")
+	start.Flags().Duration("wait-timeout", 10*time.Minute, "How long --wait waits (1s-30m)")
+	start.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
+			if len(args) != 1 {
+				return nil, errors.New("computer start requires exactly one computer UUID")
+			}
+			id, err := parseComputerUUID(args[0])
+			if err != nil {
+				return nil, err
+			}
+			invocation.ComputerSessionID = id.String()
+			wait, timeout, err := computerWaitFlags(cmd)
+			if err != nil {
+				return nil, err
+			}
+			displayText, _ := cmd.Flags().GetString("display")
+			display, err := computerDisplaySize(displayText)
+			if err != nil {
+				return nil, err
+			}
+			request := api.PersistentComputerStartRequest{Display: display}
+			if cmd.Flags().Changed("timeout") {
+				lifetime, _ := cmd.Flags().GetDuration("timeout")
+				seconds, err := computerLifetimeSeconds(lifetime)
+				if err != nil {
+					return nil, err
+				}
+				request.TimeoutSeconds = &seconds
+			}
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			ctx := cmd.Context()
+			if wait {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+			status, err := client.StartComputer(ctx, id, request)
+			if err != nil || !wait {
+				return status, err
+			}
+			return awaitPersistentComputer(ctx, cmd, client, invocation, status, api.PersistentComputerStatusStateStarting, "waiting for the computer to become active")
+		})
+	}
+	command.AddCommand(start)
+	deleteComputer := &cobra.Command{Use: "delete C1", Hidden: true, Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nstops first, without saving.\n\n" + computerPersistentHelp}
+	deleteComputer.Flags().Bool("yes", false, "Delete without asking; required when not run in a terminal")
+	deleteComputer.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
+			if len(args) != 1 {
+				return nil, errors.New("computer delete requires exactly one computer UUID")
+			}
+			id, err := parseComputerUUID(args[0])
+			if err != nil {
+				return nil, err
+			}
+			invocation.ComputerSessionID = id.String()
+			if yes, _ := cmd.Flags().GetBool("yes"); !yes {
+				if !ui.IsInputTTY() {
+					return nil, errors.New("computer delete removes the saved disk for good; pass --yes to confirm")
+				}
+				confirmed, err := ui.PromptConfirm(fmt.Sprintf("Delete computer %s and its saved disk? This can't be undone.", id), false)
+				if err != nil || !confirmed {
+					return nil, errors.New("computer delete canceled; nothing was deleted")
+				}
+			}
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			if err := client.DeleteComputer(cmd.Context(), id); err != nil {
+				return nil, err
+			}
+			return &computerDeleteResult{ComputerID: id.String(), State: "deleted"}, nil
+		})
+	}
+	command.AddCommand(deleteComputer)
+	command.AddCommand(newComputerSnapshotCommand())
 	extend := &cobra.Command{Use: "extend C1", Short: "Keep a running computer alive longer"}
 	extend.Flags().Duration("timeout", 0, "Keep it running at least this long from now (the API's timeout_seconds), whole seconds from 1m to 24h; never past 24h from creation")
 	extend.RunE = func(cmd *cobra.Command, args []string) error {
@@ -214,6 +327,12 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 		leaf := &cobra.Command{Use: action + " C1", Short: leafShorts[action]}
 		if action == "sessions" {
 			leaf.Flags().Int("limit", 25, fmt.Sprintf("How many sessions to show (1-%d)", api.ComputerListMaxLimit))
+		}
+		if action == "stop" {
+			leaf.Flags().Bool("wait", false, "On a persistent computer, wait until its disk is saved; exits non-zero if it is not stopped by --wait-timeout")
+			leaf.Flags().Duration("wait-timeout", 10*time.Minute, "How long --wait waits for the disk to be saved (1s-30m)")
+			_ = leaf.Flags().MarkHidden("wait")
+			_ = leaf.Flags().MarkHidden("wait-timeout")
 		}
 		if action == "report" {
 			leaf.Long = `Read a computer report as JSON, ATIF or performance statistics.
@@ -259,7 +378,19 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 					limit, _ := cmd.Flags().GetInt("limit")
 					return client.ListComputerSessions(cmd.Context(), id, limit)
 				case "stop":
-					report, err := client.StopComputerRun(cmd.Context(), id)
+					wait, timeout, err := computerWaitFlags(cmd)
+					if err != nil {
+						return nil, err
+					}
+					report, persistent, err := client.StopComputerRun(cmd.Context(), id)
+					if err == nil && persistent != nil {
+						if !wait {
+							return persistent, nil
+						}
+						ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+						defer cancel()
+						return awaitPersistentComputer(ctx, cmd, client, invocation, persistent, api.PersistentComputerStatusStateStopping, "waiting for the computer's disk to be saved")
+					}
 					if err != nil || !api.ComputerRunUnsettled(api.InspectComputerReport(*report)) {
 						return report, err
 					}
@@ -372,6 +503,168 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 	return command
 }
 
+const computerAccountLaunchAgents = "/Users/computer/Library/LaunchAgents"
+
+const computerPersistentHelp = `Persistent computers are an internal preview, open only to Revyl's own
+organizations; others get persistent_computers_not_enabled.
+A persistent computer (create --persistent, macOS only) keeps one ID for life.
+Stop saves its whole disk on the Mac it runs on: files, brew installs and other
+system changes; stop --wait waits until that save is confirmed. Memory and
+running processes do not survive, so a start is a cold boot of a new run from
+that disk. A save is on that Mac first and is then copied off it right away at
+a capped rate, usually within a few minutes: list and get show a stopped
+computer as "saved on host" until the copy is done and "saved off host" after.
+Until then, losing that Mac loses the save, and a start on that Mac stops the
+copy and boots from its local disk. A start runs on the Mac holding the save
+while it is online, waiting to start like a create when it is busy. When that
+Mac is offline, a save copied off host starts on another Mac, and one still
+only on its host fails with saved_disk_unavailable. If a start never becomes
+active, the computer is stopped again with its disk unchanged. A saved disk
+lives at most 30 days, and start refuses with saved_disk_expired in its last
+24 hours, the longest a started run can last. Reaching its lifetime end also
+stops it and keeps its disk. Only delete removes the disk.`
+
+var computerPersistentRefusals = map[string]string{
+	"persistent_computers_not_enabled": "Persistent computers are an internal preview and aren't enabled for this organization.",
+	"computer_not_persistent":          "This computer isn't persistent. Only computers created with --persistent can start from a saved disk and be deleted.",
+	"saved_disk_unavailable":           "The Mac holding this computer's saved disk is offline and the save isn't copied off it yet, or no Mac can start it right now. The disk stays saved; try start again later.",
+	"saved_disk_expired":               "This computer's saved disk is too old to start: a saved disk lives at most 30 days. Delete it, then create a new computer.",
+	"computer_not_stopped":             "Only a stopped computer can be snapshotted. Stop it with revyl computer stop --wait, then save the snapshot.",
+	"saved_disk_not_durable":           "This computer's save is still only on its Mac. Wait until revyl computer get shows it saved off host, then save the snapshot.",
+	"snapshot_name_taken":              "Your organization already has a snapshot with this name. Pick another name, or delete the old snapshot first.",
+	"snapshot_expired":                 "This snapshot's saved disk is too old to start a computer from: a saved disk lives at most 30 days. Save a new snapshot of a recently stopped computer.",
+}
+
+const computerSnapshotHelp = `Snapshots are part of the persistent computer preview, open only to Revyl's own
+organizations; others get persistent_computers_not_enabled.
+A snapshot names a stopped persistent computer's current saved disk once it is
+saved off host, under a name unique in your organization. It copies nothing,
+so it is ready at once. create --from-snapshot S1 creates a new persistent
+macOS computer whose disk starts as the snapshot's. Everything on that disk
+carries over, including signed-in accounts and any secrets stored on it, so
+anyone in your organization who can create computers can use what it holds.
+A snapshot lasts as long as the save it names, at most 30 days, even after
+its computer starts again or is deleted. Deleting a snapshot never changes a
+computer already created from it.`
+
+func newComputerSnapshotCommand() *cobra.Command {
+	command := &cobra.Command{Use: "snapshot", Hidden: true, Short: "Save, list, show and delete snapshots of stopped persistent computers", Long: computerSnapshotHelp, RunE: computerHelp}
+	save := &cobra.Command{Use: "save C1 --name NAME", Short: "Save a stopped persistent computer's saved disk as a named snapshot", Long: computerSnapshotHelp}
+	save.Flags().String("name", "", "Snapshot name: 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit")
+	save.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
+			if len(args) != 1 {
+				return nil, errors.New("computer snapshot save requires exactly one computer UUID")
+			}
+			id, err := parseComputerUUID(args[0])
+			if err != nil {
+				return nil, err
+			}
+			invocation.ComputerSessionID = id.String()
+			name, _ := cmd.Flags().GetString("name")
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			return client.SaveComputerSnapshot(cmd.Context(), id, name)
+		})
+	}
+	list := &cobra.Command{Use: "list", Short: "Show your organization's newest snapshots"}
+	list.Flags().Int("limit", 25, fmt.Sprintf("How many snapshots to show (1-%d)", api.ComputerListMaxLimit))
+	list.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(*computerInvocation) (any, error) {
+			if len(args) != 0 {
+				return nil, errors.New("computer snapshot list does not accept positional arguments")
+			}
+			limit, _ := cmd.Flags().GetInt("limit")
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			return client.ListComputerSnapshots(cmd.Context(), limit)
+		})
+	}
+	get := &cobra.Command{Use: "get S1", Short: "Show one snapshot by ID or name"}
+	get.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(*computerInvocation) (any, error) {
+			if len(args) != 1 {
+				return nil, errors.New("computer snapshot get requires exactly one snapshot ID or name")
+			}
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			return client.GetComputerSnapshot(cmd.Context(), args[0])
+		})
+	}
+	deleteSnapshot := &cobra.Command{Use: "delete S1", Short: "Delete one snapshot by ID or name", Long: "Delete one snapshot by ID or name. Computers already created from it keep\ntheir own disks."}
+	deleteSnapshot.Flags().Bool("yes", false, "Delete without asking; required when not run in a terminal")
+	deleteSnapshot.RunE = func(cmd *cobra.Command, args []string) error {
+		return runComputerCommand(cmd, func(*computerInvocation) (any, error) {
+			if len(args) != 1 {
+				return nil, errors.New("computer snapshot delete requires exactly one snapshot ID or name")
+			}
+			reference := args[0]
+			if yes, _ := cmd.Flags().GetBool("yes"); !yes {
+				if !ui.IsInputTTY() {
+					return nil, errors.New("computer snapshot delete can't be undone; pass --yes to confirm")
+				}
+				confirmed, err := ui.PromptConfirm(fmt.Sprintf("Delete snapshot %s? This can't be undone.", reference), false)
+				if err != nil || !confirmed {
+					return nil, errors.New("computer snapshot delete canceled; nothing was deleted")
+				}
+			}
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			if err := client.DeleteComputerSnapshot(cmd.Context(), reference); err != nil {
+				return nil, err
+			}
+			return &computerSnapshotDeleteResult{Snapshot: reference, State: "deleted"}, nil
+		})
+	}
+	command.AddCommand(save, list, get, deleteSnapshot)
+	return command
+}
+
+type computerSnapshotDeleteResult struct {
+	Snapshot string `json:"snapshot"`
+	State    string `json:"state"`
+}
+
+type computerDeleteResult struct {
+	ComputerID string `json:"computer_id"`
+	State      string `json:"state"`
+}
+
+// awaitPersistentComputer waits until ctx ends while a persistent computer is
+// still in the waiting state, returning its latest status.
+func awaitPersistentComputer(ctx context.Context, cmd *cobra.Command, client *api.Client, invocation *computerInvocation, status *api.PersistentComputerStatus, waiting api.PersistentComputerStatusState, waitText string) (*api.PersistentComputerStatus, error) {
+	invocation.waited = true
+	if status.State == waiting {
+		fmt.Fprintln(cmd.ErrOrStderr(), waitText)
+	}
+	status, err := client.AwaitPersistentComputer(ctx, status, waiting)
+	if err == nil && cmd.Context().Err() != nil {
+		return nil, cmd.Context().Err()
+	}
+	return status, err
+}
+
+// computerWaitFlags reads --wait and its --wait-timeout, which needs --wait.
+func computerWaitFlags(cmd *cobra.Command) (bool, time.Duration, error) {
+	wait, _ := cmd.Flags().GetBool("wait")
+	waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
+	if cmd.Flags().Changed("wait-timeout") && !wait {
+		return false, 0, errors.New("--wait-timeout requires --wait")
+	}
+	if waitTimeout < time.Second || waitTimeout > 30*time.Minute {
+		return false, 0, errors.New("--wait-timeout must be from 1s to 30m")
+	}
+	return wait, waitTimeout, nil
+}
+
 func computerHelp(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		return cmd.Help()
@@ -424,6 +717,9 @@ func newComputerOperationCommand(use, short, kind string) *cobra.Command {
 				}
 				encoded := api.EncodeComputerBytes(stdin)
 				exec := api.ComputerExec{Argv: args[1:], Stdin: &encoded, TimeoutMs: &timeoutMs}
+				if argv := strings.Join(exec.Argv, " "); strings.Contains(argv, "Library/LaunchAgents") && !strings.Contains(argv, computerAccountLaunchAgents) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "revyl: exec runs with HOME=/Users/computer/workspace, but macOS loads LaunchAgents at login only from %s\n", computerAccountLaunchAgents)
+				}
 				if cmd.Flags().Changed("cwd") {
 					cwd, _ := cmd.Flags().GetString("cwd")
 					exec.Cwd = &cwd
@@ -594,6 +890,11 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		if invocation.execOptions && errors.As(err, &refusal) && refusal.Code == "invalid_request" {
 			refusal.Hint = "This server may not accept --cwd, --env or an exec --timeout over 5m yet; retry without them, for example -- /bin/zsh -lc 'cd DIR && COMMAND'."
 		}
+		if !jsonOutput && errors.As(err, &refusal) {
+			if message, ok := computerPersistentRefusals[refusal.Code]; ok {
+				refusal.Message = message
+			}
+		}
 		invocation.Error = err.Error()
 		if errors.Is(err, api.ErrComputerOutcomeUnconfirmed) {
 			invocation.Status = "unconfirmed"
@@ -714,9 +1015,9 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			switch {
 			case status.State == "failed" || status.State == "owner_lost":
 				exitCode, exitMessage = 125, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
-			case invocation.waitedForActive && status.State == "starting":
+			case invocation.waited && status.State == "starting":
 				exitCode, exitMessage = 124, "computer is still starting at --wait-timeout; check it with revyl computer get, or stop it"
-			case invocation.waitedForActive && status.State != "active":
+			case invocation.waited && status.State != "active":
 				exitCode, exitMessage = 1, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
 			case status.Evidence != "recorded":
 				exitCode = 74
@@ -728,6 +1029,76 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			}
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "computer_session_id=%s report_id=%s state=%s release=%s evidence=%s\n", result.ComputerSessionId, result.ReportId, status.State, status.Release, status.Evidence)
+		}
+	case *api.PersistentComputerStatus:
+		completion.DomainStatus = string(result.State)
+		if invocation.waited {
+			switch {
+			case cmd.Name() == "stop" && result.State == api.PersistentComputerStatusStateStopping:
+				exitCode, exitMessage = 124, "computer is still stopping at --wait-timeout: its save isn't confirmed, and its disk stays on its Mac for recovery. Check it with revyl computer get; contact support@revyl.ai if it stays stopping"
+			case cmd.Name() == "start" && result.State == api.PersistentComputerStatusStateStarting:
+				exitCode, exitMessage = 124, "computer is still starting at --wait-timeout; check it with revyl computer get, or stop it"
+			case cmd.Name() == "start" && result.State == api.PersistentComputerStatusStateStopped:
+				exitCode, exitMessage = 1, "computer ended before it became active, so it is stopped again with its saved disk unchanged; start it again later"
+			case cmd.Name() == "stop" && result.State != api.PersistentComputerStatusStateStopped, cmd.Name() == "start" && result.State != api.PersistentComputerStatusStateRunning:
+				exitCode, exitMessage = 1, fmt.Sprintf("computer is %s", result.State)
+			}
+		}
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if err := writePersistentComputerStatus(cmd.OutOrStdout(), result); err != nil {
+			return err
+		}
+	case *api.PersistentComputerListResponse:
+		completion.DomainStatus = "inspected"
+		analytics.SetCommandCompletion(cmd.Context(), completion)
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if err := writePersistentComputerList(cmd.OutOrStdout(), result); err != nil {
+			return err
+		}
+	case *computerDeleteResult:
+		completion.DomainStatus = result.State
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "computer_id=%s state=%s\n", result.ComputerID, result.State); err != nil {
+			return err
+		}
+	case *api.ComputerSnapshot:
+		completion.DomainStatus = "inspected"
+		if cmd.Name() == "save" {
+			completion.DomainStatus = "saved"
+		}
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if err := writeComputerSnapshot(cmd.OutOrStdout(), result); err != nil {
+			return err
+		}
+	case *api.ComputerSnapshotListResponse:
+		completion.DomainStatus = "inspected"
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if err := writeComputerSnapshotList(cmd.OutOrStdout(), result); err != nil {
+			return err
+		}
+	case *computerSnapshotDeleteResult:
+		completion.DomainStatus = result.State
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "snapshot=%s state=%s\n", result.Snapshot, result.State); err != nil {
+			return err
 		}
 	case *api.ComputerHostingCapability:
 		completion.DomainStatus = "inspected"

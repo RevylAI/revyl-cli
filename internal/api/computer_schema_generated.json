@@ -2138,6 +2138,16 @@
           "title": "Os",
           "type": "string"
         },
+        "persistent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PersistentComputerStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "release": {
           "default": "pending",
           "enum": [
@@ -2565,6 +2575,62 @@
         "error_code"
       ],
       "title": "ComputerUnknown",
+      "type": "object"
+    },
+    "PersistentComputerStatus": {
+      "description": "A persistent computer keeps one ID across stops; each start is a new run.\n\n`durable` is true once its current save is copied off the host that saved\nit, so losing that host no longer loses the save.",
+      "properties": {
+        "computer_id": {
+          "format": "uuid",
+          "title": "Computer Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "durable": {
+          "title": "Durable",
+          "type": "boolean"
+        },
+        "run_session_id": {
+          "format": "uuid",
+          "title": "Run Session Id",
+          "type": "string"
+        },
+        "saved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved At"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "stopping",
+            "stopped",
+            "starting"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "computer_id",
+        "state",
+        "run_session_id",
+        "saved_at",
+        "durable",
+        "created_at"
+      ],
+      "title": "PersistentComputerStatus",
       "type": "object"
     },
     "SessionStatus": {

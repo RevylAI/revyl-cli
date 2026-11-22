@@ -153,6 +153,13 @@ can still use different state; when needed, run that tool in Terminal with
 `HOME=/Users/computer/workspace`. Changing directory alone does not change
 `HOME`, and changing either value in one `exec` does not persist into the next.
 
+macOS loads a LaunchAgent at login only from the account's
+`/Users/computer/Library/LaunchAgents`. One written from `exec` to
+`$HOME/Library/LaunchAgents` lands in the workspace and never loads, so write
+the plist to the account path and load it with
+`launchctl bootstrap gui/$(id -u) /Users/computer/Library/LaunchAgents/<name>.plist`.
+The CLI warns when an `exec` names `Library/LaunchAgents` anywhere else.
+
 ### Administrator access
 
 On macOS the `computer` account is an administrator with the password `revyl`.

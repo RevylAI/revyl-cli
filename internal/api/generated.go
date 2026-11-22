@@ -1160,6 +1160,8 @@ func (e CompileSourceType) Valid() bool {
 
 // Defines values for ComputerAPIErrorDetail0.
 const (
+	ComputerAPIErrorDetail0ComputerNotPersistent   ComputerAPIErrorDetail0 = "computer_not_persistent"
+	ComputerAPIErrorDetail0ComputerNotStopped      ComputerAPIErrorDetail0 = "computer_not_stopped"
 	ComputerAPIErrorDetail0EvidenceConflict        ComputerAPIErrorDetail0 = "evidence_conflict"
 	ComputerAPIErrorDetail0EvidenceUnavailable     ComputerAPIErrorDetail0 = "evidence_unavailable"
 	ComputerAPIErrorDetail0ExecOptionsUnsupported  ComputerAPIErrorDetail0 = "exec_options_unsupported"
@@ -1173,6 +1175,9 @@ const (
 	ComputerAPIErrorDetail0RequestConflict         ComputerAPIErrorDetail0 = "request_conflict"
 	ComputerAPIErrorDetail0RunClosed               ComputerAPIErrorDetail0 = "run_closed"
 	ComputerAPIErrorDetail0RunConflict             ComputerAPIErrorDetail0 = "run_conflict"
+	ComputerAPIErrorDetail0SavedDiskExpired        ComputerAPIErrorDetail0 = "saved_disk_expired"
+	ComputerAPIErrorDetail0SavedDiskNotDurable     ComputerAPIErrorDetail0 = "saved_disk_not_durable"
+	ComputerAPIErrorDetail0SavedDiskUnavailable    ComputerAPIErrorDetail0 = "saved_disk_unavailable"
 	ComputerAPIErrorDetail0ScreenControlHeld       ComputerAPIErrorDetail0 = "screen_control_held"
 	ComputerAPIErrorDetail0ScreenControlLost       ComputerAPIErrorDetail0 = "screen_control_lost"
 	ComputerAPIErrorDetail0ScreenInputUnavailable  ComputerAPIErrorDetail0 = "screen_input_unavailable"
@@ -1183,12 +1188,18 @@ const (
 	ComputerAPIErrorDetail0ScreenTargetUnavailable ComputerAPIErrorDetail0 = "screen_target_unavailable"
 	ComputerAPIErrorDetail0ScreenTextUnsupported   ComputerAPIErrorDetail0 = "screen_text_unsupported"
 	ComputerAPIErrorDetail0ScreenUnavailable       ComputerAPIErrorDetail0 = "screen_unavailable"
+	ComputerAPIErrorDetail0SnapshotExpired         ComputerAPIErrorDetail0 = "snapshot_expired"
+	ComputerAPIErrorDetail0SnapshotNameTaken       ComputerAPIErrorDetail0 = "snapshot_name_taken"
 	ComputerAPIErrorDetail0StartFailed             ComputerAPIErrorDetail0 = "start_failed"
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorDetail0 enum.
 func (e ComputerAPIErrorDetail0) Valid() bool {
 	switch e {
+	case ComputerAPIErrorDetail0ComputerNotPersistent:
+		return true
+	case ComputerAPIErrorDetail0ComputerNotStopped:
+		return true
 	case ComputerAPIErrorDetail0EvidenceConflict:
 		return true
 	case ComputerAPIErrorDetail0EvidenceUnavailable:
@@ -1215,6 +1226,12 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 		return true
 	case ComputerAPIErrorDetail0RunConflict:
 		return true
+	case ComputerAPIErrorDetail0SavedDiskExpired:
+		return true
+	case ComputerAPIErrorDetail0SavedDiskNotDurable:
+		return true
+	case ComputerAPIErrorDetail0SavedDiskUnavailable:
+		return true
 	case ComputerAPIErrorDetail0ScreenControlHeld:
 		return true
 	case ComputerAPIErrorDetail0ScreenControlLost:
@@ -1235,6 +1252,10 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 		return true
 	case ComputerAPIErrorDetail0ScreenUnavailable:
 		return true
+	case ComputerAPIErrorDetail0SnapshotExpired:
+		return true
+	case ComputerAPIErrorDetail0SnapshotNameTaken:
+		return true
 	case ComputerAPIErrorDetail0StartFailed:
 		return true
 	default:
@@ -1244,15 +1265,16 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 
 // Defines values for ComputerAPIErrorDetail1.
 const (
-	ComputerAPIErrorDetail1AuthenticationUnavailable ComputerAPIErrorDetail1 = "authentication_unavailable"
-	ComputerAPIErrorDetail1ComputerLimit             ComputerAPIErrorDetail1 = "computer_limit"
-	ComputerAPIErrorDetail1ComputerLongLimit         ComputerAPIErrorDetail1 = "computer_long_limit"
-	ComputerAPIErrorDetail1ComputerNotEnabled        ComputerAPIErrorDetail1 = "computer_not_enabled"
-	ComputerAPIErrorDetail1DisplayUnsupported        ComputerAPIErrorDetail1 = "display_unsupported"
-	ComputerAPIErrorDetail1Forbidden                 ComputerAPIErrorDetail1 = "forbidden"
-	ComputerAPIErrorDetail1LifetimeUnsupported       ComputerAPIErrorDetail1 = "lifetime_unsupported"
-	ComputerAPIErrorDetail1RuntimeUnavailable        ComputerAPIErrorDetail1 = "runtime_unavailable"
-	ComputerAPIErrorDetail1Unauthenticated           ComputerAPIErrorDetail1 = "unauthenticated"
+	ComputerAPIErrorDetail1AuthenticationUnavailable     ComputerAPIErrorDetail1 = "authentication_unavailable"
+	ComputerAPIErrorDetail1ComputerLimit                 ComputerAPIErrorDetail1 = "computer_limit"
+	ComputerAPIErrorDetail1ComputerLongLimit             ComputerAPIErrorDetail1 = "computer_long_limit"
+	ComputerAPIErrorDetail1ComputerNotEnabled            ComputerAPIErrorDetail1 = "computer_not_enabled"
+	ComputerAPIErrorDetail1DisplayUnsupported            ComputerAPIErrorDetail1 = "display_unsupported"
+	ComputerAPIErrorDetail1Forbidden                     ComputerAPIErrorDetail1 = "forbidden"
+	ComputerAPIErrorDetail1LifetimeUnsupported           ComputerAPIErrorDetail1 = "lifetime_unsupported"
+	ComputerAPIErrorDetail1PersistentComputersNotEnabled ComputerAPIErrorDetail1 = "persistent_computers_not_enabled"
+	ComputerAPIErrorDetail1RuntimeUnavailable            ComputerAPIErrorDetail1 = "runtime_unavailable"
+	ComputerAPIErrorDetail1Unauthenticated               ComputerAPIErrorDetail1 = "unauthenticated"
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorDetail1 enum.
@@ -1271,6 +1293,8 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 	case ComputerAPIErrorDetail1Forbidden:
 		return true
 	case ComputerAPIErrorDetail1LifetimeUnsupported:
+		return true
+	case ComputerAPIErrorDetail1PersistentComputersNotEnabled:
 		return true
 	case ComputerAPIErrorDetail1RuntimeUnavailable:
 		return true
@@ -1315,6 +1339,7 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 const (
 	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800 ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
 	ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds                         ComputerAPIErrorMessage = "No computer host can run that long yet; see max_timeout_seconds."
+	ComputerAPIErrorMessagePersistentComputersAreAnInternalPreviewAndAreNotEnabledForThisOrganization  ComputerAPIErrorMessage = "Persistent computers are an internal preview and are not enabled for this organization."
 	ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64       ComputerAPIErrorMessage = "Plain argv/path are no longer accepted; upgrade your client to send argv_b64/path_b64."
 	ComputerAPIErrorMessageTimeoutSecondsMustBeWholeSecondsFrom60To86400                               ComputerAPIErrorMessage = "timeout_seconds must be whole seconds from 60 to 86400."
 )
@@ -1325,6 +1350,8 @@ func (e ComputerAPIErrorMessage) Valid() bool {
 	case ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800:
 		return true
 	case ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds:
+		return true
+	case ComputerAPIErrorMessagePersistentComputersAreAnInternalPreviewAndAreNotEnabledForThisOrganization:
 		return true
 	case ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64:
 		return true
@@ -2475,6 +2502,114 @@ func (e ComputerScreenChannelFailureStage) Valid() bool {
 	}
 }
 
+// Defines values for ComputerStopReportEvidenceCompleteness.
+const (
+	ComputerStopReportEvidenceCompletenessComplete ComputerStopReportEvidenceCompleteness = "complete"
+	ComputerStopReportEvidenceCompletenessPartial  ComputerStopReportEvidenceCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the ComputerStopReportEvidenceCompleteness enum.
+func (e ComputerStopReportEvidenceCompleteness) Valid() bool {
+	switch e {
+	case ComputerStopReportEvidenceCompletenessComplete:
+		return true
+	case ComputerStopReportEvidenceCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerStopReportEvidenceWriteStatus.
+const (
+	ComputerStopReportEvidenceWriteStatusFailed   ComputerStopReportEvidenceWriteStatus = "failed"
+	ComputerStopReportEvidenceWriteStatusPending  ComputerStopReportEvidenceWriteStatus = "pending"
+	ComputerStopReportEvidenceWriteStatusRecorded ComputerStopReportEvidenceWriteStatus = "recorded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerStopReportEvidenceWriteStatus enum.
+func (e ComputerStopReportEvidenceWriteStatus) Valid() bool {
+	switch e {
+	case ComputerStopReportEvidenceWriteStatusFailed:
+		return true
+	case ComputerStopReportEvidenceWriteStatusPending:
+		return true
+	case ComputerStopReportEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerStopReportOs.
+const (
+	ComputerStopReportOsLinux ComputerStopReportOs = "linux"
+	ComputerStopReportOsMacos ComputerStopReportOs = "macos"
+)
+
+// Valid indicates whether the value is a known member of the ComputerStopReportOs enum.
+func (e ComputerStopReportOs) Valid() bool {
+	switch e {
+	case ComputerStopReportOsLinux:
+		return true
+	case ComputerStopReportOsMacos:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerStopReportRelease.
+const (
+	ComputerStopReportReleaseConfirmed ComputerStopReportRelease = "confirmed"
+	ComputerStopReportReleasePending   ComputerStopReportRelease = "pending"
+	ComputerStopReportReleaseUnknown   ComputerStopReportRelease = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerStopReportRelease enum.
+func (e ComputerStopReportRelease) Valid() bool {
+	switch e {
+	case ComputerStopReportReleaseConfirmed:
+		return true
+	case ComputerStopReportReleasePending:
+		return true
+	case ComputerStopReportReleaseUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerStopReportState.
+const (
+	ComputerStopReportStateActive    ComputerStopReportState = "active"
+	ComputerStopReportStateClosing   ComputerStopReportState = "closing"
+	ComputerStopReportStateFailed    ComputerStopReportState = "failed"
+	ComputerStopReportStateOwnerLost ComputerStopReportState = "owner_lost"
+	ComputerStopReportStateStarting  ComputerStopReportState = "starting"
+	ComputerStopReportStateStopped   ComputerStopReportState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ComputerStopReportState enum.
+func (e ComputerStopReportState) Valid() bool {
+	switch e {
+	case ComputerStopReportStateActive:
+		return true
+	case ComputerStopReportStateClosing:
+		return true
+	case ComputerStopReportStateFailed:
+		return true
+	case ComputerStopReportStateOwnerLost:
+		return true
+	case ComputerStopReportStateStarting:
+		return true
+	case ComputerStopReportStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerTimedOutTermination.
 const (
 	ComputerTimedOutTerminationConfirmed ComputerTimedOutTermination = "confirmed"
@@ -3159,6 +3294,30 @@ func (e LaunchRuntimeProbe) Valid() bool {
 	case LaunchRuntimeProbePassed:
 		return true
 	case LaunchRuntimeProbeUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersistentComputerStatusState.
+const (
+	PersistentComputerStatusStateRunning  PersistentComputerStatusState = "running"
+	PersistentComputerStatusStateStarting PersistentComputerStatusState = "starting"
+	PersistentComputerStatusStateStopped  PersistentComputerStatusState = "stopped"
+	PersistentComputerStatusStateStopping PersistentComputerStatusState = "stopping"
+)
+
+// Valid indicates whether the value is a known member of the PersistentComputerStatusState enum.
+func (e PersistentComputerStatusState) Valid() bool {
+	switch e {
+	case PersistentComputerStatusStateRunning:
+		return true
+	case PersistentComputerStatusStateStarting:
+		return true
+	case PersistentComputerStatusStateStopped:
+		return true
+	case PersistentComputerStatusStateStopping:
 		return true
 	default:
 		return false
@@ -7903,9 +8062,15 @@ type ComputerReportDetail struct {
 	Kind                 *string                                   `json:"kind,omitempty"`
 	OrgId                openapi_types.UUID                        `json:"org_id"`
 	Os                   ComputerReportDetailOs                    `json:"os"`
-	Release              *ComputerReportDetailRelease              `json:"release,omitempty"`
-	ReleasedAt           *time.Time                                `json:"released_at,omitempty"`
-	ReportId             openapi_types.UUID                        `json:"report_id"`
+
+	// Persistent A persistent computer keeps one ID across stops; each start is a new run.
+	//
+	// `durable` is true once its current save is copied off the host that saved
+	// it, so losing that host no longer loses the save.
+	Persistent *PersistentComputerStatus    `json:"persistent,omitempty"`
+	Release    *ComputerReportDetailRelease `json:"release,omitempty"`
+	ReleasedAt *time.Time                   `json:"released_at,omitempty"`
+	ReportId   openapi_types.UUID           `json:"report_id"`
 
 	// SourceMetadata Bounded launch metadata exposed with a computer session report.
 	SourceMetadata *ComputerSourceMetadata    `json:"source_metadata,omitempty"`
@@ -7938,7 +8103,13 @@ type ComputerRunCreate struct {
 
 	// Display A computer's display in pixels, fixed when its VM boots.
 	Display *ComputerDisplaySize `json:"display,omitempty"`
-	Os      ComputerRunCreateOs  `json:"os"`
+
+	// FromSnapshot ID or name of a snapshot of this organization to create the computer from. Implies a persistent macOS computer whose disk starts as the snapshot's.
+	FromSnapshot *string             `json:"from_snapshot,omitempty"`
+	Os           ComputerRunCreateOs `json:"os"`
+
+	// Persistent Keep this computer's disk when it stops or reaches its lifetime end, so it can start again later under the same ID. Memory and running processes do not survive a stop.
+	Persistent *bool `json:"persistent,omitempty"`
 
 	// TimeoutSeconds Lifetime in seconds from creation, 60-86400. Omit for the default 7200.
 	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
@@ -8010,6 +8181,58 @@ type ComputerSourceMetadata struct {
 	RunId      *string `json:"run_id,omitempty"`
 	RunUrl     *string `json:"run_url,omitempty"`
 }
+
+// ComputerStopReport A stopped computer's report. Stopped by a persistent computer's own ID,
+// it names that ID and adds the computer's status, which stays `stopping`
+// until its host has saved its disk.
+type ComputerStopReport struct {
+	AsOf                 time.Time                               `json:"as_of"`
+	ChildReports         *[]ComputerChildReportReference         `json:"child_reports,omitempty"`
+	ComputerSessionId    openapi_types.UUID                      `json:"computer_session_id"`
+	CreatedAt            time.Time                               `json:"created_at"`
+	EvidenceCompleteness *ComputerStopReportEvidenceCompleteness `json:"evidence_completeness,omitempty"`
+	EvidenceWriteStatus  *ComputerStopReportEvidenceWriteStatus  `json:"evidence_write_status,omitempty"`
+	ExecutionEndedAt     *time.Time                              `json:"execution_ended_at,omitempty"`
+	ExecutionStartedAt   *time.Time                              `json:"execution_started_at,omitempty"`
+	ExpiresAt            time.Time                               `json:"expires_at"`
+	FailureReason        *string                                 `json:"failure_reason,omitempty"`
+	Kind                 *string                                 `json:"kind,omitempty"`
+	OrgId                openapi_types.UUID                      `json:"org_id"`
+	Os                   ComputerStopReportOs                    `json:"os"`
+
+	// Persistent A persistent computer keeps one ID across stops; each start is a new run.
+	//
+	// `durable` is true once its current save is copied off the host that saved
+	// it, so losing that host no longer loses the save.
+	Persistent *PersistentComputerStatus  `json:"persistent,omitempty"`
+	Release    *ComputerStopReportRelease `json:"release,omitempty"`
+	ReleasedAt *time.Time                 `json:"released_at,omitempty"`
+	ReportId   openapi_types.UUID         `json:"report_id"`
+
+	// SourceMetadata Bounded launch metadata exposed with a computer session report.
+	SourceMetadata *ComputerSourceMetadata      `json:"source_metadata,omitempty"`
+	State          *ComputerStopReportState     `json:"state,omitempty"`
+	Steps          *[]ComputerOperationEvidence `json:"steps,omitempty"`
+	Version        *int                         `json:"version,omitempty"`
+
+	// WaitingForHostSince While a starting computer's owner run waits for a host with a free slot, when it first found none.
+	WaitingForHostSince *time.Time `json:"waiting_for_host_since,omitempty"`
+}
+
+// ComputerStopReportEvidenceCompleteness defines model for ComputerStopReport.EvidenceCompleteness.
+type ComputerStopReportEvidenceCompleteness string
+
+// ComputerStopReportEvidenceWriteStatus defines model for ComputerStopReport.EvidenceWriteStatus.
+type ComputerStopReportEvidenceWriteStatus string
+
+// ComputerStopReportOs defines model for ComputerStopReport.Os.
+type ComputerStopReportOs string
+
+// ComputerStopReportRelease defines model for ComputerStopReport.Release.
+type ComputerStopReportRelease string
+
+// ComputerStopReportState defines model for ComputerStopReport.State.
+type ComputerStopReportState string
 
 // ComputerSucceeded defines model for ComputerSucceeded.
 type ComputerSucceeded struct {
@@ -10025,6 +10248,22 @@ type PaginatedBuildsWithJobsResponse struct {
 type PaginatedBuildsWithJobsResponse_Items_Item struct {
 	union json.RawMessage
 }
+
+// PersistentComputerStatus A persistent computer keeps one ID across stops; each start is a new run.
+//
+// `durable` is true once its current save is copied off the host that saved
+// it, so losing that host no longer loses the save.
+type PersistentComputerStatus struct {
+	ComputerId   openapi_types.UUID            `json:"computer_id"`
+	CreatedAt    time.Time                     `json:"created_at"`
+	Durable      bool                          `json:"durable"`
+	RunSessionId openapi_types.UUID            `json:"run_session_id"`
+	SavedAt      *time.Time                    `json:"saved_at"`
+	State        PersistentComputerStatusState `json:"state"`
+}
+
+// PersistentComputerStatusState defines model for PersistentComputerStatus.State.
+type PersistentComputerStatusState string
 
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {

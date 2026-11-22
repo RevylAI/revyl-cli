@@ -779,3 +779,42 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 		})
 	}
 }
+
+func TestComputerExecWarnsWhenALaunchAgentMissesTheAccountHome(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	id, requestID := uuid.New(), uuid.New()
+	warning := "revyl: exec runs with HOME=/Users/computer/workspace, but macOS loads LaunchAgents at login only from /Users/computer/Library/LaunchAgents\n"
+	for _, test := range []struct {
+		name        string
+		argv        []string
+		wantWarning bool
+	}{
+		{"exec_home", []string{"sh", "-c", "cp agent.plist $HOME/Library/LaunchAgents/"}, true},
+		{"account_home", []string{"cp", "agent.plist", "/Users/computer/Library/LaunchAgents/"}, false},
+		{"unrelated", []string{"uname", "-a"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"computer_session_id":%q,"operation_id":%q,"evidence":"recorded","execution":{"outcome":"succeeded","result":{"kind":"exec","exit_code":0,"stdout":"","stderr":""}}}`, id, api.ComputerOperationID(id, requestID))
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			t.Setenv("REVYL_API_KEY", "fixture-key")
+			root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+			root.AddCommand(newComputerCommand())
+			var stderr bytes.Buffer
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(&stderr)
+			root.SetArgs(append([]string{"computer", "exec", id.String(), "--request-id", requestID.String(), "--"}, test.argv...))
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("exec failed: %v", err)
+			}
+
+			if got := strings.Contains(stderr.String(), warning); got != test.wantWarning {
+				t.Fatalf("warning shown %v, want %v; stderr %q", got, test.wantWarning, stderr.String())
+			}
+		})
+	}
+}

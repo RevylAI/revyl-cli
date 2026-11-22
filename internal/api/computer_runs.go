@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +26,8 @@ var computerOperationPollInterval = 2 * time.Second
 var computerStartPollInterval = 250 * time.Millisecond
 
 var computerReleasePollInterval = time.Second
+
+var computerPersistentPollInterval = 2 * time.Second
 
 func (c *Client) CreateComputerRun(ctx context.Context, request ComputerRunCreate) (*ComputerReport, error) {
 	if request.ComputerSessionId == uuid.Nil || request.Os != "macos" && request.Os != "linux" {
@@ -218,14 +222,273 @@ func (c *Client) GetComputerPerformanceReport(ctx context.Context, id uuid.UUID,
 	return &page, nil
 }
 
-func (c *Client) StopComputerRun(ctx context.Context, id uuid.UUID) (*ComputerReport, error) {
+// StopComputerRun stops a computer. Stopped by a persistent computer's own ID,
+// it also returns that computer's status, usually still stopping while its host
+// saves the disk; the status is nil for any other computer.
+func (c *Client) StopComputerRun(ctx context.Context, id uuid.UUID) (*ComputerReport, *PersistentComputerStatus, error) {
 	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/stop", id), nil, id.String(), 310*time.Second)
-	return readComputerReport(response, err, id)
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, nil, err
+	}
+	var fields map[string]json.RawMessage
+	if response.StatusCode != http.StatusOK || json.Unmarshal(body, &fields) != nil {
+		return nil, nil, errComputerResponse
+	}
+	persistentBody, persistent := fields["persistent"]
+	delete(fields, "persistent")
+	reportBody, err := json.Marshal(fields)
+	if err != nil {
+		return nil, nil, errComputerResponse
+	}
+	report, err := decodeComputerReport(reportBody, id)
+	if err != nil || !persistent {
+		return report, nil, err
+	}
+	var status PersistentComputerStatus
+	if validateComputerResponseSchema(persistentBody, "PersistentComputerStatus") != nil || decodeComputerJSON(persistentBody, &status) != nil || status.ComputerId != id {
+		return nil, nil, errComputerResponse
+	}
+	return report, &status, nil
 }
 
 func (c *Client) ExtendComputerRun(ctx context.Context, id uuid.UUID, timeoutSeconds int) (*ComputerReport, error) {
 	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/extend", id), ComputerRunExtend{TimeoutSeconds: timeoutSeconds}, id.String(), DefaultTimeout)
 	return readComputerReport(response, err, id)
+}
+
+// PersistentComputerStartRequest is handwritten because persistent computers'
+// routes stay off the public generated surface. A field left nil takes
+// create's default.
+type PersistentComputerStartRequest struct {
+	Display        *ComputerDisplaySize `json:"display,omitempty"`
+	TimeoutSeconds *int                 `json:"timeout_seconds,omitempty"`
+}
+
+// StartComputer boots a stopped persistent computer's saved disk as a new run
+// on the host that saved it, with the request's display and lifetime. It
+// answers while the new run is still starting.
+func (c *Client) StartComputer(ctx context.Context, id uuid.UUID, request PersistentComputerStartRequest) (*PersistentComputerStatus, error) {
+	var body any
+	if request.Display != nil || request.TimeoutSeconds != nil {
+		body = request
+	}
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/start", id), body, id.String(), DefaultTimeout)
+	return readPersistentComputerStatus(response, err, id)
+}
+
+// DeleteComputer stops a persistent computer's current run without saving it
+// and deletes the computer and its saved disk.
+func (c *Client) DeleteComputer(ctx context.Context, id uuid.UUID) error {
+	response, err := c.doComputerRequestOnce(ctx, http.MethodDelete, fmt.Sprintf("/api/v1/computer-runs/%s", id), nil, id.String(), 310*time.Second)
+	if err == nil && response.StatusCode == http.StatusNoContent {
+		response.Body.Close()
+		return nil
+	}
+	if _, err = readComputerBody(response, err); err != nil {
+		return err
+	}
+	return errComputerResponse
+}
+
+// AwaitPersistentComputer re-reads a persistent computer while it is in the
+// given state or until ctx ends, returning the latest status either way. Reads
+// never dispatch, so a transient read failure is retried within ctx.
+func (c *Client) AwaitPersistentComputer(ctx context.Context, status *PersistentComputerStatus, waiting PersistentComputerStatusState) (*PersistentComputerStatus, error) {
+	for status.State == waiting {
+		select {
+		case <-ctx.Done():
+			return status, nil
+		case <-time.After(computerPersistentPollInterval):
+		}
+		detail, err := c.GetComputerRun(ctx, status.ComputerId)
+		var apiErr *APIError
+		switch {
+		case err == nil && detail.Persistent != nil && detail.Persistent.ComputerId == status.ComputerId:
+			status = detail.Persistent
+		case err == nil:
+			return nil, errComputerResponse
+		case ctx.Err() != nil:
+			return status, nil
+		case errors.Is(err, errComputerReadFailed), errors.As(err, &apiErr) && (apiErr.Code == "evidence_unavailable" || apiErr.Code == "" && apiErr.StatusCode >= 500):
+		default:
+			return nil, err
+		}
+	}
+	return status, nil
+}
+
+// PersistentComputerListResponse is handwritten because persistent computers
+// are an internal preview kept off the public OpenAPI surface.
+type PersistentComputerListResponse struct {
+	Computers []PersistentComputerStatus `json:"computers"`
+	Limit     int                        `json:"limit"`
+	Offset    int                        `json:"offset"`
+	Total     int                        `json:"total"`
+}
+
+// ListPersistentComputers reads the organization's newest persistent
+// computers, stopped ones included.
+func (c *Client) ListPersistentComputers(ctx context.Context, limit int) (*PersistentComputerListResponse, error) {
+	if limit < 1 || limit > ComputerListMaxLimit {
+		return nil, fmt.Errorf("computer list limit must be from 1 to %d", ComputerListMaxLimit)
+	}
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/persistent?limit=%d", limit))
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, err
+	}
+	var list PersistentComputerListResponse
+	var items struct {
+		Computers []json.RawMessage `json:"computers"`
+	}
+	if response.StatusCode != http.StatusOK || decodeComputerJSON(body, &list, "computers", "total", "limit", "offset") != nil || json.Unmarshal(body, &items) != nil || list.Limit != limit || list.Offset != 0 || len(list.Computers) > limit || list.Total < len(list.Computers) {
+		return nil, errComputerResponse
+	}
+	for _, item := range items.Computers {
+		if validateComputerResponseSchema(item, "PersistentComputerStatus") != nil {
+			return nil, errComputerResponse
+		}
+	}
+	return &list, nil
+}
+
+// ComputerSnapshot is handwritten because persistent computers are an internal
+// preview kept off the public OpenAPI surface. A snapshot names one durable
+// save of a stopped persistent computer; ExpiresAt is nil when the save's host
+// recorded no end for it.
+type ComputerSnapshot struct {
+	ID         uuid.UUID  `json:"id"`
+	Name       string     `json:"name"`
+	ComputerID uuid.UUID  `json:"computer_id"`
+	SavedAt    time.Time  `json:"saved_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+}
+
+type ComputerSnapshotListResponse struct {
+	Snapshots []ComputerSnapshot `json:"snapshots"`
+	Limit     int                `json:"limit"`
+	Offset    int                `json:"offset"`
+	Total     int                `json:"total"`
+}
+
+var computerSnapshotReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// ValidComputerSnapshotReference reports whether value can name a snapshot:
+// its ID, or a name of 1 to 64 letters, digits, '.', '_' or '-' that starts
+// with a letter or digit.
+func ValidComputerSnapshotReference(value string) bool {
+	return computerSnapshotReferencePattern.MatchString(value)
+}
+
+// SaveComputerSnapshot names the stopped persistent computer's current durable
+// save. It copies no bytes, so the snapshot is ready when this returns.
+func (c *Client) SaveComputerSnapshot(ctx context.Context, computerID uuid.UUID, name string) (*ComputerSnapshot, error) {
+	if _, err := uuid.Parse(name); err == nil || !ValidComputerSnapshotReference(name) {
+		return nil, errors.New("snapshot name must be 1-64 letters, digits, '.', '_' or '-', start with a letter or digit, and not be a UUID")
+	}
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/snapshots", computerID), map[string]string{"name": name}, computerID.String(), DefaultTimeout)
+	snapshot, err := readComputerSnapshot(response, err)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.ComputerID != computerID || snapshot.Name != name {
+		return nil, errComputerResponse
+	}
+	return snapshot, nil
+}
+
+// ListComputerSnapshots reads the organization's newest live snapshots.
+func (c *Client) ListComputerSnapshots(ctx context.Context, limit int) (*ComputerSnapshotListResponse, error) {
+	if limit < 1 || limit > ComputerListMaxLimit {
+		return nil, fmt.Errorf("snapshot list limit must be from 1 to %d", ComputerListMaxLimit)
+	}
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/snapshots?limit=%d", limit))
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, err
+	}
+	var list ComputerSnapshotListResponse
+	var items struct {
+		Snapshots []json.RawMessage `json:"snapshots"`
+	}
+	if response.StatusCode != http.StatusOK || decodeComputerJSON(body, &list, "snapshots", "total", "limit", "offset") != nil || json.Unmarshal(body, &items) != nil || list.Limit != limit || list.Offset != 0 || len(list.Snapshots) > limit || list.Total < len(list.Snapshots) {
+		return nil, errComputerResponse
+	}
+	for _, item := range items.Snapshots {
+		var snapshot ComputerSnapshot
+		if decodeComputerSnapshot(item, &snapshot) != nil {
+			return nil, errComputerResponse
+		}
+	}
+	return &list, nil
+}
+
+// GetComputerSnapshot reads one live snapshot by its ID or name.
+func (c *Client) GetComputerSnapshot(ctx context.Context, reference string) (*ComputerSnapshot, error) {
+	if !ValidComputerSnapshotReference(reference) {
+		return nil, errors.New("computer snapshot requires a snapshot ID or name")
+	}
+	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/snapshots/%s", reference))
+	snapshot, err := readComputerSnapshot(response, err)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.ID.String() != strings.ToLower(reference) && snapshot.Name != reference {
+		return nil, errComputerResponse
+	}
+	return snapshot, nil
+}
+
+// DeleteComputerSnapshot deletes one snapshot by its ID or name. Computers
+// already created from it keep their own disks.
+func (c *Client) DeleteComputerSnapshot(ctx context.Context, reference string) error {
+	if !ValidComputerSnapshotReference(reference) {
+		return errors.New("computer snapshot requires a snapshot ID or name")
+	}
+	response, err := c.doComputerRequestOnce(ctx, http.MethodDelete, fmt.Sprintf("/api/v1/computer-runs/snapshots/%s", reference), nil, reference, DefaultTimeout)
+	if err == nil && response.StatusCode == http.StatusNoContent {
+		response.Body.Close()
+		return nil
+	}
+	if _, err = readComputerBody(response, err); err != nil {
+		return err
+	}
+	return errComputerResponse
+}
+
+func readComputerSnapshot(response *http.Response, requestErr error) (*ComputerSnapshot, error) {
+	body, err := readComputerBody(response, requestErr)
+	if err != nil {
+		return nil, err
+	}
+	var snapshot ComputerSnapshot
+	if response.StatusCode != http.StatusOK || decodeComputerSnapshot(body, &snapshot) != nil {
+		return nil, errComputerResponse
+	}
+	return &snapshot, nil
+}
+
+func decodeComputerSnapshot(body []byte, snapshot *ComputerSnapshot) error {
+	if err := decodeComputerJSON(body, snapshot, "id", "name", "computer_id", "saved_at"); err != nil {
+		return err
+	}
+	if snapshot.ID == uuid.Nil || snapshot.ComputerID == uuid.Nil || !ValidComputerSnapshotReference(snapshot.Name) {
+		return errComputerResponse
+	}
+	return nil
+}
+
+func readPersistentComputerStatus(response *http.Response, requestErr error, id uuid.UUID) (*PersistentComputerStatus, error) {
+	body, err := readComputerBody(response, requestErr)
+	if err != nil {
+		return nil, err
+	}
+	var status PersistentComputerStatus
+	if response.StatusCode != http.StatusOK || validateComputerResponseSchema(body, "PersistentComputerStatus") != nil || decodeComputerJSON(body, &status) != nil || status.ComputerId != id {
+		return nil, errComputerResponse
+	}
+	return &status, nil
 }
 
 func (c *Client) SubmitComputerOperation(ctx context.Context, request ComputerCommandRequest) (*ComputerCommandResponse, error) {
