@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Test Authoring"
+  short_description: "Create and validate stable mobile tests with the CLI"
+policy:
+  allow_implicit_invocation: true

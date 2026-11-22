@@ -1629,6 +1629,11 @@ func wizardAgentSkillsSetup() (string, bool) {
 			Description: "Choose Revyl skills in shared .agents/skills storage",
 		},
 		{
+			Label:       "OpenCode",
+			Value:       "opencode",
+			Description: "Choose Revyl skills in shared .agents/skills storage",
+		},
+		{
 			Label:       "Claude Code",
 			Value:       "claude",
 			Description: "Choose shared Revyl skills with .claude/skills compatibility links",
@@ -1688,6 +1693,8 @@ func agentSkillToolLabel(tool string) string {
 		return "Codex"
 	case "claude":
 		return "Claude Code"
+	case "opencode":
+		return "OpenCode"
 	default:
 		return tool
 	}

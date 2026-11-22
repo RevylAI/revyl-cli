@@ -235,6 +235,16 @@ func TestComputerStartSendsADisplayAndLifetimeOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+func TestComputerStartHeldForItsLastRunsSaveSaysWhy(t *testing.T) {
+	_, _, err := runPersistentComputerCommand(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprint(w, `{"detail":"run_conflict"}`)
+	}, "start", persistentComputerID)
+	if err == nil || !strings.Contains(err.Error(), "may still be recording the disk its Mac saved") {
+		t.Fatalf("held start returned %v", err)
+	}
+}
+
 func TestComputerStartRefusesALifetimeCreateWouldRefuse(t *testing.T) {
 	requests := 0
 	_, _, err := runPersistentComputerCommand(t, func(w http.ResponseWriter, r *http.Request) {

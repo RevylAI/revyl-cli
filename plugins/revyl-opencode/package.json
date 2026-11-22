@@ -1,0 +1,55 @@
+{
+  "name": "opencode-revyl",
+  "version": "0.1.0",
+  "description": "Revyl for OpenCode: cloud iOS, Android, web, and Mac sessions, builds, tests, and Atlas through Revyl's hosted MCP server, with Revyl's agent skills and a /revyl command.",
+  "license": "MIT",
+  "author": "Revyl <support@revyl.ai>",
+  "homepage": "https://docs.revyl.com/agents/mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RevylAI/revyl-cli",
+    "directory": "plugins/revyl-opencode"
+  },
+  "bugs": {
+    "email": "support@revyl.ai"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "revyl",
+    "mcp",
+    "mobile testing",
+    "ios simulator",
+    "android emulator"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tui": "./src/tui.tsx",
+    "./gui-experimental": "./src/gui.cjs",
+    "./rpc": "./src/rpc.ts"
+  },
+  "files": [
+    "src/index.ts",
+    "src/rpc.ts",
+    "src/tui.tsx",
+    "src/gui.cjs",
+    "skills"
+  ],
+  "peerDependencies": {
+    "@opentui/solid": ">=0.8.4",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "sync-skills": "node scripts/sync-skills.mjs",
+    "test": "node --test src/index.test.ts"
+  }
+}

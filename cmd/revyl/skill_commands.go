@@ -114,21 +114,22 @@ func promptSkillSelection() ([]skillcatalog.Skill, error) {
 }
 
 func chooseSkillTargets() ([]skillInstallTarget, error) {
-	explicit := skillInstallCursor || skillInstallClaude || skillInstallCodex || len(skillInstallAgents) > 0
+	explicitFlag := skillInstallCursor || skillInstallClaude || skillInstallCodex || skillInstallOpenCode
+	explicit := explicitFlag || len(skillInstallAgents) > 0
 	tools := make([]string, 0, 3)
 	for _, agent := range skillInstallAgents {
 		switch agent {
-		case "cursor", "codex":
+		case "cursor", "codex", "opencode":
 			tools = append(tools, agent)
 		case "claude", "claude-code":
 			tools = append(tools, "claude")
 		default:
-			return nil, fmt.Errorf("unknown agent %q; choose cursor, codex, or claude-code", agent)
+			return nil, fmt.Errorf("unknown agent %q; choose cursor, codex, claude-code, or opencode", agent)
 		}
 	}
 	targets := resolveInstallTargets()
 	if explicit {
-		if skillInstallCursor || skillInstallClaude || skillInstallCodex {
+		if explicitFlag {
 			for _, target := range targets {
 				tools = append(tools, target.tool)
 			}
@@ -141,7 +142,7 @@ func chooseSkillTargets() ([]skillInstallTarget, error) {
 		if len(tools) == 0 {
 			tools = []string{"codex", "cursor"}
 			if !interactive {
-				ui.PrintInfo("No agent directory detected; installing for Cursor and Codex. Pass --agent cursor, codex, or claude-code to choose.")
+				ui.PrintInfo("No agent directory detected; installing for Cursor and Codex. Pass --agent cursor, codex, claude-code, or opencode to choose.")
 			}
 		}
 		if interactive {
@@ -149,6 +150,7 @@ func chooseSkillTargets() ([]skillInstallTarget, error) {
 				{Label: "Cursor", Value: "cursor", Description: "Discovers the shared .agents/skills directory"},
 				{Label: "Claude Code", Value: "claude", Description: "Uses per-skill compatibility links in .claude/skills"},
 				{Label: "Codex", Value: "codex", Description: "Discovers the shared .agents/skills directory"},
+				{Label: "OpenCode", Value: "opencode", Description: "Discovers the shared .agents/skills directory"},
 			}
 			var err error
 			tools, err = selectAgentSkills("Choose agent integrations", options, tools)
@@ -158,7 +160,7 @@ func chooseSkillTargets() ([]skillInstallTarget, error) {
 		}
 	}
 	if len(tools) == 0 {
-		return nil, fmt.Errorf("no agent selected or detected; pass --agent cursor, --agent codex, or --agent claude-code")
+		return nil, fmt.Errorf("no agent selected or detected; pass --agent cursor, --agent codex, --agent claude-code, or --agent opencode")
 	}
 	sort.Strings(tools)
 	unique := tools[:0]

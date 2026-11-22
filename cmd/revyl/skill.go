@@ -1,6 +1,6 @@
 // Package main provides the skill command for managing Revyl agent skills.
 //
-// Skills teach AI assistants (Cursor, Claude Code, Codex, VS Code) how to
+// Skills teach AI assistants (Cursor, Claude Code, Codex, OpenCode, VS Code) how to
 // use Revyl effectively for screenshot-observe-action execution, dev-loop
 // workflows, and turning exploratory sessions into reusable tests.
 package main
@@ -21,11 +21,17 @@ import (
 // Supported skill directory locations for each tool, ordered by preference.
 // Project-level directories are listed first, user-level (global) second.
 var skillDirectories = map[string][]string{
-	"cursor": {".cursor/skills", "~/.cursor/skills"},
-	"claude": {".claude/skills", "~/.claude/skills"},
-	"codex":  {".codex/skills", "~/.codex/skills"},
+	"cursor":   {".cursor/skills", "~/.cursor/skills"},
+	"claude":   {".claude/skills", "~/.claude/skills"},
+	"codex":    {".codex/skills", "~/.codex/skills"},
+	"opencode": {".agents/skills", "~/.agents/skills"},
 }
 
+// OpenCode reads the shared .agents/skills directory itself, so its presence
+// is detected from OpenCode's own configuration directories instead.
+var openCodeConfigDirectories = []string{".opencode/skills", "~/.config/opencode/skills"}
+
+// supportedSkillTools are the agents with their own skill directories.
 var supportedSkillTools = []string{"cursor", "claude", "codex"}
 
 type skillInstallTarget struct {
@@ -76,6 +82,7 @@ EXAMPLES:
   revyl skill install --name revyl-cli-dev-loop --cursor
   revyl skill install --name revyl-cli-create --codex
   revyl skill install --name revyl-cli-auth-bypass --claude
+  revyl skill install --opencode --yes
   revyl skill show --name revyl-cli-dev-loop
   revyl skill show --name revyl-cli-atlas
   revyl skill install --name revyl-cli-atlas-review
@@ -122,17 +129,18 @@ EXAMPLES:
 }
 
 var (
-	skillShowName      string
-	skillExportName    string
-	skillExportOutput  string
-	skillInstallNames  []string
-	skillInstallCLI    bool
-	skillInstallMCP    bool
-	skillInstallCursor bool
-	skillInstallClaude bool
-	skillInstallCodex  bool
-	skillInstallGlobal bool
-	skillInstallForce  bool
+	skillShowName        string
+	skillExportName      string
+	skillExportOutput    string
+	skillInstallNames    []string
+	skillInstallCLI      bool
+	skillInstallMCP      bool
+	skillInstallCursor   bool
+	skillInstallClaude   bool
+	skillInstallCodex    bool
+	skillInstallOpenCode bool
+	skillInstallGlobal   bool
+	skillInstallForce    bool
 )
 
 // skillInstallCmd installs embedded skills to the appropriate directory.
@@ -149,7 +157,7 @@ or every skill with --all. With no agent flag or detected agent directory,
 installs for Cursor and Codex.
 
 Packages are shared in .agents/skills, with per-skill Claude compatibility links.
-Cursor and Codex discover the shared directory directly. --copy keeps independent
+Cursor, Codex, and OpenCode discover the shared directory directly. --copy keeps independent
 packages in each selected agent's directory instead. Use --global for user scope.
 Existing legacy installations are preserved. When they, or missing symlink
 support, block shared storage, non-interactive runs continue as with --copy;
@@ -163,6 +171,7 @@ EXAMPLES:
   revyl skill install --name revyl-cli-dev-loop --cursor
   revyl skill install --skill revyl-cli-create --agent codex --yes
   revyl skill install --name revyl-cli-auth-bypass --claude --global
+  revyl skill install --opencode --yes
   revyl skill install --all --cursor --yes`,
 	Args: cobra.NoArgs,
 	RunE: runSkillInstall,
@@ -318,13 +327,14 @@ func addInstallTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&skillInstallCursor, "cursor", false, "Install for Cursor")
 	cmd.Flags().BoolVar(&skillInstallClaude, "claude", false, "Install for Claude Code")
 	cmd.Flags().BoolVar(&skillInstallCodex, "codex", false, "Install for Codex")
+	cmd.Flags().BoolVar(&skillInstallOpenCode, "opencode", false, "Install for OpenCode")
 	cmd.Flags().BoolVar(&skillInstallGlobal, "global", false, "Install to user-level (global) directory instead of project-level")
 	cmd.Flags().BoolVar(&skillInstallForce, "force", false, "Overwrite existing skill installations")
 	cmd.Flags().BoolVar(&skillInstallAll, "all", false, "Explicitly select every CLI and MCP skill")
 	cmd.Flags().BoolVarP(&skillInstallYes, "yes", "y", false, "Skip confirmation; without selectors, install the recommended skills")
 	cmd.Flags().BoolVar(&skillInstallCopy, "copy", false, "Copy to agent directories instead of using shared storage and links")
 	cmd.Flags().BoolVar(&skillInstallJSON, "json", false, "Output structured JSON without interactive prompts")
-	cmd.Flags().StringSliceVarP(&skillInstallAgents, "agent", "a", nil, "Agent integration(s): cursor, codex, claude-code")
+	cmd.Flags().StringSliceVarP(&skillInstallAgents, "agent", "a", nil, "Agent integration(s): cursor, codex, claude-code, opencode")
 }
 
 func registerSkillShortcutCommands() {
@@ -364,6 +374,9 @@ func resolveInstallTargets() []skillInstallTarget {
 	if skillInstallCodex {
 		explicitTools = append(explicitTools, "codex")
 	}
+	if skillInstallOpenCode {
+		explicitTools = append(explicitTools, "opencode")
+	}
 
 	if len(explicitTools) > 0 {
 		return resolveDirectories(explicitTools)
@@ -375,6 +388,9 @@ func resolveInstallTargets() []skillInstallTarget {
 		if skillToolPresent(skillDirectories[toolName]) {
 			detected = append(detected, toolName)
 		}
+	}
+	if skillToolPresent(openCodeConfigDirectories) {
+		detected = append(detected, "opencode")
 	}
 
 	if len(detected) == 0 {

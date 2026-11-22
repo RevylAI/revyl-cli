@@ -421,6 +421,45 @@ func TestNoninteractiveInstallWithoutDetectedAgentUsesSharedStorage(t *testing.T
 	}
 }
 
+func TestOpenCodeInstallUsesSharedStorageWithoutAgentDirectory(t *testing.T) {
+	resetSkillInstallFlags(t)
+	workDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, t.TempDir())
+	skillInstallYes, skillInstallOpenCode = true, true
+	if err := installSelectedSkills(&cobra.Command{}, []string{"revyl-cli-dev-loop"}); err != nil {
+		t.Fatalf("OpenCode install failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, ".agents", "skills", "revyl-cli-dev-loop", skillcatalog.SkillFileName)); err != nil {
+		t.Fatalf("skill not installed where OpenCode reads it: %v", err)
+	}
+	for _, unexpected := range []string{".opencode", ".cursor", ".codex", ".claude"} {
+		if _, err := os.Lstat(filepath.Join(workDir, unexpected)); !os.IsNotExist(err) {
+			t.Fatalf("unexpected agent directory %s: %v", unexpected, err)
+		}
+	}
+}
+
+func TestResolveInstallTargetsDetectsOpenCodeFromItsConfigDirOnly(t *testing.T) {
+	resetSkillInstallFlags(t)
+	workDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, t.TempDir())
+	if err := os.MkdirAll(filepath.Join(workDir, ".agents", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if targets := resolveInstallTargets(); targets != nil {
+		t.Fatalf("shared .agents/skills alone must not detect an agent, got %v", targets)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, ".opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	targets := resolveInstallTargets()
+	if len(targets) != 1 || targets[0].tool != "opencode" || targets[0].path != filepath.Join(".agents", "skills") {
+		t.Fatalf("targets=%v, want OpenCode on .agents/skills", targets)
+	}
+}
+
 func TestInstallRefusesCanonicalSymlinkEvenWithForce(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires symlink support")

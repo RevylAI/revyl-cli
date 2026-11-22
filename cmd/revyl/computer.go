@@ -576,6 +576,8 @@ lives at most 30 days, and start refuses with saved_disk_expired in its last
 24 hours, the longest a started run can last. Reaching its lifetime end also
 stops it and keeps its disk. Only delete removes the disk.`
 
+const computerStartRunConflict = "This computer's last run hasn't finished stopping: Revyl may still be recording the disk its Mac saved. When that report is delayed this usually clears within 15 minutes, but a computer with no save off host to fall back on can wait until 24 hours 15 minutes after that run started. The disk is kept; try start again shortly, check it with revyl computer get, or remove it with revyl computer delete, which still works."
+
 var computerPersistentRefusals = map[string]string{
 	"persistent_computers_not_enabled": "Persistent computers are an internal preview and aren't enabled for this organization.",
 	"computer_not_persistent":          "This computer isn't persistent. Only computers created with --persistent can start from a saved disk and be deleted.",
@@ -1010,6 +1012,9 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		if !jsonOutput && errors.As(err, &refusal) {
 			if message, ok := computerPersistentRefusals[refusal.Code]; ok {
 				refusal.Message = message
+			}
+			if cmd.Name() == "start" && refusal.Code == "run_conflict" {
+				refusal.Message = computerStartRunConflict
 			}
 		}
 		invocation.Error = err.Error()

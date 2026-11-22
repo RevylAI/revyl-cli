@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Auth Bypass"
+  short_description: "Set up test-only app authentication when requested"
+policy:
+  allow_implicit_invocation: false

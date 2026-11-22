@@ -392,10 +392,10 @@ func TestBrowserOrientedSkillContentIncludesNativeAgentBehavior(t *testing.T) {
 func withoutExplicitSkillTools(t *testing.T) {
 	t.Helper()
 
-	prevCursor, prevClaude, prevCodex, prevGlobal := skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallGlobal
-	skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallGlobal = false, false, false, false
+	prevCursor, prevClaude, prevCodex, prevOpenCode, prevGlobal := skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallOpenCode, skillInstallGlobal
+	skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallOpenCode, skillInstallGlobal = false, false, false, false, false
 	t.Cleanup(func() {
-		skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallGlobal = prevCursor, prevClaude, prevCodex, prevGlobal
+		skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallOpenCode, skillInstallGlobal = prevCursor, prevClaude, prevCodex, prevOpenCode, prevGlobal
 	})
 }
 
