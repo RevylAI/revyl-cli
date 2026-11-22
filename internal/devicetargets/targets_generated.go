@@ -20,7 +20,7 @@ var androidTargets = PlatformTargetConfig{
 }
 
 var iosTargets = PlatformTargetConfig{
-	DefaultPair: DevicePair{Model: "iPhone 17 Pro Max", Runtime: "iOS 27.0"},
+	DefaultPair: DevicePair{Model: "iPhone 18 Pro Max", Runtime: "iOS 27.0"},
 	AvailableRuntimes: []string{
 		"iOS 27.1",
 		"iOS 27.0",
