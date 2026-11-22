@@ -64,7 +64,23 @@ var computerFailureReasons = map[string]string{
 }
 
 const computerLimitMessage = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
-const computerNotEnabledMessage = "Computers aren't available to this organization. Contact support@revyl.ai to turn Mac computers on."
+const computerMacosWithProMessage = "macOS computers come with Pro. Add a card to unlock them; your free minutes still cover macOS.\nAdd one with: revyl billing add-card"
+const computerLinuxOnRequestMessage = "Linux computers are available on request: contact support@revyl.ai."
+const computerTurnOnMessage = "Contact support@revyl.ai to turn computers on for this organization."
+
+// computerNotEnabledMessage explains a computer_not_enabled refusal. It offers
+// a card only when the backend says one unlocks Mac computers, so a backend
+// that does not say so gets the support step.
+func computerNotEnabledMessage(osName string, unlocksWithCard bool) string {
+	if osName == "linux" {
+		return computerLinuxOnRequestMessage
+	}
+	if unlocksWithCard {
+		return computerMacosWithProMessage
+	}
+	return computerTurnOnMessage
+}
+
 const computerLongLimitMessage = "Your organization already has 2 computers running longer than 2 hours. Ask for 2 hours or less, or stop one of them."
 
 const computerExtendUnsupportedMessage = "This computer's host cannot extend it; it still stops at its current expiry. Computers started after the host updates can be extended."

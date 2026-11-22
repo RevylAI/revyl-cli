@@ -264,6 +264,9 @@ type APIError struct {
 	BillingURL      string
 	BillingAction   BillingAction
 	UpgradeBenefits *UpgradeBenefits
+	// UnlocksWithCard is set on a computer_not_enabled refusal for an
+	// organization that adding a card enrolls in Pro, which unlocks Mac computers.
+	UnlocksWithCard bool
 	// BillingReported is set once a command has written this refusal's
 	// billing fields in its own --json output.
 	BillingReported bool

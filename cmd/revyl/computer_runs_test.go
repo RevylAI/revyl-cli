@@ -728,21 +728,26 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		jsonOutput bool
+		osName     string
 		code       string
 		status     int
+		extra      string
 		message    string
 	}{
-		{"text", false, "computer_limit", http.StatusTooManyRequests, "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."},
-		{"json", true, "computer_limit", http.StatusTooManyRequests, ""},
-		{"not_enabled_text", false, "computer_not_enabled", http.StatusForbidden, "Computers aren't available to this organization. Contact support@revyl.ai to turn Mac computers on."},
-		{"not_enabled_json", true, "computer_not_enabled", http.StatusForbidden, ""},
+		{"text", false, "macos", "computer_limit", http.StatusTooManyRequests, "", "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."},
+		{"json", true, "macos", "computer_limit", http.StatusTooManyRequests, "", ""},
+		{"not_enabled_unlocks_with_card_text", false, "macos", "computer_not_enabled", http.StatusForbidden, `,"unlocks_with_card":true`, "macOS computers come with Pro. Add a card to unlock them; your free minutes still cover macOS.\nAdd one with: revyl billing add-card"},
+		{"not_enabled_needs_support_text", false, "macos", "computer_not_enabled", http.StatusForbidden, `,"unlocks_with_card":false`, "Contact support@revyl.ai to turn computers on for this organization."},
+		{"not_enabled_older_backend_text", false, "macos", "computer_not_enabled", http.StatusForbidden, "", "Contact support@revyl.ai to turn computers on for this organization."},
+		{"not_enabled_linux_text", false, "linux", "computer_not_enabled", http.StatusForbidden, "", "Linux computers are available on request: contact support@revyl.ai."},
+		{"not_enabled_json", true, "macos", "computer_not_enabled", http.StatusForbidden, `,"unlocks_with_card":true`, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var reads int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodPost && r.URL.Path == "/api/v1/computer-runs" {
 					w.WriteHeader(tc.status)
-					fmt.Fprintf(w, `{"detail":%q}`, tc.code)
+					fmt.Fprintf(w, `{"detail":%q%s}`, tc.code, tc.extra)
 					return
 				}
 				reads++
@@ -753,7 +758,7 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 			t.Setenv("REVYL_API_KEY", "fixture-key")
 			root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
 			root.AddCommand(newComputerCommand())
-			args := []string{"computer", "create", "--os", "macos"}
+			args := []string{"computer", "create", "--os", tc.osName}
 			if tc.jsonOutput {
 				args = append(args, "--json")
 			}

@@ -1,9 +1,11 @@
 # Computer runs
 
-`revyl computer` and `revyl device start --computer` need Mac computers, which
-are available on request from support@revyl.ai; organizations on a paid plan,
-Pro included, already have them. Without access, `revyl computer create`
-returns `computer_not_enabled` (HTTP 403) without creating anything.
+`revyl computer` and `revyl device start --computer` run on macOS computers,
+which come with Pro. Add a card with `revyl billing add-card` to unlock them;
+your 1,200 free device minutes a month still cover macOS. On the Free plan,
+`revyl computer create` returns `computer_not_enabled` (HTTP 403) without
+creating anything until a card is added. Other paid plans that include macOS
+computers keep them; if yours doesn't, contact support@revyl.ai.
 
 `revyl computer` addresses an explicit computer-run UUID. It does not select an
 assigned physical Mac or change native device targeting.

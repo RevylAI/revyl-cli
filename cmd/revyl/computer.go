@@ -42,7 +42,8 @@ func newComputerCommand() *cobra.Command {
 		Use: "computer", Short: "Start, use and stop cloud computers",
 		Long: `A computer is a cloud machine you start, run commands on, and stop.
 
-Mac computers are available on request: contact support@revyl.ai. Paid plans, Pro included, have them.
+macOS computers come with Pro. Add a card to unlock them (revyl billing add-card); your free minutes still cover macOS.
+Linux computers are available on request: contact support@revyl.ai.
 
   revyl computer create --os macos       start a computer
   revyl computer create --os macos --wait  start one and wait until it is active
@@ -134,7 +135,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				case "computer_long_limit":
 					refusal.Message = computerLongLimitMessage
 				case "computer_not_enabled":
-					refusal.Message = computerNotEnabledMessage
+					refusal.Message = computerNotEnabledMessage(osName, refusal.UnlocksWithCard)
 				case "display_unsupported":
 					refusal.Message = computerDisplayUnsupportedMessage
 				}

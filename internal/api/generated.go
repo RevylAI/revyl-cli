@@ -7192,6 +7192,9 @@ type ComputerAPIError struct {
 	Offer  *ComputerLimitOffer    `json:"offer,omitempty"`
 	Phase  *ComputerAPIErrorPhase `json:"phase,omitempty"`
 	Reason *string                `json:"reason,omitempty"`
+
+	// UnlocksWithCard With computer_not_enabled for macOS, whether adding a card enrolls the organization in Pro, which unlocks Mac computers. False names support as the next step.
+	UnlocksWithCard *bool `json:"unlocks_with_card,omitempty"`
 }
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.

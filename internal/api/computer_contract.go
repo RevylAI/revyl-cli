@@ -237,6 +237,9 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 				if refusal.Code == "lifetime_unsupported" && safe.MaxTimeoutSeconds != nil && *safe.MaxTimeoutSeconds > 0 {
 					refusal.Message = "no computer host can run that long yet; request a timeout of " + wholeDuration(time.Duration(*safe.MaxTimeoutSeconds)*time.Second) + " or less"
 				}
+				if refusal.Code == "computer_not_enabled" && safe.UnlocksWithCard != nil {
+					refusal.UnlocksWithCard = *safe.UnlocksWithCard
+				}
 				if refusal.Code == "screen_input_uncertain" {
 					refusal.Message += "; take a screenshot before acting again"
 				}

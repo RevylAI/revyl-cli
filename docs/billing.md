@@ -14,7 +14,7 @@ revyl billing add-card --no-open     # Print the link instead
 | Monthly fee            | None. No card.                | None                                                |
 | Free device minutes    | Up to 1,200 every month       | The same, used first                                |
 | After the free minutes | New work waits for next month | $0.075 per device minute on iOS and Android         |
-| Also billed per minute | Drawn from the free minutes   | Web $0.05, Mac computer $0.05 |
+| Also billed per minute | Web, from the free minutes    | Web $0.05, Mac computer $0.05 |
 | Devices at once        | 2                             | 10                                                  |
 | Charged                | Nothing                       | $20 credit, charged when you add a card             |
 
@@ -25,6 +25,7 @@ revyl billing add-card --no-open     # Print the link instead
 - **Up to 1,200:** AI usage, web and computers draw from the same monthly allowance.
 - **Auto-recharge:** $20 when credit drops under $5. Steps up as you use more. Set your own amount any time, or turn it off.
 - **Monthly limit:** none unless you set one. With a limit set, auto-recharge stays at its amount.
+- **macOS computers** come with Pro. Add a card to unlock them; your 1,200 free minutes still cover macOS.
 - **Devices at once:** iOS and Android devices and Mac computers share them; Web sessions don't use them. Need more than 10? [Talk to us](https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo).
 - **Organizations created earlier** keep the free minutes and rates shown on their Billing page.
 
