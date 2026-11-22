@@ -23,7 +23,7 @@ sessions use, and the sessions hosted inside it take none. On Pro, the
 `computer_limit` refusal also names adding a device and links to Billing; see
 [Billing](billing.md). A computer runs for
 two hours from creation unless create asks for up to 24 hours with `--timeout`.
-An organization may run at most 2 computers longer than two hours at once;
+An organization may run at most 2 computers longer than two hours at once unless Revyl raised its limit;
 asking for a third answers `computer_long_limit` (HTTP 429). Like a device start, create
 also needs the payer's compute credits and fails with a billing error
 (HTTP 402) when they are exhausted or unpaid. Organization Viewers cannot

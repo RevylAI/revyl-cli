@@ -51,6 +51,26 @@ func TestComputerSnapshotSaveExplainsARefusalInPlainWords(t *testing.T) {
 	}
 }
 
+func TestComputerSnapshotSaveExplainsTheOrgsSnapshotCap(t *testing.T) {
+	_, _, err := runPersistentComputerCommand(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"detail":"snapshot_limit"}`)
+	}, "snapshot", "save", persistentComputerID, "--name", "golden-1")
+	if err == nil || !strings.Contains(err.Error(), "as many snapshots as it may keep") {
+		t.Fatalf("snapshot cap returned %v", err)
+	}
+}
+
+func TestComputerCreateExplainsTheOrgsPersistentComputerCap(t *testing.T) {
+	_, _, err := runPersistentComputerCommand(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"detail":"persistent_computer_limit"}`)
+	}, "create", "--os", "macos", "--persistent")
+	if err == nil || !strings.Contains(err.Error(), "as many persistent computers as it may keep") {
+		t.Fatalf("persistent computer cap returned %v", err)
+	}
+}
+
 func TestComputerCreateFromSnapshotImpliesAMacAndSendsTheSnapshot(t *testing.T) {
 	for _, tc := range []struct {
 		name string

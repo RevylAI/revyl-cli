@@ -303,7 +303,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 		})
 	}
 	command.AddCommand(start)
-	deleteComputer := &cobra.Command{Use: "delete C1", Hidden: true, Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nstops first, without saving.\n\n" + computerPersistentHelp}
+	deleteComputer := &cobra.Command{Use: "delete C1", Hidden: true, Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nstops first, without saving. Its snapshots stay: each keeps the save it names\nuntil you delete the snapshot.\n\n" + computerPersistentHelp}
 	deleteComputer.Flags().Bool("yes", false, "Delete without asking; required when not run in a terminal")
 	deleteComputer.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
@@ -557,8 +557,9 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 
 const computerAccountLaunchAgents = "/Users/computer/Library/LaunchAgents"
 
-const computerPersistentHelp = `Persistent computers are an internal preview, open only to Revyl's own
-organizations; others get persistent_computers_not_enabled.
+const computerPersistentHelp = `Persistent computers are a preview, open to organizations Revyl enabled;
+others get persistent_computers_not_enabled. An organization keeps at most 10
+persistent computers and 100 snapshots unless Revyl raised its limits.
 A persistent computer (create --persistent, macOS only) keeps one ID for life.
 Stop saves its whole disk on the Mac it runs on: files, brew installs and other
 system changes; stop --wait waits until that save is confirmed. Memory and
@@ -571,35 +572,41 @@ copy and boots from its local disk. A start runs on the Mac holding the save
 while it is online, waiting to start like a create when it is busy. When that
 Mac is offline, a save copied off host starts on another Mac, and one still
 only on its host fails with saved_disk_unavailable. If a start never becomes
-active, the computer is stopped again with its disk unchanged. A saved disk
-lives at most 30 days, and start refuses with saved_disk_expired in its last
-24 hours, the longest a started run can last. Reaching its lifetime end also
-stops it and keeps its disk. Only delete removes the disk.`
+active, the computer is stopped again with its disk unchanged. A saved disk is
+kept until you delete the computer. Some saves still end: one made by an older
+Mac runtime ends 30 days after it was made, and one whose stop could not ready
+the disk ends with the sign-in window the computer was created with. Start
+refuses such a save with saved_disk_expired in its last 24 hours, the longest a
+started run can last. Reaching its lifetime end also stops a computer and keeps
+its disk. Only delete removes the disk; deleting a computer leaves its
+snapshots, and each keeps the save it names until you delete the snapshot.`
 
 const computerStartRunConflict = "This computer's last run hasn't finished stopping: Revyl may still be recording the disk its Mac saved. When that report is delayed this usually clears within 15 minutes, but a computer with no save off host to fall back on can wait until 24 hours 15 minutes after that run started. The disk is kept; try start again shortly, check it with revyl computer get, or remove it with revyl computer delete, which still works."
 
 var computerPersistentRefusals = map[string]string{
-	"persistent_computers_not_enabled": "Persistent computers are an internal preview and aren't enabled for this organization.",
+	"persistent_computers_not_enabled": "Persistent computers are a preview and aren't enabled for this organization.",
 	"computer_not_persistent":          "This computer isn't persistent. Only computers created with --persistent can start from a saved disk and be deleted.",
 	"saved_disk_unavailable":           "The Mac holding this computer's saved disk is offline and the save isn't copied off it yet, or no Mac can start it right now. The disk stays saved; try start again later.",
-	"saved_disk_expired":               "This computer's saved disk is too old to start: a saved disk lives at most 30 days. Delete it, then create a new computer.",
+	"saved_disk_expired":               "This computer's saved disk has reached its end: it was made by an older Mac runtime, which kept saves 30 days, or by a stop that could not ready the disk. Delete it, then create a new computer.",
 	"computer_not_stopped":             "Only a stopped computer can be snapshotted. Stop it with revyl computer stop --wait, then save the snapshot.",
 	"saved_disk_not_durable":           "This computer's save is still only on its Mac. Wait until revyl computer get shows it saved off host, then save the snapshot.",
 	"snapshot_name_taken":              "Your organization already has a snapshot with this name. Pick another name, or delete the old snapshot first.",
-	"snapshot_expired":                 "This snapshot's saved disk is too old to start a computer from: a saved disk lives at most 30 days. Save a new snapshot of a recently stopped computer.",
+	"snapshot_expired":                 "This snapshot's saved disk has reached its end, so it can't start a computer: it was made by an older Mac runtime, which kept saves 30 days, or by a stop that could not ready the disk. Save a new snapshot of a recently stopped computer.",
+	"persistent_computer_limit":        "Your organization has as many persistent computers as it may keep. Delete one you no longer need, then try again.",
+	"snapshot_limit":                   "Your organization has as many snapshots as it may keep. Delete one you no longer need, then save again.",
 }
 
-const computerSnapshotHelp = `Snapshots are part of the persistent computer preview, open only to Revyl's own
-organizations; others get persistent_computers_not_enabled.
+const computerSnapshotHelp = `Snapshots are part of the persistent computer preview, open to organizations
+Revyl enabled; others get persistent_computers_not_enabled.
 A snapshot names a stopped persistent computer's current saved disk once it is
 saved off host, under a name unique in your organization. It copies nothing,
 so it is ready at once. create --from-snapshot S1 creates a new persistent
 macOS computer whose disk starts as the snapshot's. Everything on that disk
 carries over, including signed-in accounts and any secrets stored on it, so
 anyone in your organization who can create computers can use what it holds.
-A snapshot lasts as long as the save it names, at most 30 days, even after
-its computer starts again or is deleted. Deleting a snapshot never changes a
-computer already created from it.`
+A snapshot lasts until you delete it or the save it names ends (expires_at;
+see revyl computer start --help), even after its computer starts again or is
+deleted. Deleting a snapshot never changes a computer already created from it.`
 
 func newComputerSnapshotCommand() *cobra.Command {
 	command := &cobra.Command{Use: "snapshot", Hidden: true, Short: "Save, list, show and delete snapshots of stopped persistent computers", Long: computerSnapshotHelp, RunE: computerHelp}

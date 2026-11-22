@@ -50,7 +50,7 @@ func TestComputerSnapshotListRejectsAMalformedSnapshot(t *testing.T) {
 }
 
 func TestComputerSnapshotRefusalsKeepTheirCodes(t *testing.T) {
-	for _, code := range []string{"computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken", "snapshot_expired"} {
+	for _, code := range []string{"computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken", "snapshot_expired", "snapshot_limit"} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
 			fmt.Fprintf(w, `{"detail":%q}`, code)

@@ -1278,9 +1278,11 @@ const (
 	ComputerAPIErrorDetail1DisplayUnsupported            ComputerAPIErrorDetail1 = "display_unsupported"
 	ComputerAPIErrorDetail1Forbidden                     ComputerAPIErrorDetail1 = "forbidden"
 	ComputerAPIErrorDetail1LifetimeUnsupported           ComputerAPIErrorDetail1 = "lifetime_unsupported"
+	ComputerAPIErrorDetail1PersistentComputerLimit       ComputerAPIErrorDetail1 = "persistent_computer_limit"
 	ComputerAPIErrorDetail1PersistentComputersNotEnabled ComputerAPIErrorDetail1 = "persistent_computers_not_enabled"
 	ComputerAPIErrorDetail1RepositoryUnavailable         ComputerAPIErrorDetail1 = "repository_unavailable"
 	ComputerAPIErrorDetail1RuntimeUnavailable            ComputerAPIErrorDetail1 = "runtime_unavailable"
+	ComputerAPIErrorDetail1SnapshotLimit                 ComputerAPIErrorDetail1 = "snapshot_limit"
 	ComputerAPIErrorDetail1Unauthenticated               ComputerAPIErrorDetail1 = "unauthenticated"
 )
 
@@ -1301,11 +1303,15 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 		return true
 	case ComputerAPIErrorDetail1LifetimeUnsupported:
 		return true
+	case ComputerAPIErrorDetail1PersistentComputerLimit:
+		return true
 	case ComputerAPIErrorDetail1PersistentComputersNotEnabled:
 		return true
 	case ComputerAPIErrorDetail1RepositoryUnavailable:
 		return true
 	case ComputerAPIErrorDetail1RuntimeUnavailable:
+		return true
+	case ComputerAPIErrorDetail1SnapshotLimit:
 		return true
 	case ComputerAPIErrorDetail1Unauthenticated:
 		return true
