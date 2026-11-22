@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -232,10 +233,21 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 		if decodeComputerJSON(body, &safe, "detail") == nil {
 			code, _ := safe.Detail.AsComputerAPIErrorDetail0()
 			switch string(code) {
-			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "persistent_computers_not_enabled", "display_unsupported", "lifetime_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported", "extend_unsupported", "computer_long_limit", "computer_not_persistent", "saved_disk_unavailable", "saved_disk_expired", "computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken", "snapshot_expired":
+			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "persistent_computers_not_enabled", "display_unsupported", "lifetime_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported", "extend_unsupported", "computer_long_limit", "computer_not_persistent", "saved_disk_unavailable", "saved_disk_expired", "computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken", "snapshot_expired", "repository_unavailable", "session_profile_running":
 				refusal.Code, refusal.Message = string(code), "computer request refused: "+string(code)
 				if refusal.Code == "lifetime_unsupported" && safe.MaxTimeoutSeconds != nil && *safe.MaxTimeoutSeconds > 0 {
 					refusal.Message = "no computer host can run that long yet; request a timeout of " + wholeDuration(time.Duration(*safe.MaxTimeoutSeconds)*time.Second) + " or less"
+				}
+				if repository := safe.Repository; refusal.Code == "repository_unavailable" && repository != nil && computerRefusalNameValid(*repository) {
+					branch := "the default branch"
+					if name := safe.GitBranchName; name != nil && computerRefusalNameValid(*name) {
+						branch = fmt.Sprintf("branch %q", *name)
+					}
+					refusal.Message = fmt.Sprintf("Revyl couldn't read %s of %s for the session profile right now", branch, *repository)
+					refusal.Hint = "Retry the start; if it keeps failing, check Revyl's connection to the repository."
+				}
+				if refusal.Code == "session_profile_running" {
+					refusal.Message = "the computer is still running its session profile; retry once revyl computer get shows it succeeded"
 				}
 				if refusal.Code == "computer_not_enabled" && safe.UnlocksWithCard != nil {
 					refusal.UnlocksWithCard = *safe.UnlocksWithCard
@@ -254,11 +266,33 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 						refusal.Hint = step + ": " + refusal.BillingURL
 					}
 				}
+			default:
+				coded := safe.Code != nil && computerRefusalCodePattern.MatchString(*safe.Code)
+				if coded {
+					refusal.Code, refusal.Message = *safe.Code, "computer request refused: "+*safe.Code
+				}
+				if sentence := strings.TrimSpace(string(code)); (response.StatusCode == http.StatusUnprocessableEntity || coded && response.StatusCode == http.StatusNotFound) && sentence != "" && len(sentence) <= computerRefusalMaxSentence && !strings.ContainsAny(sentence, "\n\r") {
+					refusal.Detail = sentence
+				}
 			}
 		}
 		return nil, refusal
 	}
 	return body, nil
+}
+
+// computerRefusalMaxSentence bounds the readable sentence a 422 or coded 404
+// refusal carries, such as a session profile or project the backend lacks.
+const computerRefusalMaxSentence = 500
+
+// computerRefusalCodePattern is the shape of a top-level refusal code, such as
+// project_not_found, that the CLI may surface.
+var computerRefusalCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// computerRefusalNameValid reports whether a repository or branch name a
+// refusal carries is short single-line text the CLI may print.
+func computerRefusalNameValid(name string) bool {
+	return name != "" && len(name) <= 255 && !strings.ContainsFunc(name, unicode.IsControl)
 }
 
 // computerLimitOfferMaxMessage bounds the step a computer_limit refusal names;

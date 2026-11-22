@@ -422,7 +422,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if len(launchEnvVars) > 0 {
 		ui.PrintInfo("Launch env vars: %d", len(launchEnvVars))
 	}
-	var sessionProfile *api.AppliedSessionProfile
+	var sessionProfile *api.SessionProfileRequest
 	if runCookiesFile != "" {
 		cookiesState, err := sessionprofile.ReadCookiesFile(runCookiesFile)
 		if err != nil {
@@ -431,9 +431,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		if err := sessionprofile.RequireBackendCapability(cmd.Context(), validationClient, sessionprofile.BackendCapabilityWebTestSessionProfiles, "--cookies-file"); err != nil {
 			return err
 		}
-		if sessionProfile, err = sessionprofile.WithBrowserStorageState(nil, cookiesState); err != nil {
-			return err
-		}
+		sessionProfile = sessionprofile.CookiesFileProfile(cookiesState)
 	}
 
 	variableOverrides, err := parseRuntimeVars(runVars)

@@ -64,8 +64,10 @@ The viewer stays closed by default for an implicit computer start; pass
 Implicit computer starts skip `session.before_script` and `session.auth_bypass`
 and use the app's defaults. An iOS start with an explicit `--computer` keeps
 them when the computer's host can deliver launch values, and skips them with a
-warning otherwise. No start inside a computer runs a session profile;
-standalone starts keep those session settings.
+warning otherwise. No app session started inside a computer runs a session
+profile (run one on the computer itself with
+`revyl computer create --session-profile`); standalone starts keep those
+session settings.
 
 The start waits until the device is ready, which takes longer when devices are
 queued. As soon as Revyl accepts it, the command names the session on stderr,
@@ -109,10 +111,13 @@ unsafe config or script paths still fail before provisioning. Actions on an
 existing session do not parse the config. `revyl build`, `revyl config validate`,
 and `revyl config push` continue to require the canonical format.
 
-When the config declares `session.profiles`, `device start` runs a
-[session profile](https://docs.revyl.com/devices/session-profiles) script before
-the device or browser starts: the one `--session-profile <name>` picks, otherwise
-`session.default_profile`. `--session-profile none` starts without one.
+When the config declares `session.profiles`, `device start` sends a
+[session profile](https://docs.revyl.com/devices/session-profiles), the one
+`--session-profile <name>` picks, otherwise `session.default_profile`, with its
+definition and script from the checkout, and Revyl runs it on its hosted
+runner before the session is ready. The start waits for it, prints its
+progress, and when it fails prints the reason and exits non-zero; Revyl ends
+that session. `--session-profile none` starts without one.
 
 ## 3. Control the device and capture evidence
 

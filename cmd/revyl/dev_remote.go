@@ -313,14 +313,14 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 			if stopper.IsUserCanceled(seedErr) {
 				return nil
 			}
+			if errors.As(seedErr, new(*sessionProfileFirstLaunchError)) {
+				return seedErr
+			}
 			ui.PrintWarning("Seed install skipped: %v", seedErr)
 		} else if seededBundleID != "" {
 			bundleID = seededBundleID
 			setDevStatusSeedInstalled(statusPath, seededVersion)
 			ui.PrintSuccess("Seeded build on device (%s) — hot-swap when the fresh build lands", seededVersion)
-			if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
-				return err
-			}
 		} else {
 			ui.PrintInfo("No existing build to seed; device stays on the home screen until the fresh build lands.")
 		}
@@ -377,10 +377,11 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 				if stopper.IsUserCanceled(installErr) {
 					return nil
 				}
+				if errors.As(installErr, new(*sessionProfileFirstLaunchError)) {
+					return installErr
+				}
 				ui.PrintWarning("%v", installErr)
 				ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
-			} else if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
-				return err
 			}
 		}
 	}
@@ -515,8 +516,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 		publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 			State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching rebuilt app",
 		})
-		tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
-		if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+		if err := tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", ""); err != nil {
 			return err
 		}
 		result.elapsed = time.Since(rebuildStart)
@@ -638,7 +638,9 @@ func seedLatestDevBuild(
 
 	// Launch fires the auth bypass deep link (fireAuthBypassAfterLaunch) so the
 	// seeded app lands authenticated without waiting on the fresh build.
-	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
+	if err := tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", ""); err != nil {
+		return "", "", err
+	}
 
 	return bundleID, strings.TrimSpace(buildDetail.Version), nil
 }
@@ -963,7 +965,15 @@ func installAndLaunchRemoteDevBuild(
 	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 		State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching remote build",
 	})
-	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, *bundleID, "", "")
+	if err := tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, *bundleID, "", ""); err != nil {
+		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
+			buildMode:   "remote",
+			pushErr:     err,
+			elapsed:     remoteBuild.duration + installDuration,
+			remoteJobID: remoteBuild.jobID,
+		})
+		return err
+	}
 
 	writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
 		buildMode:       "remote",

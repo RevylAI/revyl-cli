@@ -13,23 +13,36 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/sessionprofile"
 	"github.com/revyl/cli/internal/ui"
 )
 
 const computerStopReleaseWait = time.Minute
 
+const computerSessionProfileFlagUsage = "Session profile from .revyl/config.yaml to run on the Mac before you use it (waits until it finishes); default: the checkout's session.default_profile; none for no profile"
+
+// computerSessionProfileWait is how long create waits by default for a
+// computer to start and its session profile to finish.
+const computerSessionProfileWait = 10 * time.Minute
+
+const computerSessionProfileUnsupportedHint = "This Revyl backend doesn't support session profiles on computers yet; start the computer without --session-profile."
+
 type computerInvocation struct {
-	ComputerSessionID string `json:"computer_session_id,omitempty"`
-	RequestID         string `json:"request_id,omitempty"`
-	OperationID       string `json:"operation_id,omitempty"`
-	Status            string `json:"status,omitempty"`
-	Error             string `json:"error,omitempty"`
-	BillingURL        string `json:"billing_url,omitempty"`
-	BillingAction     string `json:"billing_action,omitempty"`
-	NextStep          string `json:"next_step,omitempty"`
-	waited            bool
-	createdDisplay    *api.ComputerDisplaySize
-	execOptions       bool
+	ComputerSessionID  string `json:"computer_session_id,omitempty"`
+	RequestID          string `json:"request_id,omitempty"`
+	OperationID        string `json:"operation_id,omitempty"`
+	Status             string `json:"status,omitempty"`
+	Error              string `json:"error,omitempty"`
+	BillingURL         string `json:"billing_url,omitempty"`
+	BillingAction      string `json:"billing_action,omitempty"`
+	NextStep           string `json:"next_step,omitempty"`
+	waited             bool
+	createdDisplay     *api.ComputerDisplaySize
+	sessionProfile     string
+	sessionProfilePick sessionprofile.PickSource
+	sessionScriptSent  bool
+	execOptions        bool
 }
 
 type computerPerformanceResult struct {
@@ -50,6 +63,7 @@ Linux computers are available on request: contact support@revyl.ai.
   revyl computer create --os macos --wait  start one and wait until it is active
   revyl computer create --os macos --display 1440x900  start one at a display size
   revyl computer create --os macos --timeout 8h  start one that runs up to 8 hours
+  revyl computer create --os macos --session-profile signed-in  run a session profile on it first
   revyl computer list                    show your organization's computers
   revyl computer exec ID -- uname -a     run a program on it
   revyl computer get ID                  show its state and steps
@@ -74,7 +88,10 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	create.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
 	create.Flags().Duration("timeout", 0, "Lifetime from creation (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
 	create.Flags().Bool("wait", false, "Wait until the computer is active; exits non-zero if it ends or is still starting at --wait-timeout")
-	create.Flags().Duration("wait-timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m)")
+	create.Flags().Duration("wait-timeout", 2*time.Minute, "How long --wait waits, counted from the create request (1s-30m); 10m by default with --session-profile")
+	create.Flags().String("session-profile", "", computerSessionProfileFlagUsage)
+	create.Flags().Bool(fromCheckoutFlagName, true, "Send the session profile's definition and script from this checkout, uncommitted changes included; false lets Revyl read them, and the project's default profile, from Git")
+	create.Flags().String("branch", "", "Git branch the session profile reads from Git (default: this checkout's Git branch, else the repository's default branch)")
 	create.Flags().Bool("persistent", false, "Keep the whole disk when it stops or reaches its lifetime end, so it can start again under the same ID (macOS only)")
 	_ = create.Flags().MarkHidden("persistent")
 	create.Flags().String("from-snapshot", "", "Create a persistent macOS computer whose disk starts as this snapshot's (ID or name)")
@@ -104,9 +121,22 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			if persistent && osName != "macos" {
 				return nil, errors.New("--persistent requires --os macos")
 			}
-			wait, waitTimeout, err := computerWaitFlags(cmd)
+			explicitWait, _ := cmd.Flags().GetBool("wait")
+			waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
+			profile, err := computerSessionProfileRequest(cmd, osName)
 			if err != nil {
 				return nil, err
+			}
+			runsProfile := profile.Runs()
+			if runsProfile && !cmd.Flags().Changed("wait-timeout") {
+				waitTimeout = computerSessionProfileWait
+			}
+			wait := explicitWait || runsProfile
+			if cmd.Flags().Changed("wait-timeout") && !wait {
+				return nil, errors.New("--wait-timeout requires --wait")
+			}
+			if waitTimeout < time.Second || waitTimeout > 30*time.Minute {
+				return nil, errors.New("--wait-timeout must be from 1s to 30m")
 			}
 			displayText, _ := cmd.Flags().GetString("display")
 			display, err := computerDisplaySize(displayText)
@@ -115,7 +145,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			}
 			var timeoutSeconds *int
 			if cmd.Flags().Changed("timeout") {
-				if wait && !cmd.Flags().Changed("wait-timeout") {
+				if explicitWait && !cmd.Flags().Changed("wait-timeout") {
 					return nil, errors.New("--timeout now sets the computer's lifetime, not how long --wait waits; pass --wait-timeout to bound --wait, alongside --timeout only if you meant a lifetime")
 				}
 				lifetime, _ := cmd.Flags().GetDuration("timeout")
@@ -130,28 +160,44 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			if err != nil {
 				return nil, err
 			}
-			invocation.ComputerSessionID = id.String()
-			invocation.createdDisplay = display
-			fmt.Fprintf(cmd.ErrOrStderr(), "computer_session_id=%s\n", id)
-			client, err := computerClient(cmd)
-			if err != nil {
-				return nil, err
-			}
-			ctx := cmd.Context()
-			if wait {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, waitTimeout)
-				defer cancel()
-			}
 			request := api.ComputerRunCreate{ComputerSessionId: id, Os: api.ComputerRunCreateOs(osName), Display: display, TimeoutSeconds: timeoutSeconds}
+			if profile.Instruction != nil {
+				request.SessionProfile = &api.SessionProfileInstruction{Instruction: profile.Instruction.Instruction}
+				if profile.Instruction.Name != "" {
+					request.SessionProfile.Name = &profile.Instruction.Name
+				}
+			}
 			if persistent {
 				request.Persistent = &persistent
 			}
 			if fromSnapshot != "" {
 				request.FromSnapshot = &fromSnapshot
 			}
+			request.SessionProfileSource, request.SessionProfileFiles = profile.Source, profile.Files
+			if runsProfile {
+				invocation.sessionProfilePick, invocation.sessionProfile, invocation.sessionScriptSent = profile.Pick, profile.Name(), profile.SendsScript()
+			}
+			invocation.ComputerSessionID = id.String()
+			invocation.createdDisplay = display
+			client, err := computerClient(cmd)
+			if err != nil {
+				return nil, err
+			}
+			if err := profile.RequireHostedRun(cmd.Context(), client); err != nil {
+				return nil, err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "computer_session_id=%s\n", id)
+			ctx := cmd.Context()
+			if wait {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, waitTimeout)
+				defer cancel()
+			}
 			report, err := client.CreateComputerRun(ctx, request)
 			var refusal *api.APIError
+			if request.SessionProfile != nil && errors.As(err, &refusal) && refusal.Code == "invalid_request" {
+				refusal.Hint = computerSessionProfileUnsupportedHint
+			}
 			if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput && errors.As(err, &refusal) {
 				switch refusal.Code {
 				case "computer_limit":
@@ -164,12 +210,18 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 					refusal.Message = computerDisplayUnsupportedMessage
 				}
 			}
+			if err == nil && report.SessionProfile != nil && report.SessionProfile.MissingGitBranchName != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Git has no branch %q, so session profile %s reads the repository's default branch instead\n", *report.SessionProfile.MissingGitBranchName, report.SessionProfile.Name)
+			}
 			if err != nil || !wait {
 				return report, err
 			}
 			invocation.waited = true
 			if api.InspectComputerReport(*report).State == "starting" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "waiting for the computer to become active")
+			}
+			if report.SessionProfile != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "waiting for session profile %s to finish on the computer\n", report.SessionProfile.Name)
 			}
 			report, err = client.AwaitComputerRunStarted(ctx, report)
 			if err == nil && cmd.Context().Err() != nil {
@@ -862,6 +914,67 @@ func computerDisplayAnalytics(display *api.ComputerDisplaySize) (preset string, 
 	return "custom", "other"
 }
 
+// computerSessionProfileRequest is what a create sends for a session profile,
+// resolved the way device starts resolve theirs: from the checkout, the
+// default, --session-profile, else the checkout's session.default_profile, sent
+// by name with its definition and script as this checkout has them.
+// --from-checkout=false sends --session-profile, else the project's default,
+// for Revyl to read from Git. Both send the project in .revyl/config.yaml and
+// the Git branch: --branch, else the checkout's.
+func computerSessionProfileRequest(cmd *cobra.Command, osName string) (sessionprofile.Start, error) {
+	pick, _ := cmd.Flags().GetString("session-profile")
+	pick = strings.TrimSpace(pick)
+	fromCheckout, _ := cmd.Flags().GetBool(fromCheckoutFlagName)
+	explicit := pick != "" && pick != config.NoSessionProfile
+	asked := explicit || cmd.Flags().Changed(fromCheckoutFlagName) || cmd.Flags().Changed("branch")
+	if explicit && !config.ValidSessionProfileName(pick) {
+		return sessionprofile.Start{}, fmt.Errorf("--session-profile %q isn't a session profile name: use 1-64 lowercase letters, digits or hyphens, or none", pick)
+	}
+	if pick == config.NoSessionProfile {
+		if cmd.Flags().Changed(fromCheckoutFlagName) || cmd.Flags().Changed("branch") {
+			return sessionprofile.Start{}, errors.New("--from-checkout and --branch need a session profile, not none")
+		}
+		return sessionprofile.Start{}, nil
+	}
+	if osName != "macos" {
+		if asked {
+			return sessionprofile.Start{}, errors.New("--session-profile, --from-checkout and --branch run only on --os macos")
+		}
+		return sessionprofile.Start{}, nil
+	}
+	project, err := resolveLocalProjectConfiguration()
+	if err != nil {
+		if asked {
+			return sessionprofile.Start{}, actionableLocalConfigError(err)
+		}
+		return sessionprofile.Start{}, nil
+	}
+	var session config.AuthoredSession
+	if project.Authored.Session != nil {
+		session = *project.Authored.Session
+	}
+	branch, _ := cmd.Flags().GetString("branch")
+	profile, err := sessionprofile.ResolveStart(cmd.Context(), sessionprofile.StartOptions{
+		Session:       session,
+		ProjectRoot:   project.ProjectRoot,
+		ConfigPath:    project.ConfigPath,
+		Pick:          pick,
+		FromCheckout:  fromCheckout,
+		GitBranchName: branch,
+		Asked:         asked,
+	})
+	if err != nil {
+		if fromCheckout && !errors.Is(err, sessionprofile.ErrNoProjectID) {
+			return sessionprofile.Start{}, fmt.Errorf("%w; rerun with --%s=false to use the profile Revyl has from Git", err, fromCheckoutFlagName)
+		}
+		return sessionprofile.Start{}, err
+	}
+	if profile.Instruction == nil && cmd.Flags().Changed("branch") {
+		return sessionprofile.Start{}, errors.New("--branch needs a session profile: pass --session-profile, set session.default_profile, or pass --from-checkout=false")
+	}
+	return profile, nil
+}
+
 func computerClient(cmd *cobra.Command) (*api.Client, error) {
 	key, err := getAPIKey()
 	if err != nil {
@@ -880,6 +993,10 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 	}
 	if cmd.Name() == "create" && invocation.ComputerSessionID != "" {
 		completion.Properties["computer_display_preset"], completion.Properties["computer_display_size"] = computerDisplayAnalytics(invocation.createdDisplay)
+		if invocation.sessionProfilePick != "" {
+			completion.Properties["session_profile_pick"] = string(invocation.sessionProfilePick)
+			completion.Properties["session_profile_script_sent"] = invocation.sessionScriptSent
+		}
 	}
 	if isPerformance && performance.Page != nil {
 		completion.DomainStatus = string(performance.Page.State)
@@ -1012,13 +1129,39 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			}
 		}
 		if cmd.Name() == "create" {
+			profile := result.SessionProfile
+			if profile != nil {
+				completion.Properties["computer_session_profile_status"] = string(profile.Status)
+			}
 			switch {
+			case invocation.sessionProfile != "" && profile == nil:
+				exitCode, exitMessage = 1, fmt.Sprintf("Revyl didn't report session profile %s on this computer, so it may not have run; stop it with revyl computer stop %s", invocation.sessionProfile, result.ComputerSessionId)
+			case profile != nil && profile.Status == api.ComputerSessionProfileStatusFailed:
+				exitCode, exitMessage = 1, fmt.Sprintf("session profile %s failed, so Revyl stopped the computer", profile.Name)
+				if profile.FailureReason != nil {
+					exitMessage = fmt.Sprintf("session profile %s failed: %s; Revyl stopped the computer", profile.Name, *profile.FailureReason)
+				}
 			case status.State == "failed" || status.State == "owner_lost":
 				exitCode, exitMessage = 125, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
 			case invocation.waited && status.State == "starting":
 				exitCode, exitMessage = 124, "computer is still starting at --wait-timeout; check it with revyl computer get, or stop it"
 			case invocation.waited && status.State != "active":
 				exitCode, exitMessage = 1, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
+			case invocation.waited && profile != nil && profile.Status != api.ComputerSessionProfileStatusSucceeded:
+				exitCode = 124
+				var stopped *api.ComputerReport
+				client, stopErr := computerClient(cmd)
+				if stopErr == nil {
+					stopped, _, stopErr = client.StopComputerRun(cmd.Context(), result.ComputerSessionId)
+				}
+				switch {
+				case stopErr != nil:
+					exitMessage = fmt.Sprintf("session profile %s is still %s at --wait-timeout, and stopping the computer failed (%v), so it keeps running; stop it with revyl computer stop %s", profile.Name, profile.Status, stopErr, result.ComputerSessionId)
+				case api.InspectComputerReport(*stopped).Release == "confirmed":
+					exitMessage = fmt.Sprintf("session profile %s is still %s at --wait-timeout, so the computer was stopped", profile.Name, profile.Status)
+				default:
+					exitMessage = fmt.Sprintf("session profile %s is still %s at --wait-timeout, so Revyl was asked to stop computer %s, and its release is %s; confirm it with revyl computer stop %s", profile.Name, profile.Status, result.ComputerSessionId, api.InspectComputerReport(*stopped).Release, result.ComputerSessionId)
+				}
 			case status.Evidence != "recorded":
 				exitCode = 74
 			}
@@ -1028,7 +1171,11 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 				return err
 			}
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "computer_session_id=%s report_id=%s state=%s release=%s evidence=%s\n", result.ComputerSessionId, result.ReportId, status.State, status.Release, status.Evidence)
+			line := fmt.Sprintf("computer_session_id=%s report_id=%s state=%s release=%s evidence=%s", result.ComputerSessionId, result.ReportId, status.State, status.Release, status.Evidence)
+			if result.SessionProfile != nil {
+				line += " session_profile=" + string(result.SessionProfile.Status)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
 	case *api.PersistentComputerStatus:
 		completion.DomainStatus = string(result.State)
@@ -1166,7 +1313,11 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 	completion.ExitCode = exitCode
 	analytics.SetCommandCompletion(cmd.Context(), completion)
 	if exitCode != 0 {
-		return &commandExitError{code: exitCode, err: analytics.CompletedWithExitCode(errors.New(exitMessage), completion)}
+		exitErr := errors.New(exitMessage)
+		if invocation.sessionProfilePick != "" {
+			exitErr = analytics.WithSafeDiagnostic(exitErr, "computer with a session profile did not become ready")
+		}
+		return &commandExitError{code: exitCode, err: analytics.CompletedWithExitCode(exitErr, completion)}
 	}
 	return nil
 }

@@ -181,9 +181,11 @@ when it says `stopped: true`. Retry once, never more.
   [auth-bypass skill](https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/SKILL.md)
   when the task calls for test authentication. With a session profile
   (`session.profiles`) or `session.auth_bypass` configured, Revyl applies it on
-  launch. Use `revyl dev auth refresh -s <session-id>` to
-  restore a logged-out session; it re-fires the boot token and does not mint a
-  new one. Restart the loop if its token has expired. Never paste launch-var
+  launch. With `session.auth_bypass`, use `revyl dev auth refresh -s <session-id>`
+  to restore a logged-out session; it re-fires the boot token and does not mint
+  a new one. Revyl opens a session profile's deep link itself after the app
+  launches, and `revyl dev auth refresh` can't reopen it, so restart the loop
+  to sign in again. Restart the loop if its token has expired. Never paste launch-var
   values into code, logs, screenshots, or PRs.
 - **Web projects:** follow the
   [Web setup guide](https://github.com/RevylAI/revyl-cli/blob/main/skills/revyl-cli-auth-bypass/references/web.md)

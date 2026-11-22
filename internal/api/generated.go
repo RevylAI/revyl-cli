@@ -551,6 +551,7 @@ func (e AuthoredBuildFramework) Valid() bool {
 
 // Defines values for BackendCapabilitiesCapabilities.
 const (
+	BackendCapabilitiesCapabilitiesHostedSessionProfiles  BackendCapabilitiesCapabilities = "hosted_session_profiles"
 	BackendCapabilitiesCapabilitiesSessionProfiles        BackendCapabilitiesCapabilities = "session_profiles"
 	BackendCapabilitiesCapabilitiesWebTestSessionProfiles BackendCapabilitiesCapabilities = "web_test_session_profiles"
 )
@@ -558,6 +559,8 @@ const (
 // Valid indicates whether the value is a known member of the BackendCapabilitiesCapabilities enum.
 func (e BackendCapabilitiesCapabilities) Valid() bool {
 	switch e {
+	case BackendCapabilitiesCapabilitiesHostedSessionProfiles:
+		return true
 	case BackendCapabilitiesCapabilitiesSessionProfiles:
 		return true
 	case BackendCapabilitiesCapabilitiesWebTestSessionProfiles:
@@ -1188,6 +1191,7 @@ const (
 	ComputerAPIErrorDetail0ScreenTargetUnavailable ComputerAPIErrorDetail0 = "screen_target_unavailable"
 	ComputerAPIErrorDetail0ScreenTextUnsupported   ComputerAPIErrorDetail0 = "screen_text_unsupported"
 	ComputerAPIErrorDetail0ScreenUnavailable       ComputerAPIErrorDetail0 = "screen_unavailable"
+	ComputerAPIErrorDetail0SessionProfileRunning   ComputerAPIErrorDetail0 = "session_profile_running"
 	ComputerAPIErrorDetail0SnapshotExpired         ComputerAPIErrorDetail0 = "snapshot_expired"
 	ComputerAPIErrorDetail0SnapshotNameTaken       ComputerAPIErrorDetail0 = "snapshot_name_taken"
 	ComputerAPIErrorDetail0StartFailed             ComputerAPIErrorDetail0 = "start_failed"
@@ -1252,6 +1256,8 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 		return true
 	case ComputerAPIErrorDetail0ScreenUnavailable:
 		return true
+	case ComputerAPIErrorDetail0SessionProfileRunning:
+		return true
 	case ComputerAPIErrorDetail0SnapshotExpired:
 		return true
 	case ComputerAPIErrorDetail0SnapshotNameTaken:
@@ -1273,6 +1279,7 @@ const (
 	ComputerAPIErrorDetail1Forbidden                     ComputerAPIErrorDetail1 = "forbidden"
 	ComputerAPIErrorDetail1LifetimeUnsupported           ComputerAPIErrorDetail1 = "lifetime_unsupported"
 	ComputerAPIErrorDetail1PersistentComputersNotEnabled ComputerAPIErrorDetail1 = "persistent_computers_not_enabled"
+	ComputerAPIErrorDetail1RepositoryUnavailable         ComputerAPIErrorDetail1 = "repository_unavailable"
 	ComputerAPIErrorDetail1RuntimeUnavailable            ComputerAPIErrorDetail1 = "runtime_unavailable"
 	ComputerAPIErrorDetail1Unauthenticated               ComputerAPIErrorDetail1 = "unauthenticated"
 )
@@ -1295,6 +1302,8 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 	case ComputerAPIErrorDetail1LifetimeUnsupported:
 		return true
 	case ComputerAPIErrorDetail1PersistentComputersNotEnabled:
+		return true
+	case ComputerAPIErrorDetail1RepositoryUnavailable:
 		return true
 	case ComputerAPIErrorDetail1RuntimeUnavailable:
 		return true
@@ -2496,6 +2505,60 @@ func (e ComputerScreenChannelFailureStage) Valid() bool {
 	case ComputerScreenChannelFailureStageOffer:
 		return true
 	case ComputerScreenChannelFailureStageTransport:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerSessionProfileOutcome.
+const (
+	ComputerSessionProfileOutcomeOutputInvalid     ComputerSessionProfileOutcome = "output_invalid"
+	ComputerSessionProfileOutcomeRunnerFailed      ComputerSessionProfileOutcome = "runner_failed"
+	ComputerSessionProfileOutcomeScriptFailed      ComputerSessionProfileOutcome = "script_failed"
+	ComputerSessionProfileOutcomeScriptTimedOut    ComputerSessionProfileOutcome = "script_timed_out"
+	ComputerSessionProfileOutcomeScriptUnavailable ComputerSessionProfileOutcome = "script_unavailable"
+	ComputerSessionProfileOutcomeSucceeded         ComputerSessionProfileOutcome = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerSessionProfileOutcome enum.
+func (e ComputerSessionProfileOutcome) Valid() bool {
+	switch e {
+	case ComputerSessionProfileOutcomeOutputInvalid:
+		return true
+	case ComputerSessionProfileOutcomeRunnerFailed:
+		return true
+	case ComputerSessionProfileOutcomeScriptFailed:
+		return true
+	case ComputerSessionProfileOutcomeScriptTimedOut:
+		return true
+	case ComputerSessionProfileOutcomeScriptUnavailable:
+		return true
+	case ComputerSessionProfileOutcomeSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerSessionProfileStatus.
+const (
+	ComputerSessionProfileStatusFailed    ComputerSessionProfileStatus = "failed"
+	ComputerSessionProfileStatusPending   ComputerSessionProfileStatus = "pending"
+	ComputerSessionProfileStatusRunning   ComputerSessionProfileStatus = "running"
+	ComputerSessionProfileStatusSucceeded ComputerSessionProfileStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the ComputerSessionProfileStatus enum.
+func (e ComputerSessionProfileStatus) Valid() bool {
+	switch e {
+	case ComputerSessionProfileStatusFailed:
+		return true
+	case ComputerSessionProfileStatusPending:
+		return true
+	case ComputerSessionProfileStatusRunning:
+		return true
+	case ComputerSessionProfileStatusSucceeded:
 		return true
 	default:
 		return false
@@ -3852,6 +3915,60 @@ func (e SessionProfileInstructionKind) Valid() bool {
 	case SessionProfileInstructionKindNamed:
 		return true
 	case SessionProfileInstructionKindNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionProfileReportOutcome.
+const (
+	SessionProfileReportOutcomeOutputInvalid     SessionProfileReportOutcome = "output_invalid"
+	SessionProfileReportOutcomeRunnerFailed      SessionProfileReportOutcome = "runner_failed"
+	SessionProfileReportOutcomeScriptFailed      SessionProfileReportOutcome = "script_failed"
+	SessionProfileReportOutcomeScriptTimedOut    SessionProfileReportOutcome = "script_timed_out"
+	SessionProfileReportOutcomeScriptUnavailable SessionProfileReportOutcome = "script_unavailable"
+	SessionProfileReportOutcomeSucceeded         SessionProfileReportOutcome = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the SessionProfileReportOutcome enum.
+func (e SessionProfileReportOutcome) Valid() bool {
+	switch e {
+	case SessionProfileReportOutcomeOutputInvalid:
+		return true
+	case SessionProfileReportOutcomeRunnerFailed:
+		return true
+	case SessionProfileReportOutcomeScriptFailed:
+		return true
+	case SessionProfileReportOutcomeScriptTimedOut:
+		return true
+	case SessionProfileReportOutcomeScriptUnavailable:
+		return true
+	case SessionProfileReportOutcomeSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionProfileReportStatus.
+const (
+	SessionProfileReportStatusFailed    SessionProfileReportStatus = "failed"
+	SessionProfileReportStatusPending   SessionProfileReportStatus = "pending"
+	SessionProfileReportStatusRunning   SessionProfileReportStatus = "running"
+	SessionProfileReportStatusSucceeded SessionProfileReportStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the SessionProfileReportStatus enum.
+func (e SessionProfileReportStatus) Valid() bool {
+	switch e {
+	case SessionProfileReportStatusFailed:
+		return true
+	case SessionProfileReportStatusPending:
+		return true
+	case SessionProfileReportStatusRunning:
+		return true
+	case SessionProfileReportStatusSucceeded:
 		return true
 	default:
 		return false
@@ -7336,7 +7453,13 @@ type CompiledIntentStep struct {
 // ComputerAPIError defines model for ComputerAPIError.
 type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
-	Detail         ComputerAPIError_Detail       `json:"detail"`
+
+	// Code The refusal code session profile refusals carry on every platform; equals detail here.
+	Code   *string                 `json:"code,omitempty"`
+	Detail ComputerAPIError_Detail `json:"detail"`
+
+	// GitBranchName With repository_unavailable, the branch Revyl couldn't read; absent when the failed read wasn't of a named branch.
+	GitBranchName *string `json:"git_branch_name,omitempty"`
 
 	// MaxTimeoutSeconds With lifetime_unsupported, the longest timeout_seconds any live host serves for this request.
 	MaxTimeoutSeconds *int                     `json:"max_timeout_seconds,omitempty"`
@@ -7351,6 +7474,9 @@ type ComputerAPIError struct {
 	Offer  *ComputerLimitOffer    `json:"offer,omitempty"`
 	Phase  *ComputerAPIErrorPhase `json:"phase,omitempty"`
 	Reason *string                `json:"reason,omitempty"`
+
+	// Repository With repository_unavailable, the namespace/name of the repository holding the session profile Revyl couldn't read.
+	Repository *string `json:"repository,omitempty"`
 
 	// UnlocksWithCard With computer_not_enabled for macOS, whether adding a card enrolls the organization in Pro, which unlocks Mac computers. False names support as the next step.
 	UnlocksWithCard *bool `json:"unlocks_with_card,omitempty"`
@@ -8022,6 +8148,9 @@ type ComputerReport struct {
 	ReleasedAt           *time.Time                          `json:"released_at,omitempty"`
 	ReportId             openapi_types.UUID                  `json:"report_id"`
 
+	// SessionProfile The session profile a computer runs on its Mac once it is active.
+	SessionProfile *ComputerSessionProfile `json:"session_profile,omitempty"`
+
 	// SourceMetadata Bounded launch metadata exposed with a computer session report.
 	SourceMetadata *ComputerSourceMetadata      `json:"source_metadata,omitempty"`
 	State          *ComputerReportState         `json:"state,omitempty"`
@@ -8072,6 +8201,9 @@ type ComputerReportDetail struct {
 	ReleasedAt *time.Time                   `json:"released_at,omitempty"`
 	ReportId   openapi_types.UUID           `json:"report_id"`
 
+	// SessionProfile The session profile a computer runs on its Mac once it is active.
+	SessionProfile *ComputerSessionProfile `json:"session_profile,omitempty"`
+
 	// SourceMetadata Bounded launch metadata exposed with a computer session report.
 	SourceMetadata *ComputerSourceMetadata    `json:"source_metadata,omitempty"`
 	State          *ComputerReportDetailState `json:"state,omitempty"`
@@ -8110,6 +8242,32 @@ type ComputerRunCreate struct {
 
 	// Persistent Keep this computer's disk when it stops or reaches its lifetime end, so it can start again later under the same ID. Memory and running processes do not survive a stop.
 	Persistent *bool `json:"persistent,omitempty"`
+
+	// SessionProfile The one session-profile instruction a start request carries.
+	//
+	// applied: the caller already ran the named profile and sends its outputs
+	// (possibly empty). none: no profile, not even the project default. named:
+	// the backend runs the named profile. default: the backend runs the
+	// project's default profile, if it has one.
+	SessionProfile *SessionProfileInstruction `json:"session_profile,omitempty"`
+
+	// SessionProfileFiles A named profile as the caller's checkout defines it, sent with a start.
+	//
+	// The start runs this definition and script instead of reading them from
+	// Git, the way a test run from a checkout sends its files. A script name
+	// with no file in the checkout's .revyl/scripts is a Library Script.
+	SessionProfileFiles *SessionProfileCheckoutFiles `json:"session_profile_files,omitempty"`
+
+	// SessionProfileSource The Revyl project whose session profiles a named or default instruction uses.
+	//
+	// The profiles are those the project stores from its default branch or its
+	// last `revyl config push`. commit_sha picks the commit a repository script is
+	// read at. Without it, git_branch_name reads that branch's head, or the
+	// default branch head when Git doesn't have the branch, as a test run's
+	// files do. Without either, the commit defaults to the one the stored
+	// configuration came from, or the default branch head for a pushed
+	// configuration.
+	SessionProfileSource *SessionProfileSource `json:"session_profile_source,omitempty"`
 
 	// TimeoutSeconds Lifetime in seconds from creation, 60-86400. Omit for the default 7200.
 	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
@@ -8174,6 +8332,25 @@ type ComputerScreenChannelFailureReason string
 // ComputerScreenChannelFailureStage defines model for ComputerScreenChannelFailure.Stage.
 type ComputerScreenChannelFailureStage string
 
+// ComputerSessionProfile The session profile a computer runs on its Mac once it is active.
+type ComputerSessionProfile struct {
+	FailureReason *string `json:"failure_reason,omitempty"`
+
+	// MissingGitBranchName Only in the create response: the requested Git branch that Git doesn't have, so the profile reads the default branch instead.
+	MissingGitBranchName *string `json:"missing_git_branch_name,omitempty"`
+	Name                 string  `json:"name"`
+
+	// Outcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.
+	Outcome *ComputerSessionProfileOutcome `json:"outcome,omitempty"`
+	Status  ComputerSessionProfileStatus   `json:"status"`
+}
+
+// ComputerSessionProfileOutcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.
+type ComputerSessionProfileOutcome string
+
+// ComputerSessionProfileStatus defines model for ComputerSessionProfile.Status.
+type ComputerSessionProfileStatus string
+
 // ComputerSourceMetadata Bounded launch metadata exposed with a computer session report.
 type ComputerSourceMetadata struct {
 	CiSystem   *string `json:"ci_system,omitempty"`
@@ -8208,6 +8385,9 @@ type ComputerStopReport struct {
 	Release    *ComputerStopReportRelease `json:"release,omitempty"`
 	ReleasedAt *time.Time                 `json:"released_at,omitempty"`
 	ReportId   openapi_types.UUID         `json:"report_id"`
+
+	// SessionProfile The session profile a computer runs on its Mac once it is active.
+	SessionProfile *ComputerSessionProfile `json:"session_profile,omitempty"`
 
 	// SourceMetadata Bounded launch metadata exposed with a computer session report.
 	SourceMetadata *ComputerSourceMetadata      `json:"source_metadata,omitempty"`
@@ -8652,18 +8832,24 @@ type DeviceSessionDetailResponse struct {
 	ReportId                  *string                                    `json:"report_id,omitempty"`
 	ScreenHeight              *int                                       `json:"screen_height,omitempty"`
 	ScreenWidth               *int                                       `json:"screen_width,omitempty"`
-	Source                    *string                                    `json:"source,omitempty"`
-	SourceMetadata            *map[string]interface{}                    `json:"source_metadata,omitempty"`
-	StartedAt                 *string                                    `json:"started_at,omitempty"`
-	Status                    string                                     `json:"status"`
-	StepCount                 *int                                       `json:"step_count,omitempty"`
-	TestExecutionId           *string                                    `json:"test_execution_id,omitempty"`
-	TestId                    *string                                    `json:"test_id,omitempty"`
-	TestName                  *string                                    `json:"test_name,omitempty"`
-	TraceId                   *string                                    `json:"trace_id,omitempty"`
-	UserEmail                 *string                                    `json:"user_email,omitempty"`
-	UserId                    *string                                    `json:"user_id,omitempty"`
-	ViewerKind                *DeviceSessionDetailResponseViewerKind     `json:"viewer_kind,omitempty"`
+
+	// SessionProfile A device or web session's profile as its start response and report show it.
+	//
+	// A session is ready once it is active and status is succeeded; on failed,
+	// Revyl ends the session.
+	SessionProfile  *SessionProfileReport                  `json:"session_profile,omitempty"`
+	Source          *string                                `json:"source,omitempty"`
+	SourceMetadata  *map[string]interface{}                `json:"source_metadata,omitempty"`
+	StartedAt       *string                                `json:"started_at,omitempty"`
+	Status          string                                 `json:"status"`
+	StepCount       *int                                   `json:"step_count,omitempty"`
+	TestExecutionId *string                                `json:"test_execution_id,omitempty"`
+	TestId          *string                                `json:"test_id,omitempty"`
+	TestName        *string                                `json:"test_name,omitempty"`
+	TraceId         *string                                `json:"trace_id,omitempty"`
+	UserEmail       *string                                `json:"user_email,omitempty"`
+	UserId          *string                                `json:"user_id,omitempty"`
+	ViewerKind      *DeviceSessionDetailResponseViewerKind `json:"viewer_kind,omitempty"`
 
 	// ViewerLookupTimedOut True when viewer_kind is none only because the viewer lookup timed out; the viewer may be ready, so read the session again shortly.
 	ViewerLookupTimedOut *bool   `json:"viewer_lookup_timed_out,omitempty"`
@@ -11242,6 +11428,30 @@ type SessionHistorySource string
 // SessionHistoryStatus defines model for SessionHistoryStatus.
 type SessionHistoryStatus string
 
+// SessionProfileCheckoutFiles A named profile as the caller's checkout defines it, sent with a start.
+//
+// The start runs this definition and script instead of reading them from
+// Git, the way a test run from a checkout sends its files. A script name
+// with no file in the checkout's .revyl/scripts is a Library Script.
+type SessionProfileCheckoutFiles struct {
+	RequiresRepositoryCheckout *bool `json:"requires_repository_checkout,omitempty"`
+
+	// Script The profile's script as the checkout's .revyl/config.yaml names it.
+	Script string `json:"script"`
+
+	// ScriptFile A profile's script file as the caller's checkout has it.
+	ScriptFile *SessionProfileCheckoutScriptFile `json:"script_file,omitempty"`
+}
+
+// SessionProfileCheckoutScriptFile A profile's script file as the caller's checkout has it.
+type SessionProfileCheckoutScriptFile struct {
+	// Content The file's UTF-8 text, uncommitted changes included, at most 65536 bytes.
+	Content string `json:"content"`
+
+	// ProjectRelativePath The script's path from the project root: the path the profile names, or .revyl/scripts/<name>.<py|js|ts|sh> for a script name.
+	ProjectRelativePath string `json:"project_relative_path"`
+}
+
 // SessionProfileInstruction The one session-profile instruction a start request carries.
 //
 // applied: the caller already ran the named profile and sends its outputs
@@ -11278,6 +11488,45 @@ type SessionProfileOutputs struct {
 	SecretLaunchEnv     *map[string]string   `json:"secret_launch_env,omitempty"`
 	SecretVariables     *map[string]string   `json:"secret_variables,omitempty"`
 	Variables           *map[string]string   `json:"variables,omitempty"`
+}
+
+// SessionProfileReport A device or web session's profile as its start response and report show it.
+//
+// A session is ready once it is active and status is succeeded; on failed,
+// Revyl ends the session.
+type SessionProfileReport struct {
+	FailureReason *string `json:"failure_reason,omitempty"`
+
+	// MissingGitBranchName Start response only: the requested Git branch Git didn't have, so the profile was read from the default branch.
+	MissingGitBranchName *string `json:"missing_git_branch_name,omitempty"`
+	Name                 string  `json:"name"`
+
+	// Outcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.
+	Outcome *SessionProfileReportOutcome `json:"outcome,omitempty"`
+	Status  SessionProfileReportStatus   `json:"status"`
+}
+
+// SessionProfileReportOutcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.
+type SessionProfileReportOutcome string
+
+// SessionProfileReportStatus defines model for SessionProfileReport.Status.
+type SessionProfileReportStatus string
+
+// SessionProfileSource The Revyl project whose session profiles a named or default instruction uses.
+//
+// The profiles are those the project stores from its default branch or its
+// last `revyl config push`. commit_sha picks the commit a repository script is
+// read at. Without it, git_branch_name reads that branch's head, or the
+// default branch head when Git doesn't have the branch, as a test run's
+// files do. Without either, the commit defaults to the one the stored
+// configuration came from, or the default branch head for a pushed
+// configuration.
+type SessionProfileSource struct {
+	CommitSha *string `json:"commit_sha,omitempty"`
+
+	// GitBranchName The Git branch whose head the profile reads when commit_sha is absent, falling back to the default branch when Git doesn't have it.
+	GitBranchName *string            `json:"git_branch_name,omitempty"`
+	ProjectId     openapi_types.UUID `json:"project_id"`
 }
 
 // SessionRecordingStatus defines model for SessionRecordingStatus.
@@ -11418,8 +11667,26 @@ type StartDeviceInfo struct {
 	// (possibly empty). none: no profile, not even the project default. named:
 	// the backend runs the named profile. default: the backend runs the
 	// project's default profile, if it has one.
-	SessionProfile               *SessionProfileInstruction `json:"session_profile,omitempty"`
-	StartupSessionStartMonotonic *float32                   `json:"startup_session_start_monotonic,omitempty"`
+	SessionProfile *SessionProfileInstruction `json:"session_profile,omitempty"`
+
+	// SessionProfileFiles A named profile as the caller's checkout defines it, sent with a start.
+	//
+	// The start runs this definition and script instead of reading them from
+	// Git, the way a test run from a checkout sends its files. A script name
+	// with no file in the checkout's .revyl/scripts is a Library Script.
+	SessionProfileFiles *SessionProfileCheckoutFiles `json:"session_profile_files,omitempty"`
+
+	// SessionProfileSource The Revyl project whose session profiles a named or default instruction uses.
+	//
+	// The profiles are those the project stores from its default branch or its
+	// last `revyl config push`. commit_sha picks the commit a repository script is
+	// read at. Without it, git_branch_name reads that branch's head, or the
+	// default branch head when Git doesn't have the branch, as a test run's
+	// files do. Without either, the commit defaults to the one the stored
+	// configuration came from, or the default branch head for a pushed
+	// configuration.
+	SessionProfileSource         *SessionProfileSource `json:"session_profile_source,omitempty"`
+	StartupSessionStartMonotonic *float32              `json:"startup_session_start_monotonic,omitempty"`
 
 	// StorekitConfig Resolved iOS StoreKit config snapshot carried to worker launch.
 	StorekitConfig *IosStoreKitConfigSnapshot `json:"storekit_config,omitempty"`
@@ -11481,6 +11748,12 @@ type StartDeviceResponse struct {
 	QueueNotice  *DeviceQueueNotice  `json:"queue_notice,omitempty"`
 	RetryAllowed *bool               `json:"retry_allowed,omitempty"`
 	SessionId    *openapi_types.UUID `json:"session_id,omitempty"`
+
+	// SessionProfile A device or web session's profile as its start response and report show it.
+	//
+	// A session is ready once it is active and status is succeeded; on failed,
+	// Revyl ends the session.
+	SessionProfile *SessionProfileReport `json:"session_profile,omitempty"`
 
 	// SessionProfileName The session profile this session starts with, if any
 	SessionProfileName *string     `json:"session_profile_name,omitempty"`

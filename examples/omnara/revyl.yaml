@@ -1,0 +1,51 @@
+# Revyl for Omnara agents
+#
+# Merge both top-level keys below into any Omnara agent config to give it
+# Revyl's cloud iOS and Android devices, browsers, saved tests, builds, and
+# Atlas. SKILL.md fills in the placeholders and does the merge for you.
+#
+#   REVYL_OAUTH_SECRET_ID     sec_… ID of the MCP OAuth secret for Revyl
+#   REVYL_WORKSPACE_SKILL_ID  skl_… ID of the uploaded revyl-workspace skill
+#
+# Permissions: reading and acting inside a session the agent already has run
+# without asking; anything that starts paid device time or changes the Revyl
+# organization asks first. New Revyl tools ask until you allow them.
+
+mcp:
+  revyl-workspace:
+    url: https://backend.revyl.ai/api/v1/mcp
+    auth:
+      type: oauth
+      secret_id: "{{REVYL_OAUTH_SECRET_ID}}"
+    permission:
+      mode: always_ask
+    tools:
+      list_apps: { permission: { mode: always_allow } }
+      list_device_sessions: { permission: { mode: always_allow } }
+      open_revyl_workspace: { permission: { mode: always_allow } }
+      screenshot: { permission: { mode: always_allow } }
+      device_instruction: { permission: { mode: always_allow } }
+      device_validation: { permission: { mode: always_allow } }
+      get_device_step: { permission: { mode: always_allow } }
+      computer_action: { permission: { mode: always_allow } }
+      stop_device_session: { permission: { mode: always_allow } }
+      get_session_recording: { permission: { mode: always_allow } }
+      list_builds: { permission: { mode: always_allow } }
+      get_build: { permission: { mode: always_allow } }
+      cancel_build: { permission: { mode: always_allow } }
+      list_tests: { permission: { mode: always_allow } }
+      get_test: { permission: { mode: always_allow } }
+      validate_test: { permission: { mode: always_allow } }
+      get_run: { permission: { mode: always_allow } }
+      cancel_run: { permission: { mode: always_allow } }
+      get_exploration: { permission: { mode: always_allow } }
+      cancel_exploration: { permission: { mode: always_allow } }
+      atlas_search: { permission: { mode: always_allow } }
+      atlas_graph: { permission: { mode: always_allow } }
+      atlas_diff: { permission: { mode: always_allow } }
+      connect_gitlab: { permission: { mode: always_allow } }
+      create_revyl_workspace_session_ticket:
+        enabled: false   # signs in Revyl's embedded viewer, which Omnara doesn't show
+
+skills:
+  - "{{REVYL_WORKSPACE_SKILL_ID}}"

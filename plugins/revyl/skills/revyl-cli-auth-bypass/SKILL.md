@@ -293,12 +293,14 @@ Rules that matter when writing the profile:
 4. Commit the script with a `#!` line and the executable bit (`chmod +x`). A
    `script` with a `/` is a path from the project root and must stay inside the
    repository.
-5. A non-zero exit, a run past 300 seconds, or a malformed output file fails
-   the start. Revyl never shows the script's output, so debug it by running it
-   yourself with those variables pointed at files.
+5. Revyl runs the script on its hosted runner, with the definition and script
+   from the checkout that starts the session, and only the variables Revyl
+   sets. A non-zero exit, a run past 300 seconds, or a malformed output file
+   fails the start and ends the session. Revyl never shows the script's output,
+   so debug it by running it yourself with those variables pointed at files.
 6. The script runs once per session, so mint tokens that last the whole
-   session. `revyl dev auth refresh` reopens the deep link without running the
-   script again.
+   session. Revyl opens its deep link after the app launches, and
+   `revyl dev auth refresh` can't reopen it; start a new session instead.
 7. Run `revyl config validate`. If it reports
    `session.default_profile is not a supported field` or
    `session.profiles is not a supported field`, the CLI predates session

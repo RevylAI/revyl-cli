@@ -70,6 +70,7 @@ revyl computer create --os macos --wait --wait-timeout 5m
 revyl computer create --os macos --id "$C1" --json
 revyl computer create --os macos --display 1440x900 --json
 revyl computer create --os macos --timeout 8h --json
+revyl computer create --os macos --session-profile signed-in --json
 revyl computer extend "$C1" --timeout 4h --json
 revyl computer list
 revyl computer get "$C1"
@@ -108,7 +109,9 @@ was `--timeout` before `--timeout` became the lifetime, and create refuses
 computer that ends instead of becoming active exits non-zero and names its
 state and release (`failed` and `owner_lost` exit 125, others 1); one still
 starting at the timeout exits 124 and keeps starting, so read it with `get` or
-stop it. `--display WIDTHxHEIGHT` sets the screen size in pixels for the
+stop it. `--session-profile NAME`, described in
+[Session profiles on a computer](#session-profiles-on-a-computer), runs a
+profile on the computer before create returns. `--display WIDTHxHEIGHT` sets the screen size in pixels for the
 computer's lifetime: an even width from 800 to 1920 and an even height from 600
 to 1080, default 1280x800. Pick the size of the pane you view it in to avoid
 letterboxing; a non-default size always boots a fresh VM, so it starts slower
@@ -132,6 +135,43 @@ inside the computer, newest first (`--limit 1..100`, default 25).
 There is no active-computer setting, provider/image/TTL selector,
 interactive SSH/TTY, recursive sync or snapshot in this family. Existing `revyl device` commands still target native session IDs
 independently.
+
+### Session profiles on a computer
+
+From an app's checkout, `create --os macos` runs the checkout's
+`session.default_profile` on the Mac once the computer is running, and
+`--session-profile NAME` runs that profile instead; `none` runs none. Like
+`revyl test run`, create sends the profile's definition and script file from
+the checkout, uncommitted changes included (at most 64 KiB), with the
+checkout's `project.id`; a script name with no `.revyl/scripts/` file is a
+Library Script, which Revyl reads itself. `--from-checkout=false` has Revyl
+read the profile, or the project's default, from the configuration it stores
+for the project and the script from Git. Outside a checkout, or in one without
+a default, create runs no profile. The flags need `--os macos`.
+
+The profile's Git branch is `--branch`, else the checkout's Git branch, else
+the repository's default branch. When Git doesn't have the branch, Revyl reads
+the default branch and create prints `Git has no branch "BRANCH", so session
+profile NAME reads the repository's default branch instead`. When Revyl can't
+read the branch right now (a provider rate limit or lost access), create starts
+nothing, never falls back to another branch, and prints which repository and
+branch it couldn't read; retry it.
+
+A profile implies `--wait`, with `--wait-timeout` defaulting to 10m. Create
+returns once the profile has succeeded, and the human output adds
+`session_profile=succeeded`. Until then the computer refuses commands and
+screen control, and `revyl computer exec` says it is still running its session
+profile. When the profile fails, Revyl stops the computer; create prints
+`session profile NAME failed: REASON; Revyl stopped the computer` and exits 1.
+A profile still running at the timeout makes create stop the computer and exit
+124. When the backend can't run profiles yet, create starts nothing and says to
+pass `--session-profile none`. Other refusals, such as a profile the project
+doesn't define, print Revyl's sentence.
+
+[Session profiles on a Mac computer](https://docs.revyl.com/devices/session-profiles#on-a-mac-computer)
+describes where and how the script runs, which outputs apply, and how the
+repository is checked out. App sessions started inside the computer still run
+no profile.
 
 ### Command user and home directory
 
@@ -354,8 +394,9 @@ start does, when the computer's host can deliver launch values to its apps.
 When it can't yet, the CLI warns and starts the app with its defaults instead
 of running either. Implicit starts, where only `REVYL_COMPUTER_ID` places the
 session in the computer, and Android starts always use the app's defaults. No
-start inside a computer runs a session profile, and a
-`--session-profile <name>` pick there is refused. Use `--computer=none` when
+app session started inside a computer runs a session profile, and a
+`--session-profile <name>` pick there is refused; run the profile on the
+computer itself with `computer create --session-profile`. Use `--computer=none` when
 those standalone session settings are required.
 
 On an agent outpost's computer, phones start inside that computer by default.

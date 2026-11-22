@@ -1970,6 +1970,17 @@
           "title": "Report Id",
           "type": "string"
         },
+        "session_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerSessionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only when the computer was created with a session profile. It runs once the computer is active; use the computer after status is succeeded. When it fails, Revyl stops the computer and failure_reason says why."
+        },
         "source_metadata": {
           "anyOf": [
             {
@@ -2174,6 +2185,17 @@
           "format": "uuid",
           "title": "Report Id",
           "type": "string"
+        },
+        "session_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputerSessionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only when the computer was created with a session profile. It runs once the computer is active; use the computer after status is succeeded. When it fails, Revyl stops the computer and failure_reason says why."
         },
         "source_metadata": {
           "anyOf": [
@@ -2389,6 +2411,74 @@
         "evidence_completeness"
       ],
       "title": "ComputerRunSummary",
+      "type": "object"
+    },
+    "ComputerSessionProfile": {
+      "description": "The session profile a computer runs on its Mac once it is active.",
+      "properties": {
+        "failure_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Reason"
+        },
+        "missing_git_branch_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only in the create response: the requested Git branch that Git doesn't have, so the profile reads the default branch instead.",
+          "title": "Missing Git Branch Name"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "succeeded",
+                "script_failed",
+                "script_timed_out",
+                "output_invalid",
+                "script_unavailable",
+                "runner_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.",
+          "title": "Outcome"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "ComputerSessionProfile",
       "type": "object"
     },
     "ComputerSourceMetadata": {

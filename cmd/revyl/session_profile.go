@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -10,39 +9,60 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	startdevice "github.com/revyl/cli/internal/device"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/sessionprofile"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-const sessionProfileFlagUsage = "Session profile from .revyl/config.yaml to run before the session starts, or none to skip the project's default_profile"
+const sessionProfileFlagUsage = "Session profile from .revyl/config.yaml for Revyl to run before the session is ready (waits until it finishes), or none to skip the project's default_profile"
 
-// devLoopRunningSessionProfileScript is what a detached dev loop writes to its
-// claim while its session profile script runs, so the detach parent starts its
-// readiness wait only after the script finishes.
-const devLoopRunningSessionProfileScript = "session_profile_script_running"
+// devLoopWaitingForSessionProfile is what a detached dev loop writes to its
+// claim while Revyl runs its session profile, so the detach parent starts its
+// readiness wait only after the profile finishes.
+const devLoopWaitingForSessionProfile = "session_profile_running"
 
-// sessionProfileRuntime applies a project's session profiles to the device
-// sessions this invocation starts or reuses: it runs the picked profile once
-// per new session and opens the profile's mobile deep link after launch.
+// sessionProfileRuntime sends a project's session profile with the device
+// sessions this invocation starts, reports how Revyl's hosted run of it goes,
+// and remembers which profile a started or reused session has.
 type sessionProfileRuntime struct {
-	session      config.AuthoredSession
+	start        sessionprofile.Start
 	projectRoot  string
-	configPath   string
 	explicitPick string
-	backend      *api.Client
 
-	mu                   sync.Mutex
-	preparation          sessionprofile.Preparation
-	applied              *sessionprofile.AppliedProfile
-	startDeepLinkPending bool
+	mu                 sync.Mutex
+	applied            string
+	firstLaunchPending bool
 }
 
 // devSessionProfile is the active runtime for the current command invocation,
-// nil for projects without session.profiles.
+// nil when its starts send no session profile.
 var devSessionProfile *sessionProfileRuntime
+
+// initDevSessionProfile resolves the session profile this invocation's starts
+// send from the checkout: the explicit pick, else session.default_profile, by
+// name with its definition and script. A pick the project doesn't define
+// fails; analytics gets a fixed diagnostic, since profile names are
+// customer-authored.
+func initDevSessionProfile(ctx context.Context, projectRoot, configPath string, session config.AuthoredSession, explicitPick string) error {
+	devSessionProfile = nil
+	start, err := sessionprofile.ResolveStart(ctx, sessionprofile.StartOptions{
+		Session:      session,
+		ProjectRoot:  projectRoot,
+		ConfigPath:   configPath,
+		Pick:         explicitPick,
+		FromCheckout: true,
+		Asked:        explicitPick != "" && explicitPick != config.NoSessionProfile,
+	})
+	if err != nil {
+		return analytics.WithSafeDiagnostic(err, "session profile is not usable")
+	}
+	if start.Instruction == nil && explicitPick == "" {
+		return nil
+	}
+	devSessionProfile = &sessionProfileRuntime{start: start, projectRoot: projectRoot, explicitPick: explicitPick}
+	return nil
+}
 
 // checkSessionProfilePick fails a pick the project doesn't define. The error
 // lists the project's profiles for the person, while analytics gets a fixed
@@ -50,26 +70,6 @@ var devSessionProfile *sessionProfileRuntime
 func checkSessionProfilePick(session config.AuthoredSession, explicitPick string) error {
 	_, err := sessionprofile.ResolvePick(session, explicitPick)
 	return analytics.WithSafeDiagnostic(err, "session profile is not defined")
-}
-
-// initDevSessionProfile checks the explicit pick and activates session
-// profiles for this invocation when the project defines them.
-func initDevSessionProfile(backend *api.Client, projectRoot, configPath string, session config.AuthoredSession, explicitPick string) error {
-	if err := checkSessionProfilePick(session, explicitPick); err != nil {
-		return err
-	}
-	if len(session.Profiles) == 0 {
-		devSessionProfile = nil
-		return nil
-	}
-	devSessionProfile = &sessionProfileRuntime{
-		session:      session,
-		projectRoot:  projectRoot,
-		configPath:   configPath,
-		explicitPick: explicitPick,
-		backend:      backend,
-	}
-	return nil
 }
 
 // sessionWithoutProfilesInsideComputer drops the project's profiles for a start
@@ -83,98 +83,51 @@ func sessionWithoutProfilesInsideComputer(session config.AuthoredSession, explic
 	return session, nil
 }
 
-// prepareStart runs the picked profile for a new session and puts its applied
-// instruction on opts. web is the resolved artifact of a web start.
-func (r *sessionProfileRuntime) prepareStart(ctx context.Context, opts mcppkg.StartSessionOptions, web *startdevice.ResolvedStartArtifact) (mcppkg.StartSessionOptions, error) {
+// prepareStart puts the session profile on a new session's start and reports
+// each status of Revyl's run of it.
+func (r *sessionProfileRuntime) prepareStart(ctx context.Context, opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
 	if r == nil {
-		return opts, nil
+		return opts
 	}
-	request := sessionprofile.PrepareRequest{
-		Session:      r.session,
-		ProjectRoot:  r.projectRoot,
-		ConfigPath:   r.configPath,
-		ExplicitPick: r.explicitPick,
-		Platform:     opts.Platform,
-		Backend:      r.backend,
-		BackendURL:   r.backend.BaseURL(),
-	}
-	if web != nil {
-		request.WebOrigin, request.WebAcceptsLaunchEnv = web.WebOrigin, web.WebAcceptsLaunchEnv
-	}
-	if pick, _ := sessionprofile.ResolvePick(r.session, r.explicitPick); pick.Name != "" {
-		ui.PrintInfo("Running session profile %s...", pick.Name)
-		if isDetachedDevChild() {
-			markDetachedDevLoopRunningSessionProfileScript(r.projectRoot, true)
-			defer markDetachedDevLoopRunningSessionProfileScript(r.projectRoot, false)
-		}
-	}
-	preparation, err := sessionprofile.Prepare(ctx, request)
 	r.mu.Lock()
-	r.preparation = preparation
-	r.applied, r.startDeepLinkPending = nil, false
-	if preparation.Instruction != nil {
-		r.applied = &sessionprofile.AppliedProfile{Name: preparation.Pick.Name, MobileDeepLink: preparation.MobileDeepLink}
-		r.startDeepLinkPending = preparation.MobileDeepLink != nil
-	}
+	r.applied, r.firstLaunchPending = "", false
 	r.mu.Unlock()
-	r.recordAnalytics(ctx)
-	if err != nil {
-		return opts, analytics.WithSafeDiagnostic(err, fmt.Sprintf("session profile failed (%s)", preparation.Outcome))
-	}
-	if preparation.Instruction != nil {
-		ui.PrintDim("Applied session profile %s", preparation.Pick.Name)
-		opts.OnSessionProfileNotApplied = func() {
-			r.mu.Lock()
-			r.preparation.Outcome = sessionprofile.OutcomeBackendUnsupported
-			r.applied, r.startDeepLinkPending = nil, false
-			r.mu.Unlock()
-			r.recordAnalytics(ctx)
-		}
-	}
-	opts.SessionProfile = preparation.Instruction
-	return opts, nil
+	opts.SessionProfile = r.start
+	opts.OnSessionProfile = func(report api.SessionProfileReport) { r.observe(ctx, report) }
+	return opts
 }
 
-func (r *sessionProfileRuntime) recordAnalytics(ctx context.Context) {
-	r.mu.Lock()
-	properties := r.preparation.AnalyticsProperties()
-	r.mu.Unlock()
-	if properties != nil {
-		analytics.SetCommandCompletion(ctx, analytics.CommandCompletion{Properties: properties})
+func (r *sessionProfileRuntime) observe(ctx context.Context, report api.SessionProfileReport) {
+	waiting := report.Status == api.SessionProfileReportStatusPending || report.Status == api.SessionProfileReportStatusRunning
+	if isDetachedDevChild() {
+		markDetachedDevLoopWaitingForSessionProfile(r.projectRoot, waiting)
+	}
+	ui.StopSpinner()
+	switch report.Status {
+	case api.SessionProfileReportStatusPending:
+		ui.PrintInfo("Session profile %s is waiting for Revyl's hosted runner...", report.Name)
+	case api.SessionProfileReportStatusRunning:
+		ui.PrintInfo("Running session profile %s on Revyl...", report.Name)
+	case api.SessionProfileReportStatusSucceeded:
+		r.mu.Lock()
+		r.applied, r.firstLaunchPending = report.Name, true
+		r.mu.Unlock()
+		ui.PrintDim("Applied session profile %s", report.Name)
+		analytics.SetCommandCompletion(ctx, analytics.CommandCompletion{Properties: map[string]any{"session_profile_pick": string(r.start.Pick), "session_profile_script_sent": r.start.SendsScript()}})
 	}
 }
 
 // rememberAppliedProfile records the profile a new session started with, so
-// reuse and auth refresh never rerun its script. A failed record leaves the
-// running session in place and warns that later commands won't know its
-// profile.
+// reuse and auth refresh know it. A failed record leaves the running session
+// in place and warns that later commands won't know its profile.
 func (r *sessionProfileRuntime) rememberAppliedProfile(workDir, sessionID string) {
-	if r == nil {
+	name := r.appliedProfileName()
+	if name == "" {
 		return
 	}
-	r.mu.Lock()
-	applied := r.applied
-	r.mu.Unlock()
-	if applied == nil {
-		return
+	if err := sessionprofile.SaveAppliedProfile(workDir, sessionID, sessionprofile.AppliedProfile{Name: name}); err != nil {
+		ui.PrintWarning("Couldn't record that this session started with session profile %s (%v), so reusing it and `revyl dev auth refresh` won't know its profile; stop it and start a new one to fix that", name, err)
 	}
-	if err := sessionprofile.SaveAppliedProfile(workDir, sessionID, *applied); err != nil {
-		ui.PrintWarning("Couldn't record that this session started with session profile %s (%v), so reusing it and `revyl dev auth refresh` won't know its profile; stop it and start a new one to fix that", applied.Name, err)
-	}
-}
-
-// dropDeepLink forgets the profile's deep link when the caller's own app link
-// replaces it, so auth refresh never opens a link this session never opened.
-func (r *sessionProfileRuntime) dropDeepLink() {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.applied != nil {
-		r.applied = &sessionprofile.AppliedProfile{Name: r.applied.Name}
-	}
-	r.startDeepLinkPending = false
 }
 
 // adoptReusedSession loads the profile a reused session started with and
@@ -188,9 +141,40 @@ func (r *sessionProfileRuntime) adoptReusedSession(workDir, sessionID string) er
 		return err
 	}
 	r.mu.Lock()
-	r.applied, r.startDeepLinkPending = applied, false
+	r.applied, r.firstLaunchPending = "", false
+	if applied != nil {
+		r.applied = applied.Name
+	}
 	r.mu.Unlock()
 	return nil
+}
+
+// takeFirstLaunch reports the profile that ran on the session this invocation
+// started when the app has yet to launch there, and marks that launch taken.
+// The worker opens the profile's deep link on that launch, so the launch
+// failing means the profile's sign-in never reached the app.
+func (r *sessionProfileRuntime) takeFirstLaunch() (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.firstLaunchPending {
+		return "", false
+	}
+	r.firstLaunchPending = false
+	return r.applied, true
+}
+
+// pendingFirstLaunch reports what takeFirstLaunch would without taking it,
+// for a launch that is skipped.
+func (r *sessionProfileRuntime) pendingFirstLaunch() (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.applied, r.firstLaunchPending
 }
 
 // refusePickForRunningSession fails an explicit pick that a session already
@@ -231,62 +215,18 @@ func (r *sessionProfileRuntime) appliedProfileName() string {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.applied == nil {
-		return ""
-	}
-	return r.applied.Name
+	return r.applied
 }
 
-// openStartDeepLink opens the profile's mobile deep link after the first
-// launch of a session this invocation started. Its failure fails the start.
-func (r *sessionProfileRuntime) openStartDeepLink(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession) error {
-	if r == nil {
-		return nil
-	}
-	r.mu.Lock()
-	pending, applied := r.startDeepLinkPending, r.applied
-	r.startDeepLinkPending = false
-	r.mu.Unlock()
-	if !pending {
-		return nil
-	}
-	if err := mcppkg.OpenSessionProfileDeepLink(ctx, requester, session, applied.Name, *applied.MobileDeepLink); err != nil {
-		r.mu.Lock()
-		r.preparation.Outcome = sessionprofile.OutcomeDeepLinkFailed
-		r.mu.Unlock()
-		r.recordAnalytics(ctx)
-		return analytics.WithSafeDiagnostic(err, "session profile deep link failed")
-	}
-	ui.PrintDim("Opened session profile %s deep link", applied.Name)
-	return nil
-}
-
-// reopenDeepLinkAfterRelaunch reopens the profile's mobile deep link after the
-// app relaunches. It only warns on failure and waits while the start's own
-// open is pending.
-func (r *sessionProfileRuntime) reopenDeepLinkAfterRelaunch(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	applied, pending := r.applied, r.startDeepLinkPending
-	r.mu.Unlock()
-	if pending || applied == nil || applied.MobileDeepLink == nil {
-		return
-	}
-	if err := mcppkg.OpenSessionProfileDeepLink(ctx, requester, session, applied.Name, *applied.MobileDeepLink); err != nil {
-		ui.PrintWarning("%v", err)
-	}
-}
-
-// refreshSessionProfileDeepLink reopens the deep link the target session's
-// profile wrote at start, without rerunning the profile script.
+// refreshSessionProfileDeepLink answers `revyl dev auth refresh` for a project
+// with session profiles. Revyl's hosted runner opens a profile's deep link
+// once, when the session starts, and the CLI never holds the profile's
+// outputs, so only a fresh session runs the profile again.
 func refreshSessionProfileDeepLink(cmd *cobra.Command) error {
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
 	}
-	// Messages name the profile, so analytics gets the code alone.
 	fail := func(code, message, action string) error {
 		return analytics.WithSafeDiagnostic(devAuthRefreshError(cmd, code, message, action), fmt.Sprintf("session profile deep link refresh failed (%s)", code))
 	}
@@ -304,38 +244,13 @@ func refreshSessionProfileDeepLink(cmd *cobra.Command) error {
 	if applied == nil {
 		return fail("no_session_profile", "this session started without a session profile", restartAction)
 	}
-	if applied.MobileDeepLink == nil {
-		reason := fmt.Sprintf("session profile %s wrote no deep link — its other outputs apply only at session boot", applied.Name)
-		if session.Platform == "web" {
-			reason = fmt.Sprintf("session profile %s applies to a web session only at session boot", applied.Name)
-		}
-		return fail("no_deep_link", reason, restartAction)
-	}
-	if err := mcppkg.OpenSessionProfileDeepLink(cmd.Context(), deviceMgr, session, applied.Name, *applied.MobileDeepLink); err != nil {
-		var refusal *mcppkg.SessionProfileDeepLinkRefusal
-		switch {
-		case errors.As(err, &refusal) && refusal.Code == mcppkg.LaunchConfigurationChangedCode:
-			return fail(refusal.Code, err.Error(), restartAction)
-		case errors.As(err, &refusal):
-			return fail("deep_link_refused", err.Error(), "fix the launch configuration the message names in the Library, then run `revyl dev auth refresh` again")
-		}
-		return fail("deep_link_failed", err.Error(), "check the device session is alive (`revyl dev status`)")
-	}
-	result := map[string]interface{}{
-		"ok":              true,
-		"deep_link_fired": true,
-		"session_id":      session.SessionID,
-		"session_index":   session.Index,
-		"session_profile": applied.Name,
-	}
-	jsonOrPrint(cmd, result, fmt.Sprintf("Session profile %s deep link reopened", applied.Name))
-	return nil
+	return fail("no_deep_link", fmt.Sprintf("session profile %s ran on Revyl's hosted runner, which applies its outputs, deep link included, only when the session starts", applied.Name), restartAction)
 }
 
-func markDetachedDevLoopRunningSessionProfileScript(repoRoot string, running bool) {
+func markDetachedDevLoopWaitingForSessionProfile(repoRoot string, waiting bool) {
 	var content []byte
-	if running {
-		content = []byte(devLoopRunningSessionProfileScript)
+	if waiting {
+		content = []byte(devLoopWaitingForSessionProfile)
 	}
 	_ = writeManagedRuntimeFile(devActiveLoopPath(repoRoot, os.Getpid()), content)
 }

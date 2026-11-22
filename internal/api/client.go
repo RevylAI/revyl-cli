@@ -1014,7 +1014,7 @@ type ExecuteTestRequest struct {
 	// LaunchArguments are non-secret inline iOS app arguments in exact token order.
 	LaunchArguments []string `json:"launch_arguments,omitempty"`
 	// SessionProfile is the applied session profile a Web test's browser starts with.
-	SessionProfile *AppliedSessionProfile `json:"session_profile,omitempty"`
+	SessionProfile *SessionProfileRequest `json:"session_profile,omitempty"`
 	// VariableOverrides are runtime variable overrides for this execution.
 	VariableOverrides map[string]string `json:"variable_overrides,omitempty"`
 	// TestDefinitionFiles are the checkout's files the run executes instead of saved copies.
@@ -4679,30 +4679,28 @@ type StartDeviceRequest struct {
 	// RunConfig contains optional execution configuration.
 	RunConfig *DeviceRunConfig `json:"run_config,omitempty"`
 
-	// SessionProfile carries the outputs of the session profile the CLI ran
-	// before this start. Nil starts the session without a profile.
-	SessionProfile *AppliedSessionProfile `json:"session_profile,omitempty"`
+	// SessionProfile, SessionProfileSource and SessionProfileFiles ask Revyl to
+	// run a session profile on its hosted runner before the session is ready,
+	// or carry applied outputs such as a --cookies-file's storage state.
+	SessionProfile       *SessionProfileRequest       `json:"session_profile,omitempty"`
+	SessionProfileSource *SessionProfileSource        `json:"session_profile_source,omitempty"`
+	SessionProfileFiles  *SessionProfileCheckoutFiles `json:"session_profile_files,omitempty"`
 }
 
-// AppliedSessionProfile is the "applied" session_profile instruction: the CLI
-// already ran the named profile's script and sends its validated outputs.
-type AppliedSessionProfile struct {
+// SessionProfileRequest is a start's session_profile instruction. It mirrors
+// SessionProfileInstruction but keeps applied outputs' browser storage state as
+// the validated JSON document: the generated cookie expiry is float32, which
+// would round real expiry timestamps.
+type SessionProfileRequest struct {
 	Instruction SessionProfileInstructionKind `json:"instruction"`
-	Name        string                        `json:"name"`
-	Outputs     AppliedSessionProfileOutputs  `json:"outputs"`
+	Name        string                        `json:"name,omitempty"`
+	Outputs     *AppliedSessionProfileOutputs `json:"outputs,omitempty"`
 }
 
 // AppliedSessionProfileOutputs mirrors SessionProfileOutputs but keeps browser
-// storage state as the validated JSON document: the generated cookie expiry is
-// float32, which would round real expiry timestamps.
+// storage state as the validated JSON document.
 type AppliedSessionProfileOutputs struct {
-	LaunchEnv           map[string]string `json:"launch_env,omitempty"`
-	SecretLaunchEnv     map[string]string `json:"secret_launch_env,omitempty"`
-	IOSLaunchArguments  []string          `json:"ios_launch_arguments,omitempty"`
-	BrowserStorageState json.RawMessage   `json:"browser_storage_state,omitempty"`
-	DeepLink            *string           `json:"deep_link,omitempty"`
-	Variables           map[string]string `json:"variables,omitempty"`
-	SecretVariables     map[string]string `json:"secret_variables,omitempty"`
+	BrowserStorageState json.RawMessage `json:"browser_storage_state,omitempty"`
 }
 
 // GetBackendCapabilities lists the optional behaviors the backend supports.
@@ -5005,6 +5003,8 @@ type DeviceSessionDetail struct {
 	TestName        *string                 `json:"test_name"`
 	UserEmail       *string                 `json:"user_email"`
 	CanCancel       bool                    `json:"can_cancel"`
+	// SessionProfile is the session's profile and how its hosted run is going.
+	SessionProfile *SessionProfileReport `json:"session_profile,omitempty"`
 
 	ViewerLookupTimedOut bool `json:"viewer_lookup_timed_out,omitempty"`
 }

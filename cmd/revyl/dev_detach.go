@@ -260,7 +260,7 @@ func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs, chi
 			return emitDetachFailure(cwd, "detach_failed", message, logPath)
 		default:
 		}
-		if claim, readErr := readManagedRuntimeFile(devActiveLoopPath(cwd, childPID)); readErr == nil && string(claim) == devLoopRunningSessionProfileScript {
+		if claim, readErr := readManagedRuntimeFile(devActiveLoopPath(cwd, childPID)); readErr == nil && string(claim) == devLoopWaitingForSessionProfile {
 			deadline = time.Now().Add(devDetachReadyTimeout)
 		}
 		if time.Now().After(deadline) {

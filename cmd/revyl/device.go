@@ -1045,7 +1045,7 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 		if err != nil {
 			return err
 		}
-		if err := initDevSessionProfile(mgr.APIClient(), project.ProjectRoot, project.ConfigPath, sessionConfig, sessionProfilePick); err != nil {
+		if err := initDevSessionProfile(cmd.Context(), project.ProjectRoot, project.ConfigPath, sessionConfig, sessionProfilePick); err != nil {
 			return err
 		}
 
@@ -1230,9 +1230,6 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			return err
 		}
 		rememberBeforeSessionBootValues(mgr.WorkDir(), session.SessionID)
-		if appLink != "" {
-			devSessionProfile.dropDeepLink()
-		}
 		devSessionProfile.rememberAppliedProfile(mgr.WorkDir(), session.SessionID)
 		if notice := ui.BranchSelectionNotice(session.GitBranchName, session.BranchName, string(session.BranchSource), session.AutoGitBranchEnabled); notice != "" {
 			ui.PrintWarning("%s", notice)
@@ -1243,8 +1240,6 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			postLaunchErr = openURLAfterLaunch(ctx, mgr, session, appLink)
 		} else if devAuthBypass != nil {
 			postLaunchErr = devAuthBypass.FireDeepLink(ctx, mgr, session)
-		} else {
-			postLaunchErr = devSessionProfile.openStartDeepLink(ctx, mgr, session)
 		}
 		if postLaunchErr != nil {
 			return handleDeviceStartPostLaunchFailure(cmd, mgr, session, postLaunchErr)

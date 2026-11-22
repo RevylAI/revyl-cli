@@ -5,4 +5,5 @@
 - **[pr-review/](pr-review/)** — Ad-hoc PR testing (agent-driven and CLI-driven)
 - **[ci-github-actions/](ci-github-actions/)** — GitHub Actions workflows using `RevylAI/revyl-gh-action`
 - **[ci-generic/](ci-generic/)** — Any CI system: Screwdriver, GitLab, Jenkins, CircleCI, Buildkite
+- **[omnara/](omnara/)** — Add Revyl's hosted MCP server and skill to any Omnara agent, with an optional nightly smoke run
 - **[cursor-automation/prove-mobile-pr/](cursor-automation/prove-mobile-pr/)** — Cursor Automation prompt for BYO-CI device proof (no Revyl GitHub App)

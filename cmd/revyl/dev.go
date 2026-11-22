@@ -550,7 +550,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			return err
 		}
 	}
-	if err := initDevSessionProfile(selectionClient, invocation.ProjectRoot, invocation.ConfigPath, profileSession, sessionProfilePick); err != nil {
+	if err := initDevSessionProfile(cmd.Context(), invocation.ProjectRoot, invocation.ConfigPath, profileSession, sessionProfilePick); err != nil {
 		return err
 	}
 	if invocation.AppID == "" && strings.TrimSpace(devStartBuildVerID) == "" {
@@ -1039,6 +1039,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		bundleID = extractInstallBundleID(installRespBody)
 	}
 	if bundleID != "" {
+		devSessionProfile.takeFirstLaunch()
 		ui.PrintInfo("Launching dev client app...")
 		launchPayload := map[string]string{
 			"bundle_id": bundleID,
@@ -1063,6 +1064,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 		}
 	} else {
 		ui.PrintWarning("Build metadata has no package_name and worker did not return bundle_id; skipping explicit launch and opening deep link directly")
+		if profileName, firstProfileLaunch := devSessionProfile.pendingFirstLaunch(); firstProfileLaunch {
+			ui.PrintWarning("Session profile %s's deep link opens on the app's first launch, so it didn't open; launch the app to sign in", profileName)
+		}
 	}
 
 	deepLinkURL := strings.TrimSpace(startResult.DeepLinkURL)
@@ -1119,10 +1123,6 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	// The dev-client link must open first; then authenticate the running app.
 	if !manualDeepLinkRequired {
 		fireAuthBypassAfterLaunch(ctx, deviceMgr, session)
-	}
-	devSessionProfile.reopenDeepLinkAfterRelaunch(ctx, deviceMgr, session)
-	if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
-		return err
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
@@ -2122,30 +2122,58 @@ func tryLaunchInstalledApp(
 	appIdentifier string,
 	packagerHost string,
 	packagerScheme string,
-) {
+) error {
 	identifier := strings.TrimSpace(appIdentifier)
-	if err := launchInstalledApp(
+	takeLaunch := devSessionProfile.takeFirstLaunch
+	if identifier == "" {
+		takeLaunch = devSessionProfile.pendingFirstLaunch
+	}
+	profileName, firstProfileLaunch := takeLaunch()
+	err := launchInstalledApp(
 		ctx,
 		requester,
 		session,
 		appIdentifier,
 		packagerHost,
 		packagerScheme,
-	); err != nil {
-		if identifier != "" {
-			ui.PrintWarning(
-				"App install succeeded, but launch failed (%s): %v",
-				formatInstalledAppIdentifier(devicePlatform, identifier),
-				err,
-			)
-			return
-		}
+	)
+	if err == nil {
+		return nil
+	}
+	if identifier == "" {
 		ui.PrintWarning(
 			"App install succeeded, but no %s was returned. Skipping explicit launch.",
 			strings.ToLower(appIdentifierLabel(devicePlatform)),
 		)
+		if firstProfileLaunch {
+			ui.PrintWarning("Session profile %s's deep link opens on the app's first launch, so it didn't open; launch the app to sign in", profileName)
+		}
+		return nil
 	}
+	if firstProfileLaunch && ctx.Err() == nil {
+		return &sessionProfileFirstLaunchError{profile: profileName, app: formatInstalledAppIdentifier(devicePlatform, identifier), err: err}
+	}
+	ui.PrintWarning(
+		"App install succeeded, but launch failed (%s): %v",
+		formatInstalledAppIdentifier(devicePlatform, identifier),
+		err,
+	)
+	return nil
 }
+
+// sessionProfileFirstLaunchError is the app's first launch failing on a
+// session whose profile ran, which leaves the profile's deep link unopened.
+type sessionProfileFirstLaunchError struct {
+	profile string
+	app     string
+	err     error
+}
+
+func (e *sessionProfileFirstLaunchError) Error() string {
+	return fmt.Sprintf("session profile %s: the app's first launch failed (%s), so its deep link didn't open: %v", e.profile, e.app, e.err)
+}
+
+func (e *sessionProfileFirstLaunchError) Unwrap() error { return e.err }
 
 func launchInstalledApp(
 	ctx context.Context,
@@ -2183,7 +2211,6 @@ func launchInstalledApp(
 
 	// A (re)launch starts a fresh app process, so re-authenticate it.
 	fireAuthBypassAfterLaunch(ctx, requester, session)
-	devSessionProfile.reopenDeepLinkAfterRelaunch(ctx, requester, session)
 	return nil
 }
 
@@ -2524,8 +2551,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	if bundleID == "" {
 		bundleID = extractInstallBundleID(installResp)
 	}
-	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
-	if err := devSessionProfile.openStartDeepLink(ctx, deviceMgr, session); err != nil {
+	if err := tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", ""); err != nil {
 		return err
 	}
 
@@ -3564,8 +3590,14 @@ func devBuildAndDeltaPush(
 	}
 	ui.StartSpinner("Launching app...")
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Launching app")
-	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, launchID, packagerHost, packagerScheme)
+	launchErr := tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, launchID, packagerHost, packagerScheme)
 	ui.StopSpinner()
+	if launchErr != nil {
+		result.pushErr = launchErr
+		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.pushErr)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
 
 	result.manifest = newManifest
 	result.filesChanged = len(diff.Changed) + len(diff.Deleted)

@@ -111,7 +111,7 @@ type RunTestParams struct {
 	LaunchArguments []string
 	// SessionProfile is the applied session profile a Web test's browser
 	// starts with, such as a --cookies-file's storage state.
-	SessionProfile *api.AppliedSessionProfile
+	SessionProfile *api.SessionProfileRequest
 	// VariableOverrides are test variable values applied to this run. They are
 	// referenced as {{name}} and override test/global variables for that run only.
 	VariableOverrides map[string]string

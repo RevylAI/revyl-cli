@@ -25,6 +25,8 @@ var computerOperationPollInterval = 2 * time.Second
 
 var computerStartPollInterval = 250 * time.Millisecond
 
+var computerSessionProfilePollInterval = 2 * time.Second
+
 var computerReleasePollInterval = time.Second
 
 var computerPersistentPollInterval = 2 * time.Second
@@ -43,10 +45,20 @@ func (c *Client) GetComputerRun(ctx context.Context, id uuid.UUID) (*ComputerRep
 }
 
 // AwaitComputerRunStarted re-reads a starting computer until it leaves starting
-// or ctx ends, returning the latest report either way.
+// and, when it was created with a session profile, until that profile has
+// finished on the active computer, or ctx ends, returning the latest report
+// either way.
 func (c *Client) AwaitComputerRunStarted(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
-	return c.awaitComputerRun(ctx, report, computerStartPollInterval, func(status ComputerReportStatus) bool {
-		return status.State == "starting"
+	report, err := c.awaitComputerRun(ctx, report, computerStartPollInterval, func(report ComputerReport) bool {
+		return InspectComputerReport(report).State == "starting"
+	})
+	if err != nil {
+		return nil, err
+	}
+	return c.awaitComputerRun(ctx, report, computerSessionProfilePollInterval, func(report ComputerReport) bool {
+		profile := report.SessionProfile
+		return profile != nil && InspectComputerReport(report).State == "active" &&
+			(profile.Status == ComputerSessionProfileStatusPending || profile.Status == ComputerSessionProfileStatusRunning)
 	})
 }
 
@@ -54,7 +66,9 @@ func (c *Client) AwaitComputerRunStarted(ctx context.Context, report *ComputerRe
 // evidence is still pending, until both settle or ctx ends, returning the
 // latest report either way.
 func (c *Client) AwaitComputerRunSettled(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
-	return c.awaitComputerRun(ctx, report, computerReleasePollInterval, ComputerRunUnsettled)
+	return c.awaitComputerRun(ctx, report, computerReleasePollInterval, func(report ComputerReport) bool {
+		return ComputerRunUnsettled(InspectComputerReport(report))
+	})
 }
 
 func ComputerRunUnsettled(status ComputerReportStatus) bool {
@@ -64,9 +78,9 @@ func ComputerRunUnsettled(status ComputerReportStatus) bool {
 // awaitComputerRun re-reads a computer while waiting holds for its report or
 // until ctx ends. Reads never dispatch, so a transient read failure is retried
 // within ctx and only a refusal ends the wait with an error.
-func (c *Client) awaitComputerRun(ctx context.Context, report *ComputerReport, interval time.Duration, waiting func(ComputerReportStatus) bool) (*ComputerReport, error) {
+func (c *Client) awaitComputerRun(ctx context.Context, report *ComputerReport, interval time.Duration, waiting func(ComputerReport) bool) (*ComputerReport, error) {
 	id := report.ComputerSessionId
-	for waiting(InspectComputerReport(*report)) {
+	for waiting(*report) {
 		select {
 		case <-ctx.Done():
 			return report, nil

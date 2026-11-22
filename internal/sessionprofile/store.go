@@ -14,8 +14,7 @@ import (
 )
 
 // appliedProfilesFileName is the local, mode-0600 record of the profile each
-// device session started with, which reuse and auth refresh read so they never
-// rerun the script.
+// device session started with, which reuse and auth refresh read.
 const appliedProfilesFileName = "applied-session-profiles.json"
 
 // appliedProfilesLockFileName guards the record's read-modify-write across the
@@ -29,9 +28,6 @@ const appliedProfilesLockTimeout = 5 * time.Second
 // AppliedProfile is the profile a device session started with.
 type AppliedProfile struct {
 	Name string `json:"name"`
-	// MobileDeepLink is the deep link template the CLI opens after each launch,
-	// with ${NAME} references the device proxy fills.
-	MobileDeepLink *string `json:"mobile_deep_link,omitempty"`
 }
 
 type appliedProfilesFile struct {
@@ -80,8 +76,8 @@ func LoadAppliedProfile(projectRoot, sessionID string) (*AppliedProfile, error) 
 }
 
 // ClearAppliedProfile forgets a device session's profile once it ends. A record
-// it can't parse is removed whole, since it may still hold this session's deep
-// link and the values the script minted into it.
+// it can't parse is removed whole, since a CLI that ran profiles locally kept
+// the deep links their scripts minted in it.
 func ClearAppliedProfile(projectRoot, sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if projectRoot == "" || sessionID == "" {
@@ -157,7 +153,7 @@ func readAppliedProfiles(path string) (appliedProfilesFile, error) {
 
 // writeAppliedProfiles replaces the record through a private temporary file
 // and a rename, so readers never see a partial record and every copy is mode
-// 0600, since a deep link template may carry values the script minted.
+// 0600.
 func writeAppliedProfiles(path string, state appliedProfilesFile) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

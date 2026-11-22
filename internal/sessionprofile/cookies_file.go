@@ -18,11 +18,15 @@ import (
 // start sends when no project profile applies.
 const CookiesFileProfileName = "cookies-file"
 
+// BackendCapabilitySessionProfiles is the backend capability that accepts an
+// applied session_profile on a start request.
+const BackendCapabilitySessionProfiles = "session_profiles"
+
 // BackendCapabilityWebTestSessionProfiles is the backend capability that
 // accepts an applied session_profile on a Web test run.
 const BackendCapabilityWebTestSessionProfiles = "web_test_session_profiles"
 
-var cookiesFile = outputFile{kind: browserStorageStateFile.kind, envName: "--cookies-file"}
+var cookiesFile = outputFile{envName: "--cookies-file"}
 
 // ReadCookiesFile reads a --cookies-file, which holds Playwright storage state
 // or a bare JSON array of its cookies, and returns the canonical storage
@@ -58,57 +62,52 @@ func ReadCookiesFile(path string) (json.RawMessage, error) {
 	return state, nil
 }
 
-// WithBrowserStorageState adds a --cookies-file's storage state to the start's
-// applied profile, after any storage state the profile wrote so the file wins
-// where both set the same cookie or localStorage item. Without a profile it
-// applies the file alone as the cookies-file profile.
-func WithBrowserStorageState(instruction *api.AppliedSessionProfile, state json.RawMessage) (*api.AppliedSessionProfile, error) {
-	if instruction == nil {
-		return &api.AppliedSessionProfile{
-			Instruction: api.SessionProfileInstructionKindApplied,
-			Name:        CookiesFileProfileName,
-			Outputs:     api.AppliedSessionProfileOutputs{BrowserStorageState: state},
-		}, nil
+// CookiesFileProfile is the applied cookies-file profile that carries a
+// --cookies-file's storage state.
+func CookiesFileProfile(state json.RawMessage) *api.SessionProfileRequest {
+	return &api.SessionProfileRequest{
+		Instruction: api.SessionProfileInstructionKindApplied,
+		Name:        CookiesFileProfileName,
+		Outputs:     &api.AppliedSessionProfileOutputs{BrowserStorageState: state},
 	}
-	merged := *instruction
-	if merged.Outputs.BrowserStorageState != nil {
-		var profileState, fileState canonicalStorageState
-		if err := json.Unmarshal(merged.Outputs.BrowserStorageState, &profileState); err != nil {
-			return nil, fmt.Errorf("session profile %q: its browser storage state could not be read", merged.Name)
-		}
-		if err := json.Unmarshal(state, &fileState); err != nil {
-			return nil, fmt.Errorf("%s: its browser storage state could not be read", cookiesFile.envName)
-		}
-		profileState.Cookies = append(profileState.Cookies, fileState.Cookies...)
-		profileState.Origins = append(profileState.Origins, fileState.Origins...)
-		var encoded bytes.Buffer
-		encoder := json.NewEncoder(&encoded)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(profileState); err != nil {
-			return nil, fmt.Errorf("%s: could not be combined with session profile %q", cookiesFile.envName, merged.Name)
-		}
-		state = bytes.TrimSuffix(encoded.Bytes(), []byte("\n"))
-		if pythonJSONSize(state) > maxBrowserStorageStateBytes {
-			return nil, invalidOutput("%s and session profile %q together hold more than %d bytes of browser storage state", cookiesFile.envName, merged.Name, maxBrowserStorageStateBytes)
-		}
+}
+
+// WithCookiesFile makes start apply a --cookies-file's storage state. A start
+// that runs a profile can't also apply the file: Revyl runs that profile on
+// its hosted runner and applies its outputs there.
+func WithCookiesFile(start Start, state json.RawMessage) (Start, error) {
+	if start.Runs() {
+		return start, fmt.Errorf("--cookies-file can't combine with session profile %s, which Revyl runs on its hosted runner; pass --session-profile none to start with the file's cookies alone", start.Name())
 	}
-	merged.Outputs.BrowserStorageState = state
-	return &merged, nil
+	return Start{Pick: start.Pick, Instruction: CookiesFileProfile(state)}, nil
+}
+
+// CapabilityLister lists the optional behaviors a Revyl backend supports.
+type CapabilityLister interface {
+	GetBackendCapabilities(ctx context.Context) ([]string, error)
 }
 
 // RequireBackendCapability fails unless the backend lists capability, so a
 // request never sends a field an older backend would silently ignore. feature
 // names what needs it in the error.
-func RequireBackendCapability(ctx context.Context, backend interface {
-	GetBackendCapabilities(ctx context.Context) ([]string, error)
-}, capability, feature string) error {
-	capabilities, err := backend.GetBackendCapabilities(ctx)
-	var apiErr *api.APIError
-	if err != nil && !(errors.As(err, &apiErr) && apiErr.StatusCode == 404) {
+func RequireBackendCapability(ctx context.Context, backend CapabilityLister, capability, feature string) error {
+	supported, err := backendSupports(ctx, backend, capability)
+	if err != nil {
 		return fmt.Errorf("%s: could not check whether the Revyl backend supports it: %w", feature, err)
 	}
-	if !slices.Contains(capabilities, capability) {
+	if !supported {
 		return fmt.Errorf("%s needs a newer Revyl backend", feature)
 	}
 	return nil
+}
+
+// backendSupports reports whether the backend lists capability. A backend
+// older than the capabilities route lists none.
+func backendSupports(ctx context.Context, backend CapabilityLister, capability string) (bool, error) {
+	capabilities, err := backend.GetBackendCapabilities(ctx)
+	var apiErr *api.APIError
+	if err != nil && !(errors.As(err, &apiErr) && apiErr.StatusCode == 404) {
+		return false, err
+	}
+	return slices.Contains(capabilities, capability), nil
 }

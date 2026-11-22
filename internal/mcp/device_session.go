@@ -426,11 +426,16 @@ type StartSessionOptions struct {
 	// LaunchArguments are inline, non-secret iOS app argument tokens.
 	LaunchArguments []string
 
-	// SessionProfile is the applied session profile, sent only when one
-	// applies; StartSession fails and stops the session when the backend does
-	// not echo it, calling OnSessionProfileNotApplied first.
-	SessionProfile             *api.AppliedSessionProfile
-	OnSessionProfileNotApplied func()
+	// SessionProfile is the session profile the start sends for Revyl to run on
+	// its hosted runner. StartSession waits until that run succeeds, and fails
+	// when it fails, when Revyl refuses it, or when Revyl starts the session
+	// without a named profile.
+	SessionProfile sessionprofile.Start
+	// OnSessionProfile, when set, is called with each status of the session's
+	// profile run StartSession observes, its last succeeded.
+	OnSessionProfile func(api.SessionProfileReport)
+	// OnWarning, when set, receives the start's warnings instead of stderr.
+	OnWarning func(string)
 
 	// Optional test/session metadata.
 	TestID string
@@ -491,7 +496,7 @@ func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSe
 	if (opts.Web != nil && len(opts.Web.SecretEnvVars) > 0) || opts.SkipAppInstall || strings.TrimSpace(opts.InitialOrientation) != "" || strings.TrimSpace(opts.InitialLocale) != "" {
 		return fmt.Errorf("a session inside a computer launches the app with its default run options; omit secret Web environment, install skip, orientation and locale")
 	}
-	if opts.SessionProfile != nil {
+	if opts.SessionProfile.Runs() {
 		return fmt.Errorf("a session inside a computer starts without a session profile; pick none")
 	}
 	return nil
@@ -669,7 +674,9 @@ func (m *DeviceSessionManager) StartSession(
 	if len(opts.LaunchArguments) > 0 {
 		req.LaunchArguments = append([]string(nil), opts.LaunchArguments...)
 	}
-	req.SessionProfile = opts.SessionProfile
+	if opts.SessionProfile.Runs() || computerSessionID == "" {
+		req.SessionProfile, req.SessionProfileSource, req.SessionProfileFiles = opts.SessionProfile.Instruction, opts.SessionProfile.Source, opts.SessionProfile.Files
+	}
 	initialOrientation := strings.TrimSpace(opts.InitialOrientation)
 	initialLocale := strings.TrimSpace(opts.InitialLocale)
 	if opts.SkipAppInstall || initialOrientation != "" || initialLocale != "" {
@@ -711,7 +718,18 @@ func (m *DeviceSessionManager) StartSession(
 	if traceHandoffCh != nil {
 		startCtx = api.WithTraceHandoff(ctx, <-traceHandoffCh)
 	}
+	warn := opts.OnWarning
+	if warn == nil {
+		warn = func(message string) { ui.PrintWarning("%s", message) }
+	}
+	profile := opts.SessionProfile
+	if err := profile.RequireHostedRun(ctx, m.apiClient); err != nil {
+		return -1, nil, analytics.WithSafeDiagnostic(err, "session profile can't run on this backend")
+	}
 	resp, err := m.apiClient.StartDevice(startCtx, req)
+	if refusal, ok := sessionprofile.AsRefusal(err); ok && req.SessionProfile != nil {
+		return -1, nil, analytics.WithSafeDiagnostic(fmt.Errorf("failed to start device: session profile %s: %w", profile.Name(), refusal), "session profile refused: "+refusal.Code)
+	}
 	if err != nil {
 		return -1, nil, fmt.Errorf("failed to start device: %w", err)
 	}
@@ -743,28 +761,25 @@ func (m *DeviceSessionManager) StartSession(
 	if platform == "web" && sessionID != req.SessionID {
 		return -1, nil, m.requestRuntimeStartCleanup(req.SessionID, fmt.Errorf("web start acknowledgement did not preserve its canonical session ID"))
 	}
-	if opts.SessionProfile != nil && (resp.SessionProfileName == nil || *resp.SessionProfileName != opts.SessionProfile.Name) {
-		if opts.OnSessionProfileNotApplied != nil {
-			opts.OnSessionProfileNotApplied()
-		}
-		profileErr := fmt.Errorf("session profile %q: the Revyl backend started the session without it", opts.SessionProfile.Name)
-		if platform == "web" {
-			if cleanupErr := m.requestRuntimeStartCleanup(req.SessionID, profileErr); cleanupErr != profileErr {
-				return -1, nil, cleanupErr
-			}
-		} else if _, err := m.apiClient.CancelDevice(context.Background(), workflowRunID); err != nil {
-			var pending *api.DeviceSessionStopPendingError
-			if !errors.As(err, &pending) {
-				return -1, nil, fmt.Errorf("%w; cleanup request failed; run 'revyl device stop -s %s'", profileErr, sessionID)
-			}
-		}
-		return -1, nil, fmt.Errorf("%w, so the session was stopped", profileErr)
+	acknowledged := resp.SessionProfile != nil && resp.SessionProfile.Name == profile.Name() ||
+		!profile.Runs() && resp.SessionProfileName != nil && *resp.SessionProfileName == profile.Name()
+	if profile.Name() != "" && !acknowledged {
+		profileErr := analytics.WithSafeDiagnostic(fmt.Errorf("session profile %q: the Revyl backend started the session without it", profile.Name()), "session profile missing from start")
+		return -1, nil, m.stopAfterSessionProfileError(platform, sessionID, workflowRunID, profileErr)
 	}
 	if opts.OnStartAccepted != nil {
 		opts.OnStartAccepted(sessionID)
 	}
 	if queued := billingstatus.QueuedStart(resp.QueueNotice); queued != nil && opts.OnQueued != nil {
 		opts.OnQueued(queued)
+	}
+	if report := resp.SessionProfile; report != nil {
+		if report.MissingGitBranchName != nil {
+			warn(fmt.Sprintf("Git has no branch %q, so session profile %s reads the repository's default branch instead", *report.MissingGitBranchName, report.Name))
+		}
+		if err := m.awaitSessionProfile(ctx, sessionID, *report, opts.OnSessionProfile); err != nil {
+			return -1, nil, m.stopAfterSessionProfileError(platform, sessionID, workflowRunID, err)
+		}
 	}
 	autoGitBranchEnabled := resolvedArtifact.AutoGitBranchEnabled
 	if autoGitBranchEnabled == nil {
@@ -871,6 +886,79 @@ func (m *DeviceSessionManager) StartSession(
 	return idx, session, nil
 }
 
+// sessionProfileRunWait bounds how long a start waits for its session profile
+// once the hosted runner runs it; the script itself has five minutes.
+const sessionProfileRunWait = 10 * time.Minute
+
+// sessionProfileBadReadLimit is how many reads in a row that refuse the
+// session or omit its profile end a profile wait.
+const sessionProfileBadReadLimit = 3
+
+// awaitSessionProfile polls the session until its hosted profile run
+// succeeds, reporting each new status to onStatus. A pending run waits as long
+// as a queued device does, and a running one at most sessionProfileRunWait.
+// The caller stops the session when it returns an error.
+func (m *DeviceSessionManager) awaitSessionProfile(ctx context.Context, sessionID string, report api.SessionProfileReport, onStatus func(api.SessionProfileReport)) error {
+	deadline := time.Now().Add(deviceWorkerReadyTimeout)
+	var lastStatus api.SessionProfileReportStatus
+	badReads := 0
+	for {
+		if report.Status != lastStatus {
+			lastStatus = report.Status
+			if report.Status == api.SessionProfileReportStatusRunning {
+				deadline = time.Now().Add(sessionProfileRunWait)
+			}
+			if onStatus != nil {
+				onStatus(report)
+			}
+		}
+		switch report.Status {
+		case api.SessionProfileReportStatusSucceeded:
+			return nil
+		case api.SessionProfileReportStatusFailed:
+			reason := "its script didn't succeed"
+			if report.FailureReason != nil && strings.TrimSpace(*report.FailureReason) != "" {
+				reason = strings.TrimSpace(*report.FailureReason)
+			}
+			return analytics.WithSafeDiagnostic(fmt.Errorf("session profile %s failed: %s", report.Name, reason), "session profile failed: script failed")
+		}
+		if !time.Now().Before(deadline) {
+			return analytics.WithSafeDiagnostic(fmt.Errorf("session profile %s is still %s after waiting for it", report.Name, report.Status), "session profile wait ended")
+		}
+		select {
+		case <-ctx.Done():
+			return analytics.WithSafeDiagnostic(fmt.Errorf("cancelled while session profile %s was %s: %w", report.Name, report.Status, ctx.Err()), "session profile wait cancelled")
+		case <-time.After(deviceHealthPollDelay):
+		}
+		detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
+		var apiErr *api.APIError
+		var badRead error
+		switch {
+		case errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != http.StatusTooManyRequests:
+			badRead = analytics.WithSafeDiagnostic(fmt.Errorf("could not read session profile %s's status: %w", report.Name, err), "session profile status unreadable")
+		case err != nil:
+			continue
+		case detail.SessionProfile == nil:
+			badRead = analytics.WithSafeDiagnostic(fmt.Errorf("session profile %s: Revyl stopped reporting it, so it may not have run", report.Name), "session profile missing from status")
+		}
+		if badRead != nil {
+			badReads++
+			if badReads >= sessionProfileBadReadLimit {
+				return badRead
+			}
+			continue
+		}
+		badReads = 0
+		report = *detail.SessionProfile
+		switch strings.ToLower(detail.Status) {
+		case "completed", "cancelled", "failed", "timeout":
+			if report.Status != api.SessionProfileReportStatusSucceeded && report.Status != api.SessionProfileReportStatusFailed {
+				return analytics.WithSafeDiagnostic(fmt.Errorf("the session ended (%s) before session profile %s finished", strings.ToLower(detail.Status), report.Name), "session profile failed: session ended")
+			}
+		}
+	}
+}
+
 func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (int, error) {
 	previousActiveIndex := m.activeIndex
 	previousNextIndex := m.nextIndex
@@ -911,6 +999,27 @@ func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (i
 	m.resetIdleTimerForSessionLocked(idx, context.Background())
 
 	return idx, nil
+}
+
+// stopAfterSessionProfileError stops a session whose profile failed and says
+// how far the stop got: confirmed, accepted but unconfirmed, or failed.
+func (m *DeviceSessionManager) stopAfterSessionProfileError(platform, sessionID, workflowRunID string, profileErr error) error {
+	var stopErr error
+	if platform == "web" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, stopErr = m.apiClient.StopDeviceSession(ctx, sessionID)
+	} else {
+		_, stopErr = m.apiClient.CancelDevice(context.Background(), workflowRunID)
+	}
+	var pending *api.DeviceSessionStopPendingError
+	switch {
+	case errors.As(stopErr, &pending):
+		return fmt.Errorf("%w; Revyl accepted the stop of session %s but hasn't confirmed its cleanup; check 'revyl device list --json' or retry 'revyl device stop -s %s'", profileErr, sessionID, sessionID)
+	case stopErr != nil:
+		return fmt.Errorf("%w; cleanup request failed; run 'revyl device stop -s %s'", profileErr, sessionID)
+	}
+	return fmt.Errorf("%w, so the session was stopped", profileErr)
 }
 
 func (m *DeviceSessionManager) requestRuntimeStartCleanup(sessionID string, startErr error) error {

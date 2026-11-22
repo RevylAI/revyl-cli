@@ -174,17 +174,15 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 			return err
 		}
 	}
-	if err := initDevSessionProfile(mgr.APIClient(), project.ProjectRoot, project.ConfigPath, sessionConfig, sessionProfilePick); err != nil {
+	if err := initDevSessionProfile(ctx, project.ProjectRoot, project.ConfigPath, sessionConfig, sessionProfilePick); err != nil {
 		return err
 	}
-	if opts, err = devSessionProfile.prepareStart(ctx, opts, &artifact); err != nil {
-		return err
-	}
+	opts = devSessionProfile.prepareStart(ctx, opts)
 	if cookiesState != nil {
-		if err := sessionprofile.RequireBackendCapability(ctx, mgr.APIClient(), sessionprofile.BackendCapabilitySessionProfiles, "--cookies-file"); err != nil {
+		if opts.SessionProfile, err = sessionprofile.WithCookiesFile(opts.SessionProfile, cookiesState); err != nil {
 			return err
 		}
-		if opts.SessionProfile, err = sessionprofile.WithBrowserStorageState(opts.SessionProfile, cookiesState); err != nil {
+		if err := sessionprofile.RequireBackendCapability(ctx, mgr.APIClient(), sessionprofile.BackendCapabilitySessionProfiles, "--cookies-file"); err != nil {
 			return err
 		}
 	}
