@@ -127,6 +127,13 @@ func TestSyncPluginPortsSkillsThroughTheLauncher(t *testing.T) {
 	if !strings.Contains(read("revyl-ci-sync/SKILL.md"), "## Run Revyl through this plugin") {
 		t.Error("revyl-ci-sync is not ported")
 	}
+	reference, err := os.ReadFile(filepath.Join(root, "plugins/revyl/references/revyl-cli-dev-loop.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(reference), "friction") || strings.Contains(string(reference), "device permissions") {
+		t.Errorf("references/revyl-cli-dev-loop.md keeps list items the pinned runtime cannot follow:\n%s", reference)
+	}
 }
 
 func TestSyncPluginRemovesPortedFilesWhoseSourceIsGone(t *testing.T) {
@@ -166,7 +173,7 @@ func syncFixture(t *testing.T) string {
 		"cursor-plugin/hooks/launch-revyl.ps1":            "exit 0\n",
 		"cursor-plugin/hooks/launch-revyl.cmd":            "@echo off\n",
 		"cursor-plugin/assets/icon.svg":                   "<svg/>\n",
-		"skills/revyl-cli-dev-loop/SKILL.md":              "# Dev loop\n",
+		"skills/revyl-cli-dev-loop/SKILL.md":              "# Dev loop\n\n- **Revyl got in your way:** run `revyl feedback --type friction`.\n- **OS permission prompts:** run `revyl device permissions set`.\n",
 		"skills/revyl-cli-auth-bypass/SKILL.md":           "---\nname: revyl-cli-auth-bypass\n---\n\n# Auth bypass\n\nRun `revyl dev`.\n\n```bash\nrevyl dev --no-build \\\n  --launch-var revyl-auth\n```\n",
 		"skills/revyl-cli-auth-bypass/references/web.md":  "# Web\n\n```bash\ncd app && revyl device start --platform web\n```\n",
 		"skills/revyl-cli-auth-bypass/agents/openai.yaml": "policy:\n  allow_implicit_invocation: false\n",

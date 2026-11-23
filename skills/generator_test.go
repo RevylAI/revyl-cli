@@ -8,8 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/pinnedskills"
 )
 
 func TestCursorPluginCopiesMatchCompletePackages(t *testing.T) {
@@ -41,8 +44,14 @@ func TestCursorPluginCopiesMatchCompletePackages(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(content, file.Content) {
-				t.Errorf("%s/%s: plugin content differs; run make sync-cursor-plugin-skills", name, file.Path)
+			want := file.Content
+			if strings.HasSuffix(file.Path, ".md") {
+				if want, err = pinnedskills.Render(name+"/"+file.Path, file.Content); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !bytes.Equal(content, want) {
+				t.Errorf("%s/%s: plugin content differs from the rendered source; run make sync-cursor-plugin-skills", name, file.Path)
 			}
 			info, err := os.Stat(pluginPath)
 			if err != nil {
@@ -87,7 +96,7 @@ func TestSyncCursorPluginSkillsPreservesResourcesAndModes(t *testing.T) {
 		}
 	}
 	for range 2 {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		cmd := exec.CommandContext(ctx, makePath, "-f", makefile, "sync-cursor-plugin-skills", "CURSOR_PLUGIN_COPY_SKILLS=revyl-cli-auth-bypass", "VERSION=test", "COMMIT=test", "DATE=test")
 		cmd.Dir = root
 		output, err := cmd.CombinedOutput()

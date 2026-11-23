@@ -122,7 +122,7 @@ func printProjectNotInitialized() {
 		ui.PrintInfo("Found a Revyl project in %s/ — run from there (cd %s) or pass -C %s.", nested[0], nested[0], nested[0])
 		return
 	}
-	ui.PrintInfo("If the app lives in a subdirectory, run from there (e.g. cd ios) or pass -C <dir>. Otherwise run 'revyl init'.")
+	ui.PrintInfo("If the app lives in a subdirectory, run from there (e.g. cd ios) or pass -C <dir>. Otherwise run 'revyl init -y' from the app's own folder, not a monorepo root.")
 }
 
 // nestedProjectHint returns a short " (found a Revyl project in ios/ — ...)"

@@ -132,11 +132,11 @@ func (s *Server) registerManageTestsTool() {
 
 Actions:
   run          - Run a test by name or ID. With no branch chosen, uses the Git branch of project_dir or REVYL_PROJECT_DIR when automatic Git branch detection is enabled in the app's Build branches settings and the branch has a usable build; otherwise uses the app's default branch; latest_all_branches ignores Git; saved concrete selections remain unchanged. Params: test_name (required), project_dir, retries, build_version_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches for the newest build across all branches, or pinned), location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
-  list         - List tests from .revyl/config.yaml. No params required.
+  list         - List the project's synced tests from .revyl/tests/ and the organization's workflows. No params required.
   list_remote  - List all tests in the organization. No params required.
   create       - Create a test from YAML. Params: name (required), platform (required), yaml_content, app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches, or pinned), pinned_build_id, module_names_or_ids
   update       - Update a test's YAML. Params: test_name_or_id (required), yaml_content (required), app_id, branch_id, branch_name, build_selection (inherit for Automatic, latest, latest_all_branches, or pinned), pinned_build_id, force. Omitted selectors preserve the saved choice; inherit alone restores Default branch.
-  delete       - Delete a test. Params: test_name (required)
+  delete       - Delete a test. Params: test_name_or_id (required)
   status       - Get execution status. Params: task_id (required)
   cancel       - Cancel a running test. Params: task_id (required)`,
 		Annotations: &mcp.ToolAnnotations{
@@ -219,15 +219,15 @@ func (s *Server) registerManageWorkflowsTool() {
 Actions:
   list          - List all workflows. No params required.
   create        - Create a workflow. Params: name (required)
-  delete        - Delete a workflow. Params: workflow_name (required)
+  delete        - Delete a workflow. Params: workflow_name_or_id (required)
   run           - Run a workflow. With no branch chosen, each app uses the Git branch of project_dir or REVYL_PROJECT_DIR when automatic Git branch detection is enabled in that app's Build branches settings and the branch has a usable build; otherwise uses its default branch; latest_all_branches ignores Git; saved concrete selections remain unchanged. Returns per-child tests with resolved app/branch identity and branch_source (git_branch, default_branch, or explicit_branch) with git_branch_name when the Git branch was consulted; auto_git_branch_enabled=false means Git detection was disabled, while default_branch with git_branch_name means that Git branch had no usable build. Params: workflow_name (required), project_dir, retries, branch_name, build_selection (inherit for Automatic, latest, or latest_all_branches for the newest build across all branches), ios_app_id, android_app_id, ios_build_id, android_build_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   cancel        - Cancel a running workflow. Params: task_id (required)
-  add_tests     - Add tests to a workflow. Params: workflow_name (required), test_names (required)
-  remove_tests  - Remove tests from a workflow. Params: workflow_name (required), test_names (required)
+  add_tests     - Add tests to a workflow. Params: workflow_name_or_id (required), test_names_or_ids (required)
+  remove_tests  - Remove tests from a workflow. Params: workflow_name_or_id (required), test_names_or_ids (required)
   get_settings  - Get workflow settings, including saved build selectors. Params: workflow_name_or_id (required)
-  set_location  - Set GPS override. Params: workflow_name (required), location (required)
+  set_location  - Set GPS override. Params: workflow_name_or_id (required), latitude (required), longitude (required)
   set_app       - Set app overrides. Params: workflow_name_or_id (required), ios_app_id, android_app_id, ios_branch_id, ios_branch_name, ios_build_selection, ios_pinned_build_id, android_branch_id, android_branch_name, android_build_selection, android_pinned_build_id. Build selection is inherit (Automatic), latest, latest_all_branches (no branch), or pinned; inherit alone restores Default branch for that platform.
-  open_editor   - Get browser editor URL. Params: workflow_name (required)`,
+  open_editor   - Get browser editor URL. Params: workflow_name_or_id (required)`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Manage Workflows",
 			OpenWorldHint: boolPtr(true),
@@ -357,11 +357,11 @@ func (s *Server) registerManageTagsTool() {
 
 Actions:
   list          - List all tags with test counts. No params required.
-  create        - Create a tag (upsert). Params: name (required), color, description
+  create        - Create a tag (upsert). Params: name (required), color
   delete        - Delete a tag. Params: tag_name_or_id (required)
-  get_test_tags - Get tags for a test. Params: test_name (required)
-  set_test_tags - Replace all tags on a test. Params: test_name (required), tag_names (required)
-  add_remove    - Add/remove tags without replacing. Params: test_name (required), add, remove`,
+  get_test_tags - Get tags for a test. Params: test_name_or_id (required)
+  set_test_tags - Replace all tags on a test. Params: test_name_or_id (required), tag_names (required)
+  add_remove    - Add/remove tags without replacing. Params: test_name_or_id (required), tags_to_add, tags_to_remove`,
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Manage Tags",
 		},
@@ -400,7 +400,7 @@ func (s *Server) registerManageFilesTool() {
 Actions:
   list     - List all files. No params required.
   upload   - Upload a file. Params: file_path (required), description
-  download - Download a file. Params: file_id (required), output_path (required)
+  download - Download a file. Params: file_id (required), dest_path
   edit     - Edit file metadata or replace content. Params: file_id (required), filename, description, file_path
   delete   - Delete a file. Params: file_id (required)
   get_url  - Get presigned download URL. Params: file_id (required)`,
@@ -443,10 +443,10 @@ func (s *Server) registerManageVariablesTool() {
 Test variables are referenced as {{name}} in step descriptions. Environment variables and launch vars are not managed here; use the device-session launch_vars inputs instead.
 
 Actions:
-  list_vars       - List test variables. Params: test_name (required)
-  set_var         - Set a test variable. Params: test_name (required), name (required), value (required)
-  delete_var      - Delete a test variable. Params: test_name (required), name (required)
-  delete_all_vars - Delete all test variables. Params: test_name (required)`,
+  list_vars       - List test variables. Params: test_name_or_id (required)
+  set_var         - Set a test variable. Params: test_name_or_id (required), name (required), value
+  delete_var      - Delete a test variable. Params: test_name_or_id (required), name (required)
+  delete_all_vars - Delete all test variables. Params: test_name_or_id (required)`,
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Manage Variables",
 		},

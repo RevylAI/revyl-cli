@@ -5,7 +5,7 @@
 - `preview` runs `expo prebuild` when the native directory is missing, then
   Xcode or Gradle in Release. It makes a standalone simulator `.app` or
   installable APK with no Metro server and no Expo credentials. Use it for
-  `revyl build --profile preview`, pull-request builds, tests, and proofs.
+  `revyl build --build-profile preview`, pull-request builds, tests, and proofs.
 - `development` makes EAS dev-client builds locally
   (`npx --yes eas-cli build --platform ios --profile <eas-profile> --local --output build/app.tar.gz`).
   `revyl dev` uses it for hot reload.

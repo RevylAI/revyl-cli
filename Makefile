@@ -312,9 +312,11 @@ t: test
 
 sync-codex-plugin:
 	@$(GOCMD) run ./cmd/sync-codex-plugin
+	@$(MAKE) --no-print-directory record-pinned-commands
 
 check-codex-plugin:
 	@$(GOCMD) run ./cmd/sync-codex-plugin --check
+	@$(MAKE) --no-print-directory record-pinned-commands CHECK=1
 	@$(GOCMD) test ./cmd/sync-codex-plugin ./plugins/revyl ./cursor-plugin ./internal/cursorpluginrelease
 
 .PHONY: package-openai-plugin check-openai-plugin prepare-openai-plugin-icon
@@ -331,24 +333,25 @@ check-openai-plugin:
 	@$(GOCMD) test ./cmd/package-openai-plugin
 
 # Cursor plugin skill sync
-# Pure-copy skills come from skills/ (source of truth, embedded by embed.go).
+# Copied skills come from skills/ (source of truth, embedded by embed.go),
+# rendered for the plugin's pinned CLI runtime by internal/pinnedskills.
 # Authored plugin skills (revyl-cloud-agent, revyl-ci-sync, revyl-proof-ci)
 # are maintained directly in cursor-plugin/skills/ and are NOT synced.
-.PHONY: sync-cursor-plugin-skills prepare-cursor-plugin-release cursor-plugin-release cursor-plugin-bump-patch cursor-plugin-bump-minor cursor-plugin-bump-major
+.PHONY: record-pinned-commands sync-cursor-plugin-skills prepare-cursor-plugin-release cursor-plugin-release cursor-plugin-bump-patch cursor-plugin-bump-minor cursor-plugin-bump-major
 
 CURSOR_PLUGIN_COPY_SKILLS := \
 	revyl-cli-dev-loop \
 	revyl-cli-auth-bypass
 
+CLI_PACKAGE_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+## record-pinned-commands: Record the command tree of each release the plugins pin and remove the others (CHECK=1 only verifies)
+record-pinned-commands:
+	@$(GOCMD) -C "$(CLI_PACKAGE_DIR)" run ./cmd/record-pinned-commands --root "$(CLI_PACKAGE_DIR)" $(if $(filter 1 true yes,$(CHECK)),--check,)
+
 ## sync-cursor-plugin-skills: Regenerate the copied skills under cursor-plugin/skills/
 sync-cursor-plugin-skills:
-	@set -e; for s in $(CURSOR_PLUGIN_COPY_SKILLS); do \
-		test -f skills/$$s/SKILL.md; \
-		rm -rf cursor-plugin/skills/$$s; \
-		mkdir -p cursor-plugin/skills/$$s; \
-		cp -Rp skills/$$s/. cursor-plugin/skills/$$s/; \
-	done
-	@echo "cursor-plugin skills synced"
+	@$(GOCMD) -C "$(CLI_PACKAGE_DIR)" run ./cmd/sync-cursor-plugin-skills --root "$(CURDIR)" $(CURSOR_PLUGIN_COPY_SKILLS)
 
 ## prepare-cursor-plugin-release: Pin a published CLI runtime into the Cursor plugin
 prepare-cursor-plugin-release:
@@ -357,6 +360,7 @@ prepare-cursor-plugin-release:
 		$(if $(RUNTIME_VERSION),--runtime-version "$(RUNTIME_VERSION)",) \
 		$(if $(BUMP),--bump "$(BUMP)",) \
 		$(if $(filter 1 true yes,$(CHECK)),--check,)
+	@$(MAKE) --no-print-directory record-pinned-commands CHECK="$(CHECK)"
 
 ## cursor-plugin-release: Sync copied skills, pin the runtime, and verify in one invocation
 cursor-plugin-release:
@@ -384,6 +388,6 @@ _cursor-plugin-print-next-steps:
 	@PLUGIN_VERSION=$$(sed -n 's/^[[:space:]]*"plugin_version": "\([^"]*\)".*/\1/p' cursor-plugin/runtime-manifest.json | head -1) ; \
 	RUNTIME_VERSION=$$(sed -n 's/^[[:space:]]*"runtime_version": "\([^"]*\)".*/\1/p' cursor-plugin/runtime-manifest.json | head -1) ; \
 	echo "Next steps:" ; \
-	echo "  git add cursor-plugin/.cursor-plugin/plugin.json .cursor-plugin/marketplace.json cursor-plugin/runtime-manifest.json && git commit -m 'chore: bump Cursor plugin to $$PLUGIN_VERSION (runtime $$RUNTIME_VERSION)'" ; \
+	echo "  git add cursor-plugin/.cursor-plugin/plugin.json .cursor-plugin/marketplace.json cursor-plugin/runtime-manifest.json internal/pinnedskills/commands && git commit -m 'chore: bump Cursor plugin to $$PLUGIN_VERSION (runtime $$RUNTIME_VERSION)'" ; \
 	echo "  Merge to main so public RevylAI/revyl-cli updates." ; \
 	echo "  Marketplace re-index is separate and approval-gated."

@@ -61,7 +61,7 @@ validate config) and report what you would run and what it would cost.
   `revyl-find-build` skill describes: a pull-request preview or a CI upload
   costs nothing.
 - Linux runners have no Xcode, so iOS builds go to Revyl's runners:
-  `"$LAUNCHER" build --profile <profile> --platform ios --detach --json`, then
+  `"$LAUNCHER" build --build-profile <profile> --platform ios --detach --json`, then
   `"$LAUNCHER" build status <job-id> --json` until it finishes. Treat Android
   the same unless this machine has the Android SDK.
 - For a development loop of a native or standalone build, use

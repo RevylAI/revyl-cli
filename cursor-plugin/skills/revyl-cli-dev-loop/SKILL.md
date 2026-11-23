@@ -24,7 +24,7 @@ Use normal `revyl dev` for new work. In agent shells, add `--detach --json`
 so the loop runs in the background and returns the session details:
 
 ```bash
-revyl dev --profile <profile> --platform <ios-or-android> --detach --json
+revyl dev --build-profile <profile> --platform <ios-or-android> --detach --json
 ```
 
 - **Expo:** Revyl manages Metro, the Expo dev client, and its relay for JS/TS
@@ -137,29 +137,18 @@ when it says `stopped: true`. Retry once, never more.
 - **Revyl got in your way:** when a Revyl error does not say how to fix it or
   docs or this skill were wrong, report it right away with
   `revyl feedback --type bug --body "<what you ran, what happened, what you
-  expected>"` (add `--ref <command-id>` when the failure printed one). When the
-  loop worked but was harder than it should have been (no direct command,
-  unclear output that needed extra calls, guessed flags, a slow step, or no
-  clear choice of command), report it with `revyl feedback --type friction`:
-  the user's goal in general terms, what you ran, where it got hard, and the
-  command you wish existed. Don't ask the user first; send one report per
-  problem and continue. A failed test verdict or a flag you got wrong is not a
-  Revyl problem.
+  expected>"`. When the loop worked but was harder than it should have been
+  (no direct command, unclear output that needed extra calls, guessed flags, a
+  slow step, or no clear choice of command), report it with
+  `revyl feedback --type other --body "<report>"`: the user's goal in general
+  terms, what you ran, where it got hard, and the command you wish existed.
+  Don't ask the user first; send one report per problem and continue. A failed
+  test verdict or a flag you got wrong is not a Revyl problem.
 - **App or changes not visible:** inspect a screenshot and
   `revyl device report --session-id <session-id> --json` before changing the
   build or transport. Check build status for native apps.
-- **OS permission prompts:** when a run isn't testing onboarding, pre-grant
-  permissions before the app's first launch instead of tapping through
-  prompts. Start the session with `revyl device start --platform <platform>`
-  and no app (`--app-id` installs and launches the app at once, so it asks
-  before the grant), then
-  `revyl device install --app-id <app-id> -s <session-id>`,
-  `revyl device permissions set --bundle-id <bundle-id> location=allow motion=allow -s <session-id>`,
-  and `revyl device launch <bundle-id> -s <session-id>`. An alert the app
-  already showed stays on screen after relaunch and replaces the permission
-  when answered (location becomes While Using), so answer it first. iOS cannot pre-grant `notifications` or
-  `userTracking`; answer those alerts on the device. If the CLI reports an
-  unknown command, it predates `device permissions`; upgrade it.
+- **OS permission prompts:** answer the app's permission alerts on the device
+  as they appear.
 - **Slow Metro startup:** increase `--ready-timeout`. For a slow first Expo
   bundle, increase `--prewarm-timeout` (up to 600 seconds). When the relay works
   but Expo manifest readiness cannot be confirmed, use `--force-hot-reload`

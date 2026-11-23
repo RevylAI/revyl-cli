@@ -24,7 +24,7 @@ Use normal `revyl dev` for new work. In agent shells, add `--detach --json`
 so the loop runs in the background and returns the session details:
 
 ```bash
-revyl dev --profile <profile> --platform <ios-or-android> --detach --json
+revyl dev --build-profile <profile> --platform <ios-or-android> --detach --json
 ```
 
 - **Expo:** Revyl manages Metro, the Expo dev client, and its relay for JS/TS

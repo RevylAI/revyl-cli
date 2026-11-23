@@ -1,0 +1,405 @@
+global --chdir= --debug --intent= --json --quiet
+feedback-type Feedback type: bug, friction, feature, or other
+command version
+command auth
+command auth login --api-key= --browser
+command auth logout
+command auth status
+command auth billing
+command auth persist-cloud-env
+command billing
+command billing status
+command billing add-card --no-open
+command init --branch= --detect --force --non-interactive --project= --xcode-scheme=
+command app
+command app create --json --name= --platform=
+command app list --json --platform= --search=
+command app delete --force
+command app storekit
+command app storekit set --file-id=
+command app storekit show
+command app storekit disable
+command app storekit clear
+command app branch
+command app branch list --app= --json --page= --page-size=
+command app branch create --app= --json
+command app branch rename --app= --json
+command app branch default --app= --json
+command app branch pin --app= --json
+command app branch unpin --app= --json
+command explore
+command explore run --all-branches --auth-instructions= --branch= --build-id= --build-selection= --device-model= --explorers= --idle-timeout= --instructions= --instructions-file= --launch-env= --launch-var= --max-duration= --no-inherited-launch-vars --no-wait --open --os-version= --platform= --strategy= --timeout=
+command explore status
+command explore cancel
+command atlas
+command atlas apps --all --json --limit= --offset= --platform= --search=
+command atlas brief --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --with-filters --workflow-execution-id=
+command atlas map --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas area --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas graph --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --flows --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --with-filters --workflow-execution-id=
+command atlas open --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --include-variants --launch= --launch-stdin --os= --os-version= --range= --report-id= --runtime= --since= --test-id= --workflow-execution-id=
+command atlas screen --all-branches --app= --branch= --branch-id= --build= --details --device= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas observations --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas observation --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --limit= --os= --os-version= --range= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility=
+command atlas report --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --limit= --os= --os-version= --range= --report-id= --runtime= --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas neighbors --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --direction= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas edge --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runs --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas search --all-branches --app= --branch= --branch-id= --build= --device= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --os= --os-version= --range= --recent-build-limit= --report-id= --runtime= --screenshot-dir= --screenshots --since= --source-kind= --test-id= --to= --visibility= --workflow-execution-id=
+command atlas filters --all-branches --app= --branch= --branch-id= --build= --from= --group= --json --key= --prefix= --range= --recent-build-limit= --since= --to=
+command atlas annotations
+command atlas annotations list --app= --cursor= --limit= --observation= --severity= --status=
+command atlas annotations members --app= --limit= --query=
+command atlas annotations get --app=
+command atlas annotations create --app= --attach= --body= --body-file= --client-request-id= --dry-run --mention= --observation= --preview-out= --severity= --target=
+command atlas annotations move --app= --dry-run --expected-version= --preview-out= --target=
+command atlas annotations reply --app= --attach= --body= --body-file= --client-request-id= --mention=
+command atlas annotations edit --app= --attach= --body= --body-file= --clear-attachments --client-request-id= --mention= --remove-attachment=
+command atlas annotations delete --app= --yes
+command atlas annotations resolve --app= --expected-version=
+command atlas annotations dismiss --app= --expected-version=
+command atlas annotations reopen --app= --expected-version=
+command atlas annotations severity --app= --clear --expected-version= --severity=
+command atlas share
+command atlas share create --all-branches --app= --branch= --branch-id= --build= --expiration-hours= --from= --include-annotations --json --range= --recent-build-limit= --since= --to=
+command atlas share status --all-branches --app= --branch= --branch-id= --build= --from= --json --range= --recent-build-limit= --since= --to=
+command atlas share revoke --all-branches --app= --branch= --branch-id= --build= --from= --json --range= --recent-build-limit= --since= --to=
+command atlas from-reports --app= --json --limit= --reports=
+command atlas compare --app= --base-build= --head-build= --json --limit=
+command atlas diff --a= --a-launch= --all-branches --app= --b= --b-launch= --branch= --branch-id= --build= --device-model= --from= --include-variants --json --launch= --launch-stdin --limit= --partition-by= --partition-values= --range= --recent-build-limit= --report-id= --runtime= --since= --test-id= --to= --workflow-execution-id=
+command build --branch= --build-profile= --platform= --image= --remote --local --env= --secret= --timeout= --version= --detach --no-cache --pin --json
+command build status --json --follow
+command build list --all-branches --app= --branch= --json --limit= --page= --page-size= --platform=
+command build cancel
+command build upload --branch= --version= --pin --app= --platform= --name= --yes --json --preview --file= --url= --header= --commit= --repo= --pr=
+command build remote
+command build delete --force --json
+command build secret
+command build secret set --stdin
+command build secret list
+command build secret delete --force
+command build which --app= --branch= --json
+command build runs --json --limit= --page=
+command cache
+command cache list
+command cache delete
+command test
+command test query --app= --json --limit= --offset= --platform= --search= --tag=
+command test inspect --json
+command test list --json
+command test remote --json --limit= --platform= --tag=
+command test push --dry-run --force --include-modules-and-scripts
+command test pull --all --app= --dry-run --force --include-modules-and-scripts
+command test diff
+command test sync --apps --bootstrap --dry-run --interactive --non-interactive --prune --skip-hotreload-check --skip-import --tests --workflow=
+command test validate
+command test run --all-branches --branch= --build --build-id= --build-profile= --build-selection= --device --device-model= --fail-fast --from-checkout --github-actions --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --location= --no-inherited-launch-vars --no-open --no-wait --open --orientation= --os-version= --platform= --timeout= --var= --verbose
+command test cancel
+command test create --all-branches --app= --branch= --build-id= --build-selection= --compile-timeout= --dry-run --force --from-file= --from-session= --interactive --module= --no-open --platform= --tag=
+command test config
+command test config show
+command test config set
+command test config unset
+command test launch-var
+command test launch-var list
+command test launch-var attach
+command test launch-var detach
+command test launch-var set
+command test storekit
+command test storekit set --file-id=
+command test storekit show
+command test storekit disable
+command test storekit clear
+command test rename --non-interactive --yes
+command test delete --force --local-only --remote-only
+command test open --interactive --no-open
+command test status --branch= --fail-unless-all-tests-passed --git-commit-sha= --json --open --since=
+command test history --branch= --git-commit-sha= --json --limit= --offset=
+command test report --json --no-steps --open --share
+command test share --expires= --json --open --private
+command test var
+command test var list
+command test var get
+command test var set
+command test var rename
+command test var delete
+command test var clear --force
+command test duplicate --name=
+command test versions
+command test restore --version=
+command test build
+command test build show
+command test build set --all-branches --branch= --build-id= --build-selection=
+command test build clear
+command workflow
+command workflow info --json
+command workflow list --json
+command workflow run --all-branches --android-app= --android-build= --android-build-id= --branch= --build --build-profile= --build-selection= --concurrency= --from-checkout --github-actions --ios-app= --ios-build= --ios-build-id= --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --location= --no-inherited-launch-vars --no-open --no-wait --open --platform= --timeout= --var= --verbose
+command workflow cancel
+command workflow create --dry-run --no-open --tests=
+command workflow rename --non-interactive --yes
+command workflow delete --force
+command workflow open
+command workflow status --json --open
+command workflow history --json --limit=
+command workflow report --json --no-tests --open
+command workflow share --expires= --json --open --private
+command workflow location
+command workflow location set --lat= --lng=
+command workflow location clear
+command workflow location show
+command workflow app
+command workflow app set --android= --android-all-branches --android-automatic --android-branch= --android-build-id= --android-build-selection= --ios= --ios-all-branches --ios-automatic --ios-branch= --ios-build-id= --ios-build-selection=
+command workflow app clear
+command workflow app show
+command workflow app disable
+command workflow app enable
+command workflow quarantine
+command workflow quarantine add
+command workflow quarantine remove
+command workflow quarantine list
+command workflow config
+command workflow config show
+command workflow config set --concurrency=
+command workflow add-tests
+command workflow remove-tests
+command session
+command session share --expires= --json --open --private
+command session publish --json --session=
+command session download --include-full-video --no-clips --output-directory=
+command report
+command report annotations --json --session-id=
+command report annotations create --action= --body= --body-file= --client-request-id= --dry-run --mention= --preview-out= --preview-receipt= --preview-receipt-out= --role= --severity= --target=
+command report annotations list --app= --cursor= --limit= --severity= --status=
+command report annotations get --app= --screenshot-out=
+command report annotations reply --app= --attach= --body= --body-file= --client-request-id= --mention=
+command report annotations resolve --app= --expected-version=
+command report annotations dismiss --app= --expected-version=
+command report annotations reopen --app= --expected-version=
+command report annotations severity --app= --clear --expected-version= --severity=
+command proof
+command proof comment --blocked= --problem=
+command config
+command config path
+command config show
+command config migrate --check --project= --write
+command config validate
+command config push --force
+command config pull --project= --repo=
+command config authorize-cursor-proof
+command github
+command github connect --no-open --no-wait
+command github status --repo=
+command github setup
+command gitlab
+command gitlab connect --instance= --token-stdin
+command gitlab status
+command gitlab setup
+command global
+command global launch-var
+command global launch-var list --show-values
+command global launch-var get --reveal
+command global launch-var create --description= --readable-by-automated-runs --secret
+command global launch-var update --description= --key= --readable-by-automated-runs --secret --value=
+command global launch-var delete --force
+command global var
+command global var list
+command global var get --reveal
+command global var set --no-secret --readable-by-automated-runs --secret
+command global var delete
+command sync --apps --bootstrap --dry-run --interactive --non-interactive --prune --skip-hotreload-check --skip-import --tests --workflow=
+command module
+command module list --json --search=
+command module get
+command module create --description= --from-file=
+command module update --description= --from-file= --name=
+command module delete --force
+command module insert
+command module versions
+command module restore --version=
+command module usage
+command module pull --force
+command script
+command script list --json --runtime=
+command script get
+command script create --description= --file= --runtime=
+command script update --description= --file= --name=
+command script delete --force
+command script usage
+command script insert
+command script pull --force
+command tag
+command tag list --json --search=
+command tag create --color=
+command tag update --color= --description= --name=
+command tag delete --force
+command tag get
+command tag set
+command tag add
+command tag remove
+command file
+command file list --json --limit= --offset=
+command file upload --description= --name=
+command file download
+command file edit --description= --file= --name=
+command file delete --force
+command shiptok
+command shiptok upload --pr= --repo=
+command docs
+command mcp
+command mcp serve --experimental-computer --experimental-workspace --tool-profile=
+command schema --format= --help
+command tools
+command tools search
+command tools describe
+command tools call --max-output-bytes= --read-only --view
+command tools cookbook
+command tools hydrate
+command doctor --json
+command ping
+command feedback --body= --body-file= --ref= --type=
+command setup
+command setup detect --json
+command setup check-url --json --timeout=
+command setup report --json --outcome= --platform= --reason=
+command upgrade --check --force --json --prerelease
+command device
+command device start --all-branches --app= --app-id= --app-link= --app-url= --branch= --browser= --build-selection= --build-version-id= --commit= --computer= --device --device-model= --device-name= --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --locale= --no-inherited-launch-vars --no-open --open --orientation= --os-version= --platform= --session-profile= --timeout= --url= --viewport=
+command device stop --all --json --s= --session-id=
+command device screenshot --json --out= --s= --session-id=
+command device hierarchy --json --out= --s= --session-id=
+command device tap --json --s= --session-id= --target= --x= --y=
+command device double-tap --json --s= --session-id= --target= --x= --y=
+command device long-press --duration= --json --s= --session-id= --target= --x= --y=
+command device type --clear-first --json --s= --session-id= --target= --text= --text-env= --x= --y=
+command device swipe --direction= --duration= --json --s= --session-id= --target= --x= --y=
+command device drag --end-x= --end-y= --json --s= --session-id= --start-x= --start-y=
+command device wait --duration-ms= --json --s= --session-id=
+command device pinch --duration= --json --s= --scale= --session-id= --target= --x= --y=
+command device clear-text --json --s= --session-id= --target= --x= --y=
+command device back --json --s= --session-id=
+command device key --json --key= --s= --session-id=
+command device shake --json --s= --session-id=
+command device install --all-branches --app-id= --app-url= --branch= --build-selection= --build-version-id= --bundle-id= --json --s= --session-id=
+command device launch --bundle-id= --json --s= --session-id=
+command device home --json --s= --session-id=
+command device kill-app --json --s= --session-id=
+command device open-app --app= --json --s= --session-id=
+command device navigate --json --s= --session-id= --url=
+command device set-location --json --lat= --lon= --s= --session-id=
+command device download-file --filename= --json --s= --session-id= --url=
+command device instruction --json --s= --session-id=
+command device validation --json --s= --session-id=
+command device extract --json --s= --session-id= --variable-name=
+command device code-execution --code= --file= --json --runtime= --s= --session-id= --variable-name=
+command device local-var
+command device local-var set --json --s= --session-id= --value= --variable-name=
+command device local-var get --json --s= --session-id= --variable-name=
+command device local-var list --json --s= --session-id=
+command device local-var delete --json --s= --session-id= --variable-name=
+command device info --json --s= --session-id=
+command device doctor --json --s= --session-id=
+command device list --json
+command device use
+command device attach
+command device report --artifact= --download --json --no-actions --no-steps --output= --s= --session-id=
+command device targets --json --platform=
+command device history --app= --app-id= --branch= --build= --from= --git-commit-sha= --json --limit= --offset= --platform= --source= --status= --to=
+command device perf --follow --interval= --json --no-follow --s= --session-id=
+command device requests --follow --interval= --json --no-follow --s= --session-id=
+command device logs --follow --interval= --json --no-follow --s= --session-id=
+command device push --badge= --body= --bundle-id= --json --s= --session-id= --title=
+command device push apns --s= --session-id=
+command device set-fold-state --json --s= --session-id=
+command device permissions
+command device permissions set --bundle-id= --json --s= --session-id=
+command device state --json --s= --session-id=
+command device state list
+command device state snapshot
+command device state diff --since=
+command device state userdefaults --key=
+command device state sqlite --param=
+command device scroll --amount= --direction= --json --s= --session-id= --target= --x= --y=
+command device select --json --s= --session-id= --target= --x= --y=
+command computer --json
+command computer create --display= --id= --os= --timeout= --wait --wait-timeout=
+command computer list --limit=
+command computer extend --timeout=
+command computer get
+command computer stop
+command computer report --format= --interval= --timeout= --watch
+command computer hosting
+command computer sessions --limit=
+command computer export --format= --out=
+command computer operation
+command computer operation get
+command computer exec --cwd= --env= --request-id= --stdin= --timeout=
+command computer files
+command computer files read --max-bytes= --request-id= --timeout=
+command computer files write --from= --request-id= --timeout=
+command computer files stat --request-id= --timeout=
+command computer process
+command computer process list --max-items= --request-id= --timeout=
+command computer process inspect --request-id= --timeout=
+command computer process terminate --request-id= --timeout=
+command computer screenshot --out= --zoom=
+command computer click --button= --count= --mods= --out= --target= --x= --y=
+command computer move --out= --x= --y=
+command computer drag --end-x= --end-y= --out= --start-x= --start-y=
+command computer scroll --amount= --direction= --mods= --out= --x= --y=
+command computer type --out= --text= --text-env=
+command computer key --hold= --key= --out=
+command dev --app-id= --branch= --build --build-profile= --build-selection= --build-version-id= --computer= --context= --detach --device-runner= --force-hot-reload --json --launch-arg= --launch-arg-set= --launch-var= --no-build --no-inherited-launch-vars --no-open --open --platform= --port= --prewarm-timeout= --ready-timeout= --remote --seed-latest --session-profile= --timeout= --tunnel=
+command dev auth
+command dev auth refresh --json --s= --session-id=
+command dev start --app-id= --branch= --build --build-profile= --build-selection= --build-version-id= --computer= --detach --device-runner= --force-hot-reload --json --launch-arg= --launch-arg-set= --launch-var= --no-build --no-inherited-launch-vars --no-open --open --platform= --port= --prewarm-timeout= --ready-timeout= --remote --seed-latest --session-profile= --timeout= --tunnel=
+command dev rebuild --json --timeout= --wait
+command dev status --timeout= --wait-ready
+command dev attach
+command dev list
+command dev use
+command dev stop --all --json
+command dev logs --build --follow --timeout=
+command run --dev --id-kind= --json
+command run summary
+command run state --at-step= --download --output= --path=
+command run logs --context= --download --grep= --level= --limit= --offset= --output= --tail=
+command run network --body --compact --download --failed --grep= --host= --limit= --min-duration-ms= --offset= --output= --since= --slowest-first --status= --until=
+command run perf --download --metric= --output= --timeline
+command run trace --output=
+command run inspect --action-id= --field= --field-version= --grep= --limit= --offset= --section= --status= --step-id=
+command skill
+command skill list --all --installed --json
+command skill show --name=
+command skill export --name= --output=
+command skill install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --name= --skill= --yes
+command skill revyl-cli
+command skill revyl-cli install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-create
+command skill revyl-cli-create install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-analyze
+command skill revyl-cli-analyze install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-optimize-tests
+command skill revyl-cli-optimize-tests install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-import-tests
+command skill revyl-cli-import-tests install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-dev-loop
+command skill revyl-cli-dev-loop install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-atlas
+command skill revyl-cli-atlas install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-atlas-review
+command skill revyl-cli-atlas-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-figma-review
+command skill revyl-cli-figma-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-cross-platform-review
+command skill revyl-cli-cross-platform-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-auth-bypass
+command skill revyl-cli-auth-bypass install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp
+command skill revyl-mcp install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp-create
+command skill revyl-mcp-create install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp-analyze
+command skill revyl-mcp-analyze install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp-dev-loop
+command skill revyl-mcp-dev-loop install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill update --global --json

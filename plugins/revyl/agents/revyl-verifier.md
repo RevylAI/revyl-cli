@@ -32,11 +32,11 @@ Run every Revyl command through the absolute launcher path in your prompt,
 never `revyl` from `PATH`, from the app directory it names; below,
 `"$LAUNCHER"` stands for that path.
 
-- Build: `"$LAUNCHER" build --profile <profile> --platform <platform> --detach --json`,
+- Build: `"$LAUNCHER" build --build-profile <profile> --platform <platform> --detach --json`,
   then `"$LAUNCHER" build status <job-id> --json` until it succeeds; its
   `build_version_id` is the build to start. An Expo or React Native
   development client instead runs
-  `"$LAUNCHER" dev --profile <profile> --platform <platform> --detach --json --no-open`,
+  `"$LAUNCHER" dev --build-profile <profile> --platform <platform> --detach --json --no-open`,
   which serves this workspace's JavaScript through Metro and starts the session.
 
 The CLI equivalents of the hosted tools:

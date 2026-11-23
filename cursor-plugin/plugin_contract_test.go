@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/revyl/cli/internal/pinnedskills"
 )
 
 // sameFilesystemPath reports whether two paths refer to the same existing file/dir.
@@ -179,7 +181,7 @@ func TestPluginArtifactContract(t *testing.T) {
 }
 
 // TestCopiedPluginSkillsMatchSource keeps Makefile-copied skills identical to
-// the embedded skills that make sync-cursor-plugin-skills copies.
+// the skills that make sync-cursor-plugin-skills renders for the pinned runtime.
 func TestCopiedPluginSkillsMatchSource(t *testing.T) {
 	pluginRoot := pluginRootPath(t)
 	copied := []string{
@@ -188,9 +190,12 @@ func TestCopiedPluginSkillsMatchSource(t *testing.T) {
 	}
 	for _, skill := range copied {
 		bundled := readText(t, filepath.Join(pluginRoot, "skills", skill, "SKILL.md"))
-		canonical := readText(t, filepath.Join(pluginRoot, "..", "skills", skill, "SKILL.md"))
-		if bundled != canonical {
-			t.Fatalf("cursor-plugin/skills/%s/SKILL.md must match skills/%s/SKILL.md", skill, skill)
+		rendered, err := pinnedskills.Render(skill+"/SKILL.md", []byte(readText(t, filepath.Join(pluginRoot, "..", "skills", skill, "SKILL.md"))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bundled != string(rendered) {
+			t.Fatalf("cursor-plugin/skills/%s/SKILL.md must match skills/%s/SKILL.md as rendered for the pinned runtime", skill, skill)
 		}
 	}
 }

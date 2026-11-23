@@ -169,5 +169,5 @@ through system Git with `xcodebuild -resolvePackageDependencies -scmProvider sys
 
 Run `"$LAUNCHER" config validate --json` and fix every error it names. Then
 offer, without starting either: `revyl-build` to build it on a Revyl runner
-(build minutes), or `"$LAUNCHER" build --profile <profile> --platform <platform> --local`
+(build minutes), or `"$LAUNCHER" build --build-profile <profile> --platform <platform> --local`
 to build with this machine's toolchain and upload the result.

@@ -148,10 +148,12 @@ test:
   metadata:
     name: checkout-auth-smoke
     platform: ios
+  build:
+    name: my-app
   env_vars:
     - REVYL_AUTH_BYPASS_ENABLED
     - REVYL_AUTH_BYPASS_TOKEN
-  steps:
+  blocks:
     - type: manual
       step_type: navigate
       step_description: "myapp://revyl-auth?token={{global.revyl-auth-bypass-token}}&role=buyer&redirect=%2Fcheckout"
@@ -159,7 +161,7 @@ test:
       step_description: "The checkout screen is visible for the signed-in buyer."
 ```
 
-Use the app's real variable/global naming conventions. Do not put raw secrets in YAML.
+Test steps go under `blocks:`, and `build.name` is the Revyl app name. Use the app's real variable/global naming conventions. Do not put raw secrets in YAML.
 
 ## Persist the Config (final step)
 

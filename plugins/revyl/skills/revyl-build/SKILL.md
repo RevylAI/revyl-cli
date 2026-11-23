@@ -80,7 +80,7 @@ to ask if an untracked file looks like a secret or credential.
 - **Cloud build** (the default):
 
   ```sh
-  "$LAUNCHER" build --profile <profile> --platform <platform> --detach --json
+  "$LAUNCHER" build --build-profile <profile> --platform <platform> --detach --json
   "$LAUNCHER" build status <job-id> --json
   ```
 

@@ -12,6 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/revyl/cli/internal/build"
 )
 
 // CLISchema represents the complete CLI schema.
@@ -165,8 +167,12 @@ func getCommonWorkflows() []Workflow {
 			Description: "Set up Revyl for a new project",
 			Steps: []string{
 				"revyl auth login",
-				"revyl init",
-				"revyl test create <name>",
+				"# Run init from the app's own folder, not a monorepo root:",
+				"revyl init -y",
+				"# A test needs an app. Find the app's id, or create the app:",
+				"revyl app list --platform <ios|android|web> --json",
+				"revyl app create --name <app-name> --platform <ios|android|web> --json",
+				"revyl test create <name> --platform <ios|android|web> --app <app-id>",
 				"revyl test create --from-session <session-id> <name> --app <app-id>",
 			},
 		},
@@ -183,21 +189,20 @@ func getCommonWorkflows() []Workflow {
 			Name:        "Build and run single test",
 			Description: "Build, upload, and run a test (full pipeline)",
 			Steps: []string{
-				"# Use test NAME from config, not file path:",
+				"# Use the test NAME (its file name under .revyl/tests), not the file path:",
 				"revyl test run <name> --build",
-				"# With a specific build platform:",
+				"# With a specific build platform or profile:",
 				"revyl test run <name> --build --platform android",
-				"revyl test run <name> --build --platform ios-skip-login",
+				"revyl test run <name> --build --build-profile development --platform ios",
 			},
 		},
 		{
-			Name:        "Run test with specific build platform",
-			Description: "Use a named build platform from config",
+			Name:        "Run test with specific build profile",
+			Description: "Use a named build profile from config",
 			Steps: []string{
-				"# List available platforms in .revyl/config.yaml under build.platforms",
-				"revyl test run login-flow --build --platform android",
-				"revyl test run login-flow --build --platform ios-skip-login",
-				"revyl workflow run smoke-tests --build --platform android",
+				"# Build profiles are listed in .revyl/config.yaml under build.profiles",
+				"revyl test run login-flow --build --build-profile development --platform android",
+				"revyl workflow run smoke-tests --build --build-profile development --platform android",
 			},
 		},
 		{
@@ -213,7 +218,7 @@ func getCommonWorkflows() []Workflow {
 			Name:        "Run test without building",
 			Description: "Run a test using existing build (no build step)",
 			Steps: []string{
-				"# Use test NAME from config, not file path:",
+				"# Use the test NAME (its file name under .revyl/tests), not the file path:",
 				"revyl test run <name>",
 			},
 		},
@@ -368,6 +373,27 @@ func writeCommandMarkdown(sb *strings.Builder, cmd CommandInfo, level int) {
 	}
 }
 
+// ExampleProjectConfig is the .revyl/config.yaml example the LLM reference
+// teaches. It must pass revyl config validate. Its iOS recipe uses the
+// xcodebuild simulator flags revyl init writes.
+var ExampleProjectConfig = `project:
+  id: "11111111-1111-4111-8111-111111111111"
+build:
+  framework: react_native
+  profiles:
+    development:
+      android:
+        app_id: "22222222-2222-4222-8222-222222222222"
+        build_commands:
+          - cd android && ./gradlew assembleDebug
+        output_path: android/app/build/outputs/apk/debug/app-debug.apk
+      ios:
+        app_id: "33333333-3333-4333-8333-333333333333"
+        build_commands:
+          - ` + build.XcodebuildCommand("-workspace ios/App.xcworkspace -scheme App", "Debug") + `
+        output_path: build/Build/Products/Debug-iphonesimulator/App.app
+`
+
 // ToLLMFormat converts the schema to an LLM-optimized single-file format.
 //
 // Parameters:
@@ -387,7 +413,7 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("Before running any test commands, you MUST:\n\n")
 	sb.WriteString("1. **Authenticate**: `revyl auth login` OR set `REVYL_API_KEY` environment variable\n")
 	sb.WriteString("2. **Check status**: `revyl auth status` (verify authentication works)\n")
-	sb.WriteString("3. **Initialize project**: `revyl init` (creates .revyl/config.yaml)\n\n")
+	sb.WriteString("3. **Initialize project**: `revyl init -y` from the app's own folder, not a monorepo root (creates .revyl/config.yaml there)\n\n")
 	sb.WriteString("If you get 'REVYL_API_KEY not found', run `revyl auth login` first.\n\n")
 
 	// Key Concepts section - critical for understanding
@@ -395,43 +421,27 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 
 	sb.WriteString("### Test Names vs YAML Files vs UUIDs\n\n")
 	sb.WriteString("- **YAML files** (`.revyl/tests/*.yaml`) define test steps - they are NOT passed directly to `run test`\n")
-	sb.WriteString("- **Test names** are aliases defined in `.revyl/config.yaml` under `tests:` section\n")
+	sb.WriteString("- **Test names** are the file names under `.revyl/tests/`, without `.yaml`\n")
 	sb.WriteString("- **UUIDs** are the actual test IDs on the Revyl server\n")
-	sb.WriteString("- `revyl test run <name>` uses the NAME from config, NOT a file path\n\n")
+	sb.WriteString("- `revyl test run <name>` uses the test NAME, NOT a file path\n\n")
 
-	sb.WriteString("Example `.revyl/config.yaml`:\n")
+	sb.WriteString("To run a test: `revyl test run login-flow` (the file is `.revyl/tests/login-flow.yaml`; use the name, not the file path)\n\n")
+
+	// Build Profiles section
+	sb.WriteString("### Build Profiles\n\n")
+	sb.WriteString("Build recipes are defined in `.revyl/config.yaml` under `build.profiles.<profile>.<platform>`, where the platform is ios, android, or web. Example:\n\n")
 	sb.WriteString("```yaml\n")
-	sb.WriteString("tests:\n")
-	sb.WriteString("  login-flow: \"abc123-def456-...\"      # alias -> UUID\n")
-	sb.WriteString("  experiments: \"xyz789-...\"            # alias -> UUID\n")
+	sb.WriteString(ExampleProjectConfig)
 	sb.WriteString("```\n\n")
-
-	sb.WriteString("To run a test: `revyl test run login-flow` (use the alias name, not the file path)\n\n")
-
-	// Build Platforms section
-	sb.WriteString("### Build Platforms\n\n")
-	sb.WriteString("Build platforms are defined in `.revyl/config.yaml` under `build.platforms:`\n\n")
-	sb.WriteString("```yaml\n")
-	sb.WriteString("build:\n")
-	sb.WriteString("  platforms:\n")
-	sb.WriteString("    android:\n")
-	sb.WriteString("      command: \"./gradlew assembleDebug\"\n")
-	sb.WriteString("      output: \"app/build/outputs/apk/debug/app-debug.apk\"\n")
-	sb.WriteString("      app_id: \"app_xxx\"\n")
-	sb.WriteString("    ios-skip-login:\n")
-	sb.WriteString("      command: \"npx eas build --local --profile skip-login\"\n")
-	sb.WriteString("      output: \"build/app.tar.gz\"\n")
-	sb.WriteString("      app_id: \"app_yyy\"\n")
-	sb.WriteString("```\n\n")
-	sb.WriteString("To run with a specific platform: `revyl test run <name> --platform ios-skip-login`\n\n")
+	sb.WriteString("To build with a profile: `revyl test run <name> --build --build-profile development --platform android`\n\n")
 
 	// Common Mistakes section - prevent errors
 	sb.WriteString("## Common Mistakes (Don't Do This!)\n\n")
 	sb.WriteString("| Wrong | Correct | Why |\n")
 	sb.WriteString("|-------|---------|-----|\n")
-	sb.WriteString("| `revyl test run experiments.yaml` | `revyl test run experiments` | Use test NAME from config, not file path |\n")
-	sb.WriteString("| `revyl test run .revyl/tests/login.yaml` | `revyl test run login-flow` | Use alias name, not file path |\n")
-	sb.WriteString("| Adding `build: name: platform` to YAML | Use `--platform <name>` flag | Build platforms are CLI flags, not YAML fields |\n")
+	sb.WriteString("| `revyl test run experiments.yaml` | `revyl test run experiments` | Use the test NAME, not the file path |\n")
+	sb.WriteString("| `revyl test run .revyl/tests/login.yaml` | `revyl test run login` | Use the test NAME, not the file path |\n")
+	sb.WriteString("| Putting a build profile or platform in the test YAML | Pass `--build-profile` and `--platform` with `--build` | Build profiles live in .revyl/config.yaml; test YAML `build.name` is the app name |\n")
 	sb.WriteString("| Running tests before `revyl auth login` | Run `revyl auth login` first | Authentication is required |\n")
 	sb.WriteString("| Pressing Ctrl+C to cancel test | `revyl test cancel <task_id>` | Ctrl+C only stops monitoring, not the test |\n\n")
 
@@ -440,14 +450,16 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("```\n")
 	sb.WriteString("revyl auth login              # Authenticate (do this first!)\n")
 	sb.WriteString("revyl auth status             # Check authentication\n")
-	sb.WriteString("revyl init                    # Initialize project\n")
-	sb.WriteString("revyl test create <name>      # Create new test\n")
+	sb.WriteString("revyl init -y                 # Initialize project, from the app's own folder, not a monorepo root\n")
+	sb.WriteString("revyl app list --json         # Find an app id for tests and builds\n")
+	sb.WriteString("revyl app create --name <app-name> --platform <ios|android|web> --json # Create an app\n")
+	sb.WriteString("revyl test create <name> --platform <ios|android|web> --app <app-id> # Create new test\n")
 	sb.WriteString("revyl test create --from-session <session-id> <name> --app <app-id> # Convert session to test\n")
 	sb.WriteString("revyl test rename <old> <new> # Rename test without recreating\n")
 	sb.WriteString("revyl workflow rename <old> <new> # Rename workflow without recreating\n")
 	sb.WriteString("revyl test run <name>         # Run a test\n")
 	sb.WriteString("revyl test run <name> --build  # Build then run a test\n")
-	sb.WriteString("revyl test run <name> --platform X # Build with specific platform\n")
+	sb.WriteString("revyl test run <name> --build --build-profile X --platform Y # Build a profile's recipe, then run\n")
 	sb.WriteString("revyl workflow run <name>     # Run a workflow\n")
 	sb.WriteString("revyl workflow run <name> --build # Build then run a workflow\n")
 	sb.WriteString("revyl test cancel <task_id>   # Cancel a running test\n")

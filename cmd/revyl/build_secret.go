@@ -26,7 +26,7 @@ var buildSecretCmd = &cobra.Command{
 	Long: `Manage encrypted secrets referenced by local and remote build configurations.
 
 Secret values are stored in Revyl's encrypted organization store. Project YAML
-contains names only, under build.platforms.<platform>.secrets.`,
+contains names only, under build.secrets or build.profiles.<profile>.<platform>.secrets.`,
 }
 
 var buildSecretSetCmd = &cobra.Command{

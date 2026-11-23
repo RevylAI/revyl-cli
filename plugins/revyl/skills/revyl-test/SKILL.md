@@ -167,12 +167,12 @@ The steps, wherever they run:
 
 1. **Build when needed, with the CLI**, since it packs this workspace. Native
    or rebuild-first profiles:
-   `"$LAUNCHER" build --profile <profile> --platform <platform> --detach --json`
+   `"$LAUNCHER" build --build-profile <profile> --platform <platform> --detach --json`
    from the app directory, then `"$LAUNCHER" build status <job-id> --json`
    until it succeeds; its `build_version_id` is the build to start. Expo and
    React Native development clients use the hot-reload loop, which loads this
    workspace's JavaScript through Metro and starts its own session:
-   `"$LAUNCHER" dev --profile <profile> --platform <platform> --detach --json --no-open`.
+   `"$LAUNCHER" dev --build-profile <profile> --platform <platform> --detach --json --no-open`.
 2. **Device.** Reuse the session `dev` returned. Otherwise call hosted
    `start_device_session` with `platform` and the `build_id` (web also needs
    the app's `app_id`), or

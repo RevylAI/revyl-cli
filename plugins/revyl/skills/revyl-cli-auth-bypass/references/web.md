@@ -94,7 +94,7 @@ No `run` block is needed; Revyl serves static output. Do not add a signing secre
 or verifier to a static frontend. If it needs authentication, implement the
 test-only route on its trusted backend or use the existing hosted preview.
 
-For either bundle example: `revyl build --profile preview --platform web`, then
+For either bundle example: `revyl build --build-profile preview --platform web`, then
 `revyl device start --platform web`. Check a screenshot/account and stop the owned
 session with `revyl device stop --session-id <session-id>`.
 

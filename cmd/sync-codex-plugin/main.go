@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/cursorpluginrelease"
+	"github.com/revyl/cli/internal/pinnedskills"
 )
 
 const claudePluginName = "revyl-cli"
@@ -51,7 +52,8 @@ const claudeUserConfig = `{
 }`
 
 // portedSkills are maintained for the CLI or the Cursor plugin and copied into
-// this plugin with their shell commands routed through the bundled launcher.
+// this plugin, rendered for its pinned runtime, with their shell commands routed
+// through the bundled launcher.
 var portedSkills = []struct{ source, name string }{
 	{"skills/revyl-cli-auth-bypass", "revyl-cli-auth-bypass"},
 	{"cursor-plugin/skills/revyl-ci-sync", "revyl-ci-sync"},
@@ -177,6 +179,11 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 		if err != nil {
 			return err
 		}
+		if skillPath, shared := strings.CutPrefix(copy.source, "skills/"); shared {
+			if content, err = pinnedskills.Render(skillPath, content); err != nil {
+				return err
+			}
+		}
 		files = append(files, generatedFile{
 			path: filepath.Join(pluginRoot, filepath.FromSlash(copy.destination)), content: content, mode: info.Mode().Perm(),
 		})
@@ -192,6 +199,11 @@ func syncPlugin(root string, check bool, client *http.Client) error {
 			}
 			relative := strings.TrimPrefix(path, port.source+"/")
 			if strings.HasSuffix(relative, ".md") {
+				if skillPath, shared := strings.CutPrefix(path, "skills/"); shared {
+					if content, err = pinnedskills.Render(skillPath, content); err != nil {
+						return err
+					}
+				}
 				content = routeThroughLauncher(content, relative == "SKILL.md")
 			}
 			files = append(files, generatedFile{

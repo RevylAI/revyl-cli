@@ -133,7 +133,7 @@ the mode from the app's stack, as the reference below describes:
   runner:
 
   ```sh
-  "$LAUNCHER" dev --profile <exact-profile> --platform <ios-or-android> \
+  "$LAUNCHER" dev --build-profile <exact-profile> --platform <ios-or-android> \
     --remote --detach --json --no-open
   ```
 
@@ -142,7 +142,7 @@ the mode from the app's stack, as the reference below describes:
   Metro and the relay, so such a client cannot load the app.
 
   ```sh
-  "$LAUNCHER" dev --profile <exact-profile> --platform <ios-or-android> \
+  "$LAUNCHER" dev --build-profile <exact-profile> --platform <ios-or-android> \
     --detach --json --no-open
   ```
 
@@ -192,8 +192,7 @@ skill overrides that reference whenever they conflict:
   fallback.
 - Use exact resolved profile and platform values, and clean up only the context
   and session created for the authorized request.
-- Skip the reference's "Revyl got in your way" feedback bullet. The pinned
-  runtime has no `feedback` command, so describe the Revyl problem to the user
-  in your report instead.
+- Send the reference's "Revyl got in your way" reports through the launcher,
+  such as `"$LAUNCHER" feedback --type bug --body "<report>"`.
 
 Report an unavailable authorization or ambiguous target instead of guessing.

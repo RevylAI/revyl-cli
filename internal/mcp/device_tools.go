@@ -528,7 +528,7 @@ func (s *Server) registerDeviceTools() {
 	// Diagnostics
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_doctor",
-		Description: "Run diagnostics on auth, session health, worker reachability, grounding model availability, and environment. First aid for any issue.",
+		Description: "Run diagnostics on auth, session health, worker reachability, and device connection, and report environment info. First aid for any issue.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "Device Doctor",
 			ReadOnlyHint: true,
@@ -639,7 +639,7 @@ type StartDeviceSessionInput struct {
 	LaunchEnv                  map[string]string      `json:"launch_env,omitempty" jsonschema:"Inline launch environment variables applied to the app at boot, as KEY to value; they override launch_vars with the same key. Values appear in this conversation, so use launch_vars for secrets."`
 	DisableInheritedLaunchVars bool                   `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 	TestID                     string                 `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
-	IdleTimeout                int                    `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
+	IdleTimeout                int                    `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds; when omitted, the project's session idle timeout, else 600 on Web and 900 on Android and iOS"`
 	NoOpen                     bool                   `json:"no_open,omitempty" jsonschema:"Skip opening the local browser (default: false). The experimental workspace always skips local browser opening."`
 }
 

@@ -981,7 +981,7 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
   revyl device start --platform ios --all-branches
   revyl device start --platform android --app-url https://example.com/app.apk
   revyl device start --platform ios --json
-  revyl device start --platform ios --no-open`,
+  revyl device start --platform ios --open=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		recordSetupRef(cmd)
 		platform, _ := cmd.Flags().GetString("platform")
@@ -3226,7 +3226,7 @@ var deviceInfoCmd = &cobra.Command{
 
 var deviceDoctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Run diagnostics on auth, session, worker, and grounding health",
+	Short: "Run diagnostics on auth, session, worker, and device health",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var checks []mcppkg.DiagnosticCheck
 		allPassed := true

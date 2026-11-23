@@ -334,7 +334,7 @@ func reactNativePlatform(system BuildSystem, dir, platform, configuration string
 			container, flag = projectFile, "-project"
 		}
 		return BuildPlatform{
-			Command: command + xcodebuildCommand(flag+" "+shellQuote(container)+" -scheme "+shellQuote(xcodeScheme(nativeDir, container)), configuration),
+			Command: command + XcodebuildCommand(flag+" "+shellQuote(container)+" -scheme "+shellQuote(xcodeScheme(nativeDir, container)), configuration),
 			Output:  output,
 		}, true
 	case DirExists(nativeDir):
@@ -347,7 +347,7 @@ func reactNativePlatform(system BuildSystem, dir, platform, configuration string
 		// expo prebuild names the workspace and its app scheme after the app,
 		// which app.config.js/ts can compute, so read the name after prebuild.
 		return BuildPlatform{
-			Command: `cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && ` + xcodebuildCommand(`-workspace "$WS" -scheme "${WS%.xcworkspace}"`, configuration),
+			Command: `cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && ` + XcodebuildCommand(`-workspace "$WS" -scheme "${WS%.xcworkspace}"`, configuration),
 			Output:  output,
 		}, true
 	default:
@@ -355,10 +355,10 @@ func reactNativePlatform(system BuildSystem, dir, platform, configuration string
 	}
 }
 
-// xcodebuildCommand builds target, the container and scheme arguments, for
+// XcodebuildCommand builds target, the container and scheme arguments, for
 // the iOS simulator. ARCHS=arm64 builds only the slice Revyl's Apple silicon
 // simulators run, instead of every simulator architecture.
-func xcodebuildCommand(target, configuration string) string {
+func XcodebuildCommand(target, configuration string) string {
 	return "xcodebuild " + target + " -configuration " + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
 }
 
@@ -595,7 +595,7 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 		}
 	}
 	scheme := xcodeScheme(filepath.Join(dir, refDir), filepath.Base(ref))
-	detected.Command = xcodebuildCommand(flag+" "+shellQuote(ref)+" -scheme "+shellQuote(scheme), "Debug")
+	detected.Command = XcodebuildCommand(flag+" "+shellQuote(ref)+" -scheme "+shellQuote(scheme), "Debug")
 
 	detected.Output = "build/Build/Products/Debug-iphonesimulator/*.app"
 
@@ -994,7 +994,7 @@ func detectKMP(dir string) (*DetectedBuild, error) {
 		}
 		if container != "" {
 			detected.Platforms["ios"] = BuildPlatform{
-				Command: "cd iosApp && " + xcodebuildCommand(flag+" "+shellQuote(container)+" -scheme "+shellQuote(xcodeScheme(iosAppDir, container)), "Debug"),
+				Command: "cd iosApp && " + XcodebuildCommand(flag+" "+shellQuote(container)+" -scheme "+shellQuote(xcodeScheme(iosAppDir, container)), "Debug"),
 				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
 			}
 		} else {
