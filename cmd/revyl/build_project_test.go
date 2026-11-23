@@ -678,6 +678,18 @@ func TestRemoteOverridesRecomputeHashAndTriggerProvenance(t *testing.T) {
 	}
 }
 
+func TestRemoteOverridesKeepCacheHashFiles(t *testing.T) {
+	caches := []config.BuildCache{{Key: "spm", Paths: []string{"Tuist/.build"}, Hash: []string{"Tuist/Package.resolved"}}}
+	base := config.EffectiveBuildRecipe{Framework: "ios", BuildCommands: config.CommandStepItems([]string{"build"}), Caches: caches}
+	effective, _, err := applyRemoteBuildOverrides(base, map[string]string{"CLI": "two"}, nil, "", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(effective.Caches, caches) {
+		t.Fatalf("caches = %#v, want %#v", effective.Caches, caches)
+	}
+}
+
 func TestRemoteBuildWithoutOverridesPreservesResolvedDefinitionHash(t *testing.T) {
 	repository := t.TempDir()
 	gitInitBuildRepository(t, repository)

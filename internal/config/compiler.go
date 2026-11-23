@@ -649,7 +649,7 @@ func validateCacheNodes(caches *yaml.Node, path []string) error {
 		if err := validateMappingNode(cache, cachePath, false); err != nil {
 			return err
 		}
-		if err := validateAllowedKeys(cache, cachePath, "key", "paths"); err != nil {
+		if err := validateAllowedKeys(cache, cachePath, "key", "paths", "hash"); err != nil {
 			return err
 		}
 		if mappingValue(cache, "key") == nil {
@@ -662,6 +662,9 @@ func validateCacheNodes(caches *yaml.Node, path []string) error {
 			return err
 		}
 		if err := validateStringSequence(mappingValue(cache, "paths"), append(cachePath, "paths")); err != nil {
+			return err
+		}
+		if err := validateStringSequence(mappingValue(cache, "hash"), append(cachePath, "hash")); err != nil {
 			return err
 		}
 	}

@@ -6782,6 +6782,9 @@ type BuildBranchUpdateRequest struct {
 
 // BuildCache Cache archive definition stored on a sandbox build configuration.
 type BuildCache struct {
+	// Hash Project-relative or ~/ files whose contents decide whether the cache changed. When they match the restored archive's, the build does not save it again.
+	Hash *[]string `json:"hash,omitempty"`
+
 	// Key Org-local cache key. The build runner prefixes it with the org ID.
 	Key string `json:"key"`
 
@@ -10730,8 +10733,9 @@ type PlatformTargetConfig struct {
 
 // ProjectBuildCache Canonical build-cache meaning shared by configuration contracts.
 type ProjectBuildCache struct {
-	Key   string   `json:"key"`
-	Paths []string `json:"paths"`
+	Hash  *[]string `json:"hash,omitempty"`
+	Key   string    `json:"key"`
+	Paths []string  `json:"paths"`
 }
 
 // ProjectConfigurationAbsentPrecondition A writer explicitly observed that no project aggregate exists.

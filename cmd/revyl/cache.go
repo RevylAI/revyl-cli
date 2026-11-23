@@ -81,7 +81,7 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(writer, "KEY\tPLATFORM\tSIZE\tLAST USED")
+	fmt.Fprintln(writer, "KEY\tPLATFORM\tSIZE\tLAST SAVED")
 	for _, cache := range resp.Caches {
 		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n",
 			cache.Key, cache.Platform,

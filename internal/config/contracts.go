@@ -698,17 +698,27 @@ func validateCachesAtPath(fieldPath []string, caches []BuildCache) error {
 		if len(cache.Paths) == 0 {
 			return authoredContractError(append(cachePath, "paths"), fmt.Sprintf("%s.paths must not be empty", cachePathText))
 		}
-		for _, cacheEntry := range cache.Paths {
-			relativeEntry := strings.TrimPrefix(cacheEntry, "~/")
-			if relativeEntry == "" || strings.TrimSpace(cacheEntry) != cacheEntry || utf8.RuneCountInString(cacheEntry) > 1024 ||
-				strings.HasPrefix(relativeEntry, "/") || strings.HasPrefix(relativeEntry, "~") || strings.Contains(cacheEntry, "%") ||
-				strings.ContainsRune(cacheEntry, '\x00') || path.Clean(relativeEntry) != relativeEntry || relativeEntry == "." || relativeEntry == ".." ||
-				strings.HasPrefix(relativeEntry, "../") {
-				return authoredContractError(append(cachePath, "paths"), fmt.Sprintf("%s.paths must contain project-relative paths or ~/ paths", cachePathText))
-			}
+		if !canonicalCachePaths(cache.Paths) {
+			return authoredContractError(append(cachePath, "paths"), fmt.Sprintf("%s.paths must contain project-relative paths or ~/ paths", cachePathText))
+		}
+		if !canonicalCachePaths(cache.Hash) {
+			return authoredContractError(append(cachePath, "hash"), fmt.Sprintf("%s.hash must contain project-relative paths or ~/ paths", cachePathText))
 		}
 	}
 	return nil
+}
+
+func canonicalCachePaths(entries []string) bool {
+	for _, cacheEntry := range entries {
+		relativeEntry := strings.TrimPrefix(cacheEntry, "~/")
+		if relativeEntry == "" || strings.TrimSpace(cacheEntry) != cacheEntry || utf8.RuneCountInString(cacheEntry) > 1024 ||
+			strings.HasPrefix(relativeEntry, "/") || strings.HasPrefix(relativeEntry, "~") || strings.Contains(cacheEntry, "%") ||
+			strings.ContainsRune(cacheEntry, '\x00') || path.Clean(relativeEntry) != relativeEntry || relativeEntry == "." || relativeEntry == ".." ||
+			strings.HasPrefix(relativeEntry, "../") {
+			return false
+		}
+	}
+	return true
 }
 
 func authoredContractError(path []string, message string) error {

@@ -397,6 +397,10 @@ type BuildCache struct {
 
 	// Paths are project-relative or ~/ paths stored in this cache archive.
 	Paths []string `yaml:"paths" json:"paths"`
+
+	// Hash are optional project-relative or ~/ files or globs whose contents
+	// decide whether the restored cache changed and needs saving again.
+	Hash []string `yaml:"hash,omitempty" json:"hash,omitempty"`
 }
 
 // BuildSource contains repo-backed source settings for remote build runners.
@@ -505,6 +509,7 @@ func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []Bui
 			}
 
 			result[resultIndex].Paths = append(result[resultIndex].Paths, cache.Paths...)
+			result[resultIndex].Hash = append(result[resultIndex].Hash, cache.Hash...)
 		}
 	}
 

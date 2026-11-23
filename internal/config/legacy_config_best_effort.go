@@ -925,17 +925,29 @@ func sanitizeLegacyCaches(values map[string]any, key string, path []string, chan
 		}
 		keyValue, keyOK := item["key"].(string)
 		pathValues, pathsOK := item["paths"].([]any)
+		rawHash, hasHash := item["hash"]
+		hashValues, hashOK := rawHash.([]any)
 		candidate := BuildCache{Key: keyValue}
 		for _, rawPath := range pathValues {
 			if value, ok := rawPath.(string); ok {
 				candidate.Paths = append(candidate.Paths, value)
 			}
 		}
-		if !keyOK || !pathsOK || len(candidate.Paths) != len(pathValues) || validateCaches(strings.Join(itemPath, "."), []BuildCache{candidate}) != nil {
+		for _, rawPath := range hashValues {
+			if value, ok := rawPath.(string); ok {
+				candidate.Hash = append(candidate.Hash, value)
+			}
+		}
+		if !keyOK || !pathsOK || len(candidate.Paths) != len(pathValues) || (hasHash && (!hashOK || len(candidate.Hash) != len(hashValues))) ||
+			validateCaches(strings.Join(itemPath, "."), []BuildCache{candidate}) != nil {
 			addLegacyMigrationChange(changes, "legacy_cache_invalid", itemPath, legacyDroppedValueMessage)
 			continue
 		}
-		kept = append(kept, map[string]any{"key": candidate.Key, "paths": stringSliceToAny(candidate.Paths)})
+		keptCache := map[string]any{"key": candidate.Key, "paths": stringSliceToAny(candidate.Paths)}
+		if len(candidate.Hash) > 0 {
+			keptCache["hash"] = stringSliceToAny(candidate.Hash)
+		}
+		kept = append(kept, keptCache)
 	}
 	values[key] = kept
 }

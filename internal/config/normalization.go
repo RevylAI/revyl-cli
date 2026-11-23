@@ -500,7 +500,7 @@ func configCollectionItemCount(authored AuthoredConfig) int {
 		build := authored.Build
 		count += len(build.Profiles) + len(build.Env) + len(build.Secrets) + len(build.Caches)
 		for _, cache := range build.Caches {
-			count += len(cache.Paths)
+			count += len(cache.Paths) + len(cache.Hash)
 		}
 		for _, profile := range build.Profiles {
 			for _, recipe := range []*AuthoredBuildRecipe{profile.IOS, profile.Android, (*AuthoredBuildRecipe)(profile.Web)} {
@@ -515,7 +515,7 @@ func configCollectionItemCount(authored AuthoredConfig) int {
 					count += len(recipe.Run.EnvKeys) + len(recipe.Run.SecretNames)
 				}
 				for _, cache := range recipe.Caches {
-					count += len(cache.Paths)
+					count += len(cache.Paths) + len(cache.Hash)
 				}
 			}
 		}
@@ -626,16 +626,18 @@ func normalizeBuildRecipe(build AuthoredBuild, recipe AuthoredBuildRecipe, root,
 func mergeCaches(inherited, recipe []BuildCache) []BuildCache {
 	keys := []string{}
 	pathsByKey := map[string][]string{}
+	hashByKey := map[string][]string{}
 	for _, cache := range append(append([]BuildCache{}, inherited...), recipe...) {
 		if _, exists := pathsByKey[cache.Key]; !exists {
 			keys = append(keys, cache.Key)
 			pathsByKey[cache.Key] = []string{}
 		}
 		pathsByKey[cache.Key] = orderedUniqueStrings(pathsByKey[cache.Key], cache.Paths)
+		hashByKey[cache.Key] = orderedUniqueStrings(hashByKey[cache.Key], cache.Hash)
 	}
 	result := make([]BuildCache, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, BuildCache{Key: key, Paths: pathsByKey[key]})
+		result = append(result, BuildCache{Key: key, Paths: pathsByKey[key], Hash: hashByKey[key]})
 	}
 	return result
 }

@@ -2089,6 +2089,81 @@
         },
         "review_policy_hash": null
       }
+    },
+    {
+      "name": "cache_hash_files",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  framework: ios\n  caches:\n    - key: tuist\n      paths: [Tuist/.build]\n      hash: [Tuist/Package.resolved]\n  profiles:\n    development:\n      ios:\n        app_id: 22222222-2222-4222-8222-222222222222\n        build_commands: [tuist install, tuist build]\n        output_path: build/App.app\n        caches:\n          - key: tuist\n            paths: [Tuist/Plugins]\n            hash: [Tuist/Package.swift]\n          - key: pods\n            paths: [Pods]\n            hash: [\"**/Podfile.lock\"]\n          - key: derived-data\n            paths: [DerivedData]\n",
+      "expected_projection": {
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "22222222-2222-4222-8222-222222222222",
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": [
+                    "tuist install",
+                    "tuist build"
+                  ],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "build/App.app",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [
+                    {
+                      "key": "tuist",
+                      "paths": [
+                        "Tuist/.build",
+                        "Tuist/Plugins"
+                      ],
+                      "hash": [
+                        "Tuist/Package.resolved",
+                        "Tuist/Package.swift"
+                      ]
+                    },
+                    {
+                      "key": "pods",
+                      "paths": [
+                        "Pods"
+                      ],
+                      "hash": [
+                        "**/Podfile.lock"
+                      ]
+                    },
+                    {
+                      "key": "derived-data",
+                      "paths": [
+                        "DerivedData"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "f43bbd3a14baea6887b1f6644f80b5aa5a553f5e755bd212206f3056d99fae6d",
+        "build_profile_hashes": {
+          "development": "0b0a98a8bf28cf803410f8d7a16ac7e2e3ca59ca999b0856a35a83f91ff7d84f"
+        },
+        "build_definition_hashes": {
+          "development:ios": "5430624bc7dac98ab0b02d9bb7fc4a68cf5415f59ffbeefd3d8d9745d02c3cab"
+        },
+        "review_policy_hash": null
+      }
     }
   ],
   "invalid_cases": [

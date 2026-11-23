@@ -4,6 +4,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -832,6 +833,15 @@ func TestEffectiveBuildCachesExplicitOnly(t *testing.T) {
 	)
 	if len(got) != 1 || got[0].Key != "platform-cache" {
 		t.Fatalf("explicit platform caches should be used, got %#v", got)
+	}
+
+	got = EffectiveBuildCaches(
+		BuildConfig{Caches: []BuildCache{{Key: "tuist", Paths: []string{"Tuist/.build"}, Hash: []string{"Tuist/Package.resolved"}}}},
+		BuildPlatform{Caches: []BuildCache{{Key: "tuist", Paths: []string{"Tuist/Plugins"}, Hash: []string{"Tuist/Package.swift"}}}},
+	)
+	want := []BuildCache{{Key: "tuist", Paths: []string{"Tuist/.build", "Tuist/Plugins"}, Hash: []string{"Tuist/Package.resolved", "Tuist/Package.swift"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merged global and platform caches = %#v, want %#v", got, want)
 	}
 
 	for _, system := range []string{"Expo", "react-native", "Xcode", "Swift", "Gradle"} {

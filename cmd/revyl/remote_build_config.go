@@ -162,6 +162,7 @@ func remoteBuildCachesPtrOrNil(caches []config.BuildCache) *[]api.BuildCache {
 		apiCaches = append(apiCaches, api.BuildCache{
 			Key:   cache.Key,
 			Paths: append([]string(nil), cache.Paths...),
+			Hash:  stringSlicePtrOrNil(cache.Hash),
 		})
 	}
 	return &apiCaches

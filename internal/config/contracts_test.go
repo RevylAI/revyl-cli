@@ -375,6 +375,14 @@ func TestCachePathsSupportHomeDirectories(t *testing.T) {
 			if (err != nil) != test.wantErr {
 				t.Fatalf("validateCaches() error = %v, wantErr = %v", err, test.wantErr)
 			}
+			err = validateCaches("build.caches", []BuildCache{{Key: "dependencies", Paths: []string{"node_modules"}, Hash: []string{test.path}}})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateCaches() hash error = %v, wantErr = %v", err, test.wantErr)
+			}
+			var configErr *ConfigError
+			if test.wantErr && (!errors.As(err, &configErr) || !reflect.DeepEqual(configErr.Path, []string{"build", "caches", "0", "hash"})) {
+				t.Fatalf("validateCaches() hash error = %#v, want path build.caches.0.hash", err)
+			}
 		})
 	}
 }

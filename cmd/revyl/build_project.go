@@ -347,7 +347,7 @@ func cloneEffectiveBuildRecipe(recipe config.EffectiveBuildRecipe) config.Effect
 	}
 	cloned.Caches = make([]config.BuildCache, len(recipe.Caches))
 	for index, cache := range recipe.Caches {
-		cloned.Caches[index] = config.BuildCache{Key: cache.Key, Paths: append([]string(nil), cache.Paths...)}
+		cloned.Caches[index] = config.BuildCache{Key: cache.Key, Paths: append([]string(nil), cache.Paths...), Hash: append([]string(nil), cache.Hash...)}
 	}
 	if recipe.OutputPath != nil {
 		value := *recipe.OutputPath
