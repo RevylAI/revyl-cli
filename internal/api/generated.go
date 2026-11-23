@@ -6139,6 +6139,48 @@ type AuthoredExternalCIReviewBuild struct {
 	Kind   string                   `json:"kind"`
 }
 
+// AuthoredMacProof A proof that runs on a Mac computer prepared at the pull request's head.
+//
+// “app_id“ is the Web app the proof's sessions, reports and history belong
+// to. “session_profile“ defaults to “session.default_profile“ and is the
+// profile that prepares the Mac before the agent starts; without either and
+// without targets, the Mac starts bare. The agent may use anything on the
+// Mac and run any of the project's profiles there. “targets“ names up to
+// ten starting points Revyl checks on the Mac first; a web, app or command
+// target needs a profile that checks the repository out. The checks and
+// their messages match the CLI's “validateMacProof“ in
+// “revyl-cli/internal/config/proof_macos.go“; the ones that read other
+// keys (a preview's web target, the session profile) run on the whole
+// configuration.
+type AuthoredMacProof struct {
+	AppId          openapi_types.UUID        `json:"app_id"`
+	SessionProfile *string                   `json:"session_profile,omitempty"`
+	Targets        *[]AuthoredMacProofTarget `json:"targets,omitempty"`
+}
+
+// AuthoredMacProofApp A native macOS app a Mac proof launches: an installed bundle ID, or a built .app.
+type AuthoredMacProofApp struct {
+	Build    *string `json:"build,omitempty"`
+	BundleId *string `json:"bundle_id,omitempty"`
+	Path     *string `json:"path,omitempty"`
+}
+
+// AuthoredMacProofTarget One named surface a Mac proof may drive; exactly one kind key is set.
+//
+// “ready_timeout_seconds“ applies only to a web target: how long the Mac
+// waits for its URL to answer, from 10 to 900 seconds (default 300). The cap
+// keeps the wait, with the session profile, inside the 20-minute Mac setup
+// limit.
+type AuthoredMacProofTarget struct {
+	// App A native macOS app a Mac proof launches: an installed bundle ID, or a built .app.
+	App                 *AuthoredMacProofApp `json:"app,omitempty"`
+	Command             *string              `json:"command,omitempty"`
+	Name                string               `json:"name"`
+	Preview             *string              `json:"preview,omitempty"`
+	ReadyTimeoutSeconds *int                 `json:"ready_timeout_seconds,omitempty"`
+	Web                 *string              `json:"web,omitempty"`
+}
+
 // AuthoredManagedReviewBuild A Revyl-managed PR build selecting one named profile.
 type AuthoredManagedReviewBuild struct {
 	Kind    string `json:"kind"`
@@ -6152,8 +6194,8 @@ type AuthoredManagedReviewBuild struct {
 // older spelling, and the older “workflow_ids“ means enabled workflows
 // without narrowing; CLIs before 0.2.11 read only the older spellings.
 type AuthoredPRReview struct {
-	Build   AuthoredPRReview_Build `json:"build"`
-	Enabled *bool                  `json:"enabled,omitempty"`
+	Build   *AuthoredPRReview_Build `json:"build,omitempty"`
+	Enabled *bool                   `json:"enabled,omitempty"`
 
 	// ProofOfChanges Authored proof-of-changes policy.
 	//
@@ -6199,7 +6241,22 @@ type AuthoredProofOfChanges struct {
 	AlwaysVerify *[]string                       `json:"always_verify,omitempty"`
 	Enabled      *bool                           `json:"enabled,omitempty"`
 	Harness      *AuthoredProofOfChanges_Harness `json:"harness,omitempty"`
-	SystemPrompt *string                         `json:"system_prompt,omitempty"`
+
+	// Macos A proof that runs on a Mac computer prepared at the pull request's head.
+	//
+	// ``app_id`` is the Web app the proof's sessions, reports and history belong
+	// to. ``session_profile`` defaults to ``session.default_profile`` and is the
+	// profile that prepares the Mac before the agent starts; without either and
+	// without targets, the Mac starts bare. The agent may use anything on the
+	// Mac and run any of the project's profiles there. ``targets`` names up to
+	// ten starting points Revyl checks on the Mac first; a web, app or command
+	// target needs a profile that checks the repository out. The checks and
+	// their messages match the CLI's ``validateMacProof`` in
+	// ``revyl-cli/internal/config/proof_macos.go``; the ones that read other
+	// keys (a preview's web target, the session profile) run on the whole
+	// configuration.
+	Macos        *AuthoredMacProof `json:"macos,omitempty"`
+	SystemPrompt *string           `json:"system_prompt,omitempty"`
 
 	// Triggers Authored changed-path, label, and draft review filters.
 	//

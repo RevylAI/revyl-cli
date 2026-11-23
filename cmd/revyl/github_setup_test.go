@@ -65,7 +65,7 @@ func TestCompleteGithubSetupBindsOnlySelectedManagedProfile(t *testing.T) {
 			},
 		},
 		PRReview: &config.AuthoredPRReview{
-			Build: config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName},
+			Build: &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName},
 		},
 	}
 	local := githubSetupContext(t, authored)
@@ -135,7 +135,7 @@ func TestCompleteGithubSetupLeavesCompletePolicyUnchanged(t *testing.T) {
 				"preview": {IOS: &config.AuthoredBuildRecipe{AppID: &appID, BuildCommands: &commands}},
 			},
 		},
-		PRReview: &config.AuthoredPRReview{Build: config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName}},
+		PRReview: &config.AuthoredPRReview{Build: &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName}},
 	}
 	local := githubSetupContext(t, authored)
 	withGithubSetupAppSelector(t, func(_ *cobra.Command, _ *api.Client, _ *config.ProjectContext, _ string) (string, error) {

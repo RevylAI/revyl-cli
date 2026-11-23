@@ -1062,7 +1062,7 @@ func mergeExistingCanonicalInitRecipe(existing, detected *config.AuthoredBuildRe
 // policy's specifically named profile. The newly detected profiles remain the
 // source of truth for normal local development.
 func preserveManagedReviewProfile(authored, existing *config.AuthoredConfig) error {
-	if authored == nil || existing == nil || existing.PRReview == nil || existing.PRReview.Build.Kind != "revyl" || existing.PRReview.Build.Profile == nil || existing.Build == nil {
+	if authored == nil || existing == nil || existing.PRReview == nil || existing.PRReview.Build == nil || existing.PRReview.Build.Kind != "revyl" || existing.PRReview.Build.Profile == nil || existing.Build == nil {
 		return nil
 	}
 	profileName := *existing.PRReview.Build.Profile

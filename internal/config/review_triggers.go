@@ -60,7 +60,7 @@ func (review AuthoredPRReview) RootTriggers() *AuthoredReviewTriggers {
 // only the pull requests that an enabled proof or workflow block's triggers
 // select, instead of every non-draft pull request under the project root.
 func (review AuthoredPRReview) TracksUnionOfBlocks() bool {
-	if review.RootTriggers() != nil || review.Build.Kind != "ci_upload_to_revyl" {
+	if review.RootTriggers() != nil || review.Build == nil || review.Build.Kind != "ci_upload_to_revyl" {
 		return false
 	}
 	if proof := review.ProofOfChanges; proof != nil && proof.Enabled != nil && *proof.Enabled && proof.Triggers != nil {

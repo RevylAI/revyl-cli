@@ -99,7 +99,7 @@ func authoredConfigWithReviewPaths(pathFilter string) AuthoredConfig {
 		},
 		PRReview: &AuthoredPRReview{
 			ReviewTriggers: &AuthoredReviewTriggers{Paths: []string{pathFilter}},
-			Build:          AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
+			Build:          &AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
 		},
 	}
 }
@@ -248,7 +248,7 @@ func TestExternalCIAppIDValidationOrderIsDeterministic(t *testing.T) {
 	contract := AuthoredConfig{
 		Project: AuthoredProject{ID: "10000000-0000-4000-8000-000000000001"},
 		PRReview: &AuthoredPRReview{
-			Build: AuthoredReviewBuild{
+			Build: &AuthoredReviewBuild{
 				Kind: "ci_upload_to_revyl",
 				AppIDs: &AuthoredExternalCIAppIDs{
 					IOS:     &iosAppID,

@@ -141,7 +141,7 @@ func completeReviewSetupConfiguration(
 		}
 		proofEnabled := true
 		candidate.PRReview = &config.AuthoredPRReview{
-			Build: reviewBuild,
+			Build: &reviewBuild,
 			ProofOfChanges: &config.AuthoredProofOfChanges{
 				Enabled: &proofEnabled,
 				Harness: &config.AuthoredProofHarness{Kind: "revyl"},
@@ -150,26 +150,28 @@ func completeReviewSetupConfiguration(
 		changed = true
 	}
 
-	switch candidate.PRReview.Build.Kind {
-	case "revyl":
-		profileName := *candidate.PRReview.Build.Profile
-		profile := candidate.Build.Profiles[profileName]
-		for _, platform := range []string{"ios", "android", "web"} {
-			recipe := reviewProfileRecipe(&profile, platform)
-			if recipe == nil || recipe.AppID != nil {
-				continue
+	if build := candidate.PRReview.Build; build != nil {
+		switch build.Kind {
+		case "revyl":
+			profileName := *build.Profile
+			profile := candidate.Build.Profiles[profileName]
+			for _, platform := range []string{"ios", "android", "web"} {
+				recipe := reviewProfileRecipe(&profile, platform)
+				if recipe == nil || recipe.AppID != nil {
+					continue
+				}
+				appID, selectErr := selectReviewSetupApp(cmd, client, local, platform)
+				if selectErr != nil {
+					return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for profile %q: %w", platform, profileName, selectErr)
+				}
+				recipe.AppID = &appID
+				changed = true
 			}
-			appID, selectErr := selectReviewSetupApp(cmd, client, local, platform)
-			if selectErr != nil {
-				return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for profile %q: %w", platform, profileName, selectErr)
-			}
-			recipe.AppID = &appID
-			changed = true
+			candidate.Build.Profiles[profileName] = profile
+		case "ci_upload_to_revyl":
+		default:
+			return config.AuthoredConfig{}, false, fmt.Errorf("unsupported pr_review build kind %q", build.Kind)
 		}
-		candidate.Build.Profiles[profileName] = profile
-	case "ci_upload_to_revyl":
-	default:
-		return config.AuthoredConfig{}, false, fmt.Errorf("unsupported pr_review build kind %q", candidate.PRReview.Build.Kind)
 	}
 
 	if err := candidate.ValidateContract(); err != nil {
@@ -256,7 +258,11 @@ func selectOrCreateReviewSetupApp(
 	return selectOrCreateAppChoice(cmd, client, projectName, platform)
 }
 
-func printReviewSetupBuildSummary(build config.AuthoredReviewBuild) {
+func printReviewSetupBuildSummary(build *config.AuthoredReviewBuild) {
+	if build == nil {
+		ui.PrintKeyValue("Review builds:", "none; this project runs only its Mac proof")
+		return
+	}
 	if build.Kind == "revyl" && build.Profile != nil {
 		ui.PrintKeyValue("Review builds:", "Revyl profile "+*build.Profile)
 		return

@@ -53,7 +53,7 @@ type NormalizedPlatformConfiguration struct {
 type NormalizedReviewPolicy struct {
 	Enabled          bool                      `json:"enabled"`
 	ReviewTriggers   NormalizedReviewTriggers  `json:"review_triggers"`
-	Build            NormalizedReviewBuild     `json:"build"`
+	Build            *NormalizedReviewBuild    `json:"build"`
 	ProofOfChanges   *NormalizedProof          `json:"proof_of_changes,omitempty"`
 	WorkflowIDs      []string                  `json:"workflow_ids"`
 	WorkflowsEnabled bool                      `json:"workflows_enabled"`
@@ -80,6 +80,7 @@ type NormalizedProof struct {
 	Harness      *NormalizedProofHarness   `json:"harness,omitempty"`
 	SystemPrompt *string                   `json:"system_prompt,omitempty"`
 	AlwaysVerify []string                  `json:"always_verify"`
+	Macos        *AuthoredProofMacos       `json:"macos,omitempty"`
 }
 
 type NormalizedProofHarness struct {
@@ -359,8 +360,10 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 		}
 		review := map[string]any{
 			"enabled":      enabled,
-			"build":        authoredReviewBuildFileProjection(authored.PRReview.Build),
 			"workflow_ids": nonNilSlice(authored.PRReview.WorkflowIDs),
+		}
+		if authored.PRReview.Build != nil {
+			review["build"] = authoredReviewBuildFileProjection(*authored.PRReview.Build)
 		}
 		if workflows := authored.PRReview.Workflows; workflows != nil {
 			workflowProjection := map[string]any{
@@ -404,6 +407,9 @@ func authoredConfigFileProjection(authored AuthoredConfig) map[string]any {
 			}
 			if authored.PRReview.ProofOfChanges.SystemPrompt != nil {
 				proof["system_prompt"] = *authored.PRReview.ProofOfChanges.SystemPrompt
+			}
+			if macos := authored.PRReview.ProofOfChanges.Macos; macos != nil {
+				proof["macos"] = cloneAuthoredProofMacos(macos)
 			}
 			review["proof_of_changes"] = proof
 		}
@@ -685,9 +691,12 @@ func normalizeReviewPolicy(review AuthoredPRReview, projectRoot string) (*Normal
 			authoredWorkflowTriggers = &AuthoredReviewTriggers{}
 		}
 	}
-	build := NormalizedReviewBuild{Kind: review.Build.Kind, Profile: cloneStringPointer(review.Build.Profile)}
-	if review.Build.AppIDs != nil {
-		build.AppIDs = &AuthoredExternalCIAppIDs{IOS: cloneStringPointer(review.Build.AppIDs.IOS), Android: cloneStringPointer(review.Build.AppIDs.Android), Web: cloneStringPointer(review.Build.AppIDs.Web)}
+	var build *NormalizedReviewBuild
+	if review.Build != nil {
+		build = &NormalizedReviewBuild{Kind: review.Build.Kind, Profile: cloneStringPointer(review.Build.Profile)}
+		if review.Build.AppIDs != nil {
+			build.AppIDs = &AuthoredExternalCIAppIDs{IOS: cloneStringPointer(review.Build.AppIDs.IOS), Android: cloneStringPointer(review.Build.AppIDs.Android), Web: cloneStringPointer(review.Build.AppIDs.Web)}
+		}
 	}
 	var proof *NormalizedProof
 	if review.ProofOfChanges != nil {
@@ -695,6 +704,7 @@ func normalizeReviewPolicy(review AuthoredPRReview, projectRoot string) (*Normal
 		if review.ProofOfChanges.Harness != nil {
 			proof.Harness = &NormalizedProofHarness{Kind: review.ProofOfChanges.Harness.Kind, ModelID: cloneStringPointer(review.ProofOfChanges.Harness.ModelID), CapyProjectID: cloneStringPointer(review.ProofOfChanges.Harness.CapyProjectID)}
 		}
+		proof.Macos = cloneAuthoredProofMacos(review.ProofOfChanges.Macos)
 	}
 	workflowTriggers := normalizeReviewBlockTriggers(authoredWorkflowTriggers, !tracksUnionOfBlocks, projectRoot)
 	strict := true

@@ -162,7 +162,7 @@ func prReviewConfigContext(t *testing.T, enabled bool) *config.ProjectContext {
 		},
 		PRReview: &config.AuthoredPRReview{
 			Enabled: &enabled,
-			Build:   config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
+			Build:   &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
 			ProofOfChanges: &config.AuthoredProofOfChanges{
 				Enabled: &enabled,
 				Harness: &config.AuthoredProofHarness{Kind: "revyl"},
@@ -1412,7 +1412,7 @@ func TestProjectConfigurationMissingManagedAppRecoveryUsesLocalProfilePath(t *te
 			},
 		},
 		PRReview: &config.AuthoredPRReview{
-			Build: config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
+			Build: &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile},
 		},
 	}
 	aggregate, err := config.NormalizeAuthoredConfig(authored, config.CompilationContext{

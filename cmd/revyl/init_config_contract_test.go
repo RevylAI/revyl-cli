@@ -479,7 +479,7 @@ func TestRunInitDetectRefreshesDetectedFieldsAndPreservesUnrelatedCanonicalState
 		},
 		PRReview: &config.AuthoredPRReview{
 			Enabled: &prEnabled,
-			Build: config.AuthoredReviewBuild{
+			Build: &config.AuthoredReviewBuild{
 				Kind:   "ci_upload_to_revyl",
 				AppIDs: &config.AuthoredExternalCIAppIDs{IOS: &ciIOSAppID},
 			},
@@ -774,7 +774,7 @@ func TestPreserveManagedReviewProfileKeepsMissingReferencedProfile(t *testing.T)
 			},
 		},
 		PRReview: &config.AuthoredPRReview{
-			Build: config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName},
+			Build: &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName},
 		},
 	}
 
@@ -809,7 +809,7 @@ func TestPreserveManagedReviewProfileRejectsFrameworkChange(t *testing.T) {
 			},
 		},
 		PRReview: &config.AuthoredPRReview{
-			Build: config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName},
+			Build: &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profileName},
 		},
 	}
 

@@ -45,6 +45,78 @@ The CLI rejects unknown model IDs, rejects `model_id` for `revyl` and `devin`,
 and rejects `capy_project_id` for any harness other than `capy` instead of
 silently dropping them.
 
+## Prove on a Mac
+
+`pr_review.proof_of_changes.macos` also proves each pull request on a Mac
+computer, prepared at the pull request head by a session profile. The agent may
+use the whole Mac and run any of the project's session profiles there; optional
+targets name starting points Revyl checks first:
+
+```yaml
+session:
+  default_profile: mac-dev
+  profiles:
+    mac-dev:
+      script: scripts/revyl/mac-dev.sh
+      requires_repository_checkout: true
+pr_review:
+  build:
+    kind: revyl
+    profile: pull-request
+  proof_of_changes:
+    enabled: true
+    macos:
+      app_id: "00000000-0000-4000-8000-000000000001"
+      session_profile: mac-dev
+      targets:
+        - name: dashboard
+          web: http://localhost:3000/dashboard
+          ready_timeout_seconds: 600
+        - name: menubar
+          app: {bundle_id: com.example.Menubar}
+        - name: editor
+          app:
+            path: build/Release/Editor.app
+            build: xcodebuild -scheme Editor -configuration Release -derivedDataPath build
+        - name: cli
+          command: ./bin/example
+        - name: pricing
+          preview: /pricing
+```
+
+- `app_id` is required: the Web app the Mac proof's sessions and reports
+  belong to.
+- `session_profile` defaults to `session.default_profile` and must name a
+  profile in `session.profiles`. A `web`, `app` or `command` target needs
+  one, with `requires_repository_checkout: true`; a default of `none` doesn't
+  count. With no targets and no profile, the Mac starts bare.
+- `targets` is optional and lists at most 10 entries. Each has a unique `name`
+  (1-40 lowercase letters, digits and dashes) and exactly one kind:
+  - `web`: an `http` or `https` URL on `localhost`, `127.0.0.1` or `[::1]`,
+    with an optional `ready_timeout_seconds` (10 to 900, default 300) that
+    bounds how long Revyl waits for it to answer;
+  - `app`: `bundle_id`, or `path` to an `.app` relative to the project root
+    with an optional `build` command;
+  - `command`: one program, a project-relative path or a name on `PATH`, with
+    no spaces or shell characters;
+  - `preview`: a path starting with `/` on the web target's preview. It needs a
+    `web` recipe in the `pr_review.build` profile, or
+    `pr_review.build.app_ids.web`.
+
+A project that sets `macos` can omit `pr_review.build`. Its pull requests then
+build nothing and run only the Mac proof, so it can't use `preview` targets.
+
+`revyl config validate` rejects a config that breaks these rules and names the
+key, for example
+`pr_review.proof_of_changes.macos.targets[editor].app.path must end in .app`.
+CLI releases before Mac proofs reject `macos` as an unknown key. Before the
+agent starts, Revyl checks each target on the Mac; one that doesn't resolve
+ends the proof as Inconclusive instead of a guess. A Mac proof passes only on
+work the agent did on the Mac. Mac proofs run only with `harness.kind: revyl`.
+See [Proof on a Mac](https://docs.revyl.com/agents/proof#proof-on-a-mac) for
+the profile script, the profiles the agent can run during the proof, and what
+each Inconclusive cause means.
+
 ## Filter changed paths
 
 `pr_review.triggers.paths` limits which changed files trigger the project's PR

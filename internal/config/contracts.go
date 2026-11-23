@@ -187,12 +187,14 @@ type AuthoredBuildRecipe struct {
 // Triggers selects which pull requests Revyl builds, or for CI uploads waits
 // on, and block triggers only narrow it. ReviewTriggers is its deprecated
 // spelling. WorkflowIDs is the deprecated spelling of Workflows; it keeps its
-// original meaning of enabled workflows without narrowing.
+// original meaning of enabled workflows without narrowing. Build may be
+// omitted only when ProofOfChanges sets macos; that review runs only the Mac
+// proof.
 type AuthoredPRReview struct {
 	Enabled        *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Triggers       *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 	ReviewTriggers *AuthoredReviewTriggers `json:"review_triggers,omitempty" yaml:"review_triggers,omitempty"`
-	Build          AuthoredReviewBuild     `json:"build" yaml:"build"`
+	Build          *AuthoredReviewBuild    `json:"build,omitempty" yaml:"build,omitempty"`
 	ProofOfChanges *AuthoredProofOfChanges `json:"proof_of_changes,omitempty" yaml:"proof_of_changes,omitempty"`
 	Workflows      *AuthoredWorkflows      `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	WorkflowIDs    []string                `json:"workflow_ids,omitempty" yaml:"workflow_ids,omitempty"`
@@ -236,6 +238,38 @@ type AuthoredProofOfChanges struct {
 	Harness      *AuthoredProofHarness   `json:"harness,omitempty" yaml:"harness,omitempty"`
 	SystemPrompt *string                 `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 	AlwaysVerify []string                `json:"always_verify,omitempty" yaml:"always_verify,omitempty"`
+	Macos        *AuthoredProofMacos     `json:"macos,omitempty" yaml:"macos,omitempty"`
+}
+
+// AuthoredProofMacos proves the pull request head on a Mac computer that a
+// session profile prepares. AppID is the Web app the proof's sessions, reports
+// and history belong to, and Targets name up to ten starting points Revyl
+// checks on the Mac first; with none, the profile alone prepares it.
+type AuthoredProofMacos struct {
+	AppID          string              `json:"app_id" yaml:"app_id"`
+	SessionProfile *string             `json:"session_profile,omitempty" yaml:"session_profile,omitempty"`
+	Targets        []AuthoredMacTarget `json:"targets" yaml:"targets,omitempty"`
+}
+
+// AuthoredMacTarget is one named surface of a Mac proof. Exactly one of Web,
+// App, Command, or Preview is set.
+type AuthoredMacTarget struct {
+	Name    string          `json:"name" yaml:"name"`
+	Web     *string         `json:"web,omitempty" yaml:"web,omitempty"`
+	App     *AuthoredMacApp `json:"app,omitempty" yaml:"app,omitempty"`
+	Command *string         `json:"command,omitempty" yaml:"command,omitempty"`
+	Preview *string         `json:"preview,omitempty" yaml:"preview,omitempty"`
+	// ReadyTimeoutSeconds bounds how long a web target's check waits for its
+	// URL to answer; it is web-only and defaults to 300 seconds.
+	ReadyTimeoutSeconds *int `json:"ready_timeout_seconds,omitempty" yaml:"ready_timeout_seconds,omitempty"`
+}
+
+// AuthoredMacApp launches an installed app by BundleID, or a built .app at
+// Path that the optional Build command produces in the checkout.
+type AuthoredMacApp struct {
+	BundleID *string `json:"bundle_id,omitempty" yaml:"bundle_id,omitempty"`
+	Path     *string `json:"path,omitempty" yaml:"path,omitempty"`
+	Build    *string `json:"build,omitempty" yaml:"build,omitempty"`
 }
 
 // AuthoredProofHarness selects the Revyl, Cursor, Capy, or Devin proof executor.
@@ -423,60 +457,67 @@ func (c AuthoredConfig) ValidateContract() error {
 		}
 	}
 
-	switch c.PRReview.Build.Kind {
-	case "revyl":
-		if c.PRReview.Build.Profile == nil {
-			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile is required for revyl")
+	build := c.PRReview.Build
+	if build == nil {
+		if !c.PRReview.HasMacProof() {
+			return newConfigError("contract", "missing_field", []string{"pr_review", "build"}, "")
 		}
-		if err := validateProfileName("pr_review.build.profile", *c.PRReview.Build.Profile); err != nil {
-			return authoredContractError([]string{"pr_review", "build", "profile"}, err.Error())
-		}
-		if c.PRReview.Build.AppIDs != nil {
-			return authoredContractError([]string{"pr_review", "build", "app_ids"}, "pr_review.build.app_ids is external-CI-only")
-		}
-	case "ci_upload_to_revyl":
-		if c.PRReview.Build.Profile != nil {
-			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile is managed-build-only")
-		}
-		if c.PRReview.Build.AppIDs == nil || (c.PRReview.Build.AppIDs.IOS == nil && c.PRReview.Build.AppIDs.Android == nil && c.PRReview.Build.AppIDs.Web == nil) {
-			return authoredContractError([]string{"pr_review", "build", "app_ids"}, "pr_review.build.app_ids must contain at least one platform")
-		}
-		for _, candidate := range []struct {
-			platform string
-			appID    *string
-		}{
-			{platform: "ios", appID: c.PRReview.Build.AppIDs.IOS},
-			{platform: "android", appID: c.PRReview.Build.AppIDs.Android},
-			{platform: "web", appID: c.PRReview.Build.AppIDs.Web},
-		} {
-			if candidate.appID != nil {
-				if _, err := uuid.Parse(*candidate.appID); err != nil {
-					return authoredContractError(
-						[]string{"pr_review", "build", "app_ids", candidate.platform},
-						"pr_review.build.app_ids must contain UUIDs",
-					)
+	} else {
+		switch build.Kind {
+		case "revyl":
+			if build.Profile == nil {
+				return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile is required for revyl")
+			}
+			if err := validateProfileName("pr_review.build.profile", *build.Profile); err != nil {
+				return authoredContractError([]string{"pr_review", "build", "profile"}, err.Error())
+			}
+			if build.AppIDs != nil {
+				return authoredContractError([]string{"pr_review", "build", "app_ids"}, "pr_review.build.app_ids is external-CI-only")
+			}
+		case "ci_upload_to_revyl":
+			if build.Profile != nil {
+				return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile is managed-build-only")
+			}
+			if build.AppIDs == nil || (build.AppIDs.IOS == nil && build.AppIDs.Android == nil && build.AppIDs.Web == nil) {
+				return authoredContractError([]string{"pr_review", "build", "app_ids"}, "pr_review.build.app_ids must contain at least one platform")
+			}
+			for _, candidate := range []struct {
+				platform string
+				appID    *string
+			}{
+				{platform: "ios", appID: build.AppIDs.IOS},
+				{platform: "android", appID: build.AppIDs.Android},
+				{platform: "web", appID: build.AppIDs.Web},
+			} {
+				if candidate.appID != nil {
+					if _, err := uuid.Parse(*candidate.appID); err != nil {
+						return authoredContractError(
+							[]string{"pr_review", "build", "app_ids", candidate.platform},
+							"pr_review.build.app_ids must contain UUIDs",
+						)
+					}
 				}
 			}
+		default:
+			return authoredContractError([]string{"pr_review", "build", "kind"}, "pr_review.build.kind is unsupported")
 		}
-	default:
-		return authoredContractError([]string{"pr_review", "build", "kind"}, "pr_review.build.kind is unsupported")
 	}
 	if err := validateDeprecatedSpellings(c.PRReview); err != nil {
 		return err
 	}
-	if c.PRReview.Build.Kind == "revyl" {
+	if build != nil && build.Kind == "revyl" {
 		if c.Build == nil {
 			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile requires build profiles")
 		}
-		reviewProfile, ok := c.Build.Profiles[*c.PRReview.Build.Profile]
+		reviewProfile, ok := c.Build.Profiles[*build.Profile]
 		if !ok {
 			return authoredContractError([]string{"pr_review", "build", "profile"}, "pr_review.build.profile must name a declared profile")
 		}
 		if !reviewProfile.hasPhoneRecipe() && !reviewProfile.Web.HasBuildRecipe() {
-			return newConfigError("contract", "profile_url_only", []string{"pr_review", "build", "profile"}, URLOnlyProfileMessage(*c.PRReview.Build.Profile))
+			return newConfigError("contract", "profile_url_only", []string{"pr_review", "build", "profile"}, URLOnlyProfileMessage(*build.Profile))
 		}
 	}
-	return nil
+	return c.validateMacProof()
 }
 
 func validCapyProofModelID(modelID string) bool {

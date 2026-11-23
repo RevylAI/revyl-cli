@@ -92,11 +92,12 @@ func (c *Client) ReplaceProjectConfiguration(
 	request ProjectConfigurationReplaceRequest,
 ) (*ProjectConfigurationReplaceResponse, error) {
 	path := fmt.Sprintf("/api/v1/projects/%s/configuration", projectID)
-	// Tells the backend a configuration without session profiles removes them;
-	// it refuses that removal from clients that would drop them unknowingly.
+	// Tells the backend a configuration without session profiles or a Mac proof
+	// removes them; it refuses that removal from clients that would drop them
+	// unknowingly.
 	response, err := c.doRequestOnceWithClient(
 		ctx, "PUT", path, &request, c.projectConfigurationHTTPClient(),
-		map[string]string{"X-Revyl-Client-Capabilities": "session_profiles"},
+		map[string]string{"X-Revyl-Client-Capabilities": "session_profiles,macos"},
 	)
 	if err != nil {
 		return nil, err

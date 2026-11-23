@@ -425,6 +425,74 @@ func profileNodesAreWebOnly(profiles *yaml.Node) bool {
 	return true
 }
 
+func validateMacProofNode(macos *yaml.Node, macosPath []string) error {
+	if macos == nil || nodeIsNull(macos) {
+		return nil
+	}
+	keyPath := func(keys ...string) []string {
+		return append(append([]string{}, macosPath...), keys...)
+	}
+	if err := validateMappingNode(macos, macosPath, false); err != nil {
+		return err
+	}
+	if err := validateAllowedKeys(macos, macosPath, "app_id", "session_profile", "targets"); err != nil {
+		return err
+	}
+	if mappingValue(macos, "app_id") == nil {
+		return newConfigError("contract", "missing_field", keyPath("app_id"), "pr_review.proof_of_changes.macos.app_id is required")
+	}
+	if err := validateStringNode(mappingValue(macos, "app_id"), keyPath("app_id"), false); err != nil {
+		return err
+	}
+	if err := validateStringNode(mappingValue(macos, "session_profile"), keyPath("session_profile"), true); err != nil {
+		return err
+	}
+	targets := mappingValue(macos, "targets")
+	if targets == nil {
+		return nil
+	}
+	if targets.Kind != yaml.SequenceNode {
+		return newConfigError("contract", "invalid_contract", keyPath("targets"), "pr_review.proof_of_changes.macos.targets must be a list")
+	}
+	for index, target := range targets.Content {
+		targetPath := keyPath("targets", strconv.Itoa(index))
+		if err := validateMappingNode(target, targetPath, false); err != nil {
+			return err
+		}
+		if err := validateAllowedKeys(target, targetPath, "name", "web", "app", "command", "preview", "ready_timeout_seconds"); err != nil {
+			return err
+		}
+		if mappingValue(target, "name") == nil {
+			return newConfigError("contract", "missing_field", append(targetPath, "name"), fmt.Sprintf("pr_review.proof_of_changes.macos.targets[%d].name is required", index))
+		}
+		for _, key := range []string{"name", "web", "command", "preview"} {
+			if err := validateStringNode(mappingValue(target, key), append(append([]string{}, targetPath...), key), key != "name"); err != nil {
+				return err
+			}
+		}
+		if timeout := mappingValue(target, "ready_timeout_seconds"); timeout != nil && !nodeIsNull(timeout) && (timeout.Kind != yaml.ScalarNode || timeout.Tag != "!!int") {
+			return newConfigError("contract", "invalid_contract", append(append([]string{}, targetPath...), "ready_timeout_seconds"), "must be an integer number of seconds")
+		}
+		app := mappingValue(target, "app")
+		if app == nil || nodeIsNull(app) {
+			continue
+		}
+		appPath := append(append([]string{}, targetPath...), "app")
+		if err := validateMappingNode(app, appPath, false); err != nil {
+			return err
+		}
+		if err := validateAllowedKeys(app, appPath, "bundle_id", "path", "build"); err != nil {
+			return err
+		}
+		for _, key := range []string{"bundle_id", "path", "build"} {
+			if err := validateStringNode(mappingValue(app, key), append(append([]string{}, appPath...), key), true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func validateReviewKeys(review *yaml.Node) error {
 	if review == nil || nodeIsNull(review) {
 		return nil
@@ -445,13 +513,15 @@ func validateReviewKeys(review *yaml.Node) error {
 		}
 	}
 	build := mappingValue(review, "build")
-	if build == nil {
-		return newConfigError("contract", "missing_field", append(path, "build"), "")
-	}
-	if err := validateMappingNode(build, append(path, "build"), false); err != nil {
+	if build == nil || nodeIsNull(build) {
+		proof := mappingValue(review, "proof_of_changes")
+		if macos := mappingValue(proof, "macos"); macos == nil || nodeIsNull(macos) {
+			return newConfigError("contract", "missing_field", append(path, "build"), "")
+		}
+	} else if err := validateMappingNode(build, append(path, "build"), false); err != nil {
 		return err
 	}
-	if build.Kind == yaml.MappingNode {
+	if build != nil && build.Kind == yaml.MappingNode {
 		kind := scalarValue(mappingValue(build, "kind"))
 		unionPath := append(append([]string{}, path...), "build", kind)
 		if err := validateAllowedKeys(build, unionPath, "kind", "profile", "app_ids"); err != nil {
@@ -485,7 +555,10 @@ func validateReviewKeys(review *yaml.Node) error {
 		if err := validateMappingNode(proof, proofPath, true); err != nil {
 			return err
 		}
-		if err := validateAllowedKeys(proof, proofPath, "enabled", "harness", "system_prompt", "always_verify", "triggers"); err != nil {
+		if err := validateAllowedKeys(proof, proofPath, "enabled", "harness", "system_prompt", "always_verify", "triggers", "macos"); err != nil {
+			return err
+		}
+		if err := validateMacProofNode(mappingValue(proof, "macos"), append(append([]string{}, proofPath...), "macos")); err != nil {
 			return err
 		}
 		if err := validateReviewTriggerNode(mappingValue(proof, "triggers"), append(proofPath, "triggers")); err != nil {
@@ -872,7 +945,7 @@ func canonicalizeAuthoredConfigUUIDs(authored *AuthoredConfig) error {
 			authored.PRReview.Workflows.WorkflowIDs[index] = value
 		}
 	}
-	if authored.PRReview.Build.AppIDs != nil {
+	if authored.PRReview.Build != nil && authored.PRReview.Build.AppIDs != nil {
 		for _, candidate := range []struct {
 			platform string
 			value    **string
@@ -1045,7 +1118,7 @@ func ValidateExecutionRecipe(recipe EffectiveBuildRecipe) error {
 // ValidatePublication validates server-owned references supplied by an authenticated caller.
 func ValidatePublication(aggregate NormalizedProjectAggregate, context PublicationValidationContext) error {
 	managedProfile := ""
-	if aggregate.ReviewPolicy != nil && aggregate.ReviewPolicy.Build.Kind == "revyl" && aggregate.ReviewPolicy.Build.Profile != nil {
+	if aggregate.ReviewPolicy != nil && aggregate.ReviewPolicy.Build != nil && aggregate.ReviewPolicy.Build.Kind == "revyl" && aggregate.ReviewPolicy.Build.Profile != nil {
 		managedProfile = *aggregate.ReviewPolicy.Build.Profile
 	}
 	for _, profile := range aggregate.Profiles {
@@ -1088,7 +1161,7 @@ func ValidatePublication(aggregate NormalizedProjectAggregate, context Publicati
 				return newConfigError("validation", "workflow_not_active_for_organization", []string{"pr_review", "workflows", "workflow_ids"}, "")
 			}
 		}
-		if aggregate.ReviewPolicy.Build.AppIDs != nil {
+		if aggregate.ReviewPolicy.Build != nil && aggregate.ReviewPolicy.Build.AppIDs != nil {
 			for platform, appID := range map[string]*string{"ios": aggregate.ReviewPolicy.Build.AppIDs.IOS, "android": aggregate.ReviewPolicy.Build.AppIDs.Android, "web": aggregate.ReviewPolicy.Build.AppIDs.Web} {
 				if appID != nil {
 					if _, exists := context.ActiveAppIDs[*appID]; !exists {

@@ -368,7 +368,7 @@ func TestGitlabSetupResumesPendingWebhookWithoutRepublishing(t *testing.T) {
 			})
 			commands := config.CommandStepItems([]string{"build"})
 			profile, app := "preview", githubSetupIOSAppID
-			local := githubSetupContext(t, config.AuthoredConfig{Project: config.AuthoredProject{ID: configRemoteProjectID}, Build: &config.AuthoredBuild{Framework: "ios", Profiles: map[string]config.AuthoredBuildProfile{"preview": {IOS: &config.AuthoredBuildRecipe{AppID: &app, BuildCommands: &commands}}}}, PRReview: &config.AuthoredPRReview{Build: config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile}}})
+			local := githubSetupContext(t, config.AuthoredConfig{Project: config.AuthoredProject{ID: configRemoteProjectID}, Build: &config.AuthoredBuild{Framework: "ios", Profiles: map[string]config.AuthoredBuildProfile{"preview": {IOS: &config.AuthoredBuildRecipe{AppID: &app, BuildCommands: &commands}}}}, PRReview: &config.AuthoredPRReview{Build: &config.AuthoredReviewBuild{Kind: "revyl", Profile: &profile}}})
 			resolved, err := resolveConnectedProjectConfiguration(local)
 			if err != nil {
 				t.Fatal(err)

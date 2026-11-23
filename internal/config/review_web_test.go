@@ -155,7 +155,7 @@ func TestReviewWebAppIDIsAuthoredContractPlatform(t *testing.T) {
 	contract := AuthoredConfig{
 		Project: AuthoredProject{ID: reviewWebProjectID},
 		PRReview: &AuthoredPRReview{
-			Build: AuthoredReviewBuild{Kind: "ci_upload_to_revyl", AppIDs: &AuthoredExternalCIAppIDs{Web: &webAppID}},
+			Build: &AuthoredReviewBuild{Kind: "ci_upload_to_revyl", AppIDs: &AuthoredExternalCIAppIDs{Web: &webAppID}},
 		},
 	}
 	if err := contract.ValidateContract(); err != nil {

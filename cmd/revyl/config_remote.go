@@ -961,7 +961,7 @@ func missingManagedReviewAppIDPaths(localContexts []*config.ProjectContext) ([]s
 		return nil, ""
 	}
 	aggregate := localContexts[0].Aggregate
-	if aggregate.ReviewPolicy == nil || aggregate.ReviewPolicy.Build.Kind != "revyl" || aggregate.ReviewPolicy.Build.Profile == nil {
+	if aggregate.ReviewPolicy == nil || aggregate.ReviewPolicy.Build == nil || aggregate.ReviewPolicy.Build.Kind != "revyl" || aggregate.ReviewPolicy.Build.Profile == nil {
 		return nil, ""
 	}
 	managedProfile := *aggregate.ReviewPolicy.Build.Profile
