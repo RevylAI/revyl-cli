@@ -3228,14 +3228,11 @@ var deviceDoctorCmd = &cobra.Command{
 				allPassed = false
 			} else {
 				checks = append(checks, mcppkg.DiagnosticCheck{Name: "worker", Status: "pass"})
-				var health struct {
-					DeviceConnected bool `json:"device_connected"`
-				}
-				if json.Unmarshal(respBytes, &health) == nil {
-					if health.DeviceConnected {
+				if healthy, detail, readable := mcppkg.DoctorDeviceHealth(session.Platform, respBytes); readable {
+					if healthy {
 						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "pass"})
 					} else {
-						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "fail", Detail: "Worker running but device not connected", Fix: "Wait a few seconds or stop and start a new session"})
+						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "fail", Detail: detail, Fix: "Wait a few seconds or stop and start a new session"})
 						allPassed = false
 					}
 				}

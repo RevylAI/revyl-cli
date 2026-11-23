@@ -2375,15 +2375,11 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		} else {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "pass"})
 
-			// Check 3b: Device connectivity (parse /health response body)
-			var health struct {
-				DeviceConnected bool `json:"device_connected"`
-			}
-			if json.Unmarshal(respBytes, &health) == nil {
-				if health.DeviceConnected {
+			if healthy, detail, readable := DoctorDeviceHealth(session.Platform, respBytes); readable {
+				if healthy {
 					checks = append(checks, DiagnosticCheck{Name: "device", Status: "pass"})
 				} else {
-					checks = append(checks, DiagnosticCheck{Name: "device", Status: "fail", Detail: "Worker is running but device is not connected", Fix: "stop_device_session() and start a new one"})
+					checks = append(checks, DiagnosticCheck{Name: "device", Status: "fail", Detail: detail, Fix: "stop_device_session() and start a new one"})
 					allPassed = false
 				}
 			}

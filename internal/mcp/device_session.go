@@ -2715,6 +2715,44 @@ func (m *DeviceSessionManager) RequireCoordsOnScreen(ctx context.Context, sessio
 	return false, fmt.Errorf("(%d, %d) is outside the %dx%d %s screen; %s coordinates are %s from the top-left corner", x, y, width, height, platform, platform, unit)
 }
 
+// DoctorDeviceHealth reads a session's /health body for the doctor's device
+// check. A mobile worker reports device_connected; a Web session's runtime
+// reports whether its browser is ready, with a fresh frame, for this session.
+//
+// Parameters:
+//   - platform: The session's platform.
+//   - body: The /health response body.
+//
+// Returns:
+//   - healthy: true when the device or browser can take input.
+//   - detail: why it cannot, in the platform's terms; empty when healthy.
+//   - readable: false when the body has no field the platform reports, so
+//     the doctor has no device check to show.
+func DoctorDeviceHealth(platform string, body []byte) (healthy bool, detail string, readable bool) {
+	if platform == "web" {
+		var health struct {
+			Ready *bool `json:"ready"`
+		}
+		if json.Unmarshal(body, &health) != nil || health.Ready == nil {
+			return false, "", false
+		}
+		if !*health.Ready {
+			return false, "Browser running but not ready for input", true
+		}
+		return true, "", true
+	}
+	var health struct {
+		DeviceConnected bool `json:"device_connected"`
+	}
+	if json.Unmarshal(body, &health) != nil {
+		return false, "", false
+	}
+	if !health.DeviceConnected {
+		return false, "Worker running but device not connected", true
+	}
+	return true, "", true
+}
+
 // parseWorkerHealth unmarshals the /health JSON body and validates device connectivity.
 //
 // Returns:
