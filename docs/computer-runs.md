@@ -182,7 +182,19 @@ directory. Relative file-operation paths also start there: `notes.txt` means
 `/Users/computer/workspace/notes.txt`, not `/Users/computer/notes.txt`.
 The workspace's `Library/Keychains` is a link to the account's login keychains,
 so an app started from `exec`, such as Chrome, finds its keychain instead of
-asking for one. `PATH` ends with Homebrew's `/opt/homebrew/bin` and
+asking for one. Command-line tools that `exec` runs directly, such as
+`security`, run outside the desktop session and don't see the login keychain.
+To run one in the desktop session, wrap it in a shell like this:
+
+```bash
+revyl computer exec "$C1" -- /bin/zsh -lc \
+  'sudo -n launchctl asuser "$(id -u computer)" sudo -n -u computer -H security list-keychains'
+```
+
+This relies on passwordless `sudo`; on a computer without it, `sudo -n` stops at
+once with "a password is required".
+
+`PATH` ends with Homebrew's `/opt/homebrew/bin` and
 `/opt/homebrew/sbin`, and `computer` owns `/opt/homebrew`, so
 `revyl computer exec "$C1" -- brew install hello` works without `sudo`.
 
