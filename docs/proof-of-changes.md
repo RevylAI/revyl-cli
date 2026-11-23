@@ -112,7 +112,7 @@ key, for example
 CLI releases before Mac proofs reject `macos` as an unknown key. Before the
 agent starts, Revyl checks each target on the Mac; one that doesn't resolve
 ends the proof as Inconclusive instead of a guess. A Mac proof passes only on
-work the agent did on the Mac. Mac proofs run only with `harness.kind: revyl`.
+work the agent did on the Mac. Mac proofs run under every `harness.kind`.
 See [Proof on a Mac](https://docs.revyl.com/agents/proof#proof-on-a-mac) for
 the profile script, the profiles the agent can run during the proof, and what
 each Inconclusive cause means.
