@@ -87,6 +87,17 @@ const computerExtendUnsupportedMessage = "This computer's host cannot extend it;
 
 const computerDisplayUnsupportedMessage = "No computer host can apply a display size yet. Omit --display to start at the default 1280x800."
 
+func computerInferenceText(readiness string) string {
+	switch readiness {
+	case "ready":
+		return "Host model ready"
+	case "unavailable":
+		return "Host model not answering; validation and extract are refused"
+	default:
+		return "Host model not checked until the computer is active"
+	}
+}
+
 func computerStateText(state, release string) string {
 	if (state == "stopped" || state == "failed" || state == "owner_lost") && release != "confirmed" {
 		return state + ", cleanup " + release
@@ -292,6 +303,9 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 	}
 	if detail.Persistent != nil {
 		rows = append(rows, []string{"Persistent", persistentComputerStateText(*detail.Persistent)})
+	}
+	if detail.Inference != nil {
+		rows = append(rows, []string{"Inference", computerInferenceText(string(*detail.Inference))})
 	}
 	if detail.FailureReason != nil {
 		reason, ok := computerFailureReasons[*detail.FailureReason]

@@ -551,6 +551,7 @@ func (e AuthoredBuildFramework) Valid() bool {
 
 // Defines values for BackendCapabilitiesCapabilities.
 const (
+	BackendCapabilitiesCapabilitiesDeviceLocalInference   BackendCapabilitiesCapabilities = "device_local_inference"
 	BackendCapabilitiesCapabilitiesHostedSessionProfiles  BackendCapabilitiesCapabilities = "hosted_session_profiles"
 	BackendCapabilitiesCapabilitiesSessionProfiles        BackendCapabilitiesCapabilities = "session_profiles"
 	BackendCapabilitiesCapabilitiesWebTestSessionProfiles BackendCapabilitiesCapabilities = "web_test_session_profiles"
@@ -559,6 +560,8 @@ const (
 // Valid indicates whether the value is a known member of the BackendCapabilitiesCapabilities enum.
 func (e BackendCapabilitiesCapabilities) Valid() bool {
 	switch e {
+	case BackendCapabilitiesCapabilitiesDeviceLocalInference:
+		return true
 	case BackendCapabilitiesCapabilitiesHostedSessionProfiles:
 		return true
 	case BackendCapabilitiesCapabilitiesSessionProfiles:
@@ -1170,6 +1173,7 @@ const (
 	ComputerAPIErrorDetail0ExecOptionsUnsupported  ComputerAPIErrorDetail0 = "exec_options_unsupported"
 	ComputerAPIErrorDetail0ExtendUnsupported       ComputerAPIErrorDetail0 = "extend_unsupported"
 	ComputerAPIErrorDetail0Inaccessible            ComputerAPIErrorDetail0 = "inaccessible"
+	ComputerAPIErrorDetail0InferenceUnavailable    ComputerAPIErrorDetail0 = "inference_unavailable"
 	ComputerAPIErrorDetail0InvalidHandle           ComputerAPIErrorDetail0 = "invalid_handle"
 	ComputerAPIErrorDetail0InvalidRequest          ComputerAPIErrorDetail0 = "invalid_request"
 	ComputerAPIErrorDetail0OperationLimit          ComputerAPIErrorDetail0 = "operation_limit"
@@ -1195,6 +1199,7 @@ const (
 	ComputerAPIErrorDetail0SnapshotExpired         ComputerAPIErrorDetail0 = "snapshot_expired"
 	ComputerAPIErrorDetail0SnapshotNameTaken       ComputerAPIErrorDetail0 = "snapshot_name_taken"
 	ComputerAPIErrorDetail0StartFailed             ComputerAPIErrorDetail0 = "start_failed"
+	ComputerAPIErrorDetail0StepEngineUnavailable   ComputerAPIErrorDetail0 = "step_engine_unavailable"
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorDetail0 enum.
@@ -1213,6 +1218,8 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 	case ComputerAPIErrorDetail0ExtendUnsupported:
 		return true
 	case ComputerAPIErrorDetail0Inaccessible:
+		return true
+	case ComputerAPIErrorDetail0InferenceUnavailable:
 		return true
 	case ComputerAPIErrorDetail0InvalidHandle:
 		return true
@@ -1263,6 +1270,8 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 	case ComputerAPIErrorDetail0SnapshotNameTaken:
 		return true
 	case ComputerAPIErrorDetail0StartFailed:
+		return true
+	case ComputerAPIErrorDetail0StepEngineUnavailable:
 		return true
 	default:
 		return false
@@ -2160,6 +2169,27 @@ func (e ComputerReportEvidenceWriteStatus) Valid() bool {
 	}
 }
 
+// Defines values for ComputerReportInference.
+const (
+	ComputerReportInferenceReady       ComputerReportInference = "ready"
+	ComputerReportInferenceUnavailable ComputerReportInference = "unavailable"
+	ComputerReportInferenceUnknown     ComputerReportInference = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportInference enum.
+func (e ComputerReportInference) Valid() bool {
+	switch e {
+	case ComputerReportInferenceReady:
+		return true
+	case ComputerReportInferenceUnavailable:
+		return true
+	case ComputerReportInferenceUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerReportOs.
 const (
 	ComputerReportOsLinux ComputerReportOs = "linux"
@@ -2262,6 +2292,27 @@ func (e ComputerReportDetailEvidenceWriteStatus) Valid() bool {
 	case ComputerReportDetailEvidenceWriteStatusPending:
 		return true
 	case ComputerReportDetailEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerReportDetailInference.
+const (
+	ComputerReportDetailInferenceReady       ComputerReportDetailInference = "ready"
+	ComputerReportDetailInferenceUnavailable ComputerReportDetailInference = "unavailable"
+	ComputerReportDetailInferenceUnknown     ComputerReportDetailInference = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerReportDetailInference enum.
+func (e ComputerReportDetailInference) Valid() bool {
+	switch e {
+	case ComputerReportDetailInferenceReady:
+		return true
+	case ComputerReportDetailInferenceUnavailable:
+		return true
+	case ComputerReportDetailInferenceUnknown:
 		return true
 	default:
 		return false
@@ -2604,6 +2655,27 @@ func (e ComputerStopReportEvidenceWriteStatus) Valid() bool {
 	case ComputerStopReportEvidenceWriteStatusPending:
 		return true
 	case ComputerStopReportEvidenceWriteStatusRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ComputerStopReportInference.
+const (
+	ComputerStopReportInferenceReady       ComputerStopReportInference = "ready"
+	ComputerStopReportInferenceUnavailable ComputerStopReportInference = "unavailable"
+	ComputerStopReportInferenceUnknown     ComputerStopReportInference = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ComputerStopReportInference enum.
+func (e ComputerStopReportInference) Valid() bool {
+	switch e {
+	case ComputerStopReportInferenceReady:
+		return true
+	case ComputerStopReportInferenceUnavailable:
+		return true
+	case ComputerStopReportInferenceUnknown:
 		return true
 	default:
 		return false
@@ -7903,7 +7975,10 @@ type ComputerHostingCapability struct {
 	Browsers *[]CognisimSchemasSchemasWebSchemaWebBrowser `json:"browsers,omitempty"`
 
 	// LaunchValues Whether the computer's host delivers launch variables, environment and arguments to the iOS apps it hosts. Reported only when the request asks for it.
-	LaunchValues          *bool                                `json:"launch_values,omitempty"`
+	LaunchValues *bool `json:"launch_values,omitempty"`
+
+	// LocalInference Whether the computer's host runs its own vision model, so an iOS or Web app session inside it can start with `inference: local`. Reported only when the request asks for it.
+	LocalInference        *bool                                `json:"local_inference,omitempty"`
 	MaxChildren           int                                  `json:"max_children"`
 	MaxChildrenByPlatform *map[string]int                      `json:"max_children_by_platform,omitempty"`
 	Platforms             []ComputerHostingCapabilityPlatforms `json:"platforms"`
@@ -8204,12 +8279,15 @@ type ComputerReport struct {
 	ExecutionStartedAt   *time.Time                          `json:"execution_started_at,omitempty"`
 	ExpiresAt            time.Time                           `json:"expires_at"`
 	FailureReason        *string                             `json:"failure_reason,omitempty"`
-	Kind                 *string                             `json:"kind,omitempty"`
-	OrgId                openapi_types.UUID                  `json:"org_id"`
-	Os                   ComputerReportOs                    `json:"os"`
-	Release              *ComputerReportRelease              `json:"release,omitempty"`
-	ReleasedAt           *time.Time                          `json:"released_at,omitempty"`
-	ReportId             openapi_types.UUID                  `json:"report_id"`
+
+	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+	Inference  *ComputerReportInference `json:"inference,omitempty"`
+	Kind       *string                  `json:"kind,omitempty"`
+	OrgId      openapi_types.UUID       `json:"org_id"`
+	Os         ComputerReportOs         `json:"os"`
+	Release    *ComputerReportRelease   `json:"release,omitempty"`
+	ReleasedAt *time.Time               `json:"released_at,omitempty"`
+	ReportId   openapi_types.UUID       `json:"report_id"`
 
 	// SessionProfile The session profile a computer runs on its Mac once it is active.
 	SessionProfile *ComputerSessionProfile `json:"session_profile,omitempty"`
@@ -8229,6 +8307,9 @@ type ComputerReportEvidenceCompleteness string
 
 // ComputerReportEvidenceWriteStatus defines model for ComputerReport.EvidenceWriteStatus.
 type ComputerReportEvidenceWriteStatus string
+
+// ComputerReportInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+type ComputerReportInference string
 
 // ComputerReportOs defines model for ComputerReport.Os.
 type ComputerReportOs string
@@ -8251,9 +8332,12 @@ type ComputerReportDetail struct {
 	ExecutionStartedAt   *time.Time                                `json:"execution_started_at,omitempty"`
 	ExpiresAt            time.Time                                 `json:"expires_at"`
 	FailureReason        *string                                   `json:"failure_reason,omitempty"`
-	Kind                 *string                                   `json:"kind,omitempty"`
-	OrgId                openapi_types.UUID                        `json:"org_id"`
-	Os                   ComputerReportDetailOs                    `json:"os"`
+
+	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+	Inference *ComputerReportDetailInference `json:"inference,omitempty"`
+	Kind      *string                        `json:"kind,omitempty"`
+	OrgId     openapi_types.UUID             `json:"org_id"`
+	Os        ComputerReportDetailOs         `json:"os"`
 
 	// Persistent A persistent computer keeps one ID across stops; each start is a new run.
 	//
@@ -8283,6 +8367,9 @@ type ComputerReportDetailEvidenceCompleteness string
 // ComputerReportDetailEvidenceWriteStatus defines model for ComputerReportDetail.EvidenceWriteStatus.
 type ComputerReportDetailEvidenceWriteStatus string
 
+// ComputerReportDetailInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+type ComputerReportDetailInference string
+
 // ComputerReportDetailOs defines model for ComputerReportDetail.Os.
 type ComputerReportDetailOs string
 
@@ -8300,8 +8387,11 @@ type ComputerRunCreate struct {
 	Display *ComputerDisplaySize `json:"display,omitempty"`
 
 	// FromSnapshot ID or name of a snapshot of this organization to create the computer from. Implies a persistent macOS computer whose disk starts as the snapshot's.
-	FromSnapshot *string             `json:"from_snapshot,omitempty"`
-	Os           ComputerRunCreateOs `json:"os"`
+	FromSnapshot *string `json:"from_snapshot,omitempty"`
+
+	// Inference macOS only: place the computer on a host whose own vision model is loaded, so its instruction, validation and extract steps run on that model. Refused with inference_unavailable when no such host is up. A persistent computer created this way keeps the request for its later starts, which do not wait for such a host; the computer's inference field says whether its host's model answers.
+	Inference *bool               `json:"inference,omitempty"`
+	Os        ComputerRunCreateOs `json:"os"`
 
 	// Persistent Keep this computer's disk when it stops or reaches its lifetime end, so it can start again later under the same ID. Memory and running processes do not survive a stop.
 	Persistent *bool `json:"persistent,omitempty"`
@@ -8436,9 +8526,12 @@ type ComputerStopReport struct {
 	ExecutionStartedAt   *time.Time                              `json:"execution_started_at,omitempty"`
 	ExpiresAt            time.Time                               `json:"expires_at"`
 	FailureReason        *string                                 `json:"failure_reason,omitempty"`
-	Kind                 *string                                 `json:"kind,omitempty"`
-	OrgId                openapi_types.UUID                      `json:"org_id"`
-	Os                   ComputerStopReportOs                    `json:"os"`
+
+	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+	Inference *ComputerStopReportInference `json:"inference,omitempty"`
+	Kind      *string                      `json:"kind,omitempty"`
+	OrgId     openapi_types.UUID           `json:"org_id"`
+	Os        ComputerStopReportOs         `json:"os"`
 
 	// Persistent A persistent computer keeps one ID across stops; each start is a new run.
 	//
@@ -8467,6 +8560,9 @@ type ComputerStopReportEvidenceCompleteness string
 
 // ComputerStopReportEvidenceWriteStatus defines model for ComputerStopReport.EvidenceWriteStatus.
 type ComputerStopReportEvidenceWriteStatus string
+
+// ComputerStopReportInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+type ComputerStopReportInference string
 
 // ComputerStopReportOs defines model for ComputerStopReport.Os.
 type ComputerStopReportOs string
@@ -11705,7 +11801,10 @@ type StartDeviceInfo struct {
 	ExplorationConfig  *ExplorationSessionConfig `json:"exploration_config,omitempty"`
 	GitBranchName      *string                   `json:"git_branch_name,omitempty"`
 	IdleTimeoutSeconds *int                      `json:"idle_timeout_seconds,omitempty"`
-	IsSimulation       *bool                     `json:"is_simulation,omitempty"`
+
+	// Inference `local` runs the instruction and validation steps of an iOS or Web app session inside a computer on that computer's own vision model first, falling back to Revyl's hosted model when it is unsure or busy. Refused with `computer_local_inference_unavailable` when the computer has no model.
+	Inference    *string `json:"inference,omitempty"`
+	IsSimulation *bool   `json:"is_simulation,omitempty"`
 
 	// LaunchArguments Explicit iOS app arguments in exact token order
 	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
@@ -13777,7 +13876,8 @@ type ListComputerRunsApiV1ComputerRunsGetParams struct {
 
 // GetComputerHostingApiV1ComputerRunsComputerSessionIdHostingGetParams defines parameters for GetComputerHostingApiV1ComputerRunsComputerSessionIdHostingGet.
 type GetComputerHostingApiV1ComputerRunsComputerSessionIdHostingGetParams struct {
-	LaunchValues *bool `form:"launch_values,omitempty" json:"launch_values,omitempty"`
+	LaunchValues   *bool `form:"launch_values,omitempty" json:"launch_values,omitempty"`
+	LocalInference *bool `form:"local_inference,omitempty" json:"local_inference,omitempty"`
 }
 
 // SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPostParams defines parameters for SubmitComputerOperationApiV1ComputerRunsComputerSessionIdOperationsPost.

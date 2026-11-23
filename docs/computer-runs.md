@@ -71,6 +71,7 @@ revyl computer create --os macos --id "$C1" --json
 revyl computer create --os macos --display 1440x900 --json
 revyl computer create --os macos --timeout 8h --json
 revyl computer create --os macos --session-profile signed-in --json
+revyl computer create --os macos --inference --json
 revyl computer extend "$C1" --timeout 4h --json
 revyl computer list
 revyl computer get "$C1"
@@ -344,9 +345,61 @@ characters are refused. A refused text, or one the computer cannot type, fails
 with `screen_text_unsupported` and types nothing. Use `--json` for a stable machine-readable
 result: screenshots return `width`, `height`, `observed_at`, `png` and `cursor`;
 actions return `screenshot` (null unless `--out` is set), `cursor`, and `point`
-after a click with `--target`. The cursor
+and `engine` after a click with `--target`. The cursor
 is an `{ "x": ..., "y": ... }` point or null. PNG data uses padded URL-safe
 base64 in CLI JSON output.
+
+## Plain-language steps
+
+```bash
+revyl computer instruction C1 "Open the File menu"
+revyl computer validation C1 "The cart shows 2 items" --json
+revyl computer extract C1 "the order number"
+revyl computer instruction C1 "Click Save" --engine local
+```
+
+These take the device verbs' plain-language form on a computer's screen. An
+`instruction` clicks the one thing it names; for typing, keys or several steps,
+use the screen commands above. A `validation` checks a statement against the
+screen, and an `extract` reads a value off it.
+
+`--engine` picks who answers. `local` is a vision model running on the
+computer's own host, which nothing inside the computer can reach. `hosted` is
+Revyl's hosted grounding, the same lookup as `click --target`. `auto`, the
+default, tries the local model first and falls back to hosted grounding where
+one exists. Only instructions have a hosted path today, so on a computer
+without a local model, `validation` and `extract` fail with
+`step_engine_unavailable` and nothing is clicked; so does `--engine local` there.
+
+`revyl computer create --os macos --inference` places the computer on a host whose
+own vision model is loaded. A host advertises its model only when the model
+server answered on the host's loopback as the host's worker started, so a model
+that finished loading later waits for the next worker start. When no such host is
+up, create fails with `inference_unavailable` (HTTP 409) and creates nothing;
+when every such host is busy, the computer waits for one like any other.
+`revyl computer get` then shows `Inference`, and its `--json` output the
+`inference` field: `ready` when the host's model answers now, `unavailable` when
+it does not, and `unknown` until the computer is active or while its host cannot
+be asked. A computer created without `--inference` has no `inference` field. A
+persistent computer created with `--inference` keeps it for every later start,
+but a start goes to the host holding its disk whether or not that host has a
+model, so check `inference` after a start. An older backend refuses
+`--inference` with HTTP 422.
+
+The local model clicks only a point it has checked: it proposes a point, checks
+it, and retries once with more thought. A point it cannot confirm, a statement
+it cannot settle and a value it cannot read are `uncertain`, never a pass. An
+uncertain instruction clicks nothing.
+
+The result has the device verbs' fields, `success`, `step_type`, `status`
+(`passed`, `failed` or `uncertain`), `status_reason`, `validation_result` and
+`extracted_data.information`, plus `point` for an instruction, `engine`
+(`local` or `hosted`), `local_engine` (the host's model server, `mlx_vlm` or
+`mtplx`, when the host answered), `attempts` (model answers across both
+engines) and `seconds`. The command exits 1 unless the status is `passed`. `click --target`
+uses the same engines with `auto`, and its `--json` result names the `engine`
+that found the target. The hosted MCP's `device_instruction` and
+`device_validation` tools run these steps when given a computer session.
 
 The unreleased `computer` MCP tool requires `revyl mcp serve
 --experimental-computer`. It remains absent from every profile unless that
@@ -430,6 +483,18 @@ The app session has its own session ID, stream, report and `revyl device stop`.
 Stopping it leaves C1 running; stopping C1 ends it. Its report attributes only
 the actions Revyl's driver took, and commands run in C1 can also change the
 app.
+
+`--inference local` on an iOS or Web start inside a computer sends the session's
+steps to the computer host's own vision model first, the one `computer create
+--inference` places the computer beside. A validation is checked there, and an
+instruction that is a single tap or click on one thing (`"Tap Settings"`) is
+located and tapped there. Every other step, an answer the model can't give for
+certain, a model busy with another step for more than two seconds, and a host or
+backend that predates the flag all go to Revyl's hosted model, as they would
+without it. Each step's `--json` result names the `engine` that answered (`local`
+or `hosted`). The start is refused with `409 computer_local_inference_unavailable`
+when the computer's host has no model, and with HTTP 422 for Android or a session
+outside a computer.
 
 ### Coding agents inside a computer
 

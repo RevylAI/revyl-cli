@@ -96,6 +96,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	_ = create.Flags().MarkHidden("persistent")
 	create.Flags().String("from-snapshot", "", "Create a persistent macOS computer whose disk starts as this snapshot's (ID or name)")
 	_ = create.Flags().MarkHidden("from-snapshot")
+	create.Flags().Bool("inference", false, "Place the computer on a host with its own vision model loaded, so instruction, validation and extract run on it (macOS only)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
 			if len(args) != 0 {
@@ -120,6 +121,10 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			persistent, _ := cmd.Flags().GetBool("persistent")
 			if persistent && osName != "macos" {
 				return nil, errors.New("--persistent requires --os macos")
+			}
+			inference, _ := cmd.Flags().GetBool("inference")
+			if inference && osName != "macos" {
+				return nil, errors.New("--inference requires --os macos")
 			}
 			explicitWait, _ := cmd.Flags().GetBool("wait")
 			waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
@@ -172,6 +177,9 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 			}
 			if fromSnapshot != "" {
 				request.FromSnapshot = &fromSnapshot
+			}
+			if inference {
+				request.Inference = &inference
 			}
 			request.SessionProfileSource, request.SessionProfileFiles = profile.Source, profile.Files
 			if runsProfile {
@@ -552,6 +560,7 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 	process.AddCommand(list, newComputerOperationCommand("inspect C1 HANDLE", "Inspect one run-owned process handle", "process_inspect"), newComputerOperationCommand("terminate C1 HANDLE", "Terminate one run-owned process handle", "process_terminate"))
 	command.AddCommand(process)
 	addComputerScreenCommands(command)
+	addComputerStepCommands(command)
 	return command
 }
 
@@ -1058,6 +1067,14 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		completion.DomainStatus = "succeeded"
 		if err := writeComputerScreenOutput(cmd, result, jsonOutput); err != nil {
 			return analytics.WithSafeDiagnostic(err, "computer screen output failed")
+		}
+	case *api.ComputerStepResult:
+		completion.DomainStatus = result.Status
+		if result.Status != "passed" {
+			exitCode, exitMessage = 1, fmt.Sprintf("computer %s %s", result.StepType, result.Status)
+		}
+		if err := writeComputerStep(cmd, result, jsonOutput); err != nil {
+			return analytics.WithSafeDiagnostic(err, "computer step output failed")
 		}
 	case *api.ComputerCommandResponse:
 		info, inspectErr := api.InspectComputerExecution(*result)

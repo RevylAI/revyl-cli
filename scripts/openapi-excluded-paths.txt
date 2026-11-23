@@ -24,9 +24,10 @@
 # client surface would advertise an endpoint no ordinary caller can use.
 /api/v1/scm/proof-runs/comment
 
-# Computer screen control uses handwritten CLI transport models.
+# Computer screen control and steps use handwritten CLI transport models.
 /api/v1/computer-runs/%s/screen/actions
 /api/v1/computer-runs/%s/screen/screenshot
+/api/v1/computer-runs/%s/steps
 
 # Persistent computers are an internal preview gated to Revyl's own
 # organizations, so their routes stay off the public generated surface and use

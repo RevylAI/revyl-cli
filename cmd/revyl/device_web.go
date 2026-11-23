@@ -101,7 +101,8 @@ func runWebDeviceStart(cmd *cobra.Command) error {
 			return err
 		}
 	}
-	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport, Browser: browser}, ComputerSessionID: computerSessionID}
+	inference, _ := cmd.Flags().GetString("inference")
+	opts := mcppkg.StartSessionOptions{Platform: "web", AppID: strings.TrimSpace(appID), BranchName: branchName, BuildSelection: buildSelection, BuildVersionID: strings.TrimSpace(buildID), WebURL: webURL, WebCommitSHA: strings.TrimSpace(commit), LaunchEnv: launchEnv, Web: &api.DeviceWebOptions{SecretEnvVars: secretLaunchEnv, Viewport: viewport, Browser: browser}, ComputerSessionID: computerSessionID, Inference: strings.TrimSpace(inference)}
 	if !cmd.Flags().Changed("computer") {
 		opts.DefaultComputerSessionID = opts.ComputerSessionID
 		opts.ComputerSessionID = ""

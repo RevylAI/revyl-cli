@@ -822,6 +822,12 @@
           "title": "Launch Values",
           "type": "boolean"
         },
+        "local_inference": {
+          "default": false,
+          "description": "Whether the computer's host runs its own vision model, so an iOS or Web app session inside it can start with `inference: local`. Reported only when the request asks for it.",
+          "title": "Local Inference",
+          "type": "boolean"
+        },
         "max_children": {
           "maximum": 8.0,
           "minimum": 0.0,
@@ -1924,6 +1930,23 @@
           ],
           "title": "Failure Reason"
         },
+        "inference": {
+          "anyOf": [
+            {
+              "enum": [
+                "ready",
+                "unavailable",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.",
+          "title": "Inference"
+        },
         "kind": {
           "const": "computer",
           "default": "computer",
@@ -2129,6 +2152,23 @@
             }
           ],
           "title": "Failure Reason"
+        },
+        "inference": {
+          "anyOf": [
+            {
+              "enum": [
+                "ready",
+                "unavailable",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.",
+          "title": "Inference"
         },
         "kind": {
           "const": "computer",

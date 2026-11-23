@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -714,12 +715,45 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 	if err != nil {
 		return err
 	}
+	if status := liveStepEngineStatus(response); status != "" {
+		analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+			Domain:       "device_live_step",
+			DomainStatus: status,
+		})
+	}
 	outcomeErr := mcppkg.EvaluateLiveStepOutcome(response, request.StepType)
 	if outcomeErr != nil && response != nil {
 		response.Success = false
 	}
 	jsonOrPrint(cmd, compactLiveStepResponseForOutput(response), formatLiveStepFallback(stepLabel, request, response))
 	return outcomeErr
+}
+
+// liveStepEngineStatus names who answered a step of a session started with
+// --inference local: "local", "hosted" when the computer's model was not asked,
+// or "hosted_after_local_<outcome>" when it was asked and the hosted model
+// answered instead. It is empty for any other session.
+func liveStepEngineStatus(response *mcppkg.LiveStepResponse) string {
+	if response == nil {
+		return ""
+	}
+	var output struct {
+		Engine       string `json:"engine"`
+		LocalOutcome string `json:"local_outcome"`
+	}
+	if json.Unmarshal(response.StepOutput, &output) != nil {
+		return ""
+	}
+	switch {
+	case output.Engine == "local":
+		return "local"
+	case output.Engine != "hosted":
+		return ""
+	case slices.Contains([]string{"passed", "failed", "uncertain", "unavailable"}, output.LocalOutcome):
+		return "hosted_after_local_" + output.LocalOutcome
+	default:
+		return "hosted"
+	}
 }
 
 func buildCodeExecutionLiveStepRequest(scriptID, variableName string) mcppkg.LiveStepRequest {
@@ -979,6 +1013,8 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			}
 		}
 		computerSessionID := computerSessionIDForStart(cmd)
+		inference, _ := cmd.Flags().GetString("inference")
+		inference = strings.TrimSpace(inference)
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser := deviceStartOpensBrowser(cmd, computerSessionID)
 		appID, _ := cmd.Flags().GetString("app-id")
@@ -1190,6 +1226,7 @@ revyl device navigate http://localhost:PORT to reach a server on the computer.`,
 			DeviceModel:                selectedDeviceModel,
 			OsVersion:                  selectedOsVersion,
 			ComputerSessionID:          computerSessionID,
+			Inference:                  inference,
 		})
 		if prepErr != nil {
 			return prepErr
@@ -4032,6 +4069,7 @@ func init() {
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\"); defaults to the newest runtime --device-model supports")
 	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
 	deviceStartCmd.Flags().String("computer", "", "Run inside a computer (default: REVYL_COMPUTER_ID); use none for a standalone device")
+	deviceStartCmd.Flags().String("inference", "", "local: an iOS or Web session inside a computer finds tap points and checks validations on the computer's own model first, falling back to Revyl's hosted model")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")

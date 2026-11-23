@@ -77,6 +77,7 @@ type ComputerScreenActionResult struct {
 	Screenshot *ComputerScreenshot  `json:"screenshot"`
 	Cursor     *ComputerScreenPoint `json:"cursor"`
 	Point      *ComputerScreenPoint `json:"point,omitempty"`
+	Engine     string               `json:"engine,omitempty"`
 }
 
 var computerScreenButtons = map[string]struct{}{"left": {}, "right": {}, "middle": {}}

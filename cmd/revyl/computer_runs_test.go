@@ -780,6 +780,53 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	}
 }
 
+func TestComputerCreateInferenceAsksForAHostModelAndNamesItsRefusal(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	for _, tc := range []struct {
+		name      string
+		osName    string
+		wantSent  bool
+		wantError string
+	}{
+		{"macos", "macos", true, "no computer host with its own vision model is up right now, so no computer was created"},
+		{"linux", "linux", false, "--inference requires --os macos"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var bodies []map[string]json.RawMessage
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]json.RawMessage
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				bodies = append(bodies, body)
+				w.WriteHeader(http.StatusConflict)
+				fmt.Fprint(w, `{"detail":"inference_unavailable"}`)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			t.Setenv("REVYL_API_KEY", "fixture-key")
+			root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+			root.AddCommand(newComputerCommand())
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs([]string{"computer", "create", "--os", tc.osName, "--inference"})
+
+			err := root.Execute()
+
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("computer create --inference said %v, want %q", err, tc.wantError)
+			}
+			if !tc.wantSent {
+				if len(bodies) != 0 {
+					t.Fatalf("computer create --inference sent %d requests, want none", len(bodies))
+				}
+				return
+			}
+			if len(bodies) != 1 || string(bodies[0]["inference"]) != "true" {
+				t.Fatalf("computer create --inference sent %v, want inference true", bodies)
+			}
+		})
+	}
+}
+
 func TestComputerExecWarnsWhenALaunchAgentMissesTheAccountHome(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	id, requestID := uuid.New(), uuid.New()

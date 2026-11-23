@@ -4676,6 +4676,10 @@ type StartDeviceRequest struct {
 	// ComputerSessionID runs the app session inside this running computer.
 	ComputerSessionID string `json:"computer_session_id,omitempty"`
 
+	// Inference "local" runs an iOS or Web session's steps inside a computer on
+	// that computer's own model first.
+	Inference string `json:"inference,omitempty"`
+
 	// RunConfig contains optional execution configuration.
 	RunConfig *DeviceRunConfig `json:"run_config,omitempty"`
 

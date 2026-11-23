@@ -464,6 +464,9 @@ type StartSessionOptions struct {
 	// chooses its own device.
 	ComputerSessionID        string
 	DefaultComputerSessionID string
+	// Inference "local" runs an iOS or Web session's steps inside its computer
+	// on the computer's own model first.
+	Inference string
 
 	// OnStartAccepted, when set, is called once the backend has accepted the
 	// start and named its session, before StartSession waits for the device.
@@ -475,9 +478,16 @@ type StartSessionOptions struct {
 	OnQueued func(notice *billingstatus.QueueNotice)
 }
 
+// BackendCapabilityDeviceLocalInference is the backend capability that
+// accepts inference "local" on a session start inside a computer.
+const BackendCapabilityDeviceLocalInference = "device_local_inference"
+
 // ValidateComputerSessionStart rejects start options that a session inside the
 // computer computerSessionID cannot use. An empty computerSessionID passes.
 func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSessionID string) error {
+	if opts.Inference != "" && (opts.Inference != "local" || (platform != "ios" && platform != "web") || computerSessionID == "") {
+		return fmt.Errorf("--inference local runs only for iOS and Web sessions inside a computer; pass --platform ios or web and --computer <computer-id>")
+	}
 	if computerSessionID == "" {
 		return nil
 	}
@@ -711,6 +721,7 @@ func (m *DeviceSessionManager) StartSession(
 			return -1, nil, fmt.Errorf("a session inside a computer needs an app and one of its builds")
 		}
 		req.ComputerSessionID = computerSessionID
+		req.Inference = opts.Inference
 		req.AppURL, req.AppPackage = "", ""
 	}
 
@@ -721,6 +732,11 @@ func (m *DeviceSessionManager) StartSession(
 	warn := opts.OnWarning
 	if warn == nil {
 		warn = func(message string) { ui.PrintWarning("%s", message) }
+	}
+	if req.Inference != "" {
+		if err := sessionprofile.RequireBackendCapability(ctx, m.apiClient, BackendCapabilityDeviceLocalInference, "--inference local"); err != nil {
+			return -1, nil, err
+		}
 	}
 	profile := opts.SessionProfile
 	if err := profile.RequireHostedRun(ctx, m.apiClient); err != nil {

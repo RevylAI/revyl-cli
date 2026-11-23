@@ -233,7 +233,7 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 		if decodeComputerJSON(body, &safe, "detail") == nil {
 			code, _ := safe.Detail.AsComputerAPIErrorDetail0()
 			switch string(code) {
-			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "persistent_computers_not_enabled", "display_unsupported", "lifetime_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported", "extend_unsupported", "computer_long_limit", "computer_not_persistent", "saved_disk_unavailable", "saved_disk_expired", "computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken", "snapshot_expired", "repository_unavailable", "session_profile_running", "persistent_computer_limit", "snapshot_limit":
+			case "inaccessible", "invalid_request", "request_conflict", "run_conflict", "owner_unavailable", "run_closed", "operation_limit", "invalid_handle", "operation_not_found", "evidence_conflict", "evidence_unavailable", "start_failed", "runtime_unavailable", "computer_limit", "computer_not_enabled", "persistent_computers_not_enabled", "display_unsupported", "lifetime_unsupported", "unauthenticated", "forbidden", "authentication_unavailable", "screen_control_held", "screen_unavailable", "screen_input_uncertain", "screen_text_unsupported", "screen_point_outside", "screen_key_unsupported", "screen_target_not_found", "screen_target_unavailable", "exec_options_unsupported", "extend_unsupported", "computer_long_limit", "computer_not_persistent", "saved_disk_unavailable", "saved_disk_expired", "computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken", "snapshot_expired", "repository_unavailable", "session_profile_running", "step_engine_unavailable", "inference_unavailable", "persistent_computer_limit", "snapshot_limit":
 				refusal.Code, refusal.Message = string(code), "computer request refused: "+string(code)
 				if refusal.Code == "lifetime_unsupported" && safe.MaxTimeoutSeconds != nil && *safe.MaxTimeoutSeconds > 0 {
 					refusal.Message = "no computer host can run that long yet; request a timeout of " + wholeDuration(time.Duration(*safe.MaxTimeoutSeconds)*time.Second) + " or less"
@@ -257,6 +257,14 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 				}
 				if refusal.Code == "screen_target_not_found" || refusal.Code == "screen_target_unavailable" {
 					refusal.Message += "; nothing was clicked"
+				}
+				if refusal.Code == "step_engine_unavailable" {
+					refusal.Message = "this computer's own vision model is not answering, so nothing was clicked: validation, extract and --engine local need it"
+					refusal.Hint = "Create the computer with --inference, or check its model with revyl computer get; an instruction without --engine local falls back to hosted grounding."
+				}
+				if refusal.Code == "inference_unavailable" {
+					refusal.Message = "no computer host with its own vision model is up right now, so no computer was created"
+					refusal.Hint = "Retry later, or create the computer without --inference."
 				}
 				if offer := safe.Offer; refusal.Code == "computer_limit" && offer != nil && offer.Action.Valid() && strings.HasPrefix(offer.BillingUrl, "https://") {
 					refusal.BillingURL = offer.BillingUrl
