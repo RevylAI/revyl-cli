@@ -601,9 +601,17 @@ Revyl enabled; others get persistent_computers_not_enabled.
 A snapshot names a stopped persistent computer's current saved disk once it is
 saved off host, under a name unique in your organization. It copies nothing,
 so it is ready at once. create --from-snapshot S1 creates a new persistent
-macOS computer whose disk starts as the snapshot's. Everything on that disk
-carries over, including signed-in accounts and any secrets stored on it, so
-anyone in your organization who can create computers can use what it holds.
+macOS computer whose disk starts as the snapshot's. Files on that disk,
+secrets stored in them included, and the login keychain carry over, so anyone
+in your organization who can create computers can use what it holds. Items in
+the data-protection keychain (Apple Account, iCloud, Internet Accounts and
+Safari's saved passwords) are tied to the original computer's hardware
+identity, so the new computer can't read them. Website sign-ins may also come
+up signed out: many sites, Revyl's included, replace a browser's session token
+each time it is used, so once the snapshotted computer, or another computer
+made from the snapshot, has used that session, a new computer from the
+snapshot opens the site signed out. Sign in again after creating it, or use a
+session profile that signs in.
 A snapshot lasts until you delete it or the save it names ends (expires_at;
 see revyl computer start --help), even after its computer starts again or is
 deleted. Deleting a snapshot never changes a computer already created from it.`
