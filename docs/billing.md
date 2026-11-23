@@ -26,7 +26,7 @@ revyl billing add-card --no-open     # Print the link instead
 - **Auto-recharge:** $20 when credit drops under $5. Steps up as you use more. Set your own amount any time, or turn it off.
 - **Monthly limit:** none unless you set one. With a limit set, auto-recharge stays at its amount.
 - **macOS computers** come with Pro. Add a card to unlock them; your 1,200 free minutes still cover macOS.
-- **Devices at once:** iOS and Android devices and Mac computers share them; Web sessions don't use them. Need more than 10? [Talk to us](https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo).
+- **Devices at once:** iOS and Android devices and Mac computers share them; Web sessions don't use them. Need more than 10? [Talk to us](https://cal.com/landseer-enga/book-a-demo).
 - **Organizations created earlier** keep the free minutes and rates shown on their Billing page.
 
 Owners and admins change billing in Billing settings. On an older paid plan,
@@ -61,7 +61,7 @@ Card             on file
 Free minutes     used up, resets Dec 3
 This period      96 sessions, 1020 min, $31.50
 Devices at once  10
-                 Need more than 10? Talk to us: https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo
+                 Need more than 10? Talk to us: https://cal.com/landseer-enga/book-a-demo
 Credit           $12.50
 Auto-recharge    $20 when credit drops under $5
                  Steps up as you use more. Set your own amount any time.

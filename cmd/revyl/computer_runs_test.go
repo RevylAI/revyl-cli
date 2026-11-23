@@ -654,7 +654,7 @@ func TestComputerCreateSendsTheRequestedDisplaySize(t *testing.T) {
 func TestComputerCreateAtTheDeviceLimitNamesTheStepForMoreDevices(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	const billingURL = "https://app.revyl.ai/settings/billing?add_card=1&organization_id=org"
-	const contactURL = "https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo"
+	const contactURL = "https://cal.com/landseer-enga/book-a-demo"
 	const limit = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
 	for _, tc := range []struct {
 		name       string

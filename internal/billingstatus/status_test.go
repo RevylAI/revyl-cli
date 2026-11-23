@@ -404,7 +404,7 @@ func TestProShowsDevicesStepUpAndNoMonthlyLimit(t *testing.T) {
 	Write(&out, status)
 
 	for _, want := range []string{
-		"Devices at once  10\n                 Need more than 10? Talk to us: https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo\n",
+		"Devices at once  10\n                 Need more than 10? Talk to us: https://cal.com/landseer-enga/book-a-demo\n",
 		"Auto-recharge    $20 when credit drops under $5\n                 Steps up as you use more. Set your own amount any time.\n",
 		"Monthly limit    none unless you set one\n",
 		"Rates            iOS Simulator     $0.075/min\n",
@@ -479,7 +479,7 @@ func TestStatusFromABackendWithoutTheNewFieldsAddsNoRowsAndNoGuesses(t *testing.
 	var out bytes.Buffer
 	Write(&out, status)
 
-	if got, want := out.String(), "Plan             Pro\nCard             on file\nDevices at once  10\n                 Need more than 10? Talk to us: https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo\nCredit           $12.50\nAuto-recharge    $20 when credit drops under $5\nUnavailable      usage_cap\n\nBilling settings: "; !strings.HasPrefix(got, want) {
+	if got, want := out.String(), "Plan             Pro\nCard             on file\nDevices at once  10\n                 Need more than 10? Talk to us: https://cal.com/landseer-enga/book-a-demo\nCredit           $12.50\nAuto-recharge    $20 when credit drops under $5\nUnavailable      usage_cap\n\nBilling settings: "; !strings.HasPrefix(got, want) {
 		t.Fatalf("output =\n%s\nwant prefix\n%s", got, want)
 	}
 	encoded, err := json.Marshal(status)

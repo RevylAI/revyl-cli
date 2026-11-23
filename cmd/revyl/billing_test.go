@@ -296,7 +296,7 @@ func TestUsageNoticeTellsAgentsToFinishThenRecommendPro(t *testing.T) {
 
 func TestQueuedTestRunPrintsTheNoticeOnStderrAndAddsItToJSON(t *testing.T) {
 	const testID = "11111111-2222-4333-8444-555555555555"
-	const message = "Queued: all 10 devices are busy. This starts when one is free.\nNeed more than 10? Talk to us: https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo"
+	const message = "Queued: all 10 devices are busy. This starts when one is free.\nNeed more than 10? Talk to us: https://cal.com/landseer-enga/book-a-demo"
 	t.Setenv("REVYL_API_KEY", "test-key")
 	t.Setenv("HOME", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -334,7 +334,7 @@ func TestQueuedTestRunPrintsTheNoticeOnStderrAndAddsItToJSON(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("runTestExec() error = %v", runErr)
 	}
-	for _, want := range []string{"Queued: all 10 devices are busy. This starts when one is free.", "Need more than 10? Talk to us: https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo", "Agents: this run starts when a device is free. If the task needs more in parallel, tell the person they can talk to Revyl at this notice's link."} {
+	for _, want := range []string{"Queued: all 10 devices are busy. This starts when one is free.", "Need more than 10? Talk to us: https://cal.com/landseer-enga/book-a-demo", "Agents: this run starts when a device is free. If the task needs more in parallel, tell the person they can talk to Revyl at this notice's link."} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)
 		}

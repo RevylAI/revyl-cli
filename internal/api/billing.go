@@ -154,7 +154,7 @@ func billingDialogURL(devMode bool, dialog string, organizationID string) string
 
 // EnterpriseContactURL is where an organization asks for more devices at once
 // than Pro runs.
-const EnterpriseContactURL = "https://scheduler.zoom.us/d/ijwhox6j/revyl-product-demo"
+const EnterpriseContactURL = "https://cal.com/landseer-enga/book-a-demo"
 
 // AutoTopUp is the auto-recharge setting of an organization on Pro.
 type AutoTopUp struct {
