@@ -3137,6 +3137,16 @@ func (e *WorkerHTTPError) Error() string {
 		if e.proxyCode == "worker_gone" && runtimeInputAction(action) {
 			message += "; the " + action + " never reached the device, so retrying the same command is safe"
 		}
+	} else if e.failedAtGateway() {
+		action := strings.TrimPrefix(e.Path, "/")
+		message += "; Revyl's API gateway failed the request before the device proxy answered"
+		if api.ProxyWorkerActionIsRead(action) {
+			message += "; retrying the same command is safe"
+		} else {
+			message += ", so whether the " + strings.SplitN(action, "?", 2)[0] +
+				" took effect is unconfirmed; check the device with 'revyl device screenshot --out screen.png' before retrying it"
+		}
+		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassServer)
 	}
 	if e.failureStage != "" {
 		message += "; failure_stage=" + e.failureStage
@@ -3154,10 +3164,18 @@ func (e *WorkerHTTPError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
-	if e.cause == nil && (e.proxyCode != "" || e.proxyDetail != "") {
+	if e.cause == nil && (e.proxyCode != "" || e.proxyDetail != "" || e.failedAtGateway()) {
 		return &api.APIError{StatusCode: e.StatusCode, Code: e.proxyCode}
 	}
 	return e.cause
+}
+
+// failedAtGateway reports a mobile proxy 502, 503 or 504 that carries no
+// backend error code: the backend tags every device-proxy failure it returns,
+// so an untagged one came from the gateway in front of it.
+func (e *WorkerHTTPError) failedAtGateway() bool {
+	return e.cause == nil && e.Code == "" && e.proxyCode == "" && e.proxyDetail == "" &&
+		e.StatusCode >= http.StatusBadGateway && e.StatusCode <= http.StatusGatewayTimeout
 }
 
 // DownloadFileForSession executes the worker download_file action and returns

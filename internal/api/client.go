@@ -6729,6 +6729,12 @@ func (c *Client) ProxyWorkerRequestDetailed(ctx context.Context, workflowRunID, 
 	}, nil
 }
 
+// ProxyWorkerActionIsRead reports whether the device proxy sends action as a
+// read-only GET, which is safe to repeat.
+func ProxyWorkerActionIsRead(action string) bool {
+	return proxyWorkerMethodForAction(action) == http.MethodGet
+}
+
 func proxyWorkerMethodForAction(action string) string {
 	if idx := strings.Index(action, "?"); idx >= 0 {
 		action = action[:idx]
