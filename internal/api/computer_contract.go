@@ -275,9 +275,9 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 					}
 				}
 			default:
-				coded := safe.Code != nil && computerRefusalCodePattern.MatchString(*safe.Code)
+				coded := safe.Code != nil && computerRefusalCodePattern.MatchString(string(*safe.Code))
 				if coded {
-					refusal.Code, refusal.Message = *safe.Code, "computer request refused: "+*safe.Code
+					refusal.Code, refusal.Message = string(*safe.Code), "computer request refused: "+string(*safe.Code)
 				}
 				if sentence := strings.TrimSpace(string(code)); (response.StatusCode == http.StatusUnprocessableEntity || coded && response.StatusCode == http.StatusNotFound) && sentence != "" && len(sentence) <= computerRefusalMaxSentence && !strings.ContainsAny(sentence, "\n\r") {
 					refusal.Detail = sentence

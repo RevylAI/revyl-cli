@@ -1164,6 +1164,24 @@ func (e CompileSourceType) Valid() bool {
 	}
 }
 
+// Defines values for ComputerAPIErrorCode.
+const (
+	ComputerAPIErrorCodeRepositoryUnavailable ComputerAPIErrorCode = "repository_unavailable"
+	ComputerAPIErrorCodeSessionProfileRunning ComputerAPIErrorCode = "session_profile_running"
+)
+
+// Valid indicates whether the value is a known member of the ComputerAPIErrorCode enum.
+func (e ComputerAPIErrorCode) Valid() bool {
+	switch e {
+	case ComputerAPIErrorCodeRepositoryUnavailable:
+		return true
+	case ComputerAPIErrorCodeSessionProfileRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerAPIErrorDetail0.
 const (
 	ComputerAPIErrorDetail0ComputerNotPersistent   ComputerAPIErrorDetail0 = "computer_not_persistent"
@@ -7590,7 +7608,7 @@ type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 
 	// Code The refusal code session profile refusals carry on every platform; equals detail here.
-	Code   *string                 `json:"code,omitempty"`
+	Code   *ComputerAPIErrorCode   `json:"code,omitempty"`
 	Detail ComputerAPIError_Detail `json:"detail"`
 
 	// GitBranchName With repository_unavailable, the branch Revyl couldn't read; absent when the failed read wasn't of a named branch.
@@ -7616,6 +7634,9 @@ type ComputerAPIError struct {
 	// UnlocksWithCard With computer_not_enabled for macOS, whether adding a card enrolls the organization in Pro, which unlocks Mac computers. False names support as the next step.
 	UnlocksWithCard *bool `json:"unlocks_with_card,omitempty"`
 }
+
+// ComputerAPIErrorCode The refusal code session profile refusals carry on every platform; equals detail here.
+type ComputerAPIErrorCode string
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.
 type ComputerAPIErrorDetail0 string
