@@ -1,7 +1,8 @@
 # Revyl CLI
 
-AI-powered app testing from the command line. The PyPI package contains
-the native Revyl CLI for the target platform and performs no runtime download.
+Verification infrastructure for cloud agents. This CLI checks app changes on
+web browsers, iOS simulators, Android emulators and macOS computers, with
+Atlas as the record. The PyPI package contains the native Revyl CLI for the target platform and performs no runtime download.
 
 ## Install
 

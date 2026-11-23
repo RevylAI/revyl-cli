@@ -1,7 +1,7 @@
 {
   "name": "@revyl/cli",
-  "version": "0.2.55",
-  "description": "Revyl CLI - AI-powered app testing",
+  "version": "0.2.56",
+  "description": "Verification infrastructure for cloud agents",
   "keywords": [
     "revyl",
     "mobile",

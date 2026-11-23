@@ -1,7 +1,7 @@
 {
   "name": "revyl",
-  "version": "0.2.13",
-  "description": "Run mobile changes on Revyl cloud devices and verify them with screenshots and semantic validation through the Revyl CLI.",
+  "version": "0.2.14",
+  "description": "Check app changes on Revyl's web browsers, iOS simulators, Android emulators and macOS computers through the Revyl CLI, with screenshots and step results as evidence and Atlas as the record.",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai"
@@ -15,8 +15,8 @@
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Revyl",
-    "shortDescription": "Run and verify mobile apps.",
-    "longDescription": "Use the Revyl CLI to run mobile apps, inspect screenshots, validate behavior, and verify CI-uploaded pull request builds. Adds Revyl's hosted workspace tools for finding builds and driving devices, and a session-start check of CLI sign-in, project configuration, and GitHub pull-request builds. Requires shell access and Revyl sign-in; the hosted tools sign in once with OAuth.",
+    "shortDescription": "Check changes on cloud devices",
+    "longDescription": "Use the Revyl CLI to run apps on web browsers, iOS simulators, Android emulators and macOS computers, inspect screenshots, validate behavior, and verify CI-uploaded pull request builds. Adds Revyl's hosted workspace tools for finding builds, driving devices and searching Atlas, and a session-start check of CLI sign-in, project configuration, and GitHub pull-request builds. Requires shell access and Revyl sign-in; the hosted tools sign in once with OAuth.",
     "developerName": "Revyl",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write"],

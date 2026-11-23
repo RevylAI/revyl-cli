@@ -1,8 +1,8 @@
 {
   "name": "revyl",
   "displayName": "Revyl",
-  "version": "0.1.4",
-  "description": "Open your mobile app's Revyl Atlas map and live cloud iOS, Android, web and macOS sessions inside Grok through Revyl's hosted MCP server. Sign in with your Revyl account on first connection; no API key or local install needed.",
+  "version": "0.1.5",
+  "description": "Open your app's Revyl Atlas map and live cloud iOS, Android and web sessions inside Grok through Revyl's hosted MCP server; macOS computers open in your browser. Sign in with your Revyl account on first connection; no API key or local install needed.",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai",

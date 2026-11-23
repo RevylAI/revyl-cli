@@ -1,8 +1,8 @@
 {
   "name": "revyl",
   "displayName": "Revyl",
-  "version": "0.1.0",
-  "description": "Open your mobile app's Revyl Atlas map and live cloud iOS, Android, web and macOS sessions in a Revyl panel beside your code and inside GitHub Copilot Chat, through Revyl's hosted MCP server. Sign in with your Revyl account on first use; no API key or local install needed.",
+  "version": "0.1.1",
+  "description": "Open your app's Revyl Atlas map and live cloud iOS, Android and web sessions in a Revyl panel beside your code and inside GitHub Copilot Chat, through Revyl's hosted MCP server. macOS computers open in your browser. Sign in with your Revyl account on first use; no API key or local install needed.",
   "publisher": "revyl",
   "license": "MIT",
   "icon": "assets/icon.png",
