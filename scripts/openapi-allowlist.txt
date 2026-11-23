@@ -72,6 +72,7 @@ GET /api/v1/modules/{module_id}
 GET /api/v1/modules/{module_id}/tests
 GET /api/v1/modules/{module_id}/versions
 GET /api/v1/projects/{project_id}/cursor-proof-authorization
+GET /api/v1/scm/proof-runs/{run_id}
 GET /api/v1/recordings/compile/{job_id}
 GET /api/v1/reports-v3/reports/by-execution/{execution_id}/context
 GET /api/v1/reports-v3/reports/by-execution/{execution_id}/video-timeline
@@ -158,6 +159,8 @@ POST /api/v1/modules/{module_id}/restore
 POST /api/v1/projects/catalog
 POST /api/v1/projects/{project_id}/configuration/read
 POST /api/v1/projects/{project_id}/configuration/validate
+POST /api/v1/scm/proof-runs
+POST /api/v1/scm/proof-runs/{run_id}/cancel
 POST /api/v1/recordings/compile
 POST /api/v1/support/requests
 POST /api/v1/report/async-run/generate_shareable_report_link_by_session

@@ -1,0 +1,110 @@
+# GitLab CI/CD -- Revyl proof of changes without a GitLab connection
+#
+# Runs on merge request pipelines: sends the merge request description and diff
+# to Revyl as the proof prompt, waits for the result, and posts the proof
+# message as a merge request note.
+#
+# CI/CD variables to add in Settings > CI/CD > Variables:
+#   REVYL_API_KEY      (masked) Revyl API key with the Member role or higher.
+#   GITLAB_NOTE_TOKEN  (masked) GitLab access token that may comment on merge
+#                      requests. The proof message is text an agent wrote from
+#                      a prompt the merge request's author controls, and GitLab
+#                      runs quick actions found in a note posted through the
+#                      API with this token's permissions. Use a dedicated bot
+#                      token with the lowest role that can comment, never a
+#                      personal token, and check that nothing that role can do
+#                      through a quick action, such as approving, matters in
+#                      your project.
+#   REVYL_APP_ID       ID of the Revyl app to prove.
+#
+# The proof agent has no checkout of this repository: it sees only the prompt
+# text below. Session settings from .revyl/config.yaml, such as auth bypass and
+# the before-script, are not applied, so the app starts signed out.
+#
+# SECURITY: The install step downloads a pinned CLI release and verifies its
+# SHA-256 checksum before executing. Pin REVYL_CLI_VERSION to a specific tag
+# and update REVYL_CLI_CHECKSUM when upgrading.
+
+variables:
+  REVYL_INSTALL_DIR: /usr/local/bin
+  # Pin to a release that includes `revyl agent proof`, and update the
+  # version and checksum together.
+  REVYL_CLI_VERSION: ""  # Set to the first release tag that includes `revyl agent proof`, or a later one
+  REVYL_CLI_CHECKSUM: ""  # Set to the sha256 from the checksums.txt for your platform
+
+.install-revyl: &install-revyl
+  - |
+    : "${REVYL_CLI_VERSION:?Set REVYL_CLI_VERSION to a release that includes revyl agent proof}"
+    PLATFORM="linux-amd64"
+    BINARY="revyl-${PLATFORM}"
+    URL="https://github.com/RevylAI/revyl-cli/releases/download/${REVYL_CLI_VERSION}/${BINARY}"
+    curl -fsSL -o /tmp/revyl "$URL"
+    if [ -n "$REVYL_CLI_CHECKSUM" ]; then
+      echo "${REVYL_CLI_CHECKSUM}  /tmp/revyl" | sha256sum -c -
+    else
+      echo "WARNING: REVYL_CLI_CHECKSUM not set — skipping integrity check"
+    fi
+    chmod +x /tmp/revyl
+    mv /tmp/revyl "${REVYL_INSTALL_DIR}/revyl"
+
+revyl-proof:
+  image: alpine:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  # Longer than --timeout below, so GitLab does not stop the job first. The
+  # runner's own maximum job timeout must allow it too.
+  timeout: 2h
+  variables:
+    # A full clone, so the merge request's base commit is available to diff against.
+    GIT_DEPTH: "0"
+  before_script:
+    - apk add --no-cache curl coreutils git jq
+    - *install-revyl
+  script:
+    # Build the merge request's app here, or fetch it from an earlier job, then
+    # upload it. Replace the artifact path with your own.
+    # - ./gradlew assembleDebug
+    - |
+      revyl build upload --file ./app.apk --app "$REVYL_APP_ID" \
+        --branch "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" --yes --json > build.json
+      BUILD_ID=$(jq -er 'select(.success == true and .count == 1) | .build.build_id | select(type == "string" and length > 0)' build.json)
+
+      # The prompt: title, description (GitLab keeps its first 2,700 characters),
+      # and the diff without lockfiles and generated files; adjust the excluded
+      # patterns to your repository. jq then cuts it to 250,000 bytes on a
+      # character boundary, below the CLI's 262,144-byte limit, and says so in
+      # the last line, so the agent may see only the first part of a large diff.
+      # Exit codes of the proof: 0 passed; 2 inconclusive (nothing was
+      # proven); 1 ended without passing otherwise, or the
+      # request failed (proof.json has status and failure_kind); 124 --timeout
+      # elapsed and 130 interrupted, both with the run still in progress.
+      # message_markdown is null until the run is final, so nothing is posted
+      # when the command stopped waiting or no run was started.
+      {
+        printf 'Merge request: %s\n\n%s\n\nDiff:\n' "$CI_MERGE_REQUEST_TITLE" "$CI_MERGE_REQUEST_DESCRIPTION"
+        git diff --no-color --no-ext-diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD -- . \
+          ':(exclude)*.lock' ':(exclude)*package-lock.json' ':(exclude)*pnpm-lock.yaml' \
+          ':(exclude)*.min.js' ':(exclude)*.generated.*' ':(exclude)*.pbxproj'
+      } > prompt-full.txt
+      jq -Rrsj --argjson max 250000 '
+        def fit: if utf8bytelength <= $max then . else .[0:(length * $max / utf8bytelength | floor)] | fit end;
+        if utf8bytelength <= $max then . else fit + "\n[Prompt truncated to fit the size limit.]\n" end' \
+        prompt-full.txt > prompt.txt
+
+      status=0
+      revyl agent proof "$REVYL_APP_ID" --prompt-file prompt.txt --timeout 90m \
+        --build-id "$BUILD_ID" --json > proof.json || status=$?
+
+      if jq -e '.message_markdown | type == "string" and length > 0' proof.json > /dev/null 2>&1; then
+        jq '{body: .message_markdown}' proof.json | curl --fail -sS -o /dev/null -X POST \
+          -H "PRIVATE-TOKEN: $GITLAB_NOTE_TOKEN" -H "Content-Type: application/json" \
+          --data-binary @- \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes" \
+          || echo "Could not post the note; the proof message is in the proof.json artifact." >&2
+      fi
+      exit "$status"
+  artifacts:
+    # Kept when the job fails, so the proof message survives a failed post.
+    when: always
+    paths:
+      - proof.json

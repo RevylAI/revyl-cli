@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.56-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.2.57-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -233,6 +233,8 @@ revyl test run login-flow --no-open     # Suppress default report opening for a 
 revyl workflow create smoke-tests --tests login-flow,checkout
 revyl workflow run smoke-tests          # Run the full workflow
 revyl explore run --platform ios        # Explore the app and build its Atlas map
+revyl agent proof --prompt-file prompt.md  # Prove a change from your own CI
+revyl agent status <run-id>             # Read the proof run later
 ```
 
 Blocking human-terminal test and workflow runs open their completed report by

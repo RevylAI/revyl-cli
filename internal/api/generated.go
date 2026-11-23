@@ -3663,6 +3663,96 @@ func (e ProjectCursorProofRepositoryProvider) Valid() bool {
 	}
 }
 
+// Defines values for ProofRunFailureKind.
+const (
+	ProofRunFailureKindAgentBlocked        ProofRunFailureKind = "agent_blocked"
+	ProofRunFailureKindCancelled           ProofRunFailureKind = "cancelled"
+	ProofRunFailureKindChangeBroken        ProofRunFailureKind = "change_broken"
+	ProofRunFailureKindChangeNotExercised  ProofRunFailureKind = "change_not_exercised"
+	ProofRunFailureKindDidNotFinish        ProofRunFailureKind = "did_not_finish"
+	ProofRunFailureKindInfrastructureError ProofRunFailureKind = "infrastructure_error"
+	ProofRunFailureKindNoWriteUp           ProofRunFailureKind = "no_write_up"
+	ProofRunFailureKindNotStarted          ProofRunFailureKind = "not_started"
+	ProofRunFailureKindSuperseded          ProofRunFailureKind = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ProofRunFailureKind enum.
+func (e ProofRunFailureKind) Valid() bool {
+	switch e {
+	case ProofRunFailureKindAgentBlocked:
+		return true
+	case ProofRunFailureKindCancelled:
+		return true
+	case ProofRunFailureKindChangeBroken:
+		return true
+	case ProofRunFailureKindChangeNotExercised:
+		return true
+	case ProofRunFailureKindDidNotFinish:
+		return true
+	case ProofRunFailureKindInfrastructureError:
+		return true
+	case ProofRunFailureKindNoWriteUp:
+		return true
+	case ProofRunFailureKindNotStarted:
+		return true
+	case ProofRunFailureKindSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProofRunPlatform.
+const (
+	ProofRunPlatformAndroid ProofRunPlatform = "android"
+	ProofRunPlatformIos     ProofRunPlatform = "ios"
+	ProofRunPlatformWeb     ProofRunPlatform = "web"
+)
+
+// Valid indicates whether the value is a known member of the ProofRunPlatform enum.
+func (e ProofRunPlatform) Valid() bool {
+	switch e {
+	case ProofRunPlatformAndroid:
+		return true
+	case ProofRunPlatformIos:
+		return true
+	case ProofRunPlatformWeb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProofRunStatus.
+const (
+	ProofRunStatusCancelled    ProofRunStatus = "cancelled"
+	ProofRunStatusFailed       ProofRunStatus = "failed"
+	ProofRunStatusInconclusive ProofRunStatus = "inconclusive"
+	ProofRunStatusPassed       ProofRunStatus = "passed"
+	ProofRunStatusQueued       ProofRunStatus = "queued"
+	ProofRunStatusRunning      ProofRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the ProofRunStatus enum.
+func (e ProofRunStatus) Valid() bool {
+	switch e {
+	case ProofRunStatusCancelled:
+		return true
+	case ProofRunStatusFailed:
+		return true
+	case ProofRunStatusInconclusive:
+		return true
+	case ProofRunStatusPassed:
+		return true
+	case ProofRunStatusQueued:
+		return true
+	case ProofRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecipeStepType.
 const (
 	RecipeStepTypeAndroidSigning        RecipeStepType = "android-signing"
@@ -10901,6 +10991,79 @@ type ProjectCursorProofRepository struct {
 // ProjectCursorProofRepositoryProvider defines model for ProjectCursorProofRepository.Provider.
 type ProjectCursorProofRepositoryProvider string
 
+// ProofRun One proof run, as its caller polls it.
+//
+// Describes a run a pull request started the same way as one started
+// through “ProofRunCreateRequest“.
+//
+// Attributes:
+//
+//	id: Run identifier.
+//	status: ``queued`` and ``running`` are in flight; the rest are final.
+//	    ``failed`` means the agent found the change broken.
+//	    ``inconclusive`` means nothing was proven: the agent was blocked,
+//	    never started, or Revyl failed. ``cancelled`` covers a run that a
+//	    newer commit or build replaced before it finished. A final pull
+//	    request run returns to ``queued`` under the same id when it is
+//	    re-run or recovered.
+//	verification_score: The ``N`` of the write-up's ``Verification: N/5``
+//	    line, when ``status`` is ``passed``, ``failed`` or ``inconclusive``
+//	    and the write-up states one.
+//	message_markdown: The Proof of changes block for this run alone:
+//	    GitHub-flavoured Markdown with inline HTML. Set when the run is
+//	    final. A pull request's comment also carries its other runs and
+//	    its review findings, which this field leaves out.
+//	failure_kind: Why a final run did not pass, as a value a caller can
+//	    branch on. Set exactly when ``failure_reason`` is.
+//	failure_reason: One bounded sentence for a run that did not pass.
+//	url: The run's page in the Revyl web app, or ``None`` when this
+//	    deployment has no public app origin.
+//	app_id: App the run drives.
+//	build_id: Build the run installs.
+//	platform: Platform the run drives.
+//	created_at: When the run was accepted.
+//	completed_at: When it reached a final status; ``None`` while it is in
+//	    flight, including after a re-run returns it to ``queued``.
+type ProofRun struct {
+	AppId       openapi_types.UUID `json:"app_id"`
+	BuildId     openapi_types.UUID `json:"build_id"`
+	CompletedAt *time.Time         `json:"completed_at,omitempty"`
+	CreatedAt   time.Time          `json:"created_at"`
+
+	// FailureKind Why a final run did not pass. Null while the run is in flight and when it passed; set exactly when `failure_reason` is. `change_broken`: the agent found the change broken, so fix the change (status `failed`). Every other value means nothing was proven about the change. `agent_blocked`: the agent could not reach or observe the change, for example at a sign-in wall; `failure_reason` is its own sentence, and a retry needs a different build or prompt. `no_write_up`: the agent finished without reporting a result; retry. `change_not_exercised`: the agent reported without driving the app on a device; retry, naming what to exercise. `not_started`: Revyl could not start the proof; retry. `infrastructure_error`: Revyl failed while the proof was running; retry. `did_not_finish`: the proof ran out of time or stopped before it finished; retry, with a narrower prompt if it repeats. `superseded`: a newer commit or build replaced this pull request run before it finished (status `cancelled`); read the newer run. `cancelled`: the run was cancelled (status `cancelled`).
+	FailureKind       *ProofRunFailureKind `json:"failure_kind,omitempty"`
+	FailureReason     *string              `json:"failure_reason,omitempty"`
+	Id                openapi_types.UUID   `json:"id"`
+	MessageMarkdown   *string              `json:"message_markdown,omitempty"`
+	Platform          *ProofRunPlatform    `json:"platform,omitempty"`
+	Status            ProofRunStatus       `json:"status"`
+	Url               *string              `json:"url,omitempty"`
+	VerificationScore *int                 `json:"verification_score,omitempty"`
+}
+
+// ProofRunFailureKind Why a final run did not pass. Null while the run is in flight and when it passed; set exactly when `failure_reason` is. `change_broken`: the agent found the change broken, so fix the change (status `failed`). Every other value means nothing was proven about the change. `agent_blocked`: the agent could not reach or observe the change, for example at a sign-in wall; `failure_reason` is its own sentence, and a retry needs a different build or prompt. `no_write_up`: the agent finished without reporting a result; retry. `change_not_exercised`: the agent reported without driving the app on a device; retry, naming what to exercise. `not_started`: Revyl could not start the proof; retry. `infrastructure_error`: Revyl failed while the proof was running; retry. `did_not_finish`: the proof ran out of time or stopped before it finished; retry, with a narrower prompt if it repeats. `superseded`: a newer commit or build replaced this pull request run before it finished (status `cancelled`); read the newer run. `cancelled`: the run was cancelled (status `cancelled`).
+type ProofRunFailureKind string
+
+// ProofRunPlatform defines model for ProofRun.Platform.
+type ProofRunPlatform string
+
+// ProofRunStatus defines model for ProofRun.Status.
+type ProofRunStatus string
+
+// ProofRunCreateRequest One change to prove on one build, described in the caller's own words.
+//
+// Attributes:
+//
+//	prompt: Free-form text, typically a change description followed by a
+//	    diff. At most ``MAX_PROOF_RUN_PROMPT_BYTES`` bytes of UTF-8.
+//	app_id: App that owns the build. Must belong to the caller's organization.
+//	build_id: Build to install. Must belong to ``app_id``.
+type ProofRunCreateRequest struct {
+	AppId   openapi_types.UUID `json:"app_id"`
+	BuildId openapi_types.UUID `json:"build_id"`
+	Prompt  string             `json:"prompt"`
+}
+
 // RateCardItem defines model for RateCardItem.
 type RateCardItem struct {
 	AutumnFeatureId string  `json:"autumn_feature_id"`
@@ -14523,6 +14686,9 @@ type GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableRep
 
 // GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody defines body for GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPost for application/json ContentType.
 type GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody = ShareableReportByTaskModel
+
+// CreateProofRunApiV1ScmProofRunsPostJSONRequestBody defines body for CreateProofRunApiV1ScmProofRunsPost for application/json ContentType.
+type CreateProofRunApiV1ScmProofRunsPostJSONRequestBody = ProofRunCreateRequest
 
 // UploadShiptokVideoApiV1ShiptokVideosPostMultipartRequestBody defines body for UploadShiptokVideoApiV1ShiptokVideosPost for multipart/form-data ContentType.
 type UploadShiptokVideoApiV1ShiptokVideosPostMultipartRequestBody UploadShiptokVideoApiV1ShiptokVideosPostMultipartBody

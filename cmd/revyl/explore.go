@@ -30,6 +30,11 @@ const (
 	defaultExploreTimeout      = 45 * time.Minute
 )
 
+type appLookupAPI interface {
+	GetApp(context.Context, string) (*api.App, error)
+	SearchApps(context.Context, string, string, int) (*api.CLIPaginatedAppsResponse, error)
+}
+
 type exploreAPI interface {
 	GetApp(context.Context, string) (*api.App, error)
 	SearchApps(context.Context, string, string, int) (*api.CLIPaginatedAppsResponse, error)
@@ -482,7 +487,7 @@ func buildExploreLaunchRequest(
 
 func resolveExploreApp(
 	ctx context.Context,
-	client exploreAPI,
+	client appLookupAPI,
 	args []string,
 	platform string,
 ) (*api.App, error) {
@@ -507,7 +512,7 @@ func resolveExploreApp(
 
 func resolveCanonicalConfiguredExploreApp(
 	ctx context.Context,
-	client exploreAPI,
+	client appLookupAPI,
 	project *config.ProjectContext,
 	platform string,
 ) (*api.App, error) {
@@ -583,7 +588,7 @@ func resolveConfiguredExploreApp(
 	return app, nil
 }
 
-func resolveExploreAppNameOrID(ctx context.Context, client exploreAPI, nameOrID string) (*api.App, error) {
+func resolveExploreAppNameOrID(ctx context.Context, client appLookupAPI, nameOrID string) (*api.App, error) {
 	needle := strings.TrimSpace(nameOrID)
 	if needle == "" {
 		return nil, fmt.Errorf("app name or ID cannot be empty")

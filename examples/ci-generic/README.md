@@ -106,8 +106,9 @@ revyl workflow run smoke-tests --ios-app "$APP_ID" --ios-build-id "$BUILD_ID"
 |------|-----------|
 | [`screwdriver.yaml`](screwdriver.yaml) | Screwdriver |
 | [`gitlab-ci.yml`](gitlab-ci.yml) | GitLab CI/CD |
+| [`gitlab-ci-proof.yml`](gitlab-ci-proof.yml) | GitLab CI/CD: prove a merge request with `revyl agent proof` and post the result as a note |
 | [`Jenkinsfile`](Jenkinsfile) | Jenkins |
 | [`circleci.yml`](circleci.yml) | CircleCI |
 | [`buildkite-pipeline.yml`](buildkite-pipeline.yml) | Buildkite |
 
-Each follows the same flow: install CLI, (optionally) upload build, run tests. All examples include both blocking and fire-and-forget patterns.
+Each test pipeline follows the same flow: install CLI, (optionally) upload build, run tests, with both blocking and fire-and-forget patterns. `gitlab-ci-proof.yml` instead starts a proof of changes for a repository Revyl isn't connected to; see [Prove a change without a connected repository](https://docs.revyl.com/agents/proof#prove-a-change-without-a-connected-repository).

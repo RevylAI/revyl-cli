@@ -164,9 +164,10 @@ func printAgentFeedbackHint(stderr io.Writer, cmd *cobra.Command, err error) {
 
 // feedbackHintApplies skips failures caused by the caller's input or project
 // state: invocations cobra rejected before any command ran, a directory with
-// usable Revyl project, and a test or workflow that ran and returned a failed
-// verdict. Config validation errors still apply, since an agent cannot tell a
-// wrong config from a wrong schema without the hint.
+// usable Revyl project, a test or workflow that ran and returned a failed
+// verdict, and a proof run that ended for a reason the caller owns. Config
+// validation errors still apply, since an agent cannot tell a wrong config
+// from a wrong schema without the hint.
 func feedbackHintApplies(cmd *cobra.Command, err error) bool {
 	if !commandBodyStarted() {
 		return false
@@ -175,13 +176,22 @@ func feedbackHintApplies(cmd *cobra.Command, err error) bool {
 		return false
 	}
 	var (
+		proofOutcomeErr   *agentProofOutcomeError
 		exitErr           *commandExitError
 		missingRootErr    *config.MissingProjectRootError
 		ambiguousRootsErr *config.AmbiguousProjectRootsError
 		configErr         *config.ConfigError
 		completedErr      *analytics.CompletedError
 	)
-	if errors.As(err, &exitErr) || errors.As(err, &missingRootErr) || errors.As(err, &ambiguousRootsErr) {
+	// A proof outcome decides for itself, whatever exit code carries it.
+	if errors.As(err, &proofOutcomeErr) {
+		if proofOutcomeErr.notARevylBug {
+			return false
+		}
+	} else if errors.As(err, &exitErr) {
+		return false
+	}
+	if errors.As(err, &missingRootErr) || errors.As(err, &ambiguousRootsErr) {
 		return false
 	}
 	if errors.As(err, &configErr) && projectLocationConfigCodes[configErr.Code] {
