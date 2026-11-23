@@ -564,7 +564,8 @@ A persistent computer (create --persistent, macOS only) keeps one ID for life.
 Stop saves its whole disk on the Mac it runs on: files, brew installs and other
 system changes; stop --wait waits until that save is confirmed. Memory and
 running processes do not survive, so a start is a cold boot of a new run from
-that disk. A save is on that Mac first and is then copied off it right away at
+that disk, with the serial number and hardware UUID the computer had before.
+A save is on that Mac first and is then copied off it right away at
 a capped rate, usually within a few minutes: list and get show a stopped
 computer as "saved on host" until the copy is done and "saved off host" after.
 Until then, losing that Mac loses the save, and a start on that Mac stops the
