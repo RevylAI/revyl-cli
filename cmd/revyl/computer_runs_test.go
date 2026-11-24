@@ -827,6 +827,32 @@ func TestComputerCreateInferenceAsksForAHostModelAndNamesItsRefusal(t *testing.T
 	}
 }
 
+func TestComputerCreateInferenceNamesAnOrganizationWithoutLocalInference(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"detail":"inference_not_enabled","message":"Local inference isn't enabled for this organization."}`)
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	t.Setenv("REVYL_API_KEY", "fixture-key")
+	root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(newComputerCommand())
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"computer", "create", "--os", "macos", "--inference"})
+
+	err := root.Execute()
+
+	want := "local inference isn't enabled for your organization, so no computer was created"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("computer create --inference said %v, want %q", err, want)
+	}
+	if strings.Contains(err.Error(), "vision model is up") {
+		t.Fatalf("computer create --inference said %v, which names host availability", err)
+	}
+}
+
 func TestComputerExecWarnsWhenALaunchAgentMissesTheAccountHome(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 	id, requestID := uuid.New(), uuid.New()

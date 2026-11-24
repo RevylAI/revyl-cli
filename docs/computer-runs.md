@@ -392,7 +392,9 @@ without a local model, `validation` and `extract` fail with
 `step_engine_unavailable` and nothing is clicked; so does `--engine local` there.
 
 `revyl computer create --os macos --inference` places the computer on a host whose
-own vision model is loaded. A host advertises its model only when the model
+own vision model is loaded. Local inference is a preview: for an organization it
+isn't enabled for, create fails with `inference_not_enabled` (HTTP 403) and creates
+nothing, whatever hosts are up. A host advertises its model only when the model
 server answered on the host's loopback as the host's worker started, so a model
 that finished loading later waits for the next worker start. When no such host is
 up, create fails with `inference_unavailable` (HTTP 409) and creates nothing;

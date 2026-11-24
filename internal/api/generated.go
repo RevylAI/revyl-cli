@@ -1304,6 +1304,7 @@ const (
 	ComputerAPIErrorDetail1ComputerNotEnabled            ComputerAPIErrorDetail1 = "computer_not_enabled"
 	ComputerAPIErrorDetail1DisplayUnsupported            ComputerAPIErrorDetail1 = "display_unsupported"
 	ComputerAPIErrorDetail1Forbidden                     ComputerAPIErrorDetail1 = "forbidden"
+	ComputerAPIErrorDetail1InferenceNotEnabled           ComputerAPIErrorDetail1 = "inference_not_enabled"
 	ComputerAPIErrorDetail1LifetimeUnsupported           ComputerAPIErrorDetail1 = "lifetime_unsupported"
 	ComputerAPIErrorDetail1PersistentComputerLimit       ComputerAPIErrorDetail1 = "persistent_computer_limit"
 	ComputerAPIErrorDetail1PersistentComputersNotEnabled ComputerAPIErrorDetail1 = "persistent_computers_not_enabled"
@@ -1327,6 +1328,8 @@ func (e ComputerAPIErrorDetail1) Valid() bool {
 	case ComputerAPIErrorDetail1DisplayUnsupported:
 		return true
 	case ComputerAPIErrorDetail1Forbidden:
+		return true
+	case ComputerAPIErrorDetail1InferenceNotEnabled:
 		return true
 	case ComputerAPIErrorDetail1LifetimeUnsupported:
 		return true
@@ -1379,6 +1382,7 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 
 // Defines values for ComputerAPIErrorMessage.
 const (
+	ComputerAPIErrorMessageLocalInferenceIsntEnabledForThisOrganization                                ComputerAPIErrorMessage = "Local inference isn't enabled for this organization."
 	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800 ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
 	ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds                         ComputerAPIErrorMessage = "No computer host can run that long yet; see max_timeout_seconds."
 	ComputerAPIErrorMessagePersistentComputersAreAnInternalPreviewAndAreNotEnabledForThisOrganization  ComputerAPIErrorMessage = "Persistent computers are an internal preview and are not enabled for this organization."
@@ -1389,6 +1393,8 @@ const (
 // Valid indicates whether the value is a known member of the ComputerAPIErrorMessage enum.
 func (e ComputerAPIErrorMessage) Valid() bool {
 	switch e {
+	case ComputerAPIErrorMessageLocalInferenceIsntEnabledForThisOrganization:
+		return true
 	case ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800:
 		return true
 	case ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds:
