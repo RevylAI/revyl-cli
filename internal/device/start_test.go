@@ -280,9 +280,6 @@ func TestInferPlatform_FromAppURLExtension(t *testing.T) {
 func TestInferPlatform_BuildDownloadURLBeatsAppLookup(t *testing.T) {
 	t.Parallel()
 
-	// If the build's download URL is itself a recognizable extension we can
-	// short-circuit without calling GetApp; ensure that path works and does
-	// not require an app entry.
 	resolver := stubPlatformResolver{
 		detailByBuild: map[string]*api.BuildVersionDetail{
 			"build-1": {ID: "build-1", DownloadURL: "https://artifact.example/foo.apk"},

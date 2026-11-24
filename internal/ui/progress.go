@@ -1,4 +1,3 @@
-// Package ui provides progress bar and spinner components.
 package ui
 
 import (
@@ -12,16 +11,11 @@ var (
 	spinnerFrames         = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	spinnerMu             sync.Mutex
 	spinnerStop           chan struct{}
-	spinnerDone           chan struct{} // signals goroutine has finished cleanup
+	spinnerDone           chan struct{}
 	spinnerActive         bool
 	lastLogSpinnerMessage string
 )
 
-// StartSpinner starts an animated spinner with a message.
-// Respects quiet mode - suppressed when quiet.
-//
-// Parameters:
-//   - message: The message to display next to the spinner
 func StartSpinner(message string) {
 	if quietMode {
 		return
@@ -46,7 +40,6 @@ func StartSpinner(message string) {
 	spinnerStop = make(chan struct{})
 	spinnerDone = make(chan struct{})
 
-	// Capture channels in local variables to avoid race conditions
 	stopChan := spinnerStop
 	doneChan := spinnerDone
 
@@ -56,7 +49,6 @@ func StartSpinner(message string) {
 		for {
 			select {
 			case <-stopChan:
-				// Clear the spinner line
 				fmt.Fprintf(stderrW, "\r%s\r", strings.Repeat(" ", len(message)+4))
 				return
 			default:
@@ -70,14 +62,11 @@ func StartSpinner(message string) {
 	}()
 }
 
-// StopSpinner stops the current spinner and blocks until cleanup is complete.
-// This ensures the spinner's line-clearing write finishes before any subsequent
-// writes to stderr, preventing race conditions with progress display.
+// StopSpinner clears non-TTY dedup state and, when a spinner is active, signals it
+// to stop and waits for that generation's cleanup write to finish.
 func StopSpinner() {
 	spinnerMu.Lock()
 
-	// Reset the non-TTY dedup so the same message prints again if the next
-	// operation legitimately reuses it after this one finishes.
 	lastLogSpinnerMessage = ""
 
 	if !spinnerActive {
@@ -90,12 +79,9 @@ func StopSpinner() {
 	doneChan := spinnerDone
 	spinnerMu.Unlock()
 
-	// Block until goroutine cleanup write completes (must be outside lock
-	// since the goroutine doesn't hold the lock during its cleanup Printf).
 	<-doneChan
 }
 
-// ProgressBar represents a progress bar state.
 type ProgressBar struct {
 	total   int
 	current int
@@ -103,14 +89,6 @@ type ProgressBar struct {
 	message string
 }
 
-// NewProgressBar creates a new progress bar.
-//
-// Parameters:
-//   - total: The total value (100 for percentage)
-//   - width: The width of the progress bar in characters
-//
-// Returns:
-//   - *ProgressBar: A new progress bar instance
 func NewProgressBar(total, width int) *ProgressBar {
 	return &ProgressBar{
 		total: total,
@@ -118,18 +96,12 @@ func NewProgressBar(total, width int) *ProgressBar {
 	}
 }
 
-// Update updates the progress bar.
-//
-// Parameters:
-//   - current: The current progress value
-//   - message: Optional message to display
 func (p *ProgressBar) Update(current int, message string) {
 	p.current = current
 	p.message = message
 	p.render()
 }
 
-// render draws the progress bar.
 func (p *ProgressBar) render() {
 	percent := float64(p.current) / float64(p.total)
 	filled := int(percent * float64(p.width))
@@ -147,7 +119,6 @@ func (p *ProgressBar) render() {
 		line += fmt.Sprintf(" %s", styledMsg)
 	}
 
-	// Pad to clear previous content; use carriage return for in-place update
 	if isTTY {
 		fmt.Fprintf(stderrW, "\r%-80s", line)
 	} else {
@@ -155,18 +126,11 @@ func (p *ProgressBar) render() {
 	}
 }
 
-// Complete marks the progress bar as complete.
 func (p *ProgressBar) Complete() {
 	p.Update(p.total, "")
 	fmt.Fprintln(stderrW)
 }
 
-// UpdateProgress is a convenience function for updating progress display.
-// Respects quiet mode - suppressed when quiet.
-//
-// Parameters:
-//   - progress: Progress percentage (0-100)
-//   - message: Current step message
 func UpdateProgress(progress int, message string) {
 	if quietMode {
 		return

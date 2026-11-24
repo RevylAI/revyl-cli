@@ -1,4 +1,3 @@
-// Package ui provides result rendering components.
 package ui
 
 import (
@@ -8,13 +7,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// PrintTestResult prints a formatted test result.
-//
-// Parameters:
-//   - name: Test name
-//   - status: "passed", "failed", "cancelled", or "timeout"
-//   - reportURL: URL to the test report
-//   - errorMsg: Error message if failed (optional)
 func PrintTestResult(name, status, reportURL, errorMsg string) {
 	var statusStyle lipgloss.Style
 	var statusIcon string
@@ -37,25 +29,16 @@ func PrintTestResult(name, status, reportURL, errorMsg string) {
 		statusIcon = "?"
 	}
 
-	// Status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, name)
 	fmt.Fprintln(os.Stderr, statusStyle.Render(statusLine))
 
-	// Report URL
 	fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
 
-	// Error message if present
 	if errorMsg != "" {
 		fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("Error:"), ErrorStyle.Render(errorMsg))
 	}
 }
 
-// PrintResultBox prints a boxed result summary.
-//
-// Parameters:
-//   - status: "Passed" or "Failed"
-//   - reportURL: URL to the report
-//   - duration: Execution duration string
 func PrintResultBox(status, reportURL, duration string) {
 	var boxStyle lipgloss.Style
 	var icon string
@@ -72,7 +55,6 @@ func PrintResultBox(status, reportURL, duration string) {
 		icon = "•"
 	}
 
-	// Build content
 	titleLine := fmt.Sprintf("%s %s", icon, status)
 	if duration != "" {
 		titleLine += fmt.Sprintf("  %s", DimStyle.Render(duration))
@@ -84,14 +66,6 @@ func PrintResultBox(status, reportURL, duration string) {
 	fmt.Fprintln(os.Stderr, boxStyle.Render(content))
 }
 
-// PrintWorkflowResult prints a workflow execution summary.
-//
-// Parameters:
-//   - name: Workflow name
-//   - passed: Number of passed tests
-//   - failed: Number of failed tests
-//   - total: Total number of tests
-//   - reportURL: URL to the workflow report
 func PrintWorkflowResult(name string, passed, failed, total int, reportURL string) {
 	var statusStyle lipgloss.Style
 	var statusIcon string
@@ -104,17 +78,14 @@ func PrintWorkflowResult(name string, passed, failed, total int, reportURL strin
 		statusIcon = "✗"
 	}
 
-	// Status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, name)
 	fmt.Fprintln(os.Stderr, statusStyle.Render(statusLine))
 
-	// Summary
 	summary := fmt.Sprintf("  %d/%d tests passed", passed, total)
 	if failed > 0 {
 		summary += fmt.Sprintf(", %d failed", failed)
 	}
 	fmt.Fprintln(os.Stderr, InfoStyle.Render(summary))
 
-	// Report URL
 	fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
 }

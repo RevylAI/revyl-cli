@@ -25,9 +25,9 @@ type BuildVersionGetter interface {
 	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
 }
 
-// BuildVersionDetailMemo is an API client that fetches each build version's
-// detail at most once, so the steps of one device start share a lookup. It is
-// not safe for concurrent use.
+// BuildVersionDetailMemo caches successful GetBuildVersionDownloadURL results
+// by version ID across the steps of one device start. It is not safe for
+// concurrent use.
 type BuildVersionDetailMemo struct {
 	*api.Client
 	detailsByVersionID map[string]*api.BuildVersionDetail
@@ -221,13 +221,10 @@ func ResolveLaunchVar(
 }
 
 // InferPlatform infers the session platform ("ios", "android", or "web") from
-// app selection inputs. Priority:
-//  1. AppURL extension (.apk → android, .ipa → ios)
-//  2. BuildVersionID → app_id → app.platform
-//  3. AppID → app.platform
-//
-// Returns ("", nil) when no input is sufficient to infer (e.g. .zip URL with
-// no app/build context). API failures propagate as errors.
+// app selection inputs: AppURL extension (.apk/.aab -> android, .ipa/.app -> ios),
+// then BuildVersionID (build DownloadURL extension before app.platform), then
+// AppID -> app.platform. Returns ("", nil) when no input identifies a platform;
+// lookup failures propagate as errors.
 func InferPlatform(
 	ctx context.Context,
 	resolver PlatformResolver,
@@ -277,7 +274,6 @@ func platformFromAppURL(rawURL string) string {
 	if url == "" {
 		return ""
 	}
-	// Strip query/fragment so presigned URLs don't mask the extension.
 	if idx := strings.IndexAny(url, "?#"); idx >= 0 {
 		url = url[:idx]
 	}

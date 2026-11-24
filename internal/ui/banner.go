@@ -1,4 +1,3 @@
-// Package ui provides the ASCII banner for the Revyl CLI.
 package ui
 
 import (
@@ -9,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Banner is the ASCII art logo for Revyl CLI.
 const banner = `
   ██████╗ ███████╗██╗   ██╗██╗   ██╗██╗     
   ██╔══██╗██╔════╝██║   ██║╚██╗ ██╔╝██║     
@@ -18,28 +16,20 @@ const banner = `
   ██║  ██║███████╗ ╚████╔╝    ██║   ███████╗
   ╚═╝  ╚═╝╚══════╝  ╚═══╝     ╚═╝   ╚══════╝`
 
-// tagline is the product tagline.
 const tagline = "Proactive Reliability for Your Apps"
 
-// DocsURL is the canonical public docs entrypoint for CLI users.
 const DocsURL = "https://docs.revyl.com"
 
-// DisplayVersion renders a CLI version with exactly one leading "v". Release
-// builds embed the tag (v1.2.3) while local builds embed the bare VERSION file.
+// DisplayVersion trims version, strips at most one leading "v", and prepends "v".
 func DisplayVersion(version string) string {
 	return "v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
 }
 
-// PrintBanner prints the Revyl banner with version info.
-//
-// Parameters:
-//   - version: The CLI version string to display
 func PrintBanner(version string) {
 	if quietMode {
 		return
 	}
 
-	// Style the banner with purple color
 	styledBanner := lipgloss.NewStyle().
 		Foreground(Purple).
 		Bold(true).
@@ -48,7 +38,6 @@ func PrintBanner(version string) {
 	fmt.Fprintln(os.Stderr, styledBanner)
 	fmt.Fprintln(os.Stderr)
 
-	// Tagline
 	taglineStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("245")).
 		Italic(true).
@@ -56,7 +45,6 @@ func PrintBanner(version string) {
 	fmt.Fprintln(os.Stderr, taglineStyle.Render(tagline))
 	fmt.Fprintln(os.Stderr)
 
-	// Version and info
 	infoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("245")).
 		PaddingLeft(2)
@@ -66,9 +54,7 @@ func PrintBanner(version string) {
 	fmt.Fprintln(os.Stderr)
 }
 
-// GetCondensedHelp returns a compact cheat-sheet for the 80/20 user journey.
-// Shown when the user runs `revyl` with no arguments. No ASCII banner,
-// no Cobra auto-generated command list -- just the essentials.
+// GetCondensedHelp returns the compact CLI help shown by root revyl when not launching the TUI.
 func GetCondensedHelp() string {
 	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
@@ -118,8 +104,6 @@ func GetCondensedHelp() string {
 	)
 }
 
-// GetHelpText returns the verbose help text for the CLI, used by `revyl --help`.
-// Contains the full curated command reference without the ASCII banner.
 func GetHelpText() string {
 	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))

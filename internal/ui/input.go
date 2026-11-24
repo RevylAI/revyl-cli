@@ -1,4 +1,3 @@
-// Package ui provides interactive input components.
 package ui
 
 import (
@@ -13,17 +12,12 @@ import (
 	"golang.org/x/term"
 )
 
-// stdinReader is a package-level buffered reader for os.Stdin.
-// A single shared reader prevents buffered-but-unconsumed bytes from being
-// lost when multiple Prompt calls each create their own bufio.Reader.
 var (
 	stdinReader   *bufio.Reader
 	stdinReaderMu sync.Mutex
 	stdinSource   *os.File
 )
 
-// getStdinReader returns the shared buffered reader for os.Stdin, creating or
-// replacing it when os.Stdin has changed (e.g. tests swap it via os.Pipe).
 func getStdinReader() *bufio.Reader {
 	stdinReaderMu.Lock()
 	defer stdinReaderMu.Unlock()
@@ -34,14 +28,6 @@ func getStdinReader() *bufio.Reader {
 	return stdinReader
 }
 
-// Prompt displays a prompt and reads user input.
-//
-// Parameters:
-//   - message: The prompt message to display
-//
-// Returns:
-//   - string: The user's input
-//   - error: Any error that occurred
 func Prompt(message string) (string, error) {
 	fmt.Fprintf(os.Stderr, "%s ", InfoStyle.Render(message))
 
@@ -77,15 +63,6 @@ func PromptSecret(message string) (string, error) {
 	return strings.TrimSuffix(strings.TrimSuffix(string(value), "\n"), "\r"), nil
 }
 
-// PromptConfirm displays a yes/no confirmation prompt.
-//
-// Parameters:
-//   - message: The prompt message to display
-//   - defaultYes: Whether the default is yes (true) or no (false)
-//
-// Returns:
-//   - bool: True if user confirmed, false otherwise
-//   - error: Any error that occurred
 func PromptConfirm(message string, defaultYes bool) (bool, error) {
 	suffix := "[y/N]"
 	if defaultYes {
@@ -106,7 +83,6 @@ func PromptConfirm(message string, defaultYes bool) (bool, error) {
 	return input == "y" || input == "yes", nil
 }
 
-// selectModel is a bubbletea model for interactive arrow-key selection.
 type selectModel struct {
 	message      string
 	options      []string
@@ -188,8 +164,6 @@ func (m selectModel) View() string {
 	return b.String()
 }
 
-// runSelectTea runs the bubbletea selection program.
-// Returns selected index or -1 if cancelled.
 func runSelectTea(message string, options []string, descriptions []string, initialCursor int) (int, error) {
 	m := selectModel{
 		message:      message,
@@ -201,7 +175,6 @@ func runSelectTea(message string, options []string, descriptions []string, initi
 
 	programOptions := []tea.ProgramOption{}
 	if !isOutputTTY && isStderrTTY {
-		// Keep interactive menus functional when stdout is piped but stderr is a TTY.
 		programOptions = append(programOptions, tea.WithOutput(os.Stderr))
 	}
 
@@ -228,7 +201,6 @@ func runSelectTea(message string, options []string, descriptions []string, initi
 	return result.selected, nil
 }
 
-// promptSelectFallback is the non-TTY fallback for PromptSelect.
 func promptSelectFallback(message string, options []string) (int, error) {
 	fmt.Fprintln(os.Stderr, InfoStyle.Render(message))
 
@@ -253,15 +225,6 @@ func promptSelectFallback(message string, options []string) (int, error) {
 	}
 }
 
-// PromptSelect displays a selection prompt.
-//
-// Parameters:
-//   - message: The prompt message to display
-//   - options: List of options to choose from
-//
-// Returns:
-//   - int: Index of selected option
-//   - error: Any error that occurred
 func PromptSelect(message string, options []string) (int, error) {
 	if !canRunInteractiveSelect() {
 		return promptSelectFallback(message, options)
@@ -270,19 +233,12 @@ func PromptSelect(message string, options []string) (int, error) {
 	return runSelectTea(message, options, nil, 0)
 }
 
-// SelectOption represents an option in a select prompt.
 type SelectOption struct {
-	// Label is the display text for this option.
-	Label string
-
-	// Value is the value returned when this option is selected.
-	Value string
-
-	// Description is an optional description shown below the label.
+	Label       string
+	Value       string
 	Description string
 }
 
-// selectFallback is the non-TTY fallback for Select.
 func selectFallback(message string, options []SelectOption, current int) (int, string, error) {
 	fmt.Fprintln(os.Stderr, InfoStyle.Render(message))
 	for i, opt := range options {
@@ -320,17 +276,8 @@ func selectFallback(message string, options []SelectOption, current int) (int, s
 	}
 }
 
-// Select prompts the user to select from a list of options with values.
-//
-// Parameters:
-//   - message: The prompt message to display
-//   - options: List of options to choose from
-//   - defaultIndex: Default selection index (0-based), -1 for no default
-//
-// Returns:
-//   - int: Index of selected option
-//   - string: Value of selected option
-//   - error: Any error that occurred
+// Select prompts the user to choose from options, returning the chosen index and value.
+// Out-of-range defaultIndex values clamp to 0.
 func Select(message string, options []SelectOption, defaultIndex int) (int, string, error) {
 	if len(options) == 0 {
 		return -1, "", fmt.Errorf("no options provided")
@@ -363,23 +310,11 @@ func canRunInteractiveSelect() bool {
 	return isInputTTY && (isOutputTTY || isStderrTTY)
 }
 
-// IsInteractive reports whether the CLI is running in an interactive terminal
-// where user prompts (e.g. platform selection) can be displayed.
-//
-// Returns:
-//   - bool: True if stdin is a TTY and at least one output stream is a TTY.
 func IsInteractive() bool {
 	return canRunInteractiveSelect()
 }
 
-// Confirm prompts the user for a yes/no confirmation.
-// This is an alias for PromptConfirm for convenience.
-//
-// Parameters:
-//   - message: The prompt message to display
-//
-// Returns:
-//   - bool: True if user confirmed, false otherwise
+// Confirm prompts for yes/no confirmation defaulting to yes, returning false on error.
 func Confirm(message string) bool {
 	result, err := PromptConfirm(message, true)
 	if err != nil {

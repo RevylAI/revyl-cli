@@ -1,7 +1,4 @@
-// Package ui provides terminal UI components using Charm libraries.
-//
-// This package contains all the styling, rendering, and interactive
-// components for the Revyl CLI's beautiful terminal interface.
+// Package ui provides terminal styling, output formatting, progress, and interactive prompt helpers.
 package ui
 
 import (
@@ -12,25 +9,19 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-// TTY capability flags for standard streams.
 var (
 	isInputTTY  = isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
 	isOutputTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 	isStderrTTY = isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
 )
 
-// isTTY reports whether stderr is connected to a terminal.
-// UI output is written to stderr so this checks the stderr file descriptor.
 var isTTY = isStderrTTY
 
-// IsInputTTY reports whether stdin is connected to a terminal.
-// Returns false for piped stdin, /dev/null, or CI environments.
+// IsInputTTY reports the cached initialization-time TTY classification of os.Stdin.
 func IsInputTTY() bool {
 	return isInputTTY
 }
 
-// clearLine emits an ANSI escape sequence to clear the current line on stderr.
-// If stderr is not a TTY, this is a no-op to avoid garbage output in pipes.
 func clearLine() {
 	if isTTY {
 		fmt.Fprint(os.Stderr, "\r\033[K")
@@ -38,19 +29,12 @@ func clearLine() {
 	}
 }
 
-// ClearLine emits an ANSI escape sequence to clear the current terminal line.
-// Exported wrapper around clearLine for use by other packages (e.g. spinner cleanup).
-// If stderr is not a TTY, this is a no-op to avoid garbage output in pipes.
 func ClearLine() {
 	clearLine()
 }
 
-// Brand colors for Revyl.
 var (
-	// Primary brand color - Revyl purple
-	Purple = lipgloss.Color("#9D61FF")
-
-	// Secondary colors
+	Purple  = lipgloss.Color("#9D61FF")
 	Teal    = lipgloss.Color("#14B8A6")
 	Red     = lipgloss.Color("#EF4444")
 	Amber   = lipgloss.Color("#F59E0B")
@@ -59,120 +43,92 @@ var (
 	DimGray = lipgloss.Color("#9CA3AF")
 )
 
-// Text styles.
 var (
-	// TitleStyle for main headings
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(Purple)
 
-	// SuccessStyle for success messages
 	SuccessStyle = lipgloss.NewStyle().
 			Foreground(Green).
 			Bold(true)
 
-	// ErrorStyle for error messages
 	ErrorStyle = lipgloss.NewStyle().
 			Foreground(Red).
 			Bold(true)
 
-	// WarningStyle for warning messages
 	WarningStyle = lipgloss.NewStyle().
 			Foreground(Amber)
 
-	// InfoStyle for informational messages
 	InfoStyle = lipgloss.NewStyle()
 
-	// DimStyle for less important text
 	DimStyle = lipgloss.NewStyle().
 			Foreground(DimGray)
 
-	// LinkStyle for URLs
 	LinkStyle = lipgloss.NewStyle().
 			Foreground(Purple).
 			Underline(true)
 
-	// AccentStyle for purple-highlighted elements (numbers, indicators)
 	AccentStyle = lipgloss.NewStyle().
 			Foreground(Purple)
 
-	// BoldInfoStyle for highlighted option labels
 	BoldInfoStyle = lipgloss.NewStyle().
 			Bold(true)
 )
 
-// Box styles.
 var (
-	// BoxStyle for content boxes
 	BoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(Purple).
 			Padding(0, 1)
 
-	// BoxTitleStyle for box titles
 	BoxTitleStyle = lipgloss.NewStyle().
 			Foreground(Purple).
 			Bold(true)
 
-	// ResultBoxPassedStyle for passed test results
 	ResultBoxPassedStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(Green).
 				Padding(0, 1)
 
-	// ResultBoxFailedStyle for failed test results
 	ResultBoxFailedStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(Red).
 				Padding(0, 1)
 )
 
-// Table styles.
 var (
-	// TableHeaderStyle for table headers
 	TableHeaderStyle = lipgloss.NewStyle().
 				Foreground(DimGray).
 				Bold(true).
 				Padding(0, 2)
 
-	// TableCellStyle for table cells
 	TableCellStyle = lipgloss.NewStyle().
 			Padding(0, 2)
 )
 
-// Status indicator styles.
 var (
-	// StatusPassedStyle for passed status
 	StatusPassedStyle = lipgloss.NewStyle().
 				Foreground(Green)
 
-	// StatusFailedStyle for failed status
 	StatusFailedStyle = lipgloss.NewStyle().
 				Foreground(Red)
 
-	// StatusRunningStyle for running status
 	StatusRunningStyle = lipgloss.NewStyle().
 				Foreground(Teal)
 )
 
-// Progress bar styles.
 var (
-	// ProgressBarStyle for the progress bar container
 	ProgressBarStyle = lipgloss.NewStyle().
 		Foreground(Purple)
 )
 
-// Diff styles.
 var (
-	// DiffAddStyle for added lines
 	DiffAddStyle = lipgloss.NewStyle().
 			Foreground(Green)
 
-	// DiffRemoveStyle for removed lines
 	DiffRemoveStyle = lipgloss.NewStyle().
 			Foreground(Red)
 
-	// DiffContextStyle for context lines
 	DiffContextStyle = lipgloss.NewStyle().
 				Foreground(DimGray)
 )

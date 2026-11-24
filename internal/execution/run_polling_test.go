@@ -320,9 +320,6 @@ func TestRunWorkflow_PollingModeCompletesWithoutSSE(t *testing.T) {
 	}
 }
 
-// TestRunWorkflow_PinsBuildVersion verifies that, for both platforms, an app
-// override plus a build version override serialize into
-// build_config.<platform>.pinned_version (and that an unpinned platform omits it).
 func TestRunWorkflow_PinsBuildVersion(t *testing.T) {
 	const iosAppID = "11111111-1111-1111-1111-111111111111"
 	const androidAppID = "22222222-2222-2222-2222-222222222222"
@@ -331,7 +328,7 @@ func TestRunWorkflow_PinsBuildVersion(t *testing.T) {
 		name            string
 		params          RunWorkflowParams
 		wantIosApp      string
-		wantIosVersion  interface{} // string, or nil when unset
+		wantIosVersion  interface{}
 		wantAndroidApp  string
 		wantAndroidVers interface{}
 	}{
@@ -347,7 +344,7 @@ func TestRunWorkflow_PinsBuildVersion(t *testing.T) {
 		{
 			name: "android pinned, ios app-only (no pin)",
 			params: RunWorkflowParams{
-				IOSAppID:     iosAppID, // no IOSBuild
+				IOSAppID:     iosAppID,
 				AndroidAppID: androidAppID, AndroidBuild: "5.6.7",
 			},
 			wantIosApp: iosAppID, wantIosVersion: nil,

@@ -1,4 +1,3 @@
-// Package execution provides shared execution logic for tests and workflows.
 package execution
 
 import (
@@ -16,16 +15,6 @@ import (
 	"github.com/revyl/cli/internal/orgguard"
 )
 
-// CreateTestParams contains parameters for creating a test.
-//
-// Fields:
-//   - Name: Test name
-//   - Platform: Target platform (ios, android, or web)
-//   - YAMLContent: Optional YAML test definition (if provided, creates with blocks)
-//   - AppID: Optional app ID to associate
-//   - OrgID: Organization ID
-//   - Project: Optional strictly resolved canonical project for app selection
-//   - DevMode: If true, use local development servers
 type CreateTestParams struct {
 	Name             string
 	Platform         string
@@ -38,22 +27,12 @@ type CreateTestParams struct {
 	OrgID            string
 	ModuleNamesOrIDs []string
 	Tags             []string
-	// Project is the strictly resolved canonical project used for configured
-	// app selection. It may be nil for explicit-app, configless callers.
-	Project *config.ProjectContext
-	// Config is retained for source compatibility. Ordinary creation no longer
-	// reads the legacy project model; callers must pass Project or AppID.
-	Config     *config.ProjectConfig
-	AllowEmpty bool
-	DevMode    bool
+	Project          *config.ProjectContext
+	Config           *config.ProjectConfig
+	AllowEmpty       bool
+	DevMode          bool
 }
 
-// CreateTestResult contains the result of test creation.
-//
-// Fields:
-//   - TestID: The created test UUID
-//   - TestName: The test name
-//   - TestURL: URL to the test editor
 type CreateTestResult struct {
 	TestID   string `json:"test_id"`
 	TestName string `json:"test_name"`
@@ -74,34 +53,11 @@ type createTestYAMLDefinition struct {
 
 var globalBuildNamePattern = regexp.MustCompile(`\{\{\s*global\.([A-Za-z0-9_.-]+)\s*\}\}`)
 
-// CreateTest creates a new test on the server.
-//
-// If YAMLContent is provided, it validates the YAML and creates the test with blocks.
-// Otherwise, creates an empty test that can be edited in the browser.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - apiKey: API key for authentication
-//   - params: Test creation parameters
-//
-// Returns:
-//   - *CreateTestResult: Creation result with test ID and URL
-//   - error: Any error that occurred
 func CreateTest(ctx context.Context, apiKey string, params CreateTestParams) (*CreateTestResult, error) {
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
 	return CreateTestWithClient(ctx, client, params)
 }
 
-// CreateTestWithClient creates a new test using an existing API client.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - client: The authenticated API client
-//   - params: Test creation parameters
-//
-// Returns:
-//   - *CreateTestResult: Creation result with test ID and URL
-//   - error: Any error that occurred
 func CreateTestWithClient(ctx context.Context, client *api.Client, params CreateTestParams) (*CreateTestResult, error) {
 	if client == nil {
 		return nil, fmt.Errorf("failed to create test: authenticated client is required")
@@ -117,7 +73,6 @@ func CreateTestWithClient(ctx context.Context, client *api.Client, params Create
 		return nil, fmt.Errorf("failed to create test: %w", err)
 	}
 
-	// Sync tags from YAML metadata or explicit Tags param after creation
 	tags := params.Tags
 	if len(tags) == 0 && params.YAMLContent != "" {
 		if testDef, parseErr := parseCreateTestYAML(params.YAMLContent); parseErr == nil {
@@ -145,7 +100,6 @@ func CreateTestWithClient(ctx context.Context, client *api.Client, params Create
 
 func buildCreateTestRequest(ctx context.Context, client *api.Client, params CreateTestParams) (*api.CreateTestRequest, error) {
 	platform := normalizeCreatePlatform(params.Platform)
-	// Validate platform
 	if platform != "ios" && platform != "android" && platform != "web" {
 		return nil, fmt.Errorf("invalid platform '%s': must be 'ios', 'android', or 'web'", params.Platform)
 	}
@@ -212,10 +166,6 @@ func buildCreateTestRequest(ctx context.Context, client *api.Client, params Crea
 	}, nil
 }
 
-// ResolveCanonicalConfiguredAppID returns the only app ID configured for a
-// runtime platform across canonical build profiles. Multiple distinct app IDs
-// are intentionally ambiguous: callers must select one explicitly instead of
-// silently choosing a different profile's app.
 func ResolveCanonicalConfiguredAppID(project *config.ProjectContext, runtimePlatform string) (string, error) {
 	if project == nil || project.Aggregate == nil {
 		return "", nil
@@ -250,7 +200,6 @@ func ResolveCanonicalConfiguredAppID(project *config.ProjectContext, runtimePlat
 	return "", nil
 }
 
-// ResolveConfiguredAppID returns the configured default app ID for a runtime platform.
 func ResolveConfiguredAppID(cfg *config.ProjectConfig, runtimePlatform string) string {
 	if cfg == nil || len(cfg.Build.Platforms) == 0 {
 		return ""
@@ -389,8 +338,6 @@ func ResolveCreateTestApp(ctx context.Context, client *api.Client, project *conf
 	return nil, fmt.Errorf("could not resolve an app for platform %s: provide app_id, include yaml_content with test.build.name, or configure a default app in .revyl/config.yaml", platform)
 }
 
-// ResolveGlobalBuildNamePlaceholders replaces {{global.<name>}} placeholders in a
-// test's build.name with the org's plaintext global variable values.
 func ResolveGlobalBuildNamePlaceholders(ctx context.Context, client *api.Client, buildName string) (string, error) {
 	matches := globalBuildNamePattern.FindAllStringSubmatchIndex(buildName, -1)
 	if len(matches) == 0 {
@@ -625,28 +572,12 @@ type CreateWorkflowParams struct {
 	DevMode bool
 }
 
-// CreateWorkflowResult contains the result of workflow creation.
-//
-// Fields:
-//   - WorkflowID: The created workflow UUID
-//   - WorkflowName: The workflow name
-//   - WorkflowURL: URL to the workflow editor
 type CreateWorkflowResult struct {
 	WorkflowID   string `json:"workflow_id"`
 	WorkflowName string `json:"workflow_name"`
 	WorkflowURL  string `json:"workflow_url"`
 }
 
-// CreateWorkflow creates a new workflow on the server.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - apiKey: API key for authentication
-//   - params: Workflow creation parameters
-//
-// Returns:
-//   - *CreateWorkflowResult: Creation result with workflow ID and URL
-//   - error: Any error that occurred
 func CreateWorkflow(ctx context.Context, apiKey string, params CreateWorkflowParams) (*CreateWorkflowResult, error) {
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
 	resp, err := client.CreateWorkflow(ctx, &api.CLICreateWorkflowRequest{
@@ -668,37 +599,18 @@ func CreateWorkflow(ctx context.Context, apiKey string, params CreateWorkflowPar
 	}, nil
 }
 
-// OpenTestEditorParams contains parameters for opening a test editor.
-//
-// Fields:
-//   - TestNameOrID: Test name (alias from config) or UUID
-//   - DevMode: If true, use local development servers
 type OpenTestEditorParams struct {
 	TestNameOrID string
 	TestsDir     string
 	DevMode      bool
 }
 
-// OpenTestEditorResult contains the result of opening a test editor.
-//
-// Fields:
-//   - TestID: The resolved test UUID
-//   - TestURL: URL to the test editor
 type OpenTestEditorResult struct {
 	TestID  string `json:"test_id"`
 	TestURL string `json:"test_url"`
 }
 
-// OpenTestEditor resolves a test and returns the editor URL.
-//
-// Parameters:
-//   - cfg: Project config (unused, kept for API compatibility)
-//   - params: Parameters including test name/ID
-//
-// Returns:
-//   - *OpenTestEditorResult: Result with test ID and URL
 func OpenTestEditor(_ *config.ProjectConfig, params OpenTestEditorParams) *OpenTestEditorResult {
-	// Resolve test ID from local YAML
 	testID := params.TestNameOrID
 	if strings.TrimSpace(params.TestsDir) != "" {
 		if id, ltErr := config.GetLocalTestRemoteID(params.TestsDir, params.TestNameOrID); ltErr == nil && id != "" {
@@ -718,34 +630,17 @@ func OpenTestEditor(_ *config.ProjectConfig, params OpenTestEditorParams) *OpenT
 	}
 }
 
-// OpenWorkflowEditorParams contains parameters for opening a workflow editor.
-//
-// Fields:
-//   - WorkflowNameOrID: Workflow name (alias from config) or UUID
-//   - DevMode: If true, use local development servers
 type OpenWorkflowEditorParams struct {
 	WorkflowNameOrID string
 	DevMode          bool
 }
 
-// OpenWorkflowEditorResult contains the result of opening a workflow editor.
-//
-// Fields:
-//   - WorkflowID: The resolved workflow UUID
-//   - WorkflowURL: URL to the workflow editor
 type OpenWorkflowEditorResult struct {
 	WorkflowID  string `json:"workflow_id"`
 	WorkflowURL string `json:"workflow_url"`
 }
 
-// OpenWorkflowEditor resolves a workflow and returns the editor URL.
-//
-// Parameters:
-//   - cfg: Project config for alias resolution (can be nil)
-//   - params: Parameters including workflow name/ID
-//
-// Returns:
-//   - *OpenWorkflowEditorResult: Result with workflow ID and URL
+// OpenWorkflowEditor builds the workflow editor URL from params.WorkflowNameOrID; the config parameter is unused.
 func OpenWorkflowEditor(_ *config.ProjectConfig, params OpenWorkflowEditorParams) *OpenWorkflowEditorResult {
 	workflowID := params.WorkflowNameOrID
 

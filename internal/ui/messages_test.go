@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// captureStdoutAndStderr redirects os.Stdout and os.Stderr to pipes, runs fn,
-// then returns whatever was written to each.
 func captureStdoutAndStderr(t *testing.T, fn func()) (stdout, stderr string) {
 	t.Helper()
 
