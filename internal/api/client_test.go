@@ -115,9 +115,6 @@ func TestSubmissionsDoNotRetry(t *testing.T) {
 
 func writeTestArtifact(t *testing.T) string {
 	t.Helper()
-	// .apk files bypass the local-zip structural pre-flight in
-	// validateLocalBuildArtifact. The byte contents only matter on the server
-	// side (which is mocked here), so a tiny placeholder is sufficient.
 	return writeTestArtifactOfSize(t, 16)
 }
 
@@ -469,7 +466,6 @@ func TestUploadBuild_RetriesTransportErrorThenSucceeds(t *testing.T) {
 	if got := atomic.LoadInt32(&failTransport.calls); got != 2 {
 		t.Fatalf("transport calls = %d, want 2", got)
 	}
-	// First transport failure happens before hitting the upload server.
 	if got := atomic.LoadInt32(uploadAttempts); got != 1 {
 		t.Fatalf("upload attempts = %d, want 1", got)
 	}
@@ -652,7 +648,7 @@ func TestUploadBuild_FailsAfterRetryExhaustion(t *testing.T) {
 			t.Fatalf("complete-upload should not be called when upload fails")
 		},
 	)
-	client.maxRetries = 2 // 3 total attempts
+	client.maxRetries = 2
 
 	_, err := client.UploadBuild(context.Background(), &UploadBuildRequest{
 		AppID:    "app-1",
@@ -718,10 +714,6 @@ func TestUploadBuild_CancelledDuringRetryBackoff(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CreateBuildFromURL tests
-// ---------------------------------------------------------------------------
-
 func TestCreateBuildFromURL_Success(t *testing.T) {
 	var capturedBody map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -768,7 +760,6 @@ func TestCreateBuildFromURL_Success(t *testing.T) {
 		t.Fatalf("PackageName = %q, want %q", resp.PackageName, "com.example.app")
 	}
 
-	// Verify the request body was correctly serialized.
 	if fromURL, ok := capturedBody["from_url"].(string); !ok || fromURL != "https://artifacts.internal.company.com/builds/app-latest.ipa" {
 		t.Fatalf("from_url = %v, want the artifact URL", capturedBody["from_url"])
 	}
@@ -860,7 +851,6 @@ func TestCreateBuildFromURL_NoHeadersAndNoPin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateBuildFromURL() error = %v", err)
 	}
-	// Headers should be omitted from the JSON body when nil.
 	if _, exists := capturedBody["headers"]; exists {
 		t.Fatalf("headers should be omitted when nil, got: %v", capturedBody["headers"])
 	}
@@ -942,7 +932,7 @@ func TestDoRequestWithRetry_ReturnsFinalRetryableResponseWithReadableBody(t *tes
 	t.Cleanup(server.Close)
 
 	client := NewClientWithBaseURL("test-key", server.URL)
-	client.maxRetries = 2 // 3 total attempts
+	client.maxRetries = 2
 	client.retryBaseDelay = time.Millisecond
 	client.retryMaxDelay = time.Millisecond
 
@@ -1834,7 +1824,7 @@ func TestUploadOrgFile_ConfirmFailure_ReturnsError(t *testing.T) {
 	client := NewClientWithBaseURL("test-key", backendServer.URL)
 	client.uploadClient = uploadServer.Client()
 	client.retryBaseDelay = time.Millisecond
-	client.maxRetries = 0 // no retries so we get exactly 1 call
+	client.maxRetries = 0
 
 	filePath := filepath.Join(t.TempDir(), "test.txt")
 	if err := os.WriteFile(filePath, []byte("fake-file-bytes!"), 0o644); err != nil {
@@ -1937,7 +1927,6 @@ func TestProxyWorkerMethodForAction(t *testing.T) {
 		}
 	}
 
-	// Mutating actions default to POST.
 	postActions := []string{"tap", "swipe", "execute_step", "install", "install_async", "launch"}
 	for _, action := range postActions {
 		if got := proxyWorkerMethodForAction(action); got != http.MethodPost {

@@ -4,8 +4,6 @@ import "strings"
 
 const ConcurrencyUpgradeHint = "Upgrade your plan for more concurrency: revyl auth billing"
 
-// concurrencyUpgradeHint is the next step at a concurrency limit: the
-// response's billing link when it carried one, the plan upgrade otherwise.
 func concurrencyUpgradeHint(billingURL string) string {
 	if billingURL != "" {
 		return "Upgrade to Pro to run more devices at once (" + AddCardCharge + "): " + billingURL

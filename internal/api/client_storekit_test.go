@@ -48,7 +48,6 @@ func TestUpsertStoreKitConfigRef(t *testing.T) {
 	}
 }
 
-// disabled mode must send file_id as JSON null, not omit it.
 func TestUpsertStoreKitConfigRefDisabledSendsNullFileID(t *testing.T) {
 	var raw map[string]json.RawMessage
 
@@ -70,7 +69,6 @@ func TestUpsertStoreKitConfigRefDisabledSendsNullFileID(t *testing.T) {
 	}
 }
 
-// Unset scope returns 200 with result:null, not an error.
 func TestGetStoreKitConfigRefUnsetReturnsNilResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -116,7 +114,6 @@ func TestDeleteStoreKitConfigRefAcceptsNoContent(t *testing.T) {
 	}
 }
 
-// Delete is idempotent: an unset scope returns 200, not 404.
 func TestDeleteStoreKitConfigRefIdempotent200(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

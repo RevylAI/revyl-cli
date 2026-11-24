@@ -7,14 +7,14 @@ import (
 	"net/url"
 )
 
-// GetReportVideoTimelineBySession places every action of a device session's
-// report on its recording, with a suggested clip window per timed action.
+// GetReportVideoTimelineBySession returns a device session report's actions placed on its
+// recording, with optional suggested clip windows.
 func (c *Client) GetReportVideoTimelineBySession(ctx context.Context, sessionID string) (*ReportVideoTimelineResponse, error) {
 	return c.getReportVideoTimeline(ctx, fmt.Sprintf("/api/v1/reports-v3/reports/by-session/%s/video-timeline", url.PathEscape(sessionID)))
 }
 
-// GetReportVideoTimelineByExecution places every action of a test execution's
-// report on its recording, with a suggested clip window per timed action.
+// GetReportVideoTimelineByExecution returns a test execution report's actions placed on its
+// recording, with optional suggested clip windows.
 func (c *Client) GetReportVideoTimelineByExecution(ctx context.Context, executionID string) (*ReportVideoTimelineResponse, error) {
 	return c.getReportVideoTimeline(ctx, fmt.Sprintf("/api/v1/reports-v3/reports/by-execution/%s/video-timeline", url.PathEscape(executionID)))
 }

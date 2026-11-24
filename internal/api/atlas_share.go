@@ -9,8 +9,6 @@ import (
 	"strconv"
 )
 
-// AtlasShareScope selects the Atlas map scope a share link covers. The server
-// matches an active link by these exact values.
 type AtlasShareScope struct {
 	BuildID          string
 	BranchID         string
@@ -19,7 +17,6 @@ type AtlasShareScope struct {
 	RecentBuildLimit int
 }
 
-// CreateAtlasShareLink creates or refreshes the public share link for a map scope.
 func (c *Client) CreateAtlasShareLink(ctx context.Context, appID string, req *AtlasShareLinkRequest) (*AtlasShareLinkStatusResponse, error) {
 	resp, err := c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/share", url.PathEscape(appID)), req)
 	if err != nil {
@@ -32,7 +29,6 @@ func (c *Client) CreateAtlasShareLink(ctx context.Context, appID string, req *At
 	return &result, nil
 }
 
-// GetAtlasShareLinkStatus reads the active share link for an exact map scope.
 func (c *Client) GetAtlasShareLinkStatus(ctx context.Context, appID string, scope AtlasShareScope) (*AtlasShareLinkStatusResponse, error) {
 	values := url.Values{}
 	for name, value := range map[string]string{
