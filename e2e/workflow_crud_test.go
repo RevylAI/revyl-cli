@@ -93,8 +93,8 @@ func TestWorkflowLifecycle(t *testing.T) {
 		if err := json.Unmarshal([]byte(extractJSON(result.Stdout)), &shown); err != nil {
 			st.Fatalf("workflow config show --json is not valid JSON: %v\n%s", err, result.Stdout)
 		}
-		if shown.Retries == nil || *shown.Retries != 2 {
-			st.Fatalf("stored retries = %v, want 2", shown.Retries)
+		if shown.Retries == nil || *shown.Retries != 1 {
+			st.Fatal("expected one effective attempt after deprecated --retries 2")
 		}
 	})
 
