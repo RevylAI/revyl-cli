@@ -13,7 +13,10 @@ ambiguous, specify it explicitly; no profile is stored as active or default.
 
 Run `revyl auth login`, then `revyl init` from your project root. It detects
 your project and writes `.revyl/config.yaml` with initial build commands. Edit
-them if your project has a custom build setup.
+them if your project has a custom build setup. Detected JavaScript installs
+use the lockfile exactly (`npm ci`, `--frozen-lockfile`, `--immutable`) and
+activate the pnpm or Bun version pinned by `packageManager`; XcodeGen projects
+run `xcodegen generate` first; Expo profiles follow a static `expo.platforms`.
 
 Cloud builds require a Git worktree and an accessible, same-platform app UUID
 in the recipe's `app_id`. Use `revyl app list --platform ios` (or `android` or `web`)
@@ -158,6 +161,13 @@ Atlas comparison across builds.
 - `revyl build logs <id>` prints a build's full log from the start, where
   `build status` shows only the latest events. Add `--follow` to stream it
   until the build ends, or `--json` for one log event per line.
+- When a cloud build fails or times out, `revyl build status <id>` and the
+  failure output of `revyl build` also print a "Build errors" excerpt: the
+  first `error:`, `** BUILD FAILED **`, Gradle `FAILURE:` and Kotlin `e:`
+  lines of the log with two lines of context each, up to ten errors (from the
+  latest lines when a very long log has none near its start). With
+  `--json`, the same lines are in `error_excerpt`, with `...` between
+  separate parts.
 - `--image`, `--env`, `--timeout`, `--detach`, and `--no-cache` are cloud-only.
 
 This default changes only `revyl build`. `revyl dev` remains local unless you
@@ -174,6 +184,17 @@ To remove one uploaded build version, run
 `revyl build delete <build-version-id>`. It asks for confirmation; pass
 `--force` to skip the prompt and `--json` for a machine-readable result. Find
 build version IDs with `revyl build list --app <id>`.
+
+To download a build version's artifact, run
+`revyl build download <build-version-id>`. It saves the file under the
+artifact's own name in the current directory; pass `--out <path>` for another
+file path or an existing directory, and `--force` to overwrite an existing
+file. The file appears only once it is complete, and when the build has a
+recorded SHA-256 checksum the download is verified against it and discarded on
+a mismatch. `--json` prints the saved path, size, SHA-256 and whether it was
+verified. The download link is a short-lived credential, so it is printed only
+with `--print-url`, which also warns on stderr. `--timeout` bounds the whole
+download (default 30 minutes).
 
 ## Web builds
 

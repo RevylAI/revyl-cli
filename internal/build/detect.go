@@ -8,9 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 var bazelTargetNamePattern = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
@@ -150,6 +153,12 @@ func Detect(dir string) (*DetectedBuild, error) {
 		return detectKMP(dir)
 	}
 
+	if !hasXcodeProject(dir) {
+		if specDir, projectName := findXcodeGenSpec(dir); projectName != "" {
+			return detectXcodeGen(dir, specDir, projectName), nil
+		}
+	}
+
 	// Check for Xcode project
 	if hasXcodeProject(dir) {
 		return detectXcode(dir)
@@ -271,12 +280,20 @@ func detectReactNative(dir string) (*DetectedBuild, error) {
 // and pull requests.
 func detectReactNativeApp(system BuildSystem, dir string) *DetectedBuild {
 	installCommand := JSInstallCommand(dir)
+	expoPlatforms, expoPlatformsKnown := expoDeclaredPlatforms(dir)
 	detected := &DetectedBuild{System: system, Platforms: make(map[string]BuildPlatform)}
 	for suffix, configuration := range map[string]string{"": "Debug", "-preview": "Release"} {
 		for _, platform := range []string{"ios", "android"} {
+			generatedByPrebuild := system == SystemExpo && !DirExists(filepath.Join(dir, platform))
+			if generatedByPrebuild && expoPlatformsKnown && !slices.Contains(expoPlatforms, platform) {
+				continue
+			}
 			recipe, ok := reactNativePlatform(system, dir, platform, configuration)
 			if !ok {
 				continue
+			}
+			if generatedByPrebuild && hasExpoDynamicConfig(dir) {
+				recipe.Note = "app.config.js/ts can set expo.platforms, which init cannot read; remove this profile if the app does not ship on " + platform
 			}
 			if recipe.Command != "" {
 				recipe.SetupCommands = []string{installCommand}
@@ -451,6 +468,31 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
+// expoDeclaredPlatforms returns the platforms expo prebuild generates, from
+// expo.platforms in app.json, else the expo key of package.json, and whether
+// they are known. A dynamic app config can compute them, so with one they are
+// unknown.
+func expoDeclaredPlatforms(dir string) ([]string, bool) {
+	if hasExpoDynamicConfig(dir) {
+		return nil, false
+	}
+	for _, name := range []string{"app.json", "package.json"} {
+		data, err := readLocalFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		var manifest struct {
+			Expo struct {
+				Platforms []string `json:"platforms"`
+			} `json:"expo"`
+		}
+		if json.Unmarshal(data, &manifest) == nil && manifest.Expo.Platforms != nil {
+			return manifest.Expo.Platforms, true
+		}
+	}
+	return nil, false
+}
+
 func hasExpoDynamicConfig(dir string) bool {
 	for _, filename := range []string{"app.config.js", "app.config.ts", "app.config.mjs", "app.config.cjs"} {
 		if fileExists(filepath.Join(dir, filename)) {
@@ -468,22 +510,32 @@ var lockfilePackageManagers = []struct{ lockfile, manager string }{
 	{"package-lock.json", "npm"},
 }
 
-// JSInstallCommand returns the dependency install command for the nearest
-// lockfile in dir or a parent directory up to the repository root, run where
-// the lockfile is so a workspace package installs with its workspace's package
-// manager. Yarn 2 and later, pinned by package.json's packageManager field,
-// enables Corepack first, since build machines ship Yarn 1. Without a
-// lockfile, it installs with npm in dir.
+// JSInstallCommand returns the dependency install command a build machine
+// runs: LocalJSInstallCommand, after activating the pnpm or Bun version that
+// package.json's packageManager field pins, since build machines ship other
+// versions.
 func JSInstallCommand(dir string) string {
+	return jsInstallCommand(dir, true)
+}
+
+// LocalJSInstallCommand returns the dependency install command for the
+// nearest lockfile in dir or a parent directory up to the repository root, run
+// where the lockfile is so a workspace package installs with its workspace's
+// package manager. It installs exactly what the lockfile records. Yarn 2 and
+// later, pinned by package.json's packageManager field or configured by
+// .yarnrc.yml, enables Corepack first, since machines ship Yarn 1. Without a
+// lockfile, it installs with npm in dir.
+func LocalJSInstallCommand(dir string) string {
+	return jsInstallCommand(dir, false)
+}
+
+func jsInstallCommand(dir string, activatePinnedVersion bool) string {
 	for current := dir; ; current = filepath.Dir(current) {
 		for _, candidate := range lockfilePackageManagers {
 			if !fileExists(filepath.Join(current, candidate.lockfile)) {
 				continue
 			}
-			command := candidate.manager + " install"
-			if candidate.manager == "yarn" && usesModernYarn(current) {
-				command = "corepack enable && " + command
-			}
+			command := frozenInstallCommand(current, candidate.manager, activatePinnedVersion)
 			if relative, err := filepath.Rel(dir, current); err == nil && relative != "." {
 				command = "cd " + filepath.ToSlash(relative) + " && " + command
 			}
@@ -495,21 +547,60 @@ func JSInstallCommand(dir string) string {
 	}
 }
 
-// usesModernYarn reports whether package.json in dir pins Yarn 2 or later
-// with its packageManager field, such as "yarn@4.10.2".
-func usesModernYarn(dir string) bool {
+func frozenInstallCommand(dir, manager string, activatePinnedVersion bool) string {
+	version := ""
+	if pinnedManager, pinnedVersion := pinnedPackageManager(dir); pinnedManager == manager {
+		version = pinnedVersion
+	}
+	switch manager {
+	case "npm":
+		return "npm ci"
+	case "pnpm":
+		if activatePinnedVersion && version != "" {
+			return "corepack enable && corepack prepare pnpm@" + version + " --activate && pnpm install --frozen-lockfile"
+		}
+		return "pnpm install --frozen-lockfile"
+	case "bun":
+		if activatePinnedVersion && version != "" {
+			return "npx --yes bun@" + version + " install --frozen-lockfile"
+		}
+		return "bun install --frozen-lockfile"
+	default:
+		modernYarn := fileExists(filepath.Join(dir, ".yarnrc.yml"))
+		if version != "" {
+			modernYarn = !strings.HasPrefix(version, "1.")
+		}
+		if modernYarn {
+			return "corepack enable && yarn install --immutable"
+		}
+		return "yarn install --frozen-lockfile"
+	}
+}
+
+var packageManagerVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+
+// pinnedPackageManager returns the package manager and version that
+// package.json in dir pins with its packageManager field, such as
+// "pnpm@9.15.0+sha512.abc", without the hash. The field is untrusted and the
+// version goes into a shell command, so anything but a semantic version pins
+// nothing.
+func pinnedPackageManager(dir string) (manager, version string) {
 	data, err := readLocalFile(filepath.Join(dir, "package.json"))
 	if err != nil {
-		return false
+		return "", ""
 	}
 	var manifest struct {
 		PackageManager string `json:"packageManager"`
 	}
 	if json.Unmarshal(data, &manifest) != nil {
-		return false
+		return "", ""
 	}
-	version, ok := strings.CutPrefix(manifest.PackageManager, "yarn@")
-	return ok && version != "" && !strings.HasPrefix(version, "1.")
+	manager, version, _ = strings.Cut(manifest.PackageManager, "@")
+	version, _, _ = strings.Cut(version, "+")
+	if !packageManagerVersionPattern.MatchString(version) {
+		return "", ""
+	}
+	return manager, version
 }
 
 // hasReactNativeAndroidProject checks whether a React Native project has a usable Android Gradle layout.
@@ -606,6 +697,70 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 	}
 
 	return detected, nil
+}
+
+// findXcodeGenSpec returns the folder, dir or ios, holding an XcodeGen
+// project.yml with no generated Xcode project beside it, and the project name
+// the spec sets.
+func findXcodeGenSpec(dir string) (specDir, projectName string) {
+	for _, candidate := range []string{".", "ios"} {
+		candidateDir := filepath.Join(dir, candidate)
+		raw, err := readLocalFile(filepath.Join(candidateDir, "project.yml"))
+		if err != nil || findXcodeProjectIn(candidateDir) != "" || findXcodeWorkspaceIn(candidateDir) != "" {
+			continue
+		}
+		var spec struct {
+			Name    string    `yaml:"name"`
+			Targets yaml.Node `yaml:"targets"`
+		}
+		if yaml.Unmarshal(raw, &spec) != nil || spec.Targets.Kind == 0 {
+			continue
+		}
+		if name := strings.TrimSpace(spec.Name); name != "" {
+			return candidate, name
+		}
+	}
+	return "", ""
+}
+
+// detectXcodeGen returns build configuration for an app whose Xcode project
+// XcodeGen generates from project.yml in specDir. The project is generated
+// before the first step that needs it: CocoaPods when a Podfile is present,
+// else the build.
+func detectXcodeGen(dir, specDir, projectName string) *DetectedBuild {
+	generate := "xcodegen generate"
+	ref := projectName + ".xcodeproj"
+	if specDir != "." {
+		generate += " --spec " + shellQuote(specDir+"/project.yml")
+		ref = specDir + "/" + ref
+	}
+	flag := "-project"
+	var setupCommands []string
+	if fileExists(filepath.Join(dir, specDir, "Podfile")) {
+		podInstall := "pod install"
+		if specDir != "." {
+			podInstall = "cd " + shellQuote(specDir) + " && pod install"
+		}
+		setupCommands = []string{generate + " && " + podInstall}
+		flag, ref = "-workspace", strings.TrimSuffix(ref, ".xcodeproj")+".xcworkspace"
+	}
+	command := XcodebuildCommand(flag+" "+shellQuote(ref)+" -scheme "+shellQuote(projectName), "Debug")
+	if setupCommands == nil {
+		command = generate + " && " + command
+	}
+	platform := BuildPlatform{
+		SetupCommands: setupCommands,
+		Command:       command,
+		Output:        "build/Build/Products/Debug-iphonesimulator/*.app",
+		Note:          "the Xcode project is generated by XcodeGen, so the scheme defaults to the project name; change -scheme if the app's scheme has another name",
+	}
+	return &DetectedBuild{
+		System:    SystemXcode,
+		Platform:  "ios",
+		Command:   platform.Command,
+		Output:    platform.Output,
+		Platforms: map[string]BuildPlatform{"ios": platform},
+	}
 }
 
 // detectGradle returns build configuration for a Gradle/Android project.

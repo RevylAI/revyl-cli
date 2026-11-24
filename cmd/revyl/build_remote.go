@@ -388,6 +388,9 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			result.Profile = opts.Profile
 			result.BuildProfile = opts.Profile
 			result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
+			if remoteBuildStatusFailed(status) {
+				result.ErrorExcerpt = fetchRemoteBuildFailureExcerpt(ctx, client, jobID)
+			}
 			printRemoteBuildJSON(result)
 		}
 		return completedRemoteBuildError(resolved, jobID, status, err)
@@ -676,9 +679,13 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 	}
 	if buildStatusJSON {
 		if status != nil {
+			output := remoteBuildStatusJSON{RemoteBuildStatusResponse: status}
+			if remoteBuildStatusFailed(status) {
+				output.ErrorExcerpt = fetchRemoteBuildFailureExcerpt(cmd.Context(), client, jobID)
+			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
-			_ = enc.Encode(status)
+			_ = enc.Encode(output)
 		}
 		if buildStatusFollow {
 			return completedRemoteBuildStatusError(jobID, status, err)
@@ -694,13 +701,26 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 	return err
 }
 
+type remoteBuildStatusJSON struct {
+	*api.RemoteBuildStatusResponse
+	ErrorExcerpt []string `json:"error_excerpt,omitempty"`
+}
+
 func printRemoteBuildStatusSummary(ctx context.Context, client *api.Client, jobID string, status *api.RemoteBuildStatusResponse) {
-	if events := fetchRemoteBuildLogEvents(ctx, client, jobID); len(events) > 0 {
+	events := fetchRemoteBuildLogEvents(ctx, client, jobID)
+	if len(events) > 0 {
 		ui.PrintDim("Recent logs:")
 		formatter := &remoteBuildLogFormatter{}
 		for _, event := range events {
 			formatter.Print(event)
 		}
+	}
+	var excerpt []string
+	if remoteBuildStatusFailed(status) {
+		excerpt = fetchRemoteBuildFailureExcerpt(ctx, client, jobID)
+		printBuildFailureExcerpt(excerpt)
+	}
+	if len(events) > 0 || len(excerpt) > 0 {
 		ui.PrintDim("Full log: revyl build logs %s", jobID)
 		ui.Println()
 	}
@@ -882,6 +902,7 @@ func printRemoteBuildLogTail(ctx context.Context, client *api.Client, jobID stri
 	for _, event := range events {
 		formatter.Print(event)
 	}
+	printBuildFailureExcerpt(fetchRemoteBuildFailureExcerpt(ctx, client, jobID))
 	fmt.Fprintf(os.Stderr, "Full log: revyl build logs %s\n", jobID)
 }
 
@@ -941,6 +962,7 @@ type remoteBuildJSONResult struct {
 	PackageID          string                       `json:"package_id,omitempty"`
 	AppID              string                       `json:"app_id,omitempty"`
 	LogEvents          []api.RemoteBuildLogEvent    `json:"log_events,omitempty"`
+	ErrorExcerpt       []string                     `json:"error_excerpt,omitempty"`
 	Phase              string                       `json:"phase,omitempty"`
 	PhaseTimings       []api.RemoteBuildPhaseTiming `json:"phase_timings,omitempty"`
 	Error              string                       `json:"error,omitempty"`

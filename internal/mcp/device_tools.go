@@ -2375,14 +2375,16 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		} else {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "pass"})
 
-			if healthy, detail, readable := DoctorDeviceHealth(session.Platform, respBytes); readable {
-				if healthy {
-					checks = append(checks, DiagnosticCheck{Name: "device", Status: "pass"})
-				} else {
-					checks = append(checks, DiagnosticCheck{Name: "device", Status: "fail", Detail: detail, Fix: "stop_device_session() and start a new one"})
-					allPassed = false
-				}
+			status, detail := DoctorDeviceHealth(session.Platform, respBytes)
+			deviceCheck := DiagnosticCheck{Name: "device", Status: status, Detail: detail}
+			switch status {
+			case "fail":
+				deviceCheck.Fix = "stop_device_session() and start a new one"
+				allPassed = false
+			case "unknown":
+				deviceCheck.Fix = "Call screenshot() to confirm the device responds"
 			}
+			checks = append(checks, deviceCheck)
 		}
 	}
 

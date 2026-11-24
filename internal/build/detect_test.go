@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -167,10 +168,10 @@ func TestDetectReactNative_BuildsDebugAndReleaseProfiles(t *testing.T) {
 		return "cd ios && if [ ! -d Pods ] || [ ! -d 'Shop.xcworkspace' ]; then pod install; fi && xcodebuild -workspace 'Shop.xcworkspace' -scheme 'shop' -configuration " + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
 	}
 	want := map[string]BuildPlatform{
-		"ios":             {SetupCommands: []string{"yarn install"}, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app"},
-		"ios-preview":     {SetupCommands: []string{"yarn install"}, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app"},
-		"android":         {SetupCommands: []string{"yarn install"}, Command: "cd android && " + executableGradleWrapper() + " assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
-		"android-preview": {SetupCommands: []string{"yarn install"}, Command: "cd android && " + executableGradleWrapper() + " assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
+		"ios":             {SetupCommands: []string{"yarn install --frozen-lockfile"}, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app"},
+		"ios-preview":     {SetupCommands: []string{"yarn install --frozen-lockfile"}, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app"},
+		"android":         {SetupCommands: []string{"yarn install --frozen-lockfile"}, Command: "cd android && " + executableGradleWrapper() + " assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
+		"android-preview": {SetupCommands: []string{"yarn install --frozen-lockfile"}, Command: "cd android && " + executableGradleWrapper() + " assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
 	}
 	if !reflect.DeepEqual(detected.Platforms, want) {
 		t.Fatalf("Platforms =\n%#v\nwant\n%#v", detected.Platforms, want)
@@ -226,13 +227,16 @@ func TestDetectExpo_BuildsNativelyWithoutEAS(t *testing.T) {
 	iosCommand := func(configuration string) string {
 		return `cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && xcodebuild -workspace "$WS" -scheme "${WS%.xcworkspace}" -configuration ` + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
 	}
-	iosSetup := []string{"bun install", "if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; fi"}
-	androidSetup := []string{"bun install", "if [ ! -d android ]; then npx expo prebuild --platform android --no-install; fi"}
+	iosSetup := []string{"bun install --frozen-lockfile", "if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; fi"}
+	androidSetup := []string{"bun install --frozen-lockfile", "if [ ! -d android ]; then npx expo prebuild --platform android --no-install; fi"}
+	dynamicPlatformsNote := func(platform string) string {
+		return "app.config.js/ts can set expo.platforms, which init cannot read; remove this profile if the app does not ship on " + platform
+	}
 	want := map[string]BuildPlatform{
-		"ios":             {SetupCommands: iosSetup, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app"},
-		"ios-preview":     {SetupCommands: iosSetup, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app"},
-		"android":         {SetupCommands: androidSetup, Command: "cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk"},
-		"android-preview": {SetupCommands: androidSetup, Command: "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk"},
+		"ios":             {SetupCommands: iosSetup, Command: iosCommand("Debug"), Output: "ios/build/Build/Products/Debug-iphonesimulator/*.app", Note: dynamicPlatformsNote("ios")},
+		"ios-preview":     {SetupCommands: iosSetup, Command: iosCommand("Release"), Output: "ios/build/Build/Products/Release-iphonesimulator/*.app", Note: dynamicPlatformsNote("ios")},
+		"android":         {SetupCommands: androidSetup, Command: "cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/debug/app-debug.apk", Note: dynamicPlatformsNote("android")},
+		"android-preview": {SetupCommands: androidSetup, Command: "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64", Output: "android/app/build/outputs/apk/release/app-release.apk", Note: dynamicPlatformsNote("android")},
 	}
 	if !reflect.DeepEqual(detected.Platforms, want) {
 		t.Fatalf("Platforms =\n%#v\nwant\n%#v", detected.Platforms, want)
@@ -404,11 +408,11 @@ func TestXcodeScheme(t *testing.T) {
 func TestJSInstallCommandUsesNearestLockfile(t *testing.T) {
 	for lockfile, want := range map[string]string{
 		"":                  "npm install",
-		"package-lock.json": "npm install",
-		"yarn.lock":         "yarn install",
-		"pnpm-lock.yaml":    "pnpm install",
-		"bun.lock":          "bun install",
-		"bun.lockb":         "bun install",
+		"package-lock.json": "npm ci",
+		"yarn.lock":         "yarn install --frozen-lockfile",
+		"pnpm-lock.yaml":    "pnpm install --frozen-lockfile",
+		"bun.lock":          "bun install --frozen-lockfile",
+		"bun.lockb":         "bun install --frozen-lockfile",
 	} {
 		dir := t.TempDir()
 		writeDetectTestFile(t, filepath.Join(dir, ".git", "HEAD"), "")
@@ -430,7 +434,7 @@ func TestJSInstallCommandInstallsWorkspacePackagesFromTheWorkspaceRoot(t *testin
 	app := filepath.Join(repository, "apps", "mobile")
 	writeDetectTestFile(t, filepath.Join(app, "package.json"), "{}")
 
-	if got, want := JSInstallCommand(app), "cd ../.. && pnpm install"; got != want {
+	if got, want := JSInstallCommand(app), "cd ../.. && pnpm install --frozen-lockfile"; got != want {
 		t.Fatalf("JSInstallCommand(workspace package) = %q, want %q", got, want)
 	}
 	if err := os.Remove(filepath.Join(repository, "pnpm-lock.yaml")); err != nil {
@@ -441,24 +445,179 @@ func TestJSInstallCommandInstallsWorkspacePackagesFromTheWorkspaceRoot(t *testin
 	}
 }
 
-func TestJSInstallCommandEnablesCorepackForModernYarn(t *testing.T) {
-	for packageManager, want := range map[string]string{
-		"yarn@4.10.2":  "cd ../.. && corepack enable && yarn install",
-		"yarn@3.6.1":   "cd ../.. && corepack enable && yarn install",
-		"yarn@1.22.22": "cd ../.. && yarn install",
-		"pnpm@10.0.0":  "cd ../.. && yarn install",
-		"":             "cd ../.. && yarn install",
-	} {
-		repository := t.TempDir()
-		writeDetectTestFile(t, filepath.Join(repository, ".git", "HEAD"), "")
-		writeDetectTestFile(t, filepath.Join(repository, "yarn.lock"), "")
-		writeDetectTestFile(t, filepath.Join(repository, "package.json"), `{"packageManager": "`+packageManager+`"}`)
-		app := filepath.Join(repository, "apps", "mobile")
-		writeDetectTestFile(t, filepath.Join(app, "package.json"), `{"packageManager": "yarn@4.0.0"}`)
+func TestJSInstallCommandActivatesThePinnedPackageManager(t *testing.T) {
+	tests := []struct {
+		name, lockfile, packageManager string
+		yarnrc                         bool
+		want, wantLocal                string
+	}{
+		{name: "modern yarn pin", lockfile: "yarn.lock", packageManager: "yarn@4.10.2", want: "corepack enable && yarn install --immutable"},
+		{name: "yarn 3 pin", lockfile: "yarn.lock", packageManager: "yarn@3.6.1", want: "corepack enable && yarn install --immutable"},
+		{name: "yarn 1 pin wins over yarnrc", lockfile: "yarn.lock", packageManager: "yarn@1.22.22", yarnrc: true, want: "yarn install --frozen-lockfile"},
+		{name: "unpinned yarn with yarnrc", lockfile: "yarn.lock", yarnrc: true, want: "corepack enable && yarn install --immutable"},
+		{name: "unpinned yarn", lockfile: "yarn.lock", want: "yarn install --frozen-lockfile"},
+		{name: "pin for another manager", lockfile: "yarn.lock", packageManager: "pnpm@10.0.0", want: "yarn install --frozen-lockfile"},
+		{name: "pnpm pin with hash", lockfile: "pnpm-lock.yaml", packageManager: "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299", want: "corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install --frozen-lockfile", wantLocal: "pnpm install --frozen-lockfile"},
+		{name: "pnpm prerelease pin", lockfile: "pnpm-lock.yaml", packageManager: "pnpm@10.0.0-rc.1", want: "corepack enable && corepack prepare pnpm@10.0.0-rc.1 --activate && pnpm install --frozen-lockfile", wantLocal: "pnpm install --frozen-lockfile"},
+		{name: "bun pin", lockfile: "bun.lock", packageManager: "bun@1.2.19", want: "npx --yes bun@1.2.19 install --frozen-lockfile", wantLocal: "bun install --frozen-lockfile"},
+		{name: "shell metacharacters pin nothing", lockfile: "pnpm-lock.yaml", packageManager: "pnpm@9.0.0;rm -rf ~", want: "pnpm install --frozen-lockfile"},
+		{name: "version range pins nothing", lockfile: "bun.lock", packageManager: "bun@^1.2.0", want: "bun install --frozen-lockfile"},
+		{name: "npm lockfile", lockfile: "package-lock.json", packageManager: "npm@10.9.0", want: "npm ci"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repository := t.TempDir()
+			writeDetectTestFile(t, filepath.Join(repository, ".git", "HEAD"), "")
+			writeDetectTestFile(t, filepath.Join(repository, tt.lockfile), "")
+			writeDetectTestFile(t, filepath.Join(repository, "package.json"), `{"packageManager": "`+tt.packageManager+`"}`)
+			if tt.yarnrc {
+				writeDetectTestFile(t, filepath.Join(repository, ".yarnrc.yml"), "nodeLinker: node-modules\n")
+			}
+			app := filepath.Join(repository, "apps", "mobile")
+			writeDetectTestFile(t, filepath.Join(app, "package.json"), `{"packageManager": "yarn@4.0.0"}`)
 
-		if got := JSInstallCommand(app); got != want {
-			t.Errorf("JSInstallCommand(root packageManager %q) = %q, want %q", packageManager, got, want)
-		}
+			wantLocal := tt.wantLocal
+			if wantLocal == "" {
+				wantLocal = tt.want
+			}
+			if got, want := JSInstallCommand(app), "cd ../.. && "+tt.want; got != want {
+				t.Errorf("JSInstallCommand() = %q, want %q", got, want)
+			}
+			if got, want := LocalJSInstallCommand(app), "cd ../.. && "+wantLocal; got != want {
+				t.Errorf("LocalJSInstallCommand() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestDetectExpo_StaticPlatformsLimitPrebuildProfiles(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  []string
+	}{
+		{
+			name:  "app.json platforms",
+			files: map[string]string{"app.json": `{"expo":{"name":"Shop","platforms":["ios","web"]}}`},
+			want:  []string{"ios", "ios-preview"},
+		},
+		{
+			name: "package.json expo platforms",
+			files: map[string]string{
+				"app.json":     `{"name":"Shop"}`,
+				"package.json": `{"dependencies":{"expo":"~54.0.0"},"expo":{"platforms":["android"]}}`,
+			},
+			want: []string{"android", "android-preview"},
+		},
+		{
+			name:  "no platforms",
+			files: map[string]string{"app.json": `{"expo":{"name":"Shop"}}`},
+			want:  []string{"android", "android-preview", "ios", "ios-preview"},
+		},
+		{
+			name: "committed native project outside platforms",
+			files: map[string]string{
+				"app.json":                 `{"expo":{"name":"Shop","platforms":["ios"]}}`,
+				"android/app/build.gradle": "",
+			},
+			want: []string{"android", "android-preview", "ios", "ios-preview"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeDetectTestFile(t, filepath.Join(dir, "eas.json"), "{}")
+			writeDetectTestFile(t, filepath.Join(dir, "package.json"), `{"dependencies":{"expo":"~54.0.0"}}`)
+			for name, content := range tt.files {
+				writeDetectTestFile(t, filepath.Join(dir, name), content)
+			}
+
+			detected, err := Detect(dir)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			if detected.System != SystemExpo {
+				t.Fatalf("System = %v, want %v", detected.System, SystemExpo)
+			}
+			got := keysOf(detected.Platforms)
+			sort.Strings(got)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("Platforms = %v, want %v", got, tt.want)
+			}
+			for key, platform := range detected.Platforms {
+				if strings.Contains(platform.Note, "expo.platforms") {
+					t.Errorf("%s note = %q, want no dynamic-config note for a static config", key, platform.Note)
+				}
+			}
+		})
+	}
+}
+
+func TestDetectXcodeGen_GeneratesTheProjectBeforeBuilding(t *testing.T) {
+	spec := "name: Shop App\noptions:\n  bundleIdPrefix: com.example\ntargets:\n  Shop App:\n    type: application\n    platform: iOS\n"
+	xcodebuild := func(target string) string {
+		return "xcodebuild " + target + " -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
+	}
+	tests := []struct {
+		name        string
+		files       map[string]string
+		wantSetup   []string
+		wantCommand string
+	}{
+		{
+			name:        "root spec",
+			files:       map[string]string{"project.yml": spec},
+			wantCommand: "xcodegen generate && " + xcodebuild("-project 'Shop App.xcodeproj' -scheme 'Shop App'"),
+		},
+		{
+			name:        "ios spec with pods",
+			files:       map[string]string{"ios/project.yml": spec, "ios/Podfile": ""},
+			wantSetup:   []string{"xcodegen generate --spec 'ios/project.yml' && cd 'ios' && pod install"},
+			wantCommand: xcodebuild("-workspace 'ios/Shop App.xcworkspace' -scheme 'Shop App'"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				writeDetectTestFile(t, filepath.Join(dir, name), content)
+			}
+
+			detected, err := Detect(dir)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			ios := detected.Platforms["ios"]
+			if detected.System != SystemXcode || ios.Command != tt.wantCommand || !reflect.DeepEqual(ios.SetupCommands, tt.wantSetup) {
+				t.Fatalf("Detect() = %v %+v, want Xcode with setup %q and command %q", detected.System, ios, tt.wantSetup, tt.wantCommand)
+			}
+			if ios.Output != "build/Build/Products/Debug-iphonesimulator/*.app" || ios.Note == "" {
+				t.Fatalf("ios = %+v, want the simulator app output and a scheme note", ios)
+			}
+		})
+	}
+}
+
+func TestDetectXcodeGen_CheckedInProjectOrOtherYAMLIsNotXcodeGen(t *testing.T) {
+	spec := "name: Shop\ntargets:\n  Shop:\n    type: application\n"
+	for name, files := range map[string]map[string]string{
+		"checked-in project": {"project.yml": spec, "Shop.xcodeproj/project.pbxproj": ""},
+		"other project.yml":  {"project.yml": "name: deploy\nsteps: []\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for path, content := range files {
+				writeDetectTestFile(t, filepath.Join(dir, path), content)
+			}
+
+			detected, err := Detect(dir)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			if strings.Contains(detected.Platforms["ios"].Command, "xcodegen") {
+				t.Fatalf("ios command = %q, want no xcodegen step", detected.Platforms["ios"].Command)
+			}
+		})
 	}
 }
 
@@ -1321,5 +1480,19 @@ func TestDetectKMP_NativeShellsWithoutKMPMarkerAreNotKMP(t *testing.T) {
 	}
 	if detected.System == SystemKMP {
 		t.Fatal("native shells without a multiplatform Gradle plugin should not trigger KMP detection")
+	}
+}
+
+func TestDetectXcodeGen_QuotedProjectNameStaysWhole(t *testing.T) {
+	dir := t.TempDir()
+	writeDetectTestFile(t, filepath.Join(dir, "project.yml"), "name: \"Bob's App\" # comment\ntargets:\n  App:\n    type: application\n")
+
+	detected, err := Detect(dir)
+
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if command := detected.Platforms["ios"].Command; !strings.Contains(command, `Bob'\''s App.xcodeproj`) {
+		t.Fatalf("command = %q, want the whole quoted project name", command)
 	}
 }

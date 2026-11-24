@@ -2809,7 +2809,7 @@ func detectRNPrerequisiteIssues(cwd, platform string) []rnPrerequisiteIssue {
 	if !build.DirExists(filepath.Join(cwd, "node_modules")) {
 		issues = append(issues, rnPrerequisiteIssue{
 			Problem:      "node_modules/ is missing — JavaScript dependencies are not installed",
-			BootstrapCmd: build.JSInstallCommand(cwd),
+			BootstrapCmd: build.LocalJSInstallCommand(cwd),
 		})
 	}
 

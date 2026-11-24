@@ -98,8 +98,8 @@ func TestDetectRNPrerequisiteIssues_YarnLockDetected(t *testing.T) {
 	if len(issues) == 0 {
 		t.Fatal("expected issue for missing node_modules")
 	}
-	if issues[0].BootstrapCmd != "yarn install" {
-		t.Fatalf("expected yarn install, got %q", issues[0].BootstrapCmd)
+	if issues[0].BootstrapCmd != "yarn install --frozen-lockfile" {
+		t.Fatalf("expected yarn install --frozen-lockfile, got %q", issues[0].BootstrapCmd)
 	}
 }
 
@@ -112,8 +112,8 @@ func TestDetectRNPrerequisiteIssues_PnpmLockDetected(t *testing.T) {
 	if len(issues) == 0 {
 		t.Fatal("expected issue for missing node_modules")
 	}
-	if issues[0].BootstrapCmd != "pnpm install" {
-		t.Fatalf("expected pnpm install, got %q", issues[0].BootstrapCmd)
+	if issues[0].BootstrapCmd != "pnpm install --frozen-lockfile" {
+		t.Fatalf("expected pnpm install --frozen-lockfile, got %q", issues[0].BootstrapCmd)
 	}
 }
 

@@ -2733,40 +2733,45 @@ func (m *DeviceSessionManager) RequireCoordsOnScreen(ctx context.Context, sessio
 
 // DoctorDeviceHealth reads a session's /health body for the doctor's device
 // check. A mobile worker reports device_connected; a Web session's runtime
-// reports whether its browser is ready, with a fresh frame, for this session.
+// reports whether its browser is ready, with a fresh frame, for this session,
+// and whether it has shown its first frame at all.
 //
 // Parameters:
 //   - platform: The session's platform.
 //   - body: The /health response body.
 //
 // Returns:
-//   - healthy: true when the device or browser can take input.
-//   - detail: why it cannot, in the platform's terms; empty when healthy.
-//   - readable: false when the body has no field the platform reports, so
-//     the doctor has no device check to show.
-func DoctorDeviceHealth(platform string, body []byte) (healthy bool, detail string, readable bool) {
+//   - status: "pass" when the device or browser can take input, "fail" when
+//     it reports it cannot, and "unknown" when the body omits the field the
+//     platform reports.
+//   - detail: why the check did not pass, in the platform's terms; empty on pass.
+func DoctorDeviceHealth(platform string, body []byte) (status string, detail string) {
 	if platform == "web" {
 		var health struct {
-			Ready *bool `json:"ready"`
+			Ready              *bool `json:"ready"`
+			FirstFrameObserved *bool `json:"first_frame_observed"`
 		}
 		if json.Unmarshal(body, &health) != nil || health.Ready == nil {
-			return false, "", false
+			return "unknown", "Browser runtime health did not report ready"
 		}
-		if !*health.Ready {
-			return false, "Browser running but not ready for input", true
+		if *health.Ready {
+			return "pass", ""
 		}
-		return true, "", true
+		if health.FirstFrameObserved != nil && !*health.FirstFrameObserved {
+			return "fail", "Browser running but has not shown its first frame yet"
+		}
+		return "fail", "Browser running but not ready for input"
 	}
 	var health struct {
-		DeviceConnected bool `json:"device_connected"`
+		DeviceConnected *bool `json:"device_connected"`
 	}
-	if json.Unmarshal(body, &health) != nil {
-		return false, "", false
+	if json.Unmarshal(body, &health) != nil || health.DeviceConnected == nil {
+		return "unknown", "Worker health did not report device_connected"
 	}
-	if !health.DeviceConnected {
-		return false, "Worker running but device not connected", true
+	if !*health.DeviceConnected {
+		return "fail", "Worker running but device not connected"
 	}
-	return true, "", true
+	return "pass", ""
 }
 
 // parseWorkerHealth unmarshals the /health JSON body and validates device connectivity.
@@ -3152,6 +3157,8 @@ func (e *WorkerHTTPError) Error() string {
 		action := strings.SplitN(strings.TrimPrefix(e.Path, "/"), "?", 2)[0]
 		if e.proxyCode == "worker_gone" && runtimeInputAction(action) {
 			message += "; the " + action + " never reached the device, so retrying the same command is safe"
+		} else if e.proxyCode == "" && e.StatusCode >= http.StatusInternalServerError && runtimeInputAction(action) {
+			message += undeliveredInputGuidance(action)
 		}
 	} else if e.failedAtGateway() {
 		action := strings.TrimPrefix(e.Path, "/")
@@ -3163,6 +3170,8 @@ func (e *WorkerHTTPError) Error() string {
 				" took effect is unconfirmed; check the device with 'revyl device screenshot --out screen.png' before retrying it"
 		}
 		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassServer)
+	} else if action := strings.SplitN(strings.TrimPrefix(e.Path, "/"), "?", 2)[0]; e.Code == "" && e.StatusCode >= http.StatusInternalServerError && runtimeInputAction(action) {
+		message += undeliveredInputGuidance(action)
 	}
 	if e.failureStage != "" {
 		message += "; failure_stage=" + e.failureStage
@@ -3184,6 +3193,12 @@ func (e *WorkerHTTPError) Unwrap() error {
 		return &api.APIError{StatusCode: e.StatusCode, Code: e.proxyCode}
 	}
 	return e.cause
+}
+
+// undeliveredInputGuidance tells the caller that a bare 5xx left an input
+// action's delivery unknown, so the screen must be checked before a retry.
+func undeliveredInputGuidance(action string) string {
+	return "; the " + action + " may not have been delivered; take a screenshot before retrying"
 }
 
 // failedAtGateway reports a mobile proxy 502, 503 or 504 that carries no

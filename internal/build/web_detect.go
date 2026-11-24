@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -219,22 +220,30 @@ func hasCapacitorConfig(dir string) bool {
 
 // detectPackageManager reads the lockfile in dir or its nearest ancestor up to
 // the repository root, so a monorepo app uses the workspace's package manager.
+// Without any lockfile, the nearest package.json packageManager pin counts.
 func detectPackageManager(dir string) string {
 	lockfiles := []struct{ file, manager string }{
 		{"pnpm-lock.yaml", "pnpm"}, {"yarn.lock", "yarn"}, {"bun.lockb", "bun"}, {"bun.lock", "bun"}, {"package-lock.json", "npm"},
 	}
 	current := dir
+	pinned := ""
 	for range 8 {
 		for _, lockfile := range lockfiles {
 			if fileExists(filepath.Join(current, lockfile.file)) {
 				return lockfile.manager
 			}
 		}
+		if manager, _ := pinnedPackageManager(current); pinned == "" && slices.Contains([]string{"npm", "pnpm", "yarn", "bun"}, manager) {
+			pinned = manager
+		}
 		parent := filepath.Dir(current)
 		if DirExists(filepath.Join(current, ".git")) || fileExists(filepath.Join(current, ".git")) || parent == current {
 			break
 		}
 		current = parent
+	}
+	if pinned != "" {
+		return pinned
 	}
 	return "npm"
 }

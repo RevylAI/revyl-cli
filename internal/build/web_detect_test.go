@@ -44,6 +44,39 @@ func TestDetectWebAppReadsFrameworkDevServerAndPublicAddresses(t *testing.T) {
 	}
 }
 
+func TestDetectWebAppUsesThePinnedPackageManagerWithoutALockfile(t *testing.T) {
+	tests := []struct {
+		name, lockfile, packageManager, want string
+	}{
+		{name: "bun pin", packageManager: "bun@1.2.19", want: "bun"},
+		{name: "pnpm pin with hash", packageManager: "pnpm@9.15.0+sha512.abc", want: "pnpm"},
+		{name: "lockfile wins", lockfile: "yarn.lock", packageManager: "pnpm@9.15.0", want: "yarn"},
+		{name: "unknown manager", packageManager: "deno@2.0.0", want: "npm"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{
+				".git/HEAD":    "",
+				"package.json": `{"packageManager":"` + tt.packageManager + `","scripts":{"dev":"vite"},"dependencies":{"vite":"6"}}`,
+			}
+			if tt.lockfile != "" {
+				files[tt.lockfile] = ""
+			}
+			writeWebFixture(t, dir, files)
+
+			app, ok := DetectWebApp(dir, false)
+
+			if !ok {
+				t.Fatal("DetectWebApp() found no app")
+			}
+			if app.PackageManager != tt.want || app.DevCommand != tt.want+" run dev" {
+				t.Fatalf("package manager = %q, dev command = %q, want %q", app.PackageManager, app.DevCommand, tt.want)
+			}
+		})
+	}
+}
+
 func TestDetectWebAppPrefersFrameworkBuiltOnVite(t *testing.T) {
 	dir := t.TempDir()
 	writeWebFixture(t, dir, map[string]string{
@@ -111,5 +144,20 @@ func TestDetectWebAppReadsOnlyRegularProjectFiles(t *testing.T) {
 
 	if !ok || len(app.URLHints) != 0 {
 		t.Fatalf("DetectWebApp() = %+v, %v; want no hints read through a symlink", app, ok)
+	}
+}
+
+func TestDetectWebAppPrefersTheWorkspaceLockfileOverANestedPin(t *testing.T) {
+	root := t.TempDir()
+	writeWebFixture(t, root, map[string]string{
+		".git/HEAD":             "",
+		"yarn.lock":             "",
+		"apps/web/package.json": `{"packageManager":"pnpm@9.15.0","scripts":{"dev":"vite"},"dependencies":{"vite":"6"}}`,
+	})
+
+	app, ok := DetectWebApp(filepath.Join(root, "apps", "web"), false)
+
+	if !ok || app.PackageManager != "yarn" {
+		t.Fatalf("DetectWebApp() = %+v, %v; want the workspace's yarn", app, ok)
 	}
 }

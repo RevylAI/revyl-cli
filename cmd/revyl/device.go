@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -2308,11 +2309,11 @@ or --app-url.
 			body["bundle_id"] = bundleID
 		}
 		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/install", body)
-		if err != nil {
-			return err
+		if err == nil {
+			err = ensureWorkerActionSucceeded(respBody, "install")
 		}
-		if err := ensureWorkerActionSucceeded(respBody, "install"); err != nil {
-			return err
+		if err != nil {
+			return reportDeviceAppActionFailure(cmd, session, "install", err)
 		}
 
 		payload := map[string]interface{}{"app_url": appURL, "status": "installed", "build_id": resolved.BuildID, "branch_id": resolved.BranchID, "branch_name": resolved.BranchName}
@@ -2381,11 +2382,11 @@ without restarting it, go to the home screen and tap its icon.`,
 			body["bundle_id"] = bundleID
 		}
 		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/launch", body)
-		if err != nil {
-			return err
+		if err == nil {
+			err = ensureWorkerActionSucceeded(respBody, "launch")
 		}
-		if err := ensureWorkerActionSucceeded(respBody, "launch"); err != nil {
-			return err
+		if err != nil {
+			return reportDeviceAppActionFailure(cmd, session, "launch", err)
 		}
 		launched := bundleID
 		if launched == "" {
@@ -2395,6 +2396,47 @@ without restarting it, go to the home screen and tap its icon.`,
 		return nil
 	},
 }
+
+// reportDeviceAppActionFailure prints an install or launch failure as JSON,
+// with the session it targeted, when --json is set. A gateway timeout leaves
+// the action possibly still running on the device, so it adds a hint to check
+// the session before retrying.
+//
+// Parameters:
+//   - cmd: The running command.
+//   - session: The session the action targeted.
+//   - action: "install" or "launch".
+//   - err: The action's failure.
+//
+// Returns:
+//   - error: The failure, with the hint appended when one applies.
+func reportDeviceAppActionFailure(cmd *cobra.Command, session *mcppkg.DeviceSession, action string, err error) error {
+	payload := map[string]string{"status": "failed", "error": err.Error(), "session_id": session.SessionID}
+	if isGatewayTimeoutError(err) {
+		hint := fmt.Sprintf("the %s may still be running; check 'revyl device info --session-id %s' or 'revyl device report --session-id %s' before retrying", action, session.SessionID, session.SessionID)
+		payload["hint"] = hint
+		err = fmt.Errorf("%w; %s", err, hint)
+	}
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		jsonOrPrint(cmd, payload, "")
+	}
+	return err
+}
+
+func isGatewayTimeoutError(err error) bool {
+	statusCode := 0
+	var workerErr *mcppkg.WorkerHTTPError
+	var apiErr *api.APIError
+	switch {
+	case errors.As(err, &workerErr):
+		statusCode = workerErr.StatusCode
+	case errors.As(err, &apiErr):
+		statusCode = apiErr.StatusCode
+	}
+	return statusCode == http.StatusGatewayTimeout || statusCode == cloudflareOriginTimeoutStatus
+}
+
+const cloudflareOriginTimeoutStatus = 524
 
 var deviceHomeCmd = &cobra.Command{
 	Use:   "home",
@@ -3265,14 +3307,16 @@ var deviceDoctorCmd = &cobra.Command{
 				allPassed = false
 			} else {
 				checks = append(checks, mcppkg.DiagnosticCheck{Name: "worker", Status: "pass"})
-				if healthy, detail, readable := mcppkg.DoctorDeviceHealth(session.Platform, respBytes); readable {
-					if healthy {
-						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "pass"})
-					} else {
-						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "fail", Detail: detail, Fix: "Wait a few seconds or stop and start a new session"})
-						allPassed = false
-					}
+				status, detail := mcppkg.DoctorDeviceHealth(session.Platform, respBytes)
+				deviceCheck := mcppkg.DiagnosticCheck{Name: "device", Status: status, Detail: detail}
+				switch status {
+				case "fail":
+					deviceCheck.Fix = "Wait a few seconds or stop and start a new session"
+					allPassed = false
+				case "unknown":
+					deviceCheck.Fix = "Run 'revyl device screenshot --out screen.png' to confirm the device responds"
 				}
+				checks = append(checks, deviceCheck)
 			}
 		}
 

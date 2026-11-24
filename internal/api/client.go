@@ -62,6 +62,8 @@ const (
 
 	BuildFinalizationTimeout = 90 * time.Second
 
+	LaunchTimeout = 120 * time.Second
+
 	UploadTimeout = 10 * time.Minute
 
 	DefaultMaxRetries = 3
@@ -349,6 +351,31 @@ func (e *APIError) DetailBool(key string) bool {
 	}
 	flag, _ := value.(bool)
 	return flag
+}
+
+const EdgeBlockedCode = "edge_blocked"
+
+var cfRayPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
+
+// edgeBlockedError returns an edge_blocked error for an HTML 403 that
+// Cloudflare served instead of the API, or nil for any other response. The
+// HTML body is never included in the error.
+func edgeBlockedError(response *http.Response, body []byte) *APIError {
+	contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	ray := strings.TrimSpace(response.Header.Get("cf-ray"))
+	if response.StatusCode != http.StatusForbidden || !strings.EqualFold(contentType, "text/html") || ray == "" || json.Valid(body) {
+		return nil
+	}
+	hint := "Contact Revyl support to review the edge security rule; signing in again will not resolve this block."
+	if cfRayPattern.MatchString(ray) {
+		hint = "Send cf-ray " + ray + " to Revyl support; signing in again will not resolve this block."
+	}
+	return &APIError{
+		StatusCode: response.StatusCode,
+		Code:       EdgeBlockedCode,
+		Message:    "blocked at Revyl's edge, not a client error",
+		Hint:       hint,
+	}
 }
 
 func authHintForStatus(statusCode int, serverReason string) string {
@@ -758,6 +785,9 @@ func parseResponse(resp *http.Response, target interface{}) error {
 			}
 		}
 
+		if edgeErr := edgeBlockedError(resp, body); edgeErr != nil {
+			return edgeErr
+		}
 		apiErr := parseAPIErrorBody(resp.StatusCode, body)
 		apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
 		return apiErr
@@ -785,6 +815,9 @@ func parseResponseWithRaw(resp *http.Response, target interface{}) (json.RawMess
 			}
 		}
 
+		if edgeErr := edgeBlockedError(resp, body); edgeErr != nil {
+			return nil, edgeErr
+		}
 		apiErr := parseAPIErrorBody(resp.StatusCode, body)
 		apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
 		return nil, apiErr
@@ -5355,6 +5388,10 @@ func (c *Client) ProxyWorkerRequestDetailed(ctx context.Context, workflowRunID, 
 	var err error
 	if proxyLongRunningActions[action] {
 		resp, err = c.doRequestOnceWithClient(ctx, method, path, body, c.uploadClient)
+	} else if action == "launch" {
+		launchClient := *c.httpClient
+		launchClient.Timeout = LaunchTimeout
+		resp, err = c.doRequestOnceWithClient(ctx, method, path, body, &launchClient)
 	} else if noRetry || proxyNoRetryActions[action] {
 		resp, err = c.doRequestOnce(ctx, method, path, body)
 	} else {
