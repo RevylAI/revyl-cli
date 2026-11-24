@@ -1,8 +1,4 @@
-// Package config provides URL configuration management for the Revyl CLI.
-//
-// This package handles dynamic URL resolution for production and development
-// environments, reading port configuration from .env files when in dev mode.
-// It also supports auto-detection of running backend services.
+// Package config provides project, compilation, migration, and URL configuration for the Revyl CLI.
 package config
 
 import (
@@ -16,35 +12,23 @@ import (
 )
 
 const (
-	// ProdBackendURL is the production backend API URL.
 	ProdBackendURL = "https://backend.revyl.ai"
 
-	// ProdAppURL is the production frontend app URL.
 	ProdAppURL = "https://app.revyl.ai"
 
-	// DefaultBackendPort is the fallback port if cognisim_backend/.env is not found.
 	DefaultBackendPort = "8000"
 
-	// DefaultFrontendPort is the fallback port if frontend/.env is not found.
 	DefaultFrontendPort = "3000"
 
-	// portCheckTimeout is the timeout for checking if a port is open.
 	portCheckTimeout = 100 * time.Millisecond
 )
 
-// commonBackendPorts are the ports to try when auto-detecting the backend.
-// Order matters - most common ports first.
 var commonBackendPorts = []string{"8000", "8001", "8080", "3000"}
 
-// commonFrontendPorts are the ports to try when auto-detecting the frontend.
-// Order matters - most common ports first.
 var commonFrontendPorts = []string{"3000", "8002", "8080", "3001"}
 
-// findMonorepoRoot searches upward from the current directory to find the monorepo root.
-// The root is identified by having a cognisim_backend/ directory.
-//
-// Returns:
-//   - string: The path to the monorepo root, or empty string if not found
+// findMonorepoRoot walks upward from cwd until os.Stat finds a cognisim_backend
+// entry, returning "" if none is found.
 func findMonorepoRoot() string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -52,7 +36,6 @@ func findMonorepoRoot() string {
 	}
 
 	for {
-		// Check if this looks like the monorepo root
 		if _, err := os.Stat(filepath.Join(dir, "cognisim_backend")); err == nil {
 			return dir
 		}
@@ -65,13 +48,6 @@ func findMonorepoRoot() string {
 	return ""
 }
 
-// readPortFromEnv reads the PORT value from an .env file.
-//
-// Parameters:
-//   - path: The path to the .env file
-//
-// Returns:
-//   - string: The port value, or empty string if not found
 func readPortFromEnv(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -89,13 +65,9 @@ func readPortFromEnv(path string) string {
 	return ""
 }
 
-// GetBackendPort reads the PORT from cognisim_backend/.env.
-// Falls back to DefaultBackendPort if the file is not found.
-//
-// Returns:
-//   - string: The backend port number
+// GetBackendPort returns REVYL_BACKEND_PORT if non-empty, else PORT from
+// cognisim_backend/.env, falling back to DefaultBackendPort.
 func GetBackendPort() string {
-	// First check environment variable override
 	if port := os.Getenv("REVYL_BACKEND_PORT"); port != "" {
 		return port
 	}
@@ -111,46 +83,28 @@ func GetBackendPort() string {
 	return DefaultBackendPort
 }
 
-// GetBackendPortWithAutoDetect reads the PORT from cognisim_backend/.env,
-// and if no server is running on that port, tries common alternative ports.
-// This is useful when the backend might be running on a non-standard port.
-//
-// Returns:
-//   - string: The backend port number (either from config or auto-detected)
+// GetBackendPortWithAutoDetect returns REVYL_BACKEND_PORT if set; otherwise it
+// probes localhost TCP listeners starting with GetBackendPort, then commonBackendPorts.
 func GetBackendPortWithAutoDetect() string {
-	// First check environment variable override
 	if port := os.Getenv("REVYL_BACKEND_PORT"); port != "" {
 		return port
 	}
 
-	// Try to get port from .env file
 	configuredPort := GetBackendPort()
 
-	// Check if the configured port is actually listening
 	if isPortOpen("localhost", configuredPort) {
 		return configuredPort
 	}
 
-	// Try common ports if configured port isn't responding
 	for _, port := range commonBackendPorts {
 		if port != configuredPort && isPortOpen("localhost", port) {
 			return port
 		}
 	}
 
-	// Fall back to configured port even if not responding
-	// (let the actual request fail with a clear error)
 	return configuredPort
 }
 
-// isPortOpen checks if a TCP port is open on the given host.
-//
-// Parameters:
-//   - host: The hostname to check
-//   - port: The port number to check
-//
-// Returns:
-//   - bool: True if the port is open and accepting connections
 func isPortOpen(host, port string) bool {
 	address := net.JoinHostPort(host, port)
 	conn, err := net.DialTimeout("tcp", address, portCheckTimeout)
@@ -161,11 +115,6 @@ func isPortOpen(host, port string) bool {
 	return true
 }
 
-// GetFrontendPort reads the PORT from frontend/.env.
-// Falls back to DefaultFrontendPort if the file is not found.
-//
-// Returns:
-//   - string: The frontend port number
 func GetFrontendPort() string {
 	root := findMonorepoRoot()
 	if root == "" {
@@ -178,53 +127,30 @@ func GetFrontendPort() string {
 	return DefaultFrontendPort
 }
 
-// GetFrontendPortWithAutoDetect reads the PORT from frontend/.env,
-// and if no server is running on that port, tries common alternative ports.
-// This is useful when the frontend might be running on a non-standard port.
-//
-// Returns:
-//   - string: The frontend port number (either from config or auto-detected)
+// GetFrontendPortWithAutoDetect returns REVYL_FRONTEND_PORT if set; otherwise it
+// probes localhost TCP listeners starting with GetFrontendPort, then commonFrontendPorts.
 func GetFrontendPortWithAutoDetect() string {
-	// First check environment variable override
 	if port := os.Getenv("REVYL_FRONTEND_PORT"); port != "" {
 		return port
 	}
 
-	// Try to get port from .env file
 	configuredPort := GetFrontendPort()
 
-	// Check if the configured port is actually listening
 	if isPortOpen("localhost", configuredPort) {
 		return configuredPort
 	}
 
-	// Try common ports if configured port isn't responding
 	for _, port := range commonFrontendPorts {
 		if port != configuredPort && isPortOpen("localhost", port) {
 			return port
 		}
 	}
 
-	// Fall back to configured port even if not responding
-	// (let the actual request fail with a clear error)
 	return configuredPort
 }
 
-// GetBackendURL returns the backend API URL based on the dev mode setting.
-// The REVYL_BACKEND_URL environment variable takes highest precedence, allowing
-// the CLI to target staging, preview, or any custom environment.
-// In dev mode, it uses auto-detection to find a running backend server.
-//
-// Precedence (highest to lowest):
-//  1. REVYL_BACKEND_URL environment variable
-//  2. --dev flag (localhost with auto-detected port)
-//  3. Production default (backend.revyl.ai)
-//
-// Parameters:
-//   - devMode: If true, returns localhost URL with auto-detected port
-//
-// Returns:
-//   - string: The backend API URL
+// GetBackendURL resolves the backend URL in order: REVYL_BACKEND_URL (trimmed
+// of trailing slashes), localhost via GetBackendPortWithAutoDetect in devMode, or ProdBackendURL.
 func GetBackendURL(devMode bool) string {
 	if envURL := os.Getenv("REVYL_BACKEND_URL"); envURL != "" {
 		return strings.TrimRight(envURL, "/")
@@ -235,21 +161,8 @@ func GetBackendURL(devMode bool) string {
 	return ProdBackendURL
 }
 
-// GetAppURL returns the frontend app URL based on the dev mode setting.
-// The REVYL_APP_URL environment variable takes highest precedence, allowing
-// the CLI to target staging, preview, or any custom environment.
-// In dev mode, it uses auto-detection to find a running frontend server.
-//
-// Precedence (highest to lowest):
-//  1. REVYL_APP_URL environment variable
-//  2. --dev flag (localhost with auto-detected port)
-//  3. Production default (app.revyl.ai)
-//
-// Parameters:
-//   - devMode: If true, returns localhost URL with auto-detected port
-//
-// Returns:
-//   - string: The frontend app URL
+// GetAppURL resolves the app URL in order: REVYL_APP_URL (trimmed of trailing
+// slashes), localhost via GetFrontendPortWithAutoDetect in devMode, or ProdAppURL.
 func GetAppURL(devMode bool) string {
 	if envURL := os.Getenv("REVYL_APP_URL"); envURL != "" {
 		return strings.TrimRight(envURL, "/")
@@ -260,11 +173,6 @@ func GetAppURL(devMode bool) string {
 	return ProdAppURL
 }
 
-// HasURLOverride returns true if either REVYL_BACKEND_URL or REVYL_APP_URL
-// environment variables are set, indicating a custom environment target.
-//
-// Returns:
-//   - bool: True if any URL override environment variable is set
 func HasURLOverride() bool {
 	return os.Getenv("REVYL_BACKEND_URL") != "" || os.Getenv("REVYL_APP_URL") != ""
 }

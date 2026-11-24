@@ -173,9 +173,6 @@ func preserveMixedCanonicalSections(original, translated map[string]any, context
 	return preserved
 }
 
-// translatedReviewForCanonicalWorkflows moves translated legacy workflow IDs
-// into the workflows block when the canonical review uses that block, because
-// workflow_ids cannot sit beside workflows.
 func translatedReviewForCanonicalWorkflows(translated any, canonical map[string]any) any {
 	review := stringMap(translated)
 	workflowIDs := listDefault(review["workflow_ids"])

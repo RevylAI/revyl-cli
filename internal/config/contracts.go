@@ -20,11 +20,6 @@ const (
 
 var safeCacheKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
-// AuthoredConfig is the closed canonical .revyl/config.yaml contract.
-//
-// It intentionally coexists with ProjectConfig until the explicit migration and
-// runtime cutover. Parsing, defaulting, hashing, and execution do not belong to
-// this shape-only contract.
 type AuthoredConfig struct {
 	Project                   AuthoredProject   `json:"project" yaml:"project"`
 	RunTestDefinitionsFromGit bool              `json:"run_test_definitions_from_git,omitempty" yaml:"run_test_definitions_from_git,omitempty"`
@@ -33,12 +28,10 @@ type AuthoredConfig struct {
 	PRReview                  *AuthoredPRReview `json:"pr_review,omitempty" yaml:"pr_review,omitempty"`
 }
 
-// AuthoredProject carries only the stable server project identity.
 type AuthoredProject struct {
 	ID string `json:"id" yaml:"id"`
 }
 
-// AuthoredSession groups project-wide session behavior.
 type AuthoredSession struct {
 	IdleTimeoutSeconds *int                              `json:"idle_timeout_seconds,omitempty" yaml:"idle_timeout_seconds,omitempty"`
 	BeforeScript       *AuthoredBeforeScript             `json:"before_script,omitempty" yaml:"before_script,omitempty"`
@@ -47,30 +40,22 @@ type AuthoredSession struct {
 	Profiles           map[string]AuthoredSessionProfile `json:"profiles,omitempty" yaml:"profiles,omitempty"`
 }
 
-// AuthoredSessionProfile names the script that prepares a session's start
-// state. Script holds a repository path when it contains "/", else a script
-// name resolved in .revyl/scripts and then the org's script library.
 type AuthoredSessionProfile struct {
 	Script                     string `json:"script" yaml:"script"`
 	RequiresRepositoryCheckout bool   `json:"requires_repository_checkout,omitempty" yaml:"requires_repository_checkout,omitempty"`
 }
 
-// AuthoredBeforeScript is the canonical session setup shape.
 type AuthoredBeforeScript struct {
 	ScriptPath     *string `json:"script_path,omitempty" yaml:"script_path,omitempty"`
 	TimeoutSeconds *int    `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
 }
 
-// AuthoredAuthBypass is the canonical session auth-bypass shape.
 type AuthoredAuthBypass struct {
 	LaunchVars []string        `json:"launch_vars,omitempty" yaml:"launch_vars,omitempty"`
 	DeepLink   *string         `json:"deep_link,omitempty" yaml:"deep_link,omitempty"`
 	SignIn     *AuthoredSignIn `json:"sign_in,omitempty" yaml:"sign_in,omitempty"`
 }
 
-// AuthoredSignIn declares a worker-minted sign-in link opened before a session
-// is handed over. Secret names an org secret launch variable; its value never
-// appears in configuration. Web sessions act on it.
 type AuthoredSignIn struct {
 	Path   *string `json:"path,omitempty" yaml:"path,omitempty"`
 	Secret *string `json:"secret,omitempty" yaml:"secret,omitempty"`
@@ -83,7 +68,6 @@ const (
 
 var launchVariableNameRegexp = regexp.MustCompile(launchVariableNameSyntax)
 
-// ValidateSignInAppPath checks a relative app path on the build URL's origin.
 func ValidateSignInAppPath(value string) bool {
 	return strings.HasPrefix(value, "/") &&
 		!strings.HasPrefix(value, "//") &&
@@ -92,7 +76,6 @@ func ValidateSignInAppPath(value string) bool {
 		strings.IndexFunc(value, func(r rune) bool { return r <= 32 || r == 127 }) < 0
 }
 
-// ValidateLaunchVariableName checks an org launch-variable key reference.
 func ValidateLaunchVariableName(value string) bool {
 	return launchVariableNameRegexp.MatchString(value)
 }
@@ -118,7 +101,6 @@ func validateAuthoredSignIn(signIn *AuthoredSignIn) error {
 	return nil
 }
 
-// AuthoredBuild contains the project framework, inherited defaults, and profiles.
 type AuthoredBuild struct {
 	Framework string                          `json:"framework,omitempty" yaml:"framework,omitempty"`
 	Env       map[string]string               `json:"env,omitempty" yaml:"env,omitempty"`
@@ -127,7 +109,6 @@ type AuthoredBuild struct {
 	Profiles  map[string]AuthoredBuildProfile `json:"profiles,omitempty" yaml:"profiles,omitempty"`
 }
 
-// AuthoredBuildProfile has at most one recipe for each supported platform.
 type AuthoredBuildProfile struct {
 	IOS     *AuthoredBuildRecipe `json:"ios,omitempty" yaml:"ios,omitempty"`
 	Android *AuthoredBuildRecipe `json:"android,omitempty" yaml:"android,omitempty"`
@@ -153,8 +134,8 @@ func (p AuthoredBuildProfile) hasPhoneRecipe() bool {
 	return p.IOS != nil || p.Android != nil
 }
 
-// FrameworkOptional reports whether every profile is Web-only, the one shape
-// whose build needs no phone framework.
+// FrameworkOptional reports whether Profiles is non-empty and contains no phone
+// (iOS/Android) recipe; full authored validation checks Web presence separately.
 func (b AuthoredBuild) FrameworkOptional() bool {
 	if len(b.Profiles) == 0 {
 		return false
@@ -167,9 +148,6 @@ func (b AuthoredBuild) FrameworkOptional() bool {
 	return true
 }
 
-// AuthoredBuildRecipe is one pre-inheritance platform recipe.
-// BuildCommands is a pointer so structural validation can distinguish an omitted
-// required field from an explicitly scaffolded empty command list.
 type AuthoredBuildRecipe struct {
 	AppID          *string           `json:"app_id,omitempty" yaml:"app_id,omitempty"`
 	SetupCommands  []BuildStepItem   `json:"setup_commands,omitempty" yaml:"setup_commands,omitempty"`
@@ -183,13 +161,6 @@ type AuthoredBuildRecipe struct {
 	Run            *AuthoredWebRun   `json:"run,omitempty" yaml:"run,omitempty"`
 }
 
-// AuthoredPRReview is the canonical project-scoped review policy.
-// Triggers selects which pull requests Revyl builds, or for CI uploads waits
-// on, and block triggers only narrow it. ReviewTriggers is its deprecated
-// spelling. WorkflowIDs is the deprecated spelling of Workflows; it keeps its
-// original meaning of enabled workflows without narrowing. Build may be
-// omitted only when ProofOfChanges sets macos; that review runs only the Mac
-// proof.
 type AuthoredPRReview struct {
 	Enabled        *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Triggers       *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
@@ -201,37 +172,31 @@ type AuthoredPRReview struct {
 	StrictCICheck  *AuthoredStrictCICheck  `json:"strict_ci_check,omitempty" yaml:"strict_ci_check,omitempty"`
 }
 
-// AuthoredWorkflows selects saved workflows run against each eligible
-// pull-request build.
 type AuthoredWorkflows struct {
 	Enabled     *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	WorkflowIDs []string                `json:"workflow_ids,omitempty" yaml:"workflow_ids,omitempty"`
 	Triggers    *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 }
 
-// AuthoredReviewTriggers contains canonical changed-path, label, and draft filters.
 type AuthoredReviewTriggers struct {
 	Paths  []string `json:"paths,omitempty" yaml:"paths,omitempty"`
 	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty"`
 	Drafts *bool    `json:"drafts,omitempty" yaml:"drafts,omitempty"`
 }
 
-// AuthoredReviewBuild is a discriminated managed or external-CI declaration.
-// Exactly one mode-specific payload is accepted by ValidateContract.
 type AuthoredReviewBuild struct {
 	Kind    string                    `json:"kind" yaml:"kind"`
 	Profile *string                   `json:"profile,omitempty" yaml:"profile,omitempty"`
 	AppIDs  *AuthoredExternalCIAppIDs `json:"app_ids,omitempty" yaml:"app_ids,omitempty"`
 }
 
-// AuthoredExternalCIAppIDs maps upload platforms to active Revyl app IDs.
+// AuthoredExternalCIAppIDs maps upload platforms to Revyl app IDs.
 type AuthoredExternalCIAppIDs struct {
 	IOS     *string `json:"ios,omitempty" yaml:"ios,omitempty"`
 	Android *string `json:"android,omitempty" yaml:"android,omitempty"`
 	Web     *string `json:"web,omitempty" yaml:"web,omitempty"`
 }
 
-// AuthoredProofOfChanges is the canonical proof policy.
 type AuthoredProofOfChanges struct {
 	Triggers     *AuthoredReviewTriggers `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 	Enabled      *bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -251,8 +216,6 @@ type AuthoredProofMacos struct {
 	Targets        []AuthoredMacTarget `json:"targets" yaml:"targets,omitempty"`
 }
 
-// AuthoredMacTarget is one named surface of a Mac proof. Exactly one of Web,
-// App, Command, or Preview is set.
 type AuthoredMacTarget struct {
 	Name    string          `json:"name" yaml:"name"`
 	Web     *string         `json:"web,omitempty" yaml:"web,omitempty"`
@@ -272,20 +235,18 @@ type AuthoredMacApp struct {
 	Build    *string `json:"build,omitempty" yaml:"build,omitempty"`
 }
 
-// AuthoredProofHarness selects the Revyl, Cursor, Capy, or Devin proof executor.
 type AuthoredProofHarness struct {
 	Kind          string  `json:"kind" yaml:"kind"`
 	ModelID       *string `json:"model_id,omitempty" yaml:"model_id,omitempty"`
 	CapyProjectID *string `json:"capy_project_id,omitempty" yaml:"capy_project_id,omitempty"`
 }
 
-// AuthoredStrictCICheck controls whether a failed build emits a failing SCM check.
 type AuthoredStrictCICheck struct {
 	Build *bool `json:"build" yaml:"build"`
 }
 
-// EffectiveBuildRecipe is resolved executable meaning after pure compilation.
-// Selection and routing facts such as profile name, app, and platform stay outside it.
+// EffectiveBuildRecipe is the normalized recipe after pure compilation (before
+// execution runnability checks); profile, app, and platform routing stay outside.
 type EffectiveBuildRecipe struct {
 	Framework           string            `json:"framework"`
 	SetupCommands       []BuildStepItem   `json:"setup_commands"`
@@ -301,8 +262,6 @@ type EffectiveBuildRecipe struct {
 	Run                 *AuthoredWebRun   `json:"run,omitempty"`
 }
 
-// ConfigurationContractError is the stable machine-readable compilation error.
-// Message is intentionally non-contractual; stage, code, and path are stable.
 type ConfigurationContractError struct {
 	Stage   string   `json:"stage"`
 	Code    string   `json:"code"`
@@ -310,7 +269,6 @@ type ConfigurationContractError struct {
 	Message *string  `json:"message,omitempty"`
 }
 
-// ValidateContract checks only canonical authored structural invariants.
 func (c AuthoredConfig) ValidateContract() error {
 	if _, err := uuid.Parse(c.Project.ID); err != nil {
 		return authoredContractError([]string{"project", "id"}, "project.id must be a UUID")
@@ -529,7 +487,6 @@ func validCapyProofModelID(modelID string) bool {
 	}
 }
 
-// ValidateContract checks execution-time recipe structure without performing work.
 func (r EffectiveBuildRecipe) ValidateContract() error {
 	if !validProjectFramework(r.Framework) {
 		return fmt.Errorf("framework is unsupported")

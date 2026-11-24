@@ -23,12 +23,10 @@ var skippedProjectDirectories = map[string]bool{
 	"vendor":       true,
 }
 
-// MissingProjectRootError identifies the directory where no initialized Revyl project was found.
 type MissingProjectRootError struct {
 	WorkingDirectory string
 }
 
-// Error returns an actionable initialization message.
 func (e *MissingProjectRootError) Error() string {
 	return fmt.Sprintf(
 		"no initialized Revyl project found from %q; run \"revyl init --non-interactive\" in that directory",
@@ -36,13 +34,11 @@ func (e *MissingProjectRootError) Error() string {
 	)
 }
 
-// AmbiguousProjectRootsError lists nested Revyl projects requiring caller selection.
 type AmbiguousProjectRootsError struct {
 	WorkingDirectory string
 	Roots            []string
 }
 
-// Error returns a deterministic project-selection message.
 func (e *AmbiguousProjectRootsError) Error() string {
 	return fmt.Sprintf(
 		"multiple initialized Revyl projects found under %q: %s; retry with project_dir set to one candidate root",
@@ -51,7 +47,6 @@ func (e *AmbiguousProjectRootsError) Error() string {
 	)
 }
 
-// FindRepoRoot walks up from the given directory looking for a .revyl/ directory.
 func FindRepoRoot(dir string) (string, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
@@ -73,7 +68,6 @@ func FindRepoRoot(dir string) (string, error) {
 	}
 }
 
-// FindProjectRoot resolves the nearest project or one unambiguous nested project.
 func FindProjectRoot(dir string) (string, error) {
 	if root, err := FindRepoRoot(dir); err == nil {
 		if info, configErr := os.Stat(filepath.Join(root, ".revyl", "config.yaml")); configErr == nil && !info.IsDir() {
@@ -99,8 +93,6 @@ func FindProjectRoot(dir string) (string, error) {
 	}
 }
 
-// FindNestedProjectRoots returns initialized projects below dir without
-// searching parent directories or expensive generated dependency trees.
 func FindNestedProjectRoots(dir string) ([]string, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {

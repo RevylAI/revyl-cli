@@ -9,17 +9,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// NoSessionProfile is the reserved pick meaning "start without a profile".
 const NoSessionProfile = "none"
 
 var sessionProfileNamePattern = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
-// ValidSessionProfileName reports whether name may name a session profile.
 func ValidSessionProfileName(name string) bool {
 	return name != NoSessionProfile && sessionProfileNamePattern.MatchString(name)
 }
 
-// SessionProfileNames returns the defined profile names in sorted order.
 func (s AuthoredSession) SessionProfileNames() []string {
 	names := make([]string, 0, len(s.Profiles))
 	for name := range s.Profiles {
@@ -104,8 +101,6 @@ func validateSessionNode(session *yaml.Node) error {
 	return nil
 }
 
-// validateSignInNode checks each field's presence, type, and value in
-// declaration order so the first reported error matches the Python contract.
 func validateSignInNode(signIn *yaml.Node) error {
 	path := []string{"session", "auth_bypass", "sign_in"}
 	if signIn == nil || nodeIsNull(signIn) {
@@ -144,10 +139,6 @@ func validateSignInNode(signIn *yaml.Node) error {
 	return nil
 }
 
-// validateAuthoredSessionProfiles enforces the profile rules that span keys,
-// in the order the shared Python contract (AuthoredSession) reports them:
-// scripts, names, then the either-or with before_script and auth_bypass, and
-// default_profile. See cognisim-docs/devices/session-profiles.mdx.
 func validateAuthoredSessionProfiles(session AuthoredSession) error {
 	names := session.SessionProfileNames()
 	for _, name := range names {

@@ -10,45 +10,31 @@ import (
 	"github.com/revyl/cli/internal/util"
 )
 
-// LegacyConfigMigrationInput contains only caller-resolved migration facts.
-// UUID generation and authenticated server lookup stay outside this pure
-// translation boundary.
 type LegacyConfigMigrationInput struct {
 	Data                          []byte
 	Context                       CompilationContext
 	ExplicitProjectID             string
 	GeneratedProjectID            string
 	LegacyAppIDsByPlatformAndName map[string]map[string]string
-	// LegacyWorkflowIDsByName contains authenticated, organization-scoped
-	// workflow resolutions supplied by CLI orchestration. The compiler never
-	// performs server reads itself.
-	LegacyWorkflowIDsByName map[string]string
+	LegacyWorkflowIDsByName       map[string]string
 }
 
-// LegacyTestAlias is one legacy test alias that must remain available as a
-// local .revyl/tests/<alias>.yaml file after config migration.
 type LegacyTestAlias struct {
 	Alias    string `json:"alias"`
 	RemoteID string `json:"remote_id"`
 }
 
-// LegacyWorkflowLookup identifies one unresolved workflow name for optional,
-// authenticated orchestration before the best-effort fallback is compiled.
 type LegacyWorkflowLookup struct {
 	Name string
 	Path []string
 }
 
-// LegacyAppLookup identifies one enabled legacy PR build whose app name must
-// resolve exactly within the authenticated organization and platform.
 type LegacyAppLookup struct {
 	Platform string
 	Name     string
 	Path     []string
 }
 
-// LegacyAppLookupsRequired asks CLI orchestration to resolve app names before
-// the pure migration compiler can safely produce canonical app IDs.
 type LegacyAppLookupsRequired struct {
 	Lookups []LegacyAppLookup
 	cause   *ConfigError
@@ -60,9 +46,6 @@ func (e *LegacyAppLookupsRequired) Error() string {
 
 func (e *LegacyAppLookupsRequired) Unwrap() error { return e.cause }
 
-// LegacyWorkflowLookupsRequired is an orchestration signal, not a terminal
-// migration outcome. Callers retry with a non-nil resolution map; an empty map
-// deliberately omits unresolved optional workflow references.
 type LegacyWorkflowLookupsRequired struct {
 	Lookups []LegacyWorkflowLookup
 	cause   *ConfigError
@@ -74,9 +57,8 @@ func (e *LegacyWorkflowLookupsRequired) Error() string {
 
 func (e *LegacyWorkflowLookupsRequired) Unwrap() error { return e.cause }
 
-// LegacyConfigOmission describes one recognized legacy value that is not
-// represented in canonical YAML. Codes and messages are bounded constants;
-// source values are deliberately excluded from machine-readable output.
+// LegacyConfigOmission records one migration outcome (omitted, defaulted,
+// resolved, or preserved) using bounded codes/messages without raw source values.
 type LegacyConfigOmission struct {
 	Code        string   `json:"code"`
 	Path        []string `json:"path"`
@@ -84,8 +66,6 @@ type LegacyConfigOmission struct {
 	Disposition string   `json:"disposition"`
 }
 
-// LegacyConfigMigrationResult is a complete, strictly validated local proposal.
-// AlreadyCanonical tells orchestration to report success without rewriting bytes.
 type LegacyConfigMigrationResult struct {
 	AlreadyCanonical bool
 	ProjectID        string
@@ -96,8 +76,6 @@ type LegacyConfigMigrationResult struct {
 	Omissions        []LegacyConfigOmission
 }
 
-// MigrateLegacyConfigBytes classifies one hardened YAML document and returns a
-// canonical proposal without reading server state or mutating the file.
 func MigrateLegacyConfigBytes(input LegacyConfigMigrationInput) (*LegacyConfigMigrationResult, error) {
 	_, document, err := loadLegacyMigrationYAMLDocument(input.Data)
 	if err != nil {
@@ -346,8 +324,6 @@ func canonicalMigrationProjectID(value, code string) (string, error) {
 	return parsed.String(), nil
 }
 
-// prepareLegacyBuildForCanonicalTranslation normalizes legacy build placeholders
-// before the explicit migration translator classifies their framework.
 func prepareLegacyBuildForCanonicalTranslation(document map[string]any) {
 	build := stringMap(document["build"])
 	if len(build) == 0 {

@@ -1,7 +1,3 @@
-// Package config provides project configuration management.
-//
-// This package handles reading and writing .revyl/config.yaml files
-// and local test definitions in .revyl/tests/.
 package config
 
 import (
@@ -19,18 +15,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ProjectConfig represents the .revyl/config.yaml file.
 type ProjectConfig struct {
-	// Project contains project identification.
 	Project Project `yaml:"project"`
 
-	// Build contains build configuration.
 	Build BuildConfig `yaml:"build"`
 
-	// Defaults contains default settings.
 	Defaults Defaults `yaml:"defaults,omitempty"`
 
-	// HotReload contains hot reload configuration for rapid development iteration.
 	HotReload HotReloadConfig `yaml:"hotreload,omitempty"`
 
 	// PRReview contains GitHub PR automation config-as-code (the pr_review section).
@@ -42,50 +33,35 @@ type ProjectConfig struct {
 	// device session starts. It produces the values auth_bypass consumes.
 	BeforeSession *BeforeSessionConfig `yaml:"before_session,omitempty"`
 
-	// AuthBypass contains the test-only auth bypass contract for the app under
-	// test. When configured, device sessions started by revyl dev and revyl
-	// device start automatically apply the launch vars and fire the deep link
-	// after app launch so the app always opens authenticated.
+	// AuthBypass holds the legacy test-only auth bypass config; dev/device starts
+	// apply launch vars and attempt the deep link best-effort without aborting.
 	AuthBypass *AuthBypassConfig `yaml:"auth_bypass,omitempty"`
 
-	// LastSyncedAt records when this config was last synced with the server (RFC3339).
 	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
 
-	// Deprecated: legacy alias-to-UUID maps, auto-migrated to .revyl/tests/ files then stripped.
+	// Deprecated: legacy alias-to-UUID maps migrated explicitly via config migrate.
 	Tests     map[string]string `yaml:"tests,omitempty"`
 	Workflows map[string]string `yaml:"workflows,omitempty"`
 }
 
-// MarkSynced sets the LastSyncedAt timestamp to now (UTC, RFC3339).
 func (c *ProjectConfig) MarkSynced() {
 	c.LastSyncedAt = time.Now().UTC().Format(time.RFC3339)
 }
 
-// DefaultBeforeSessionTimeoutSeconds bounds a before_session script run when
-// the config does not set an explicit timeout.
 const DefaultBeforeSessionTimeoutSeconds = 120
 
-// BeforeSessionConfig declares a repository-local setup step run to completion
-// before every device session starts.
-//
-// The script may print KEY=VALUE lines on stdout. Those become session-scoped
-// launch environment values, so concurrent sessions never share or overwrite
-// each other's minted values. Any other output is ignored, letting the script
-// log freely.
-//
-// Unlike auth_bypass, a failing before_session script is fatal: a session that
-// starts against an unprepared app produces a confident wrong result.
+// BeforeSessionConfig declares a repository-local setup script run before
+// device sessions start. Stdout KEY=VALUE lines become session-scoped launch
+// values (non-KEY=VALUE prose is ignored, but empty values or duplicate keys
+// fail). Unlike auth_bypass, a failing before_session script is fatal.
 type BeforeSessionConfig struct {
-	// Script is a path to an executable, resolved against the repository root.
-	// Paths that resolve outside the repository are rejected.
+	// Script is resolved relative to the project root and must stay contained
+	// within the discovered Git worktree root (or project root fallback).
 	Script string `yaml:"script,omitempty"`
 
-	// TimeoutSeconds bounds the script run. Zero means
-	// DefaultBeforeSessionTimeoutSeconds.
 	TimeoutSeconds int `yaml:"timeout_seconds,omitempty"`
 }
 
-// IsConfigured reports whether a before-session script is declared.
 func (b *BeforeSessionConfig) IsConfigured() bool {
 	if b == nil {
 		return false
@@ -93,8 +69,6 @@ func (b *BeforeSessionConfig) IsConfigured() bool {
 	return strings.TrimSpace(b.Script) != ""
 }
 
-// EffectiveTimeout returns the configured script timeout, falling back to
-// DefaultBeforeSessionTimeoutSeconds when unset or non-positive.
 func (b *BeforeSessionConfig) EffectiveTimeout() time.Duration {
 	if b == nil || b.TimeoutSeconds <= 0 {
 		return DefaultBeforeSessionTimeoutSeconds * time.Second
@@ -110,16 +84,15 @@ func (b *BeforeSessionConfig) EffectiveTimeout() time.Duration {
 // fired after app launch signs the session in
 // (e.g. myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home).
 type AuthBypassConfig struct {
-	// LaunchVars are org launch-variable keys (or IDs) applied to every device
-	// session start. Explicit --launch-var flags override this list.
+	// LaunchVars are org launch-variable keys (or IDs) merged (deduplicated) with
+	// explicit --launch-var flags on device session start.
 	LaunchVars []string `yaml:"launch_vars,omitempty"`
 
-	// DeepLink is the auth deep link fired after the app launches. ${VAR}
-	// placeholders are resolved from org launch-variable values.
+	// DeepLink is fired after app launch; ${VAR} placeholders resolve from
+	// before_session output or org launch variables.
 	DeepLink string `yaml:"deep_link,omitempty"`
 }
 
-// IsConfigured returns true if any auth bypass behavior is configured.
 func (a *AuthBypassConfig) IsConfigured() bool {
 	if a == nil {
 		return false
@@ -138,66 +111,39 @@ func (a *AuthBypassConfig) IsConfigured() bool {
 // to specify which provider to use when --provider is not specified, or let the
 // CLI auto-select based on project detection confidence.
 type HotReloadConfig struct {
-	// Default is the default provider to use when --provider is not specified.
-	// If empty, auto-selects based on detection confidence.
 	Default string `yaml:"default,omitempty"`
 
-	// Transport selects how the local dev server is exposed publicly.
-	// Supported values: "relay" (default).
 	Transport string `yaml:"transport,omitempty"`
 
-	// Providers maps provider names to their configurations.
-	// Supported providers: "expo", "react-native", "swift" (future), "android" (future).
+	// Providers maps provider names ("expo", "react-native", "swift", "android", "flutter") to configs.
 	Providers map[string]*ProviderConfig `yaml:"providers,omitempty"`
 }
 
-// ProviderConfig contains configuration for a single hot reload provider.
 type ProviderConfig struct {
-	// Port is the port for the dev server (default varies by provider).
+	// Port is the dev server port (GetPort defaults to 8081 when non-positive).
 	Port int `yaml:"port,omitempty"`
 
-	// Expo-specific fields
-	// AppScheme is the app's URL scheme from app.json (e.g., "myapp").
 	AppScheme string `yaml:"app_scheme,omitempty"`
 
 	// PlatformKeys optionally maps OS platform ("ios"/"android") to build.platforms keys.
 	// Example: {"ios":"ios-dev","android":"android-dev"}.
 	PlatformKeys map[string]string `yaml:"platform_keys,omitempty"`
 
-	// UseExpPrefix controls whether to use the "exp+" prefix in deep links.
-	// When true: exp+{scheme}://expo-development-client/?url=...
-	// When false: {scheme}://expo-development-client/?url=...
-	// Default is false for maximum compatibility with existing builds.
-	// Set to true if your dev client was built with addGeneratedScheme: true (Expo SDK 45+).
 	UseExpPrefix bool `yaml:"use_exp_prefix,omitempty"`
 
-	// Swift-specific fields
-	// BundleID is the iOS bundle identifier.
 	BundleID string `yaml:"bundle_id,omitempty"`
 
-	// InjectionPath is the path to InjectionIII.app.
 	InjectionPath string `yaml:"injection_path,omitempty"`
 
-	// ProjectPath is the path to the Xcode project file.
 	ProjectPath string `yaml:"project_path,omitempty"`
 
-	// Android-specific fields
-	// PackageName is the Android package name (e.g., "com.myapp").
 	PackageName string `yaml:"package_name,omitempty"`
 }
 
-// GetPort returns the port for a provider, with appropriate defaults.
-//
-// Parameters:
-//   - providerName: The provider name
-//
-// Returns:
-//   - int: The configured port or default (8081 for expo/android)
 func (c *ProviderConfig) GetPort(providerName string) int {
 	if c.Port > 0 {
 		return c.Port
 	}
-	// Default ports by provider (Metro-based providers all default to 8081)
 	switch providerName {
 	case "expo", "react-native", "android":
 		return 8081
@@ -206,15 +152,10 @@ func (c *ProviderConfig) GetPort(providerName string) int {
 	}
 }
 
-// IsConfigured returns true if hot reload is configured.
-//
-// Returns:
-//   - bool: True if hot reload configuration exists
 func (c *HotReloadConfig) IsConfigured() bool {
 	return len(c.Providers) > 0
 }
 
-// GetTransport returns the configured public transport, defaulting to relay.
 func (c *HotReloadConfig) GetTransport() string {
 	transport := strings.ToLower(strings.TrimSpace(c.Transport))
 	if transport == "" {
@@ -223,13 +164,6 @@ func (c *HotReloadConfig) GetTransport() string {
 	return transport
 }
 
-// GetProviderConfig returns the configuration for a specific provider.
-//
-// Parameters:
-//   - providerName: The provider name ("expo", "swift", "android")
-//
-// Returns:
-//   - *ProviderConfig: The provider configuration, or nil if not found
 func (c *HotReloadConfig) GetProviderConfig(providerName string) *ProviderConfig {
 	if c.Providers != nil {
 		if cfg, ok := c.Providers[providerName]; ok {
@@ -239,17 +173,7 @@ func (c *HotReloadConfig) GetProviderConfig(providerName string) *ProviderConfig
 	return nil
 }
 
-// GetActiveProvider returns the provider name to use based on configuration.
-// Priority: explicit provider > default > first configured provider.
-//
-// Parameters:
-//   - explicitProvider: Provider specified via --provider flag (empty if not specified)
-//
-// Returns:
-//   - string: The provider name to use
-//   - error: Error if no provider is configured or explicit provider not found
 func (c *HotReloadConfig) GetActiveProvider(explicitProvider string) (string, error) {
-	// 1. Explicit --provider flag takes priority
 	if explicitProvider != "" {
 		if c.GetProviderConfig(explicitProvider) != nil {
 			return explicitProvider, nil
@@ -257,7 +181,6 @@ func (c *HotReloadConfig) GetActiveProvider(explicitProvider string) (string, er
 		return "", fmt.Errorf("provider '%s' is not configured", explicitProvider)
 	}
 
-	// 2. Use configured default if set
 	if c.Default != "" {
 		if c.GetProviderConfig(c.Default) != nil {
 			return c.Default, nil
@@ -265,7 +188,6 @@ func (c *HotReloadConfig) GetActiveProvider(explicitProvider string) (string, er
 		return "", fmt.Errorf("default provider '%s' is not configured", c.Default)
 	}
 
-	// 3. Return first configured provider (caller should use detection for better selection)
 	if len(c.Providers) > 0 {
 		for name := range c.Providers {
 			return name, nil
@@ -275,10 +197,6 @@ func (c *HotReloadConfig) GetActiveProvider(explicitProvider string) (string, er
 	return "", fmt.Errorf("no hot reload provider configured")
 }
 
-// Validate checks that the hot reload configuration is valid.
-//
-// Returns:
-//   - error: Validation error or nil if valid
 func (c *HotReloadConfig) Validate() error {
 	transport := c.GetTransport()
 	if transport != "relay" {
@@ -296,13 +214,6 @@ func (c *HotReloadConfig) Validate() error {
 	return nil
 }
 
-// ValidateProvider validates configuration for a specific provider.
-//
-// Parameters:
-//   - providerName: The provider name to validate
-//
-// Returns:
-//   - error: Validation error or nil if valid
 func (c *HotReloadConfig) ValidateProvider(providerName string) error {
 	cfg := c.GetProviderConfig(providerName)
 	if cfg == nil {
@@ -311,7 +222,6 @@ func (c *HotReloadConfig) ValidateProvider(providerName string) error {
 	return c.validateProviderConfig(providerName, cfg)
 }
 
-// validateProviderConfig validates a single provider configuration.
 func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfig) error {
 	switch name {
 	case "expo":
@@ -338,9 +248,7 @@ func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfi
 			}
 		}
 	case "swift":
-		// No hot reload, but valid for rebuild-based dev loop (revyl dev [r]).
 	case "android":
-		// No hot reload, but valid for rebuild-based dev loop (revyl dev [r]).
 	case "flutter":
 		// No hot reload dev server; uses auto-rebuild dev loop with file watching.
 	default:
@@ -350,27 +258,19 @@ func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfi
 	return nil
 }
 
-// Project contains project identification.
 type Project struct {
-	// ID is the Revyl project ID (optional).
 	ID string `yaml:"id,omitempty"`
 
-	// Name is the project name.
 	Name string `yaml:"name"`
 
-	// OrgID is the organization ID this project is bound to (optional).
 	OrgID string `yaml:"org_id,omitempty"`
 }
 
-// BuildConfig contains build configuration.
 type BuildConfig struct {
-	// System is the detected build system (gradle, xcode, expo, flutter, react-native).
 	System string `yaml:"system,omitempty"`
 
-	// Command is the build command to run.
 	Command string `yaml:"command,omitempty"`
 
-	// Output is the path to the build output artifact.
 	Output string `yaml:"output,omitempty"`
 
 	// NoBuild disables build commands globally. When true, revyl dev and similar
@@ -379,18 +279,13 @@ type BuildConfig struct {
 	// explicitly overrides this setting.
 	NoBuild bool `yaml:"no_build,omitempty"`
 
-	// Source describes where remote build runners should fetch source from.
 	Source BuildSource `yaml:"source,omitempty"`
 
-	// Caches contains configured path caches shared across build platforms.
 	Caches []BuildCache `yaml:"caches,omitempty"`
 
-	// Platforms contains platform-specific build configurations keyed by platform name
-	// (e.g. "ios", "android", "ios-dev").
 	Platforms map[string]BuildPlatform `yaml:"platforms,omitempty"`
 }
 
-// BuildCache describes one configured remote-build path cache.
 type BuildCache struct {
 	// Key is the org-local cache key. The backend prefixes it with the org ID.
 	Key string `yaml:"key" json:"key"`
@@ -403,52 +298,33 @@ type BuildCache struct {
 	Hash []string `yaml:"hash,omitempty" json:"hash,omitempty"`
 }
 
-// BuildSource contains repo-backed source settings for remote build runners.
 type BuildSource struct {
-	// Type is the source provider. Currently "git" is supported.
 	Type string `yaml:"type,omitempty"`
 
-	// RepoURL is the Git repository URL the runner should fetch.
 	RepoURL string `yaml:"repo_url,omitempty"`
 
-	// Ref is the branch, tag, or commit SHA to check out.
 	Ref string `yaml:"ref,omitempty"`
 
-	// Subdir optionally selects the project directory within the checkout.
 	Subdir string `yaml:"subdir,omitempty"`
 
-	// LFS controls whether the runner should fetch Git LFS objects.
 	LFS bool `yaml:"lfs,omitempty"`
 }
 
-// BuildPlatform represents a platform-specific build configuration.
-//
-// Each entry in build.platforms maps a key (e.g. "ios", "android", "ios-dev")
-// to a build command, output path, and associated Revyl app ID.
 type BuildPlatform struct {
-	// Command is the build command for this platform.
 	Command string `yaml:"command"`
 
-	// Commands is an ordered list of build commands for this platform.
-	// When set, commands are run in order and Command is retained only as a
-	// backwards-compatible single-command fallback.
 	Commands []string `yaml:"commands,omitempty"`
 
-	// Output is the output artifact path for this platform.
 	Output string `yaml:"output"`
 
-	// Image is the sandbox build image key for remote builds.
 	Image string `yaml:"image,omitempty"`
 
-	// AppID is the Revyl app ID that stores builds for this platform.
 	AppID string `yaml:"app_id,omitempty"`
 
 	// Scheme is the Xcode scheme to use for iOS builds.
 	// When set, replaces -scheme * in the build command with the specified scheme.
 	Scheme string `yaml:"scheme,omitempty"`
 
-	// Setup is an optional pre-build command run before the main build
-	// (e.g. "npm install && cd ios && pod install").
 	Setup string `yaml:"setup,omitempty"`
 
 	// Timeout is the remote build timeout in seconds for this platform.
@@ -464,12 +340,9 @@ type BuildPlatform struct {
 	// serialized into project configuration.
 	Secrets []string `yaml:"secrets,omitempty"`
 
-	// Caches contains configured path caches used by this platform's remote builds.
 	Caches []BuildCache `yaml:"caches,omitempty"`
 }
 
-// BuildCommands returns the ordered build commands configured for a platform.
-// The commands list takes precedence over the legacy single command field.
 func (p BuildPlatform) BuildCommands() []string {
 	var commands []string
 	for _, command := range p.Commands {
@@ -493,7 +366,6 @@ func (p BuildPlatform) JoinedBuildCommand() string {
 	return strings.Join(p.BuildCommands(), " && ")
 }
 
-// EffectiveBuildCaches returns the merged global and platform path caches.
 func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []BuildCache {
 	var result []BuildCache
 	indexByKey := make(map[string]int)
@@ -518,27 +390,18 @@ func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []Bui
 	return result
 }
 
-// Defaults contains default settings.
 type Defaults struct {
-	// OpenBrowser controls whether to open browser after test completion.
 	OpenBrowser *bool `yaml:"open_browser,omitempty"`
 
-	// Timeout is the default timeout in seconds.
 	Timeout int `yaml:"timeout,omitempty"`
 }
 
 const (
-	// DefaultOpenBrowser is the default for defaults.open_browser when omitted.
 	DefaultOpenBrowser = false
 
-	// DefaultTimeoutSeconds is the default for defaults.timeout when omitted or invalid.
 	DefaultTimeoutSeconds = 30 * 60
 )
 
-// ApplyDefaults normalizes omitted/invalid project defaults in-place.
-//
-// Parameters:
-//   - cfg: Project config to normalize (no-op when nil)
 func ApplyDefaults(cfg *ProjectConfig) {
 	if cfg == nil {
 		return
@@ -553,13 +416,6 @@ func ApplyDefaults(cfg *ProjectConfig) {
 	}
 }
 
-// EffectiveOpenBrowser returns the effective open-browser setting.
-//
-// Parameters:
-//   - cfg: Project config (nil uses default)
-//
-// Returns:
-//   - bool: Effective setting
 func EffectiveOpenBrowser(cfg *ProjectConfig) bool {
 	if cfg == nil || cfg.Defaults.OpenBrowser == nil {
 		return DefaultOpenBrowser
@@ -567,14 +423,6 @@ func EffectiveOpenBrowser(cfg *ProjectConfig) bool {
 	return *cfg.Defaults.OpenBrowser
 }
 
-// EffectiveTimeoutSeconds returns the effective timeout.
-//
-// Parameters:
-//   - cfg: Project config (nil uses fallback)
-//   - fallback: Timeout fallback in seconds when config is nil/invalid
-//
-// Returns:
-//   - int: Effective timeout in seconds
 func EffectiveTimeoutSeconds(cfg *ProjectConfig, fallback int) int {
 	if cfg != nil && cfg.Defaults.Timeout > 0 {
 		return cfg.Defaults.Timeout
@@ -585,14 +433,6 @@ func EffectiveTimeoutSeconds(cfg *ProjectConfig, fallback int) int {
 	return DefaultTimeoutSeconds
 }
 
-// LoadProjectConfig loads a project configuration from a file.
-//
-// Parameters:
-//   - path: Path to the config.yaml file
-//
-// Returns:
-//   - *ProjectConfig: The loaded configuration
-//   - error: Any error that occurred during loading
 func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -612,14 +452,6 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	return &cfg, nil
 }
 
-// WriteProjectConfig writes a project configuration to a file.
-//
-// Parameters:
-//   - path: Path to write the config.yaml file
-//   - cfg: The configuration to write
-//
-// Returns:
-//   - error: Any error that occurred during writing
 func WriteProjectConfig(path string, cfg *ProjectConfig) error {
 	if err := rejectCanonicalConfigLegacyWrite(path); err != nil {
 		return err
@@ -665,8 +497,6 @@ func rejectCanonicalConfigLegacyWrite(path string) error {
 	return nil
 }
 
-// annotateHotReloadConfig injects inline YAML comments into the serialized
-// config to help users understand each hot reload field without reading docs.
 func annotateHotReloadConfig(yamlStr string, cfg *ProjectConfig) string {
 	if cfg.HotReload.Default == "" {
 		return yamlStr
@@ -710,19 +540,16 @@ func annotateHotReloadConfig(yamlStr string, cfg *ProjectConfig) string {
 	return strings.Join(annotatedLines, "\n")
 }
 
-// yamlPathEntry tracks one YAML mapping key and its indentation depth.
 type yamlPathEntry struct {
 	indent int
 	key    string
 }
 
-// yamlCommentAnnotation defines a comment to insert before a YAML path.
 type yamlCommentAnnotation struct {
 	path    string
 	comment string
 }
 
-// buildHotReloadAnnotations returns the path-scoped hot reload comments.
 func buildHotReloadAnnotations(provider string) []yamlCommentAnnotation {
 	annotations := []yamlCommentAnnotation{
 		{
@@ -773,7 +600,6 @@ func buildHotReloadAnnotations(provider string) []yamlCommentAnnotation {
 	return annotations
 }
 
-// lookupHotReloadAnnotation returns the configured comment for an exact YAML path.
 func lookupHotReloadAnnotation(
 	annotations []yamlCommentAnnotation,
 	path []string,
@@ -787,7 +613,6 @@ func lookupHotReloadAnnotation(
 	return "", false
 }
 
-// parseYAMLMappingLine extracts the indentation and key from a YAML mapping line.
 func parseYAMLMappingLine(line string) (int, string, bool) {
 	trimmedLine := strings.TrimSpace(line)
 	if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") || strings.HasPrefix(trimmedLine, "-") {
@@ -808,107 +633,77 @@ func parseYAMLMappingLine(line string) (int, string, bool) {
 	return indent, normalizedKey, true
 }
 
-// joinYAMLPath normalizes a YAML path for exact annotation matching.
 func joinYAMLPath(path ...string) string {
 	return strings.Join(path, "/")
 }
 
-// LocalTest represents a local test definition in .revyl/tests/.
 type LocalTest struct {
-	// Meta contains sync metadata.
 	Meta TestMeta `yaml:"_meta"`
 
-	// Test contains the test definition.
 	Test TestDefinition `yaml:"test"`
 }
 
-// TestMeta contains sync metadata for a local test.
 type TestMeta struct {
-	// RemoteID is the test ID on the server.
 	RemoteID string `yaml:"remote_id,omitempty"`
 
-	// RemoteVersion is the version on the server at last sync.
 	RemoteVersion int `yaml:"remote_version"`
 
-	// LocalVersion is the local version (increments on local edit).
+	// LocalVersion tracks the last synced version written by sync operations.
 	LocalVersion int `yaml:"local_version"`
 
-	// LastSyncedAt is when the test was last synced.
 	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
 
-	// LastSyncedBy is who last synced the test.
 	LastSyncedBy string `yaml:"last_synced_by,omitempty"`
 
-	// Checksum is a hash of the test content for change detection.
 	Checksum string `yaml:"checksum,omitempty"`
 }
 
-// TestDeviceConfig contains device target preferences for the test.
 type TestDeviceConfig struct {
-	// Model is the target device model name (e.g. "iPhone 15 Pro").
 	Model string `yaml:"model,omitempty"`
 
-	// OSVersion is the target OS version (e.g. "17.4").
 	OSVersion string `yaml:"os_version,omitempty"`
 
 	// Orientation is portrait or landscape.
 	Orientation string `yaml:"orientation,omitempty"`
 }
 
-// TestLocation contains initial GPS coordinates for the test.
 type TestLocation struct {
-	// Latitude is the GPS latitude.
 	Latitude float64 `yaml:"latitude"`
 
-	// Longitude is the GPS longitude.
 	Longitude float64 `yaml:"longitude"`
 }
 
-// TestDefinition contains the actual test definition.
 type TestDefinition struct {
-	// Metadata contains test metadata.
 	Metadata TestMetadata `yaml:"metadata"`
 
-	// Build contains build configuration for this test.
 	Build TestBuildConfig `yaml:"build,omitempty"`
 
-	// Device contains device target preferences.
 	Device *TestDeviceConfig `yaml:"device,omitempty"`
 
-	// Variables contains custom test variables (key-value pairs).
 	Variables map[string]string `yaml:"variables,omitempty"`
 
 	// EnvVars contains attached org launch variable keys.
 	EnvVars []string `yaml:"env_vars,omitempty"`
 
-	// Location contains initial GPS coordinates.
 	Location *TestLocation `yaml:"location,omitempty"`
 
-	// Blocks contains the test steps.
 	Blocks []TestBlock `yaml:"blocks"`
 }
 
-// TestMetadata contains test metadata.
 type TestMetadata struct {
-	// Name is the test name.
 	Name string `yaml:"name"`
 
 	// Platform is the target platform (ios, android).
 	Platform string `yaml:"platform,omitempty"`
 
-	// Description is an optional test description.
 	Description string `yaml:"description,omitempty"`
 
-	// Tags is an optional list of tag names associated with this test.
 	Tags []string `yaml:"tags,omitempty"`
 }
 
-// TestBuildConfig contains build configuration for a test.
 type TestBuildConfig struct {
-	// Name is the app name.
 	Name string `yaml:"name"`
 
-	// PinnedVersion is an optional pinned version.
 	PinnedVersion  string `yaml:"pinned_version,omitempty"`
 	BranchID       string `yaml:"branch_id,omitempty"`
 	BuildSelection string `yaml:"build_selection,omitempty"`
@@ -918,9 +713,7 @@ type TestBuildConfig struct {
 	SystemPrompt string `yaml:"system_prompt,omitempty"`
 }
 
-// TestBlock represents a test step/block.
 type TestBlock struct {
-	// ID is the block ID (optional).
 	ID string `yaml:"id,omitempty" json:"id,omitempty"`
 
 	// Type is the block type (instructions, validation, if, while).
@@ -929,36 +722,27 @@ type TestBlock struct {
 	// StepType is the step type (instruction, validation, etc.).
 	StepType string `yaml:"step_type,omitempty" json:"step_type,omitempty"`
 
-	// StepDescription is the step description/instruction.
 	StepDescription string `yaml:"step_description,omitempty" json:"step_description,omitempty"`
 
-	// Condition is the condition for if/while blocks.
 	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
 
-	// Then contains blocks for the then branch (if blocks).
 	Then []TestBlock `yaml:"then,omitempty" json:"thenChildren,omitempty"`
 
-	// Else contains blocks for the else branch (if blocks).
 	Else []TestBlock `yaml:"else,omitempty" json:"elseChildren,omitempty"`
 
-	// Body contains blocks for the loop body (while blocks).
 	Body []TestBlock `yaml:"body,omitempty" json:"children,omitempty"`
 
 	// VariableName is the variable name for extraction blocks.
 	VariableName string `yaml:"variable_name,omitempty" json:"variable_name,omitempty"`
 
-	// ModuleID is the module UUID for module_import blocks.
 	ModuleID string `yaml:"module_id,omitempty" json:"module_id,omitempty"`
 
-	// ScriptID is the resolved script UUID for code_execution blocks.
 	ScriptID string `yaml:"script_id,omitempty" json:"script_id,omitempty"`
 
 	TimeoutSeconds *int `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
 
-	// Script is the human-readable script name for code_execution blocks.
 	Script string `yaml:"script,omitempty" json:"script,omitempty"`
 
-	// Module is the human-readable module name for module_import blocks.
 	Module string `yaml:"module,omitempty" json:"module,omitempty"`
 
 	// File is the org file name for manual/download_file blocks.
@@ -968,16 +752,6 @@ type TestBlock struct {
 	FileURI string `yaml:"file_uri,omitempty" json:"file_uri,omitempty"`
 }
 
-// ComputeTestChecksum computes a SHA-256 checksum of the test definition.
-//
-// This function serializes the test definition to YAML and computes a hash,
-// which is used to detect local modifications to test files.
-//
-// Parameters:
-//   - test: The test definition to compute checksum for
-//
-// Returns:
-//   - string: Hex-encoded SHA-256 checksum, or empty string on error
 func ComputeTestChecksum(test *TestDefinition) string {
 	if test == nil {
 		return ""
@@ -992,16 +766,8 @@ func ComputeTestChecksum(test *TestDefinition) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// HasLocalChanges returns true if the test content differs from the stored checksum.
-//
-// This method compares the current content checksum against the stored checksum
-// to detect if the user has modified the test file since the last sync.
-//
-// Returns:
-//   - bool: True if content has changed, false if unchanged or no checksum stored
 func (t *LocalTest) HasLocalChanges() bool {
 	if t.Meta.Checksum == "" {
-		// No checksum stored, assume no changes (legacy file or new test)
 		return false
 	}
 
@@ -1009,15 +775,6 @@ func (t *LocalTest) HasLocalChanges() bool {
 	return currentChecksum != t.Meta.Checksum
 }
 
-// CountLinkedTests returns the number of local YAML test files that have a
-// non-empty _meta.remote_id (i.e. are linked to a remote test).
-// Returns 0 if the directory does not exist or is empty.
-//
-// Parameters:
-//   - testsDir: Path to the .revyl/tests/ directory
-//
-// Returns:
-//   - int: Number of linked tests
 func CountLinkedTests(testsDir string) int {
 	entries, err := os.ReadDir(testsDir)
 	if err != nil {
@@ -1038,17 +795,9 @@ func CountLinkedTests(testsDir string) int {
 	return count
 }
 
-// GetLocalTestRemoteID loads a single local test YAML by alias name and returns
-// its _meta.remote_id. Returns ("", nil) if the file does not exist or has no
-// remote_id. Returns a non-nil error only on parse failures.
-//
-// Parameters:
-//   - testsDir: Path to the .revyl/tests/ directory
-//   - alias: Test alias (filename without .yaml extension)
-//
-// Returns:
-//   - string: The remote test UUID, or empty string
-//   - error: Parse error (nil if file missing or has no remote_id)
+// GetLocalTestRemoteID loads a local test YAML by alias and returns _meta.remote_id.
+// Returns ("", nil) when the file is missing or unlinked, and an error on
+// invalid alias paths, filesystem read errors, or YAML parse failures.
 func GetLocalTestRemoteID(testsDir, alias string) (string, error) {
 	path, pathErr := util.SafeTestPath(testsDir, alias)
 	if pathErr != nil {
@@ -1064,9 +813,6 @@ func GetLocalTestRemoteID(testsDir, alias string) (string, error) {
 	return lt.Meta.RemoteID, nil
 }
 
-// testAliasFromFilename extracts a test alias from a directory entry,
-// returning "" for entries that are not valid test YAML files (directories,
-// non-.yaml extensions, or bare ".yaml" with no stem).
 func testAliasFromFilename(entry os.DirEntry) string {
 	if entry.IsDir() {
 		return ""
@@ -1078,14 +824,6 @@ func testAliasFromFilename(entry os.DirEntry) string {
 	return name[:len(name)-5]
 }
 
-// ListLocalTestAliases returns all test aliases (filenames without .yaml) from the tests directory.
-// Returns nil if the directory does not exist.
-//
-// Parameters:
-//   - testsDir: Path to the .revyl/tests/ directory
-//
-// Returns:
-//   - []string: Sorted list of test aliases
 func ListLocalTestAliases(testsDir string) []string {
 	entries, err := os.ReadDir(testsDir)
 	if err != nil {
@@ -1102,14 +840,6 @@ func ListLocalTestAliases(testsDir string) []string {
 	return aliases
 }
 
-// LoadLocalTests loads all local test definitions from a directory.
-//
-// Parameters:
-//   - testsDir: Path to the .revyl/tests/ directory
-//
-// Returns:
-//   - map[string]*LocalTest: Map of test name to test definition
-//   - error: Any error that occurred during loading
 func LoadLocalTests(testsDir string) (map[string]*LocalTest, error) {
 	tests := make(map[string]*LocalTest)
 
@@ -1140,14 +870,6 @@ func LoadLocalTests(testsDir string) (map[string]*LocalTest, error) {
 	return tests, nil
 }
 
-// LoadLocalTest loads a single local test definition.
-//
-// Parameters:
-//   - path: Path to the test YAML file
-//
-// Returns:
-//   - *LocalTest: The loaded test definition
-//   - error: Any error that occurred during loading
 func LoadLocalTest(path string) (*LocalTest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1162,19 +884,7 @@ func LoadLocalTest(path string) (*LocalTest, error) {
 	return &test, nil
 }
 
-// SaveLocalTest saves a local test definition.
-//
-// This function computes and stores a checksum of the test content before saving,
-// which is used to detect local modifications on subsequent loads.
-//
-// Parameters:
-//   - path: Path to save the test YAML file
-//   - test: The test definition to save
-//
-// Returns:
-//   - error: Any error that occurred during saving
 func SaveLocalTest(path string, test *LocalTest) error {
-	// Compute and store checksum of test content before saving
 	test.Meta.Checksum = ComputeTestChecksum(&test.Test)
 
 	data, err := yaml.Marshal(test)
@@ -1208,14 +918,10 @@ func (t *LocalTest) HasDefinition() bool {
 		d.Location != nil
 }
 
-// LinkLocalTestToRemote saves a local test YAML linked to the given remote
-// test ID. If the file already exists, its test definition and remaining sync
-// metadata are preserved and only _meta.remote_id is updated; a missing file
-// gets a fresh stub. An existing file that cannot be parsed is left untouched
-// and the parse error is returned.
-//
-// Returns whether an existing local definition was preserved, so callers can
-// tell the user their local content still needs a push.
+// LinkLocalTestToRemote sets _meta.remote_id on path (creating a fresh stub if
+// missing) and saves via SaveLocalTest, which recomputes Checksum and reserializes
+// typed YAML. Non-missing load errors leave the file untouched. Returns whether
+// an existing local definition was preserved.
 func LinkLocalTestToRemote(path, remoteID string) (preserved bool, err error) {
 	test, loadErr := LoadLocalTest(path)
 	if loadErr != nil {

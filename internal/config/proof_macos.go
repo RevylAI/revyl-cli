@@ -24,7 +24,6 @@ var (
 	macTargetPreviewForbidden = " \t\r\n\\\x00#"
 )
 
-// IsPreview reports whether the target opens the web target's preview.
 func (t AuthoredMacTarget) IsPreview() bool {
 	return t.Preview != nil
 }
@@ -39,9 +38,6 @@ func (t AuthoredMacTarget) kindCount() int {
 	return count
 }
 
-// validateMacProof checks pr_review.proof_of_changes.macos against the session
-// profiles and the review build its targets depend on, in the order the
-// backend contract reports them: app_id, targets, then the session profile.
 func (c AuthoredConfig) validateMacProof() error {
 	if c.PRReview.ProofOfChanges == nil || c.PRReview.ProofOfChanges.Macos == nil {
 		return nil
@@ -135,8 +131,6 @@ func (c AuthoredConfig) validateMacProofSessionProfile(macos AuthoredProofMacos,
 	return nil
 }
 
-// macProofNeedsCheckout reports whether a web, app or command target runs in
-// the pull request's checkout.
 func macProofNeedsCheckout(macos AuthoredProofMacos) bool {
 	for _, target := range macos.Targets {
 		if !target.IsPreview() {
@@ -176,8 +170,6 @@ func validateMacApp(app AuthoredMacApp, label string, appPath []string) error {
 	return nil
 }
 
-// validMacTargetCommand accepts one token: a name on PATH or a path relative
-// to the project root, with no shell metacharacters or parent segments.
 func validMacTargetCommand(command string) bool {
 	if !macTargetCommandPattern.MatchString(command) || strings.HasSuffix(command, "/") {
 		return false
@@ -190,8 +182,6 @@ func validMacTargetCommand(command string) bool {
 	return true
 }
 
-// validLoopbackURL reports whether value is an http or https URL on
-// localhost, 127.0.0.1 or [::1], without credentials.
 func validLoopbackURL(value string) bool {
 	parsed, err := url.Parse(value)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Opaque != "" {
@@ -209,8 +199,6 @@ func validLoopbackURL(value string) bool {
 	return !strings.HasSuffix(parsed.Host, ":")
 }
 
-// HasMacProof reports whether the review sets a Mac proof, the only proof a
-// review without a build runs.
 func (review AuthoredPRReview) HasMacProof() bool {
 	return review.ProofOfChanges != nil && review.ProofOfChanges.Macos != nil
 }

@@ -120,7 +120,6 @@ func TestFindProjectRootPrefersNearestParent(t *testing.T) {
 	}
 }
 
-// writeProjectConfig creates the minimum initialized Revyl project fixture.
 func writeProjectConfig(t *testing.T, root string) {
 	t.Helper()
 	configDir := filepath.Join(root, ".revyl")

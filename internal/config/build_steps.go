@@ -10,9 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Typed build step identifiers. They are spelled identically in authored YAML,
-// in the persisted projection, and on the wire so every compiler hashes the
-// same bytes.
 const (
 	BuildStepRun                   = "run"
 	BuildStepIOSSigning            = "ios-signing"
@@ -21,27 +18,17 @@ const (
 	BuildStepGooglePlayDeploy      = "google-play-deploy"
 )
 
-// buildStepNameKey is the reserved optional key on a mapping item.
 const buildStepNameKey = "name"
 
-// BuildStepItem is one entry of a setup or build command list.
-//
-// A plain YAML string is a shell command. A mapping is either a named run
-// command ({"name": ..., "run": ...}) or a typed step keyed by its identifier
-// ({"ios-signing": {...}}). Mappings are carried verbatim: the Python compiler
-// projects the same keys, so the two hash identically.
 type BuildStepItem struct {
 	Command string
 	Step    map[string]any
 }
 
-// CommandStepItem wraps a plain shell command.
 func CommandStepItem(command string) BuildStepItem {
 	return BuildStepItem{Command: command}
 }
 
-// CommandStepItems wraps a list of plain shell commands, preserving nil so
-// callers can still distinguish an omitted list from an empty one.
 func CommandStepItems(commands []string) []BuildStepItem {
 	if commands == nil {
 		return nil
@@ -53,12 +40,10 @@ func CommandStepItems(commands []string) []BuildStepItem {
 	return items
 }
 
-// IsCommand reports whether the item is a plain shell command string.
 func (i BuildStepItem) IsCommand() bool {
 	return i.Step == nil
 }
 
-// Type returns "run" for plain and named commands, or the typed step identifier.
 func (i BuildStepItem) Type() string {
 	if i.Step == nil {
 		return BuildStepRun
@@ -71,7 +56,6 @@ func (i BuildStepItem) Type() string {
 	return ""
 }
 
-// Name returns the optional authored step name of a mapping item.
 func (i BuildStepItem) Name() string {
 	if i.Step == nil {
 		return ""
@@ -80,7 +64,6 @@ func (i BuildStepItem) Name() string {
 	return name
 }
 
-// RunCommand returns the shell command of a plain or named run item.
 func (i BuildStepItem) RunCommand() (string, bool) {
 	if i.Step == nil {
 		return i.Command, true
@@ -89,7 +72,6 @@ func (i BuildStepItem) RunCommand() (string, bool) {
 	return command, ok
 }
 
-// Inputs returns the typed step's input mapping.
 func (i BuildStepItem) Inputs() map[string]any {
 	if i.Step == nil {
 		return nil
@@ -147,8 +129,6 @@ func (i *BuildStepItem) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// CommandStrings returns the shell commands of a list that contains only plain
-// or named run items. Typed steps cannot run outside a Revyl build runner.
 func CommandStrings(items []BuildStepItem) ([]string, error) {
 	commands := make([]string, 0, len(items))
 	for _, item := range items {
@@ -161,7 +141,6 @@ func CommandStrings(items []BuildStepItem) ([]string, error) {
 	return commands, nil
 }
 
-// CommandSummary joins a list for display, naming typed steps by identifier.
 func CommandSummary(items []BuildStepItem) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
@@ -203,8 +182,6 @@ func cloneAnyMap(values map[string]any) map[string]any {
 	return cloned
 }
 
-// typedBuildStepSpec is the structural contract of one typed step's inputs,
-// mirroring the Python input models that validate the same shape on publish.
 type typedBuildStepSpec struct {
 	platform        string
 	required        []string
@@ -242,7 +219,6 @@ var typedBuildStepSpecs = map[string]typedBuildStepSpec{
 	},
 }
 
-// TypedBuildStepTypes lists the typed step identifiers in stable order.
 func TypedBuildStepTypes() []string {
 	types := make([]string, 0, len(typedBuildStepSpecs))
 	for key := range typedBuildStepSpecs {
@@ -252,8 +228,6 @@ func TypedBuildStepTypes() []string {
 	return types
 }
 
-// validateBuildStepSequence checks one command list node: every item is a
-// non-empty string, or a mapping with exactly one step key plus optional name.
 func validateBuildStepSequence(node *yaml.Node, path []string) error {
 	if node == nil {
 		return nil
@@ -372,8 +346,8 @@ func countPresentKeys(node *yaml.Node, keys []string) int {
 	return present
 }
 
-// validateBuildStepItems applies the structural contract to decoded items.
-// An empty platform skips the platform check for recipes that do not carry one.
+// validateBuildStepItems checks decoded run commands, known typed-step
+// identities, and optional platform compatibility (empty skips platform check).
 func validateBuildStepItems(items []BuildStepItem, path []string, platform string) error {
 	for index, item := range items {
 		itemPath := append(append([]string{}, path...), strconv.Itoa(index))

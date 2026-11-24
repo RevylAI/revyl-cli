@@ -21,8 +21,8 @@ const (
 	gitLookupTimeoutEnvVar  = "REVYL_GIT_TIMEOUT"
 )
 
-// gitLookupTimeout resolves REVYL_GIT_TIMEOUT as a positive whole number of
-// seconds up to the maximum; unset or invalid values use the default.
+// gitLookupTimeout reads positive seconds from REVYL_GIT_TIMEOUT up to
+// maxGitLookupTimeout (using time.Duration conversion); fallback is defaultGitLookupTimeout.
 func gitLookupTimeout() time.Duration {
 	seconds, err := strconv.Atoi(strings.TrimSpace(os.Getenv(gitLookupTimeoutEnvVar)))
 	if err != nil || seconds <= 0 || time.Duration(seconds)*time.Second > maxGitLookupTimeout {
@@ -33,9 +33,6 @@ func gitLookupTimeout() time.Duration {
 
 var configBackupNow = time.Now
 
-// ProjectContext is the complete local context for one canonical configuration.
-// Every path is resolved after applying -C, and config discovery is bounded by
-// the active Git worktree.
 type ProjectContext struct {
 	EffectiveDirectory                   string
 	WorktreeRoot                         string
@@ -49,8 +46,6 @@ type ProjectContext struct {
 	OriginalBytes                        []byte
 }
 
-// ConfigFileContext resolves a config file without assuming whether it is
-// legacy or canonical. Migration uses this boundary before classifying the bytes.
 type ConfigFileContext struct {
 	EffectiveDirectory                   string
 	WorktreeRoot                         string
@@ -62,8 +57,6 @@ type ConfigFileContext struct {
 	OriginalBytes                        []byte
 }
 
-// CompilationContext returns the pure repository-relative path context for
-// strict normalization or explicit legacy translation.
 func (c ConfigFileContext) CompilationContext() CompilationContext {
 	return CompilationContext{
 		RepositoryRelativeProjectRoot: c.RepositoryRelativeProjectRoot,
@@ -71,18 +64,12 @@ func (c ConfigFileContext) CompilationContext() CompilationContext {
 	}
 }
 
-// ConfigSemanticComparison reports whether two canonical configs express the
-// same project identity and normalized configuration meaning. The hashes are
-// the server-compatible aggregate hashes and therefore intentionally exclude
-// project identity on their own.
 type ConfigSemanticComparison struct {
 	Equal     bool
 	LeftHash  string
 	RightHash string
 }
 
-// ResolveProjectContext applies -C, finds the active Git worktree, selects
-// the nearest hardened config within it, and strictly compiles that config.
 func ResolveProjectContext(cwd, changeDirectory string) (*ProjectContext, error) {
 	fileContext, err := ResolveConfigFileContext(cwd, changeDirectory)
 	if err != nil {
@@ -110,9 +97,6 @@ func ResolveProjectContext(cwd, changeDirectory string) (*ProjectContext, error)
 	}, nil
 }
 
-// ResolveGitWorktreeRoot applies -C semantics and requires the resulting
-// directory to belong to an active non-bare Git worktree. It is the mutation
-// boundary used by init before a .revyl directory or backup can be created.
 func ResolveGitWorktreeRoot(cwd, changeDirectory string) (effectiveDirectory, worktreeRoot string, err error) {
 	effectiveDirectory, err = ResolveEffectiveDirectory(cwd, changeDirectory)
 	if err != nil {
@@ -125,8 +109,6 @@ func ResolveGitWorktreeRoot(cwd, changeDirectory string) (effectiveDirectory, wo
 	return effectiveDirectory, worktreeRoot, nil
 }
 
-// ResolveConfigFileContext applies -C, finds the active Git worktree, and
-// reads the nearest hardened config without classifying its schema generation.
 func ResolveConfigFileContext(cwd, changeDirectory string) (*ConfigFileContext, error) {
 	effectiveDirectory, err := ResolveEffectiveDirectory(cwd, changeDirectory)
 	if err != nil {
@@ -218,10 +200,6 @@ func repositoryRelativePath(worktreeRoot, candidate string) (string, error) {
 	return filepath.ToSlash(relative), nil
 }
 
-// MarshalCanonicalConfig renders a validated canonical authored config using
-// stable struct field order, sorted mapping keys, and one trailing newline.
-// It keeps the spellings it was given, so a file that uses only review_triggers
-// and workflow_ids stays readable by CLIs that predate triggers and workflows.
 func MarshalCanonicalConfig(authored AuthoredConfig) ([]byte, error) {
 	if err := authored.ValidateContract(); err != nil {
 		return nil, err
@@ -261,9 +239,6 @@ func marshalCompactConfig(authored AuthoredConfig) ([]byte, error) {
 	return encoded, nil
 }
 
-// CompareConfigSemantics compares normalized meaning instead of raw YAML
-// formatting. A different project ID is always divergent even when both scoped
-// aggregate hashes happen to match.
 func CompareConfigSemantics(left, right []byte, compilationContext CompilationContext) (ConfigSemanticComparison, error) {
 	leftAggregate, err := CompileConfigBytes(left, compilationContext)
 	if err != nil {
@@ -280,8 +255,6 @@ func CompareConfigSemantics(left, right []byte, compilationContext CompilationCo
 	}, nil
 }
 
-// CreateConfigBackup writes the current config's exact bytes beside it.
-// Existing backups are never overwritten, and the source mode is preserved.
 func CreateConfigBackup(configPath string) (string, error) {
 	currentBytes, metadata, err := readConfigFileAndMetadata(configPath)
 	if err != nil {
@@ -331,9 +304,8 @@ func writeConfigBackup(configPath string, content []byte, mode os.FileMode) (str
 	return "", newConfigError("write", "backup_name_unavailable", nil, "")
 }
 
-// BackupAndReplaceConfig performs one compare-and-swap local migration:
-// the exact bytes the caller inspected are backed up, then replacement refuses
-// to overwrite any intervening local edit.
+// BackupAndReplaceConfig checks that the file still matches expectedCurrent,
+// backs up those exact bytes, then stages and replaces the config file.
 func BackupAndReplaceConfig(configPath string, replacement, expectedCurrent []byte) (string, error) {
 	if _, err := ParseAuthoredConfig(replacement); err != nil {
 		return "", err
@@ -355,8 +327,6 @@ func BackupAndReplaceConfig(configPath string, replacement, expectedCurrent []by
 	return backupPath, nil
 }
 
-// CreateConfigIfAbsent publishes a complete validated config in one
-// filesystem step and never overwrites an existing path.
 func CreateConfigIfAbsent(configPath string, content []byte, mode os.FileMode) error {
 	if _, err := ParseAuthoredConfig(content); err != nil {
 		return err
@@ -405,10 +375,6 @@ func CreateConfigIfAbsent(configPath string, content []byte, mode os.FileMode) e
 	return nil
 }
 
-// ReplaceConfigAtomically validates replacement bytes, verifies the local
-// file still contains the bytes the caller inspected, writes to a same-directory
-// temporary file, preserves the current mode, then atomically replaces the
-// destination. A failed write leaves the original untouched.
 func ReplaceConfigAtomically(configPath string, replacement, expectedCurrent []byte) error {
 	if _, err := ParseAuthoredConfig(replacement); err != nil {
 		return err

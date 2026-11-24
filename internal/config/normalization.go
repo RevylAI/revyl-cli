@@ -19,8 +19,6 @@ type CompilationContext struct {
 	ExecutionDirectory            string `json:"execution_directory"`
 }
 
-// NormalizedProjectAggregate is the deterministic semantic projection of one
-// canonical config.
 type NormalizedProjectAggregate struct {
 	ProjectID                 string                   `json:"project_id"`
 	RunTestDefinitionsFromGit bool                     `json:"run_test_definitions_from_git,omitempty"`
@@ -37,9 +35,6 @@ type NormalizedBuildProfile struct {
 	Configurations   []NormalizedPlatformConfiguration `json:"configurations"`
 }
 
-// NormalizedPlatformConfiguration pairs a platform app with its build recipe.
-// A Web configuration with a nil Recipe is a URL-only target that Revyl never
-// builds; its previews are URL builds registered for AppID.
 type NormalizedPlatformConfiguration struct {
 	Platform            string                `json:"platform"`
 	AppID               *string               `json:"app_id,omitempty"`
@@ -47,9 +42,6 @@ type NormalizedPlatformConfiguration struct {
 	BuildDefinitionHash string                `json:"build_definition_hash"`
 }
 
-// NormalizedReviewPolicy is the default-materialized review policy.
-// WorkflowsEnabled defaults to true because the deprecated shared workflow_ids
-// spelling always ran its workflows.
 type NormalizedReviewPolicy struct {
 	Enabled          bool                      `json:"enabled"`
 	ReviewTriggers   NormalizedReviewTriggers  `json:"review_triggers"`
@@ -122,7 +114,6 @@ func hashCanonicalRevylJSON(domain string, encoded []byte) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// NormalizeAuthoredConfig resolves defaults and inheritance without I/O.
 func NormalizeAuthoredConfig(authored AuthoredConfig, context CompilationContext) (*NormalizedProjectAggregate, error) {
 	if err := authored.ValidateContract(); err != nil {
 		var configError *ConfigError
@@ -542,7 +533,6 @@ func configCollectionItemCount(authored AuthoredConfig) int {
 	return count
 }
 
-// ProjectHashProjection returns the canonical semantic projection shared with Python.
 func ProjectHashProjection(aggregate NormalizedProjectAggregate) map[string]any {
 	profileProjection := make([]any, 0, len(aggregate.Profiles))
 	for _, profile := range aggregate.Profiles {
@@ -642,9 +632,6 @@ func mergeCaches(inherited, recipe []BuildCache) []BuildCache {
 	return result
 }
 
-// ReviewPolicyHashProjection returns the canonical review-policy projection
-// shared with Python. Workflow keys appear only when they differ from the
-// deprecated shared workflow_ids meaning, so those policies keep their hashes.
 func ReviewPolicyHashProjection(policy NormalizedReviewPolicy) map[string]any {
 	projection := map[string]any{
 		"enabled": policy.Enabled, "review_triggers": policy.ReviewTriggers, "build": policy.Build,
@@ -771,8 +758,6 @@ func sessionProfilesProjection(profiles map[string]AuthoredSessionProfile) map[s
 	return result
 }
 
-// storedSignInPersona keeps the retired persona field in the hashed sign-in
-// projection so existing project hashes match the backend's stored form.
 const storedSignInPersona = "default"
 
 func signInProjection(signIn AuthoredSignIn) map[string]any {

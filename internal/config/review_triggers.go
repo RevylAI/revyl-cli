@@ -2,16 +2,11 @@ package config
 
 import "strings"
 
-// Stable codes for rejected deprecated-spelling combinations, shared with the
-// Python compiler so the PR check can explain each one.
 const (
 	reviewTriggersCombinedWithTriggersCode = "review_triggers_combined_with_triggers"
 	workflowIDsCombinedWithWorkflowsCode   = "workflow_ids_combined_with_workflows"
 )
 
-// CIUploadBlockTriggersMessage explains the one case where an absent root and
-// triggers: {} differ. With Revyl builds both select every non-draft pull
-// request under the project root.
 const CIUploadBlockTriggersMessage = "pr_review.triggers is absent, so Revyl waits for CI uploads only on pull requests that an enabled proof or workflow block's triggers select; set pr_review.triggers, even to {}, to wait on every non-draft pull request under the project root"
 
 func validateReviewTriggerBlocks(review *AuthoredPRReview) error {
@@ -48,7 +43,6 @@ func validateDeprecatedSpellings(review *AuthoredPRReview) error {
 	return nil
 }
 
-// RootTriggers returns the authored root triggers under either spelling.
 func (review AuthoredPRReview) RootTriggers() *AuthoredReviewTriggers {
 	if review.Triggers != nil {
 		return review.Triggers
@@ -56,9 +50,6 @@ func (review AuthoredPRReview) RootTriggers() *AuthoredReviewTriggers {
 	return review.ReviewTriggers
 }
 
-// TracksUnionOfBlocks reports whether an absent root with CI uploads selects
-// only the pull requests that an enabled proof or workflow block's triggers
-// select, instead of every non-draft pull request under the project root.
 func (review AuthoredPRReview) TracksUnionOfBlocks() bool {
 	if review.RootTriggers() != nil || review.Build == nil || review.Build.Kind != "ci_upload_to_revyl" {
 		return false
@@ -81,9 +72,6 @@ func normalizeReviewTriggers(triggers *AuthoredReviewTriggers) *NormalizedReview
 	return result
 }
 
-// normalizeReviewBlockTriggers materializes a block's omitted filters. An
-// inherited block's omitted filters leave the root unnarrowed. Otherwise the
-// block stands in for an absent root and takes the root defaults.
 func normalizeReviewBlockTriggers(triggers *AuthoredReviewTriggers, inherited bool, projectRoot string) *NormalizedReviewTriggers {
 	result := normalizeReviewTriggers(triggers)
 	if result == nil {
@@ -115,8 +103,6 @@ func authoredReviewTriggersFileProjection(triggers *AuthoredReviewTriggers) map[
 	return projection
 }
 
-// authoredReviewBlockTriggersFileProjection keeps an omitted drafts omitted,
-// because a block that omits it inherits the root's drafts setting.
 func authoredReviewBlockTriggersFileProjection(triggers *AuthoredReviewTriggers) map[string]any {
 	projection := map[string]any{"paths": nonNilSlice(triggers.Paths), "labels": nonNilSlice(triggers.Labels)}
 	if triggers.Drafts != nil {

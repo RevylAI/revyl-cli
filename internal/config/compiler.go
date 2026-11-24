@@ -68,7 +68,6 @@ var legacyReviewBuildDefaultsByFramework = map[string]legacyReviewBuildDefaults{
 	},
 }
 
-// ConfigError exposes stable stage/code/path identity. Message is not a contract.
 type ConfigError struct {
 	Stage   string   `json:"stage"`
 	Code    string   `json:"code"`
@@ -805,7 +804,6 @@ func scalarValue(node *yaml.Node) string {
 	return node.Value
 }
 
-// ClassifyConfigDocument makes legacy entry explicit; canonical runtime parsing never translates it.
 func ClassifyConfigDocument(document map[string]any) (string, error) {
 	build := stringMap(document["build"])
 	project := stringMap(document["project"])
@@ -827,7 +825,6 @@ func ClassifyConfigDocument(document map[string]any) (string, error) {
 	return "canonical", nil
 }
 
-// ParseAuthoredConfig is the only parser intended for canonical runtime consumers.
 func ParseAuthoredConfig(data []byte) (*AuthoredConfig, error) {
 	_, document, err := loadYAMLDocument(data)
 	if err != nil {
@@ -978,9 +975,6 @@ func canonicalUUID(value string, path []string) (string, error) {
 	return parsed.String(), nil
 }
 
-// CompileConfigBytes compiles only the canonical authored contract. Legacy
-// translation belongs to explicit migration entrypoints such as
-// MigrateLegacyConfigBytes and is never a runtime compiler option.
 func CompileConfigBytes(data []byte, context CompilationContext) (*NormalizedProjectAggregate, error) {
 	authored, err := ParseAuthoredConfig(data)
 	if err != nil {
@@ -1004,7 +998,6 @@ type ProfilePlatformSelection struct {
 	Ambiguity *SelectionAmbiguity      `json:"ambiguity,omitempty"`
 }
 
-// PublicationValidationContext contains authenticated organization facts.
 type PublicationValidationContext struct {
 	ActiveAppIDs        map[string]struct{}
 	ActiveWorkflowIDs   map[string]struct{}
@@ -1012,7 +1005,6 @@ type PublicationValidationContext struct {
 	AvailableLaunchVars map[string]struct{}
 }
 
-// ResolveProfilePlatform applies explicit, development-like, and sole-choice ordering.
 func ResolveProfilePlatform(aggregate NormalizedProjectAggregate, explicitProfile, explicitPlatform string, developmentCommand bool) (ProfilePlatformSelection, error) {
 	if len(aggregate.Profiles) == 0 {
 		return ProfilePlatformSelection{}, newConfigError("selection", "no_build_profiles", []string{"build", "profiles"}, "")
@@ -1105,12 +1097,10 @@ func ResolveProfilePlatform(aggregate NormalizedProjectAggregate, explicitProfil
 	return ProfilePlatformSelection{Resolved: &ResolvedProfilePlatform{Profile: profileName, Platform: platforms[0]}}, nil
 }
 
-// URLOnlyProfileMessage explains why a build path cannot build a URL-only Web profile.
 func URLOnlyProfileMessage(profile string) string {
 	return fmt.Sprintf("profile %s is URL-only; add build_commands and output_path, or register previews with `revyl build upload --url`", profile)
 }
 
-// ValidateExecutionRecipe applies runnability only after selection.
 func ValidateExecutionRecipe(recipe EffectiveBuildRecipe) error {
 	if err := recipe.ValidateContract(); err != nil {
 		return newConfigError("validation", "recipe_not_runnable", []string{"build_commands"}, "")
@@ -1118,7 +1108,6 @@ func ValidateExecutionRecipe(recipe EffectiveBuildRecipe) error {
 	return nil
 }
 
-// ValidatePublication validates server-owned references supplied by an authenticated caller.
 func ValidatePublication(aggregate NormalizedProjectAggregate, context PublicationValidationContext) error {
 	managedProfile := ""
 	if aggregate.ReviewPolicy != nil && aggregate.ReviewPolicy.Build != nil && aggregate.ReviewPolicy.Build.Kind == "revyl" && aggregate.ReviewPolicy.Build.Profile != nil {
@@ -1184,7 +1173,6 @@ func ValidatePublication(aggregate NormalizedProjectAggregate, context Publicati
 	return nil
 }
 
-// TranslateLegacyConfig is isolated migration logic, never a runtime fallback.
 func TranslateLegacyConfig(document map[string]any) (map[string]any, error) {
 	project := stringMap(document["project"])
 	projectID, err := requireLegacyUUID(project["id"], []string{"project", "id"})
@@ -1667,8 +1655,6 @@ func validateLegacyProjectRootEvidence(document map[string]any, context Compilat
 	if err := add(build["root"], []string{"build", "root"}); err != nil {
 		return err
 	}
-	// build.source is deliberately retired. Its subdir is not project identity
-	// evidence and cannot move the selected config/project root during migration.
 	review := stringMap(document["pr_review"])
 	if actions := stringMap(review["actions"]); actions != nil {
 		if err := add(actions["project_root"], []string{"pr_review", "actions", "project_root"}); err != nil {
@@ -1714,7 +1700,6 @@ func ResolveEffectiveDirectory(cwd, changeDirectory string) (string, error) {
 	return resolved, nil
 }
 
-// DiscoverConfigPath returns the nearest config without crossing worktreeRoot.
 func DiscoverConfigPath(effectiveDirectory, worktreeRoot string) (string, error) {
 	effective, err := filepath.EvalSymlinks(effectiveDirectory)
 	if err != nil {

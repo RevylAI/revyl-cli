@@ -7,7 +7,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestPRReviewActionsStrictBuildChecks verifies the SCM check policy parses.
 func TestPRReviewActionsStrictBuildChecks(t *testing.T) {
 	var cfg ProjectConfig
 	err := yaml.Unmarshal([]byte(`
@@ -39,7 +38,6 @@ pr_review:
 	}
 }
 
-// TestPRReviewBuildEntryCanonicalEnvironment verifies the shared env/secrets schema.
 func TestPRReviewBuildEntryCanonicalEnvironment(t *testing.T) {
 	var cfg ProjectConfig
 	err := yaml.Unmarshal([]byte(`
@@ -82,7 +80,6 @@ pr_review:
 	}
 }
 
-// TestPRReviewBuildEntryLegacyEnvList verifies compatibility with secret-name lists.
 func TestPRReviewBuildEntryLegacyEnvList(t *testing.T) {
 	var cfg ProjectConfig
 	err := yaml.Unmarshal([]byte(`
@@ -135,7 +132,6 @@ pr_review:
 	}
 }
 
-// TestPRReviewBuildEntryRejectsEnvSecretCollision verifies ambiguous names fail.
 func TestPRReviewBuildEntryRejectsEnvSecretCollision(t *testing.T) {
 	var cfg ProjectConfig
 	err := yaml.Unmarshal([]byte(`

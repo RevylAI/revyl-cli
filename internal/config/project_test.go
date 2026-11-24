@@ -1,4 +1,3 @@
-// Package config provides project configuration management.
 package config
 
 import (
@@ -10,14 +9,12 @@ import (
 	"time"
 )
 
-// TestComputeTestChecksum verifies that checksum computation is deterministic
-// and produces different values for different content.
 func TestComputeTestChecksum(t *testing.T) {
 	tests := []struct {
 		name     string
 		test     *TestDefinition
 		wantNil  bool
-		wantSame bool // if true, compare with previous test's checksum
+		wantSame bool
 	}{
 		{
 			name:    "nil test returns empty string",
@@ -68,18 +65,15 @@ func TestComputeTestChecksum(t *testing.T) {
 				t.Error("ComputeTestChecksum() returned empty string for non-nil test")
 			}
 
-			// Verify checksum is hex-encoded (64 chars for SHA-256)
 			if len(checksum) != 64 {
 				t.Errorf("ComputeTestChecksum() length = %d, want 64", len(checksum))
 			}
 
-			// Verify determinism - same input produces same output
 			checksum2 := ComputeTestChecksum(tt.test)
 			if checksum != checksum2 {
 				t.Errorf("ComputeTestChecksum() not deterministic: %q != %q", checksum, checksum2)
 			}
 
-			// Verify different content produces different checksum
 			if prevChecksum != "" && checksum == prevChecksum {
 				t.Error("Different test content produced same checksum")
 			}
@@ -88,12 +82,11 @@ func TestComputeTestChecksum(t *testing.T) {
 	}
 }
 
-// TestHasLocalChanges verifies that local change detection works correctly.
 func TestHasLocalChanges(t *testing.T) {
 	tests := []struct {
 		name       string
 		localTest  *LocalTest
-		modifyTest func(*LocalTest) // optional modification before checking
+		modifyTest func(*LocalTest)
 		want       bool
 	}{
 		{
@@ -117,7 +110,6 @@ func TestHasLocalChanges(t *testing.T) {
 						Blocks:   []TestBlock{{Type: "instructions", StepDescription: "tap"}},
 					},
 				}
-				// Store the correct checksum
 				test.Meta.Checksum = ComputeTestChecksum(&test.Test)
 				return test
 			}(),
@@ -132,12 +124,10 @@ func TestHasLocalChanges(t *testing.T) {
 						Blocks:   []TestBlock{{Type: "instructions", StepDescription: "tap"}},
 					},
 				}
-				// Store the checksum
 				test.Meta.Checksum = ComputeTestChecksum(&test.Test)
 				return test
 			}(),
 			modifyTest: func(lt *LocalTest) {
-				// Modify the test content after checksum was stored
 				lt.Test.Blocks[0].StepDescription = "swipe"
 			},
 			want: true,
@@ -155,7 +145,6 @@ func TestHasLocalChanges(t *testing.T) {
 				return test
 			}(),
 			modifyTest: func(lt *LocalTest) {
-				// Add a new block
 				lt.Test.Blocks = append(lt.Test.Blocks, TestBlock{
 					Type:            "validation",
 					StepDescription: "verify button exists",
@@ -179,9 +168,7 @@ func TestHasLocalChanges(t *testing.T) {
 	}
 }
 
-// TestSaveLocalTestStoresChecksum verifies that SaveLocalTest computes and stores checksum.
 func TestSaveLocalTestStoresChecksum(t *testing.T) {
-	// Create a temp directory for the test
 	tmpDir, err := os.MkdirTemp("", "revyl-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -205,29 +192,24 @@ func TestSaveLocalTestStoresChecksum(t *testing.T) {
 		},
 	}
 
-	// Verify checksum is empty before save
 	if localTest.Meta.Checksum != "" {
 		t.Error("Checksum should be empty before save")
 	}
 
-	// Save the test
 	path := filepath.Join(tmpDir, "my-test.yaml")
 	if err := SaveLocalTest(path, localTest); err != nil {
 		t.Fatalf("SaveLocalTest() error = %v", err)
 	}
 
-	// Verify checksum was computed and stored
 	if localTest.Meta.Checksum == "" {
 		t.Error("Checksum should be set after save")
 	}
 
-	// Verify the checksum is correct
 	expectedChecksum := ComputeTestChecksum(&localTest.Test)
 	if localTest.Meta.Checksum != expectedChecksum {
 		t.Errorf("Checksum = %q, want %q", localTest.Meta.Checksum, expectedChecksum)
 	}
 
-	// Load the test back and verify checksum is persisted
 	loaded, err := LoadLocalTest(path)
 	if err != nil {
 		t.Fatalf("LoadLocalTest() error = %v", err)
@@ -237,7 +219,6 @@ func TestSaveLocalTestStoresChecksum(t *testing.T) {
 		t.Errorf("Loaded checksum = %q, want %q", loaded.Meta.Checksum, expectedChecksum)
 	}
 
-	// Verify HasLocalChanges returns false for freshly loaded test
 	if loaded.HasLocalChanges() {
 		t.Error("HasLocalChanges() should return false for freshly loaded test")
 	}
@@ -728,7 +709,6 @@ auth_bypass:
 	if !cfg.BeforeSession.IsConfigured() {
 		t.Fatal("BeforeSession.IsConfigured() = false, want true")
 	}
-	// The two blocks are siblings and must both survive parsing.
 	if !cfg.AuthBypass.IsConfigured() {
 		t.Fatal("AuthBypass.IsConfigured() = false, want true alongside before_session")
 	}
@@ -852,8 +832,6 @@ func TestEffectiveBuildCachesExplicitOnly(t *testing.T) {
 	}
 }
 
-// TestHasDefinition verifies that HasDefinition distinguishes user-authored
-// definition content from empty stubs.
 func TestHasDefinition(t *testing.T) {
 	cases := []struct {
 		name string
@@ -883,9 +861,6 @@ func TestHasDefinition(t *testing.T) {
 	}
 }
 
-// TestLinkLocalTestToRemote_PreservesExistingDefinition verifies that linking
-// a hand-written local YAML (no _meta.remote_id) to a remote test keeps its
-// env_vars and blocks instead of replacing the file with an empty stub.
 func TestLinkLocalTestToRemote_PreservesExistingDefinition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "login-flow.yaml")
 
@@ -931,8 +906,6 @@ func TestLinkLocalTestToRemote_PreservesExistingDefinition(t *testing.T) {
 	}
 }
 
-// TestLinkLocalTestToRemote_CreatesStubWhenMissing verifies fresh stub
-// creation when no local file exists.
 func TestLinkLocalTestToRemote_CreatesStubWhenMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "new-test.yaml")
 
@@ -956,8 +929,6 @@ func TestLinkLocalTestToRemote_CreatesStubWhenMissing(t *testing.T) {
 	}
 }
 
-// TestLinkLocalTestToRemote_LeavesUnparseableFileUntouched verifies that a
-// file that fails to parse is not overwritten.
 func TestLinkLocalTestToRemote_LeavesUnparseableFileUntouched(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "broken.yaml")
 

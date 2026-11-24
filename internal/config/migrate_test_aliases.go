@@ -1,11 +1,6 @@
-// Package config provides project configuration management.
-//
-// This file contains a one-time migration from the legacy tests:/workflows:
-// sections in config.yaml to file-based .revyl/tests/*.yaml stubs.
-//
-// DELETE THIS FILE once all users have been migrated. Also remove:
-//   - Tests/Workflows fields from ProjectConfig in project.go
-//   - The migration call-site in cmd/revyl/helpers.go
+// Legacy one-time migration from tests: maps in config.yaml to
+// .revyl/tests/*.yaml stubs (dropping legacy workflows: caches).
+
 package config
 
 import (
