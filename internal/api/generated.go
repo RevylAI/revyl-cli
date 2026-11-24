@@ -7720,7 +7720,7 @@ type ComputerAPIError struct {
 	MaxTimeoutSeconds *int                     `json:"max_timeout_seconds,omitempty"`
 	Message           *ComputerAPIErrorMessage `json:"message,omitempty"`
 
-	// Offer The step that lets an organization at its device limit run more at once.
+	// Offer The billing step that lifts a computer refusal: more at once, or Mac computers.
 	//
 	// ``add_card`` upgrades a Free organization to Pro, and is
 	// ``request_access`` for a member, who asks an owner or admin.
@@ -8110,7 +8110,7 @@ type ComputerHostingCapability struct {
 // ComputerHostingCapabilityPlatforms defines model for ComputerHostingCapability.Platforms.
 type ComputerHostingCapabilityPlatforms string
 
-// ComputerLimitOffer The step that lets an organization at its device limit run more at once.
+// ComputerLimitOffer The billing step that lifts a computer refusal: more at once, or Mac computers.
 //
 // “add_card“ upgrades a Free organization to Pro, and is
 // “request_access“ for a member, who asks an owner or admin.

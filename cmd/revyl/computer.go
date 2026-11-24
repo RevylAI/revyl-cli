@@ -213,7 +213,7 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				case "computer_long_limit":
 					refusal.Message = computerLongLimitMessage
 				case "computer_not_enabled":
-					refusal.Message = computerNotEnabledMessage(osName, refusal.UnlocksWithCard)
+					refusal.Message = computerNotEnabledMessage(osName, refusal)
 				case "display_unsupported":
 					refusal.Message = computerDisplayUnsupportedMessage
 				}

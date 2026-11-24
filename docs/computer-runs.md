@@ -4,7 +4,9 @@
 which come with Pro. Add a card with `revyl billing add-card` to unlock them;
 your 1,200 free device minutes a month still cover macOS. On the Free plan,
 `revyl computer create` returns `computer_not_enabled` (HTTP 403) without
-creating anything until a card is added. Other paid plans that include macOS
+creating anything until a card is added, and prints the Billing link that adds
+one (for a member, the link to send an owner or admin); with `--json` that link
+is `billing_url` beside `billing_action`. Other paid plans that include macOS
 computers keep them; if yours doesn't, contact support@revyl.ai.
 
 `revyl computer` addresses an explicit computer-run UUID. It does not select an

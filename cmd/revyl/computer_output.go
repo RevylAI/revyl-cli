@@ -65,20 +65,26 @@ var computerFailureReasons = map[string]string{
 
 const computerLimitMessage = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
 const computerMacosWithProMessage = "macOS computers come with Pro. Add a card to unlock them; your free minutes still cover macOS.\nAdd one with: revyl billing add-card"
+const computerMacosWithProOfferMessage = "macOS computers come with Pro, and your free minutes still cover macOS."
 const computerLinuxOnRequestMessage = "Linux computers are available on request: contact support@revyl.ai."
 const computerTurnOnMessage = "Contact support@revyl.ai to turn computers on for this organization."
 
 // computerNotEnabledMessage explains a computer_not_enabled refusal. It offers
 // a card only when the backend says one unlocks Mac computers, so a backend
-// that does not say so gets the support step.
-func computerNotEnabledMessage(osName string, unlocksWithCard bool) string {
+// that does not say so gets the support step. When the backend names the
+// upgrade step, its link is the refusal's hint, adding a card for an owner or
+// admin and asking one for a member.
+func computerNotEnabledMessage(osName string, refusal *api.APIError) string {
 	if osName == "linux" {
 		return computerLinuxOnRequestMessage
 	}
-	if unlocksWithCard {
-		return computerMacosWithProMessage
+	if !refusal.UnlocksWithCard {
+		return computerTurnOnMessage
 	}
-	return computerTurnOnMessage
+	if refusal.BillingURL != "" {
+		return computerMacosWithProOfferMessage
+	}
+	return computerMacosWithProMessage
 }
 
 const computerLongLimitMessage = "Your organization already has 2 computers running longer than 2 hours. Ask for 2 hours or less, or stop one of them."
