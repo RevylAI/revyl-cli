@@ -1,5 +1,13 @@
-// Package api provides the HTTP and WebSocket clients for the Revyl backend,
-// combining OpenAPI-generated types in generated.go with CLI wrapper DTOs.
+// Package api provides the HTTP client for the Revyl API.
+//
+// This package handles all communication with the Revyl backend,
+// including authentication, request/response handling, and error management.
+//
+// Type Strategy:
+// - generated.go contains types auto-generated from the backend OpenAPI spec
+// - client.go contains CLI-specific wrapper types that are more ergonomic
+// - CLI types use simple strings instead of pointers/UUIDs for ease of use
+// - For new endpoints, prefer using generated types when they match CLI needs
 package api
 
 import (
@@ -47,8 +55,12 @@ func SetDefaultVersion(version string) {
 	defaultVersion = version
 }
 
+// debugLogf emits verbose upload diagnostics (part counts, per-part retries).
+// A no-op unless the CLI wires a logger via SetDebugLogger at startup.
 var debugLogf = func(format string, args ...interface{}) {}
 
+// SetDebugLogger routes api-package debug output to the given printf-style
+// logger (typically ui.PrintDebug, which itself gates on --debug).
 func SetDebugLogger(fn func(format string, args ...interface{})) {
 	if fn != nil {
 		debugLogf = fn
@@ -56,36 +68,56 @@ func SetDebugLogger(fn func(format string, args ...interface{})) {
 }
 
 const (
+	// DefaultBaseURL is the default Revyl API base URL.
 	DefaultBaseURL = "https://backend.revyl.ai"
 
+	// DefaultTimeout is the default HTTP request timeout.
 	DefaultTimeout = 30 * time.Second
 
+	// BuildFinalizationTimeout allows server-side validation after artifact transfer.
 	BuildFinalizationTimeout = 90 * time.Second
 
+	// UploadTimeout is the timeout for large file uploads (APKs, IPAs).
 	UploadTimeout = 10 * time.Minute
 
+	// DefaultMaxRetries is the default number of retry attempts for transient failures.
 	DefaultMaxRetries = 3
 
+	// DefaultRetryMaxDelay is the maximum delay between retries.
 	DefaultRetryMaxDelay = 10 * time.Second
 
 	historyFiltersCapabilityHeader = "X-Revyl-History-Filters"
 )
 
+// DefaultRetryBaseDelay is the base delay for exponential backoff. Test suites
+// that drive the client against a stubbed 5xx shrink it so a retry path costs
+// its request count, not its wall clock.
 var DefaultRetryBaseDelay = 500 * time.Millisecond
 
+// Client is the Revyl API client.
 type Client struct {
 	baseURL        string
 	apiKeyMu       sync.RWMutex
 	apiKey         string
-	version        string
+	version        string // CLI version string for User-Agent header
 	httpClient     *http.Client
-	uploadClient   *http.Client
+	uploadClient   *http.Client // Separate client with longer timeout for file uploads
 	maxRetries     int
 	retryBaseDelay time.Duration
 	retryMaxDelay  time.Duration
+	// uploadStateDir overrides where resumable-upload records are stored.
+	// Empty resolves lazily to ~/.revyl/uploads; tests point it at a temp dir.
 	uploadStateDir string
 }
 
+// NewClient creates a new API client using the resolved backend URL.
+// Respects REVYL_BACKEND_URL environment variable for custom environments.
+//
+// Parameters:
+//   - apiKey: The API key for authentication
+//
+// Returns:
+//   - *Client: A new client instance
 func NewClient(apiKey string) *Client {
 	return &Client{
 		baseURL: config.GetBackendURL(false),
@@ -103,8 +135,15 @@ func NewClient(apiKey string) *Client {
 	}
 }
 
-// NewClientWithDevMode creates a Client using config.GetBackendURL(devMode),
-// where explicit backend overrides take precedence over local dev discovery.
+// NewClientWithDevMode creates a new API client with dev mode support.
+// When devMode is true, the client uses localhost URLs read from .env files.
+//
+// Parameters:
+//   - apiKey: The API key for authentication
+//   - devMode: If true, use local development server URLs
+//
+// Returns:
+//   - *Client: A new client instance
 func NewClientWithDevMode(apiKey string, devMode bool) *Client {
 	return &Client{
 		baseURL: config.GetBackendURL(devMode),
@@ -122,6 +161,14 @@ func NewClientWithDevMode(apiKey string, devMode bool) *Client {
 	}
 }
 
+// NewClientWithBaseURL creates a new API client with a custom base URL.
+//
+// Parameters:
+//   - apiKey: The API key for authentication
+//   - baseURL: The base URL for the API
+//
+// Returns:
+//   - *Client: A new client instance
 func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
@@ -139,10 +186,15 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 	}
 }
 
+// SetVersion sets the CLI version string used in the User-Agent header.
+//
+// Parameters:
+//   - version: The CLI version (e.g. "1.2.3" or "dev")
 func (c *Client) SetVersion(version string) {
 	c.version = version
 }
 
+// userAgent returns the User-Agent header value including the CLI version.
 func (c *Client) userAgent() string {
 	v := c.version
 	if v == "" {
@@ -151,19 +203,31 @@ func (c *Client) userAgent() string {
 	return "revyl-cli/" + v
 }
 
+// GetAPIKey returns the API key used by this client.
+//
+// Returns:
+//   - string: The API key
 func (c *Client) GetAPIKey() string {
 	c.apiKeyMu.RLock()
 	defer c.apiKeyMu.RUnlock()
 	return c.apiKey
 }
 
+// SetAPIKey replaces the credential used by subsequent API requests.
+//
+// Parameters:
+//   - apiKey: Active API key or access token; empty clears authentication.
 func (c *Client) SetAPIKey(apiKey string) {
 	c.apiKeyMu.Lock()
 	defer c.apiKeyMu.Unlock()
 	c.apiKey = apiKey
 }
 
-// SetHTTPClient replaces the client's ordinary httpClient (not uploadClient); nil is ignored.
+// SetHTTPClient replaces the transport used by subsequent API requests.
+//
+// Parameters:
+//   - client: HTTP client to use. Ignored when nil so callers can pass an
+//     optional override without a constructor change.
 func (c *Client) SetHTTPClient(client *http.Client) {
 	if client == nil {
 		return
@@ -171,31 +235,46 @@ func (c *Client) SetHTTPClient(client *http.Client) {
 	c.httpClient = client
 }
 
+// BaseURL returns the resolved backend base URL for this client.
 func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
+// APIError represents an error response from the API.
 type APIError struct {
 	StatusCode       int
 	Code             string
 	Message          string
 	Detail           string
 	ValidationIssues []APIValidationIssue
-	DetailObject     map[string]interface{}
-	Hint             string
-	RetryAfter       time.Duration
-	FilePath         string
-	FileLine         int
-	BillingURL       string
-	BillingAction    BillingAction
-	UpgradeBenefits  *UpgradeBenefits
-	UnlocksWithCard  bool
-	// BillingReported marks that the caller took ownership of reporting this refusal's billing fields in --json output.
+	// DetailObject preserves structured `detail` payloads when the backend sends
+	// machine-readable context, such as reports-v3 lookup hints.
+	DetailObject map[string]interface{}
+	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
+	Hint string
+	// RetryAfter is the server's Retry-After delay, or zero when the response
+	// carried none or an unusable value.
+	RetryAfter time.Duration
+	// FilePath and FileLine locate a test definition run error in the
+	// project's .revyl files; empty and zero when the error names no file or line.
+	FilePath string
+	FileLine int
+	// BillingURL and BillingAction name the billing page and the step a
+	// billing denial asks for; empty when the denial offers none.
+	BillingURL      string
+	BillingAction   BillingAction
+	UpgradeBenefits *UpgradeBenefits
+	// UnlocksWithCard is set on a computer_not_enabled refusal for an
+	// organization that adding a card enrolls in Pro, which unlocks Mac computers.
+	UnlocksWithCard bool
+	// BillingReported is set once a command has written this refusal's
+	// billing fields in its own --json output.
 	BillingReported bool
 }
 
-// ParseRetryAfter parses an HTTP Retry-After header (delay seconds or HTTP date) into a non-negative
-// delay, returning 0 when empty, invalid, or elapsed; very large integer-second values can overflow time.Duration.
+// ParseRetryAfter converts an HTTP Retry-After value, either delay seconds or
+// an HTTP date, into a positive delay. It returns zero for an empty, invalid,
+// or already elapsed value.
 func ParseRetryAfter(value string) time.Duration {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -214,18 +293,25 @@ func ParseRetryAfter(value string) time.Duration {
 	return max(time.Until(retryAt), 0)
 }
 
+// APIValidationIssue preserves one structured validation failure returned by the API.
 type APIValidationIssue struct {
 	Field   string
 	Message string
 	Type    string
 }
 
+// maxDebugErrorBodyBytes bounds the error response body --debug prints.
 const maxDebugErrorBodyBytes = 4096
 
+// validationRequestLocations are the request parts FastAPI puts first in a
+// failure's field, as in "body.name".
 var validationRequestLocations = []string{"body.", "query.", "path.", "header.", "cookie."}
 
+// pydanticValueErrorPrefix starts the message of a validator's own ValueError.
 const pydanticValueErrorPrefix = "Value error, "
 
+// readableText is the issue as people read it: the field without its request
+// location, and a validator's message without pydantic's prefix.
 func (i APIValidationIssue) readableText() string {
 	field := i.Field
 	for _, location := range validationRequestLocations {
@@ -248,11 +334,13 @@ func (i APIValidationIssue) readableText() string {
 	}
 }
 
+// HotReloadRelayCreateParams provisions a new backend-owned hot reload relay.
 type HotReloadRelayCreateParams struct {
 	Provider string `json:"provider,omitempty"`
 	Platform string `json:"platform,omitempty"`
 }
 
+// HotReloadRelaySession describes a backend-owned hot reload relay session.
 type HotReloadRelaySession struct {
 	RelayID      string `json:"relay_id"`
 	PublicURL    string `json:"public_url"`
@@ -262,7 +350,7 @@ type HotReloadRelaySession struct {
 	ExpiresAt    string `json:"expires_at"`
 }
 
-// ConnectWebSocketURL validates and returns the trimmed relay ConnectURL without appending the session token.
+// ConnectWebSocketURL returns the relay websocket URL without embedding auth material.
 func (s *HotReloadRelaySession) ConnectWebSocketURL() (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("relay session is nil")
@@ -277,6 +365,7 @@ func (s *HotReloadRelaySession) ConnectWebSocketURL() (string, error) {
 	return connectURL, nil
 }
 
+// ConnectAuthHeader returns the Authorization header value for relay websocket authentication.
 func (s *HotReloadRelaySession) ConnectAuthHeader() string {
 	if s == nil {
 		return ""
@@ -288,12 +377,18 @@ func (s *HotReloadRelaySession) ConnectAuthHeader() string {
 	return "Bearer " + token
 }
 
+// HotReloadRelayHeartbeatStatus is returned by the relay heartbeat endpoint.
 type HotReloadRelayHeartbeatStatus struct {
 	RelayID   string `json:"relay_id"`
 	ExpiresAt string `json:"expires_at"`
 	Active    bool   `json:"active"`
 }
 
+// Error returns a human-readable error message.
+// If a hint is available (e.g., for expired sessions), it is appended.
+//
+// Returns:
+//   - string: The error message, with fallback to HTTP status if no message available
 func (e *APIError) Error() string {
 	var base string
 	if e.Message != "" && e.Detail != "" {
@@ -327,6 +422,7 @@ func (e *APIError) IsTestVersionConflict() bool {
 		e.DetailString("error") == "version_conflict"
 }
 
+// DetailString returns a string field from a structured detail payload.
 func (e *APIError) DetailString(key string) string {
 	if e == nil || e.DetailObject == nil {
 		return ""
@@ -339,6 +435,7 @@ func (e *APIError) DetailString(key string) string {
 	return str
 }
 
+// DetailBool returns a boolean field from a structured detail payload.
 func (e *APIError) DetailBool(key string) bool {
 	if e == nil || e.DetailObject == nil {
 		return false
@@ -351,6 +448,18 @@ func (e *APIError) DetailBool(key string) bool {
 	return flag
 }
 
+// authHintForStatus returns a user-facing hint for authentication errors.
+// For 401 responses that indicate an expired or invalid token, it suggests
+// re-authenticating so the user doesn't see a confusing "Invalid API key" message.
+// A 402 that carries the server's reason, such as a reached usage cap, only
+// points to billing; without one the hint explains what to review.
+//
+// Parameters:
+//   - statusCode: The HTTP status code
+//   - serverReason: The response's message and detail text, empty when it had none
+//
+// Returns:
+//   - string: A hint message, or empty string if no hint is applicable
 func authHintForStatus(statusCode int, serverReason string) string {
 	if statusCode == 401 {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
@@ -364,7 +473,11 @@ func authHintForStatus(statusCode int, serverReason string) string {
 	return ""
 }
 
+// extractHTMLError attempts to extract the meaningful error from an HTML debug page.
+// Backend debug pages (e.g. Starlette/FastAPI) embed the exception in the page.
 func extractHTMLError(html string) string {
+	// Look for common patterns in Python traceback HTML pages
+	// Starlette wraps the traceback in <pre> or <code> tags
 	for _, marker := range []string{"<pre>", "<code>"} {
 		idx := strings.LastIndex(html, marker)
 		if idx >= 0 {
@@ -372,6 +485,7 @@ func extractHTMLError(html string) string {
 			endIdx := strings.Index(html[idx:], end)
 			if endIdx > 0 {
 				content := html[idx+len(marker) : idx+endIdx]
+				// Strip HTML tags from the extracted content
 				content = stripHTMLTags(content)
 				content = strings.TrimSpace(content)
 				if len(content) > 500 {
@@ -383,6 +497,7 @@ func extractHTMLError(html string) string {
 			}
 		}
 	}
+	// Fallback: strip all HTML and return a truncated version
 	plain := stripHTMLTags(html)
 	plain = strings.TrimSpace(plain)
 	if len(plain) > 500 {
@@ -546,6 +661,7 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 	return apiError
 }
 
+// stripHTMLTags removes HTML tags from a string.
 func stripHTMLTags(s string) string {
 	var result strings.Builder
 	inTag := false
@@ -628,11 +744,21 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 	return resp, nil
 }
 
+// isRetryableError checks if an error or status code should trigger a retry.
+//
+// Parameters:
+//   - err: The error from the HTTP request (may be nil)
+//   - statusCode: The HTTP status code (0 if request failed)
+//
+// Returns:
+//   - bool: True if the request should be retried
 func isRetryableError(err error, statusCode int) bool {
+	// Retry on network errors
 	if err != nil {
 		return true
 	}
 
+	// Retry on server errors (5xx) and rate limiting (429)
 	if statusCode >= 500 || statusCode == 429 {
 		return true
 	}
@@ -640,6 +766,9 @@ func isRetryableError(err error, statusCode int) bool {
 	return false
 }
 
+// isTransientTransportError reports whether err is a network failure before any
+// HTTP response arrived: a timeout, including a TLS handshake timeout, or a
+// dial, read or write failure such as a refused or reset connection.
 func isTransientTransportError(err error) bool {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
@@ -649,7 +778,17 @@ func isTransientTransportError(err error) bool {
 	return errors.As(err, &opErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
+// calculateBackoff calculates the delay for the next retry attempt using exponential backoff.
+//
+// Parameters:
+//   - attempt: The current attempt number (0-indexed)
+//   - baseDelay: The base delay duration
+//   - maxDelay: The maximum delay duration
+//
+// Returns:
+//   - time.Duration: The delay before the next retry
 func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Duration {
+	// Exponential backoff: baseDelay * 2^attempt
 	delay := baseDelay * time.Duration(1<<uint(attempt))
 	if delay > maxDelay {
 		delay = maxDelay
@@ -657,6 +796,17 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Durat
 	return delay
 }
 
+// doRequestWithRetry performs an HTTP request with retry logic for transient failures.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - method: HTTP method (GET, POST, etc.)
+//   - path: API path (appended to base URL)
+//   - body: Request body (will be JSON marshaled)
+//
+// Returns:
+//   - *http.Response: The HTTP response
+//   - error: Any error that occurred
 func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}, extraHeaders ...map[string]string) (*http.Response, error) {
 	return c.doRequestWithRetryClient(ctx, method, path, body, c.httpClient, extraHeaders...)
 }
@@ -671,14 +821,17 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 	}
 	attempts := c.maxRetries + 1
 	if attempts < 1 {
+		// Defensive: invalid negative retry configuration should still execute once.
 		attempts = 1
 	}
 
 	for attempt := 0; attempt < attempts; attempt++ {
+		// Check context cancellation before each attempt
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
+		// Wait before retry (skip on first attempt)
 		if attempt > 0 {
 			delay := calculateBackoff(attempt-1, c.retryBaseDelay, c.retryMaxDelay)
 			select {
@@ -688,6 +841,7 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 			}
 		}
 
+		// Build the request
 		reqURL := c.baseURL + path
 
 		var bodyReader io.Reader
@@ -711,6 +865,8 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", c.userAgent())
 
+		// Set source tracking header
+		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
 		backendheaders.SetCloudAgentConversationContext(req)
 		backendheaders.SetRuntimeTraceContext(req)
@@ -722,29 +878,35 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 			}
 		}
 
+		// Execute the request
 		resp, err := client.Do(req)
 		recordUpcomingMinimumVersion(resp)
 
+		// Check if we should retry
 		statusCode := 0
 		if resp != nil {
 			statusCode = resp.StatusCode
 		}
 
 		if !isRetryableError(err, statusCode) || attempt == attempts-1 {
+			// Return the response (success or non-retryable error)
 			if err != nil {
 				return nil, fmt.Errorf("request failed: %w", err)
 			}
 			return resp, nil
 		}
 
+		// Close the response body before retrying to avoid resource leaks
 		if resp != nil {
 			resp.Body.Close()
 		}
 	}
 
+	// Defensive fallback; loop should always return on the final attempt.
 	return nil, fmt.Errorf("request failed: retry loop ended unexpectedly")
 }
 
+// parseResponse parses the response body into the target struct.
 func parseResponse(resp *http.Response, target interface{}) error {
 	defer resp.Body.Close()
 
@@ -772,6 +934,7 @@ func parseResponse(resp *http.Response, target interface{}) error {
 	return nil
 }
 
+// parseResponseWithRaw parses the response body into target and returns the raw JSON bytes.
 func parseResponseWithRaw(resp *http.Response, target interface{}) (json.RawMessage, error) {
 	defer resp.Body.Close()
 
@@ -803,45 +966,62 @@ func parseResponseWithRaw(resp *http.Response, target interface{}) (json.RawMess
 	return body, nil
 }
 
+// CLIRunConfig contains optional runtime configuration for test execution.
 type CLIRunConfig struct {
 	ExecutionMode *CLIExecutionMode `json:"execution_mode,omitempty"`
-	FailFast      *bool             `json:"fail_fast,omitempty"`
+	// FailFast halts the run on the first failed step or validation when set.
+	// Pointer so a nil value is omitted from the request and the backend
+	// falls back to the test's stored run_config.
+	FailFast *bool `json:"fail_fast,omitempty"`
 }
 
+// CLIExecutionMode contains execution mode settings.
 type CLIExecutionMode struct {
 	InitialLocation    *CLILocation `json:"initial_location,omitempty"`
 	InitialOrientation string       `json:"initial_orientation,omitempty"`
 }
 
+// CLILocation represents a GPS coordinate.
 type CLILocation struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 }
 
+// ExecuteTestRequest represents a test execution request.
+// Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
 type ExecuteTestRequest struct {
-	GitBranchName   string             `json:"git_branch_name,omitempty"`
-	BranchID        string             `json:"branch_id,omitempty"`
-	BranchName      string             `json:"branch_name,omitempty"`
-	BuildSelection  BuildSelectionMode `json:"build_selection,omitempty"`
-	PinnedBuildID   string             `json:"pinned_build_id,omitempty"`
-	TestID          string             `json:"test_id"`
-	Retries         int                `json:"retries,omitempty"`
-	BuildVersionID  string             `json:"build_version_id,omitempty"`
-	RunConfig       *CLIRunConfig      `json:"run_config,omitempty"`
-	LaunchURL       string             `json:"launch_url,omitempty"`
-	LaunchEnvVarIds []string           `json:"launch_env_var_ids,omitempty"`
-	DeviceModel     string             `json:"device_model,omitempty"`
-	OsVersion       string             `json:"os_version,omitempty"`
+	GitBranchName  string             `json:"git_branch_name,omitempty"`
+	BranchID       string             `json:"branch_id,omitempty"`
+	BranchName     string             `json:"branch_name,omitempty"`
+	BuildSelection BuildSelectionMode `json:"build_selection,omitempty"`
+	PinnedBuildID  string             `json:"pinned_build_id,omitempty"`
+	TestID         string             `json:"test_id"`
+	Retries        int                `json:"retries,omitempty"`
+	BuildVersionID string             `json:"build_version_id,omitempty"`
+	RunConfig      *CLIRunConfig      `json:"run_config,omitempty"`
+	// LaunchURL is the deep link URL for hot reload mode.
+	// When provided, the test will launch the app via this URL instead of the normal app launch.
+	LaunchURL string `json:"launch_url,omitempty"`
+	// LaunchEnvVarIds are org launch variable IDs selected for this execution.
+	LaunchEnvVarIds []string `json:"launch_env_var_ids,omitempty"`
+	// DeviceModel overrides the target device model (e.g. "iPhone 16", "Pixel 7").
+	DeviceModel string `json:"device_model,omitempty"`
+	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").
+	OsVersion string `json:"os_version,omitempty"`
 	// LaunchEnvVars are inline launch environment variables (KEY=VALUE) applied to
 	// the app's launch environment; they override org launch vars attached to the test.
 	LaunchEnvVars map[string]string `json:"launch_env_vars,omitempty"`
 	// LaunchArguments are non-secret inline iOS app arguments in exact token order.
-	LaunchArguments     []string               `json:"launch_arguments,omitempty"`
-	SessionProfile      *SessionProfileRequest `json:"session_profile,omitempty"`
-	VariableOverrides   map[string]string      `json:"variable_overrides,omitempty"`
-	TestDefinitionFiles *TestDefinitionFiles   `json:"test_definition_files,omitempty"`
+	LaunchArguments []string `json:"launch_arguments,omitempty"`
+	// SessionProfile is the applied session profile a Web test's browser starts with.
+	SessionProfile *SessionProfileRequest `json:"session_profile,omitempty"`
+	// VariableOverrides are runtime variable overrides for this execution.
+	VariableOverrides map[string]string `json:"variable_overrides,omitempty"`
+	// TestDefinitionFiles are the checkout's files the run executes instead of saved copies.
+	TestDefinitionFiles *TestDefinitionFiles `json:"test_definition_files,omitempty"`
 }
 
+// TestDefinitionFiles carries a checkout's test, module and script files for one run.
 type TestDefinitionFiles struct {
 	ProjectID                       *string              `json:"project_id"`
 	GitCommitSHA                    *string              `json:"git_commit_sha"`
@@ -849,11 +1029,13 @@ type TestDefinitionFiles struct {
 	Files                           []TestDefinitionFile `json:"files"`
 }
 
+// TestDefinitionFile is one file under .revyl/tests, .revyl/modules or .revyl/scripts.
 type TestDefinitionFile struct {
 	ProjectRelativePath string `json:"project_relative_path"`
 	Content             string `json:"content"`
 }
 
+// TestDefinitionSource names where a run's test definition came from.
 type TestDefinitionSource string
 
 const (
@@ -862,6 +1044,7 @@ const (
 	TestDefinitionSourceSavedTest     TestDefinitionSource = "saved_test"
 )
 
+// TestDefinitionFallbackReason says why a run didn't use its own branch's file.
 type TestDefinitionFallbackReason string
 
 const (
@@ -871,12 +1054,16 @@ const (
 	TestDefinitionFallbackReasonMissingTestFileOnDefaultBranch TestDefinitionFallbackReason = "missing_test_file_on_default_branch"
 )
 
+// TestDefinitionGitRead says where in Git a run's test definition files were
+// read: the branch and commit, and on a missing_git_branch fallback the run's
+// branch the repository doesn't have. Empty from a backend that doesn't send it.
 type TestDefinitionGitRead struct {
 	TestDefinitionGitBranchName        string `json:"test_definition_git_branch_name,omitempty"`
 	TestDefinitionGitCommitSHA         string `json:"test_definition_git_commit_sha,omitempty"`
 	TestDefinitionMissingGitBranchName string `json:"test_definition_missing_git_branch_name,omitempty"`
 }
 
+// ExecuteTestResponse represents a test execution response.
 type ExecuteTestResponse struct {
 	AutoGitBranchEnabled         *bool                        `json:"auto_git_branch_enabled,omitempty"`
 	BranchSource                 BranchSource                 `json:"branch_source,omitempty"`
@@ -894,14 +1081,23 @@ type ExecuteTestResponse struct {
 	TestDefinitionGitRead
 }
 
+// ExecuteTest starts a test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The execution request
+//
+// BillingPlanResponse contains the org's current billing plan info.
 type BillingPlanResponse struct {
 	Plan            string  `json:"plan"`
 	DisplayName     string  `json:"display_name"`
 	MonthlyBase     float64 `json:"monthly_base"`
 	FreeCreditLabel string  `json:"free_credit_label"`
-	PaygEnrolled    bool    `json:"payg_enrolled"`
+	// PaygEnrolled says whether the organization is on Pro.
+	PaygEnrolled bool `json:"payg_enrolled"`
 }
 
+// GetBillingPlan returns the org's current billing plan.
 func (c *Client) GetBillingPlan(ctx context.Context) (*BillingPlanResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/execution/billing/plan", nil)
 	if err != nil {
@@ -916,10 +1112,15 @@ func (c *Client) GetBillingPlan(ctx context.Context) (*BillingPlanResponse, erro
 	return &result, nil
 }
 
+// Returns:
+//   - *ExecuteTestResponse: The execution response with task ID
+//   - error: Any error that occurred
 func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*ExecuteTestResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("test execution request is nil")
 	}
+	// Whole-test retries were removed from the public CLI. Keep requests from
+	// older callers compatible while forcing the effective attempt count to one.
 	req.Retries = 1
 	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
@@ -929,6 +1130,7 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 		withoutGitBranch.GitBranchName = ""
 		req = &withoutGitBranch
 	}
+	// Dispatch has no idempotency key; retrying an uncertain response can launch twice.
 	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/execution/api/execute_test_id_async", req)
 	if err != nil {
 		return nil, err
@@ -939,6 +1141,7 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 		return nil, err
 	}
 
+	// Use ID if TaskID is empty (backwards compatibility)
 	if result.TaskID == "" && result.ID != "" {
 		result.TaskID = result.ID
 	}
@@ -946,24 +1149,32 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 	return &result, nil
 }
 
+// ExecuteWorkflowRequest represents a workflow execution request.
+// Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
+// BuildConfig and OverrideBuildConfig use the generated WorkflowAppConfig and
+// PlatformApp types from generated.go.
 type ExecuteWorkflowRequest struct {
-	ConcurrencyLimitOverride *int                 `json:"concurrency_limit_override,omitempty"`
-	GitBranchName            string               `json:"git_branch_name,omitempty"`
-	BranchName               string               `json:"branch_name,omitempty"`
-	BuildSelection           BuildSelectionMode   `json:"build_selection,omitempty"`
-	WorkflowID               string               `json:"workflow_id"`
-	Retries                  int                  `json:"retries,omitempty"`
-	BuildConfig              *WorkflowAppConfig   `json:"build_config,omitempty"`
-	OverrideBuildConfig      bool                 `json:"override_build_config,omitempty"`
-	LocationConfig           *CLILocation         `json:"location_config,omitempty"`
-	OverrideLocation         bool                 `json:"override_location,omitempty"`
-	VariableOverrides        map[string]string    `json:"variable_overrides,omitempty"`
-	LaunchEnvVarIds          []string             `json:"launch_env_var_ids,omitempty"`
-	LaunchEnvVars            map[string]string    `json:"launch_env_vars,omitempty"`
-	LaunchArguments          []string             `json:"launch_arguments,omitempty"`
-	TestDefinitionFiles      *TestDefinitionFiles `json:"test_definition_files,omitempty"`
+	ConcurrencyLimitOverride *int               `json:"concurrency_limit_override,omitempty"`
+	GitBranchName            string             `json:"git_branch_name,omitempty"`
+	BranchName               string             `json:"branch_name,omitempty"`
+	BuildSelection           BuildSelectionMode `json:"build_selection,omitempty"`
+	WorkflowID               string             `json:"workflow_id"`
+	Retries                  int                `json:"retries,omitempty"`
+	BuildConfig              *WorkflowAppConfig `json:"build_config,omitempty"`
+	OverrideBuildConfig      bool               `json:"override_build_config,omitempty"`
+	LocationConfig           *CLILocation       `json:"location_config,omitempty"`
+	OverrideLocation         bool               `json:"override_location,omitempty"`
+	VariableOverrides        map[string]string  `json:"variable_overrides,omitempty"`
+	LaunchEnvVarIds          []string           `json:"launch_env_var_ids,omitempty"`
+	LaunchEnvVars            map[string]string  `json:"launch_env_vars,omitempty"`
+	LaunchArguments          []string           `json:"launch_arguments,omitempty"`
+	// TestDefinitionFiles are the checkout's files the workflow's tests execute instead of saved copies.
+	TestDefinitionFiles *TestDefinitionFiles `json:"test_definition_files,omitempty"`
 }
 
+// ExecuteWorkflowResponse represents a workflow execution response.
+// Success is not included because it's not known at queue time - it's determined
+// later via SSE monitoring when the workflow completes.
 type ExecuteWorkflowResponse struct {
 	TaskID                              string                               `json:"task_id"`
 	TestCountByDefinitionSource         map[TestDefinitionSource]int         `json:"test_count_by_definition_source,omitempty"`
@@ -972,10 +1183,21 @@ type ExecuteWorkflowResponse struct {
 	TestDefinitionGitRead
 }
 
+// ExecuteWorkflow starts a workflow execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The execution request
+//
+// Returns:
+//   - *ExecuteWorkflowResponse: The execution response with task ID
+//   - error: Any error that occurred
 func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowRequest) (*ExecuteWorkflowResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("workflow execution request is nil")
 	}
+	// Whole-test retries were removed from the public CLI. Keep requests from
+	// older callers compatible while forcing the effective attempt count to one.
 	req.Retries = 1
 	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
@@ -998,6 +1220,7 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 	return &result, nil
 }
 
+// UploadBuildRequest represents a build upload request.
 type UploadBuildRequest struct {
 	GitBranchName string                 `json:"git_branch_name,omitempty"`
 	BranchID      string                 `json:"branch_id,omitempty"`
@@ -1006,16 +1229,20 @@ type UploadBuildRequest struct {
 	Version       string                 `json:"version"`
 	FilePath      string                 `json:"-"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
-	Pin           bool                   `json:"pin,omitempty"`
+	// Pin pins the destination branch to the new build; without it the
+	// branch's pin is unchanged.
+	Pin bool `json:"pin,omitempty"`
 }
 
+// UploadBuildResponse represents a build upload response.
 type UploadBuildResponse struct {
-	BranchID    string       `json:"branch_id,omitempty"`
-	BranchName  string       `json:"branch_name,omitempty"`
-	VersionID   string       `json:"version_id"`
-	Version     string       `json:"version"`
-	PackageID   string       `json:"package_id,omitempty"`
-	Warnings    []string     `json:"warnings,omitempty"`
+	BranchID   string   `json:"branch_id,omitempty"`
+	BranchName string   `json:"branch_name,omitempty"`
+	VersionID  string   `json:"version_id"`
+	Version    string   `json:"version"`
+	PackageID  string   `json:"package_id,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
+	// UsageNotice is the usage notice the backend attached to the upload.
 	UsageNotice *UsageNotice `json:"billing_notice,omitempty"`
 }
 
@@ -1023,6 +1250,7 @@ const maxUploadErrorBodyBytes = 16 * 1024
 
 const androidSplitAPKError = "Android split APKs and APK Set archives are not supported. Upload one standalone installable APK instead"
 
+// uploadSessionResponse mirrors the backend BuildUploadSessionResponse.
 type uploadSessionResponse struct {
 	BranchID    string `json:"branch_id,omitempty"`
 	BranchName  string `json:"branch_name,omitempty"`
@@ -1031,6 +1259,7 @@ type uploadSessionResponse struct {
 	ContentType string `json:"content_type"`
 }
 
+// buildCreatedResponse mirrors the subset of BuildVersionResponse the CLI uses.
 type buildCreatedResponse struct {
 	BranchID    string                 `json:"branch_id,omitempty"`
 	BranchName  string                 `json:"branch_name,omitempty"`
@@ -1046,6 +1275,19 @@ type extractBuildPackageIDResponse struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// UploadBuild uploads a build artifact. Files at or under
+// multipartUploadThresholdBytes go through the staging upload-session flow
+// (single presigned PUT); larger files use an S3 multipart upload so a
+// mid-transfer failure only retries the affected part instead of the whole
+// artifact.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The upload request
+//
+// Returns:
+//   - *UploadBuildResponse: The upload response
+//   - error: Any error that occurred
 func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*UploadBuildResponse, error) {
 	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
@@ -1069,6 +1311,9 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	return c.uploadBuildViaSession(ctx, req, fileName, fileInfo.Size())
 }
 
+// uploadBuildViaSession uploads via the staging upload-session flow: open a
+// session, PUT to the presigned staging URL, then finalize via
+// createBuildFromStagedUpload.
 func (c *Client) uploadBuildViaSession(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64) (*UploadBuildResponse, error) {
 	sessionResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds/upload-session?source=cli_upload", req.AppID),
@@ -1103,6 +1348,8 @@ func (c *Client) uploadBuildViaSession(ctx context.Context, req *UploadBuildRequ
 	return c.createBuildFromStagedUpload(ctx, req, session.UploadID)
 }
 
+// withUploadPin adds the pin request to an upload finalization payload. An
+// upload that doesn't pin omits the field, which leaves the branch's pin alone.
 func withUploadPin(payload map[string]interface{}, pin bool) map[string]interface{} {
 	if pin {
 		payload["pin"] = true
@@ -1160,6 +1407,10 @@ func isUploadSessionUnsupported(err error) bool {
 	if apiErr.StatusCode != http.StatusNotFound {
 		return false
 	}
+	// A 404 can also be a matched route reporting a missing resource ("App
+	// not found"), which no fallback endpoint can fix — without this check a
+	// bad app id would cascade through every legacy flow and surface its
+	// error from the wrong endpoint.
 	detail := strings.ToLower(apiErr.Detail + " " + apiErr.Message)
 	return !strings.Contains(detail, "app not found")
 }
@@ -1222,6 +1473,10 @@ func (c *Client) uploadBuildLegacyPresigned(ctx context.Context, req *UploadBuil
 	return c.finalizeRowBackedUpload(ctx, req, presignResult.VersionID)
 }
 
+// finalizeRowBackedUpload validates an already-uploaded artifact server-side
+// (extract-package-id) and finalizes its pending build row (complete-upload)
+// for the legacy presigned PUT flow, which creates the build row before
+// uploading; on any failure the pending row is deleted best-effort.
 func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRequest, versionID string) (*UploadBuildResponse, error) {
 	extractResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/builds/%s/extract-package-id", versionID),
@@ -1276,17 +1531,34 @@ func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRe
 	return &completeResult, nil
 }
 
+// multipartUploadThresholdBytes is the file size above which UploadBuild
+// switches from a single presigned PUT to an S3 multipart upload. A var so
+// tests can lower it.
 var multipartUploadThresholdBytes int64 = 64 * 1024 * 1024
 
+// defaultMultipartUploadConcurrency is how many parts upload in parallel when
+// REVYL_UPLOAD_CONCURRENCY is unset.
 const defaultMultipartUploadConcurrency = 4
 
+// maxMultipartUploadConcurrency caps REVYL_UPLOAD_CONCURRENCY so a runaway value
+// can't open thousands of simultaneous connections.
 const maxMultipartUploadConcurrency = 64
 
+// uploadMaxStallPasses is how many consecutive part-upload passes may make zero
+// progress while already at a single connection before the run gives up and
+// leaves the rest to be resumed later.
 const uploadMaxStallPasses = 3
 
+// uploadConcurrency resolves how many parts upload in parallel, honoring
+// REVYL_UPLOAD_CONCURRENCY so users on a constrained or proxied uplink can cap
+// (or serialize with =1) the simultaneous PUTs that otherwise saturate the link
+// and cause connection resets.
 func uploadConcurrency() int {
 	if v := strings.TrimSpace(os.Getenv("REVYL_UPLOAD_CONCURRENCY")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			// Clamp the upper end: an unbounded value would spawn thousands of
+			// simultaneous PUTs/goroutines and worsen the saturated-uplink
+			// failure this exists to fix.
 			if n > maxMultipartUploadConcurrency {
 				n = maxMultipartUploadConcurrency
 			}
@@ -1301,11 +1573,14 @@ func uploadConcurrency() int {
 // A var so tests can lower it.
 var maxSinglePutUploadBytes int64 = 5 * 1024 * 1024 * 1024
 
+// multipartUploadPartURL mirrors the backend BuildMultipartUploadPartURL.
 type multipartUploadPartURL struct {
 	PartNumber int    `json:"part_number"`
 	UploadURL  string `json:"upload_url"`
 }
 
+// multipartUploadStartResponse mirrors the backend
+// BuildMultipartUploadStartResponse.
 type multipartUploadStartResponse struct {
 	UploadID    string                   `json:"upload_id"`
 	S3UploadID  string                   `json:"s3_upload_id"`
@@ -1315,6 +1590,8 @@ type multipartUploadStartResponse struct {
 	AbortURL    string                   `json:"abort_url"`
 }
 
+// multipartResumeResponse mirrors the backend
+// BuildMultipartUploadResumeResponse.
 type multipartResumeResponse struct {
 	UploadID      string                   `json:"upload_id"`
 	S3UploadID    string                   `json:"s3_upload_id"`
@@ -1329,30 +1606,48 @@ type multipartResumeResponse struct {
 	AbortURL    string `json:"abort_url"`
 }
 
+// multipartCompletedPart is the ETag collected for one uploaded part.
 type multipartCompletedPart struct {
 	PartNumber int
 	ETag       string
 }
 
+// multipartPlan is everything driveMultipartUpload needs to finish an upload,
+// whether it was freshly started or resumed from an earlier interruption.
 type multipartPlan struct {
 	uploadID    string
 	partSize    int64
 	parts       []multipartUploadPartURL
-	uploaded    map[int]string
+	uploaded    map[int]string // part number -> ETag for parts already in S3
 	completeURL string
 	abortURL    string
 }
 
+// uploadInterruptedError marks a part-upload run that stopped before finishing
+// without an unrecoverable cause: the parts so far are safe in S3 and the
+// resume record is kept, so a re-run continues. The driver detects it to append
+// the "re-run to resume" hint exactly once.
 type uploadInterruptedError struct{ err error }
 
 func (e *uploadInterruptedError) Error() string { return e.err.Error() }
 func (e *uploadInterruptedError) Unwrap() error { return e.err }
 
+// permanentUploadError marks a part failure that re-uploading cannot fix — a
+// non-retryable S3 status, a missing ETag (a header-stripping proxy), or a part
+// out of range. The driver abandons the upload instead of looping or keeping
+// resume state, because no re-run would do better.
 type permanentUploadError struct{ err error }
 
 func (e *permanentUploadError) Error() string { return e.err.Error() }
 func (e *permanentUploadError) Unwrap() error { return e.err }
 
+// uploadBuildMultipart uploads a large artifact via S3 multipart upload into
+// the staging area. If an earlier attempt on this exact artifact was
+// interrupted, it resumes — asking S3 which parts it already holds and
+// uploading only the rest; otherwise it starts a fresh upload. Either way it
+// records resume state before transferring any part, so a dropped connection,
+// crash, or Ctrl-C never throws away completed parts: the next run continues
+// from where it stopped.
 func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64) (*UploadBuildResponse, error) {
 	fileHash, err := fileSHA256(req.FilePath)
 	if err != nil {
@@ -1367,6 +1662,10 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 			debugLogf("multipart upload: artifact changed since saved upload; starting fresh")
 			c.deleteResumableUploadState(stateKey)
 		} else if st.Assembled {
+			// A prior run finished assembling the object but failed at the
+			// create call; the multipart session is gone, so skip straight to
+			// finalize rather than re-listing parts (which would 410) and
+			// re-uploading the whole artifact.
 			debugLogf("multipart upload: object already assembled; finalizing")
 			return c.finalizeStagedUpload(ctx, req, stateKey, st.UploadID)
 		} else if plan, rerr := c.resumeMultipartPlan(ctx, req, fileName, fileSize, st); rerr == nil {
@@ -1376,9 +1675,15 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 			)
 			return c.driveMultipartUpload(ctx, req, fileSize, stateKey, plan)
 		} else if resumeSessionUnusable(rerr) {
+			// The stored upload can't be resumed (gone/expired, a version
+			// conflict, or parts inconsistent with the file) — discarding it and
+			// starting fresh either succeeds or surfaces the same clear error at
+			// start, instead of looping the same failure on every re-run.
 			debugLogf("multipart upload: stored upload unusable (%v); starting fresh", rerr)
 			c.deleteResumableUploadState(stateKey)
 		} else {
+			// Transient resume failure (network/5xx). Keep the state so the
+			// user can simply re-run rather than restart from zero.
 			return nil, rerr
 		}
 	}
@@ -1428,6 +1733,8 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 		len(start.Parts), start.PartSize, fileSize, uploadConcurrency(),
 	)
 
+	// Persist the resume record before uploading any part so an interruption at
+	// any point is recoverable. s3_upload_id lets resume re-presign the upload.
 	c.saveResumableUploadState(stateKey, &resumableUploadState{
 		UploadID:   start.UploadID,
 		S3UploadID: start.S3UploadID,
@@ -1449,6 +1756,10 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 	})
 }
 
+// resumeMultipartPlan asks the backend to re-presign an interrupted upload and
+// report which parts S3 already holds. A listed part is trusted only when its
+// stored size matches what this artifact expects for that part number, so a
+// mismatched or partial part is simply re-uploaded.
 func (c *Client) resumeMultipartPlan(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64, st *resumableUploadState) (*multipartPlan, error) {
 	resp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds/multipart-upload/resume", req.AppID),
@@ -1474,6 +1785,10 @@ func (c *Client) resumeMultipartPlan(ctx context.Context, req *UploadBuildReques
 		)
 	}
 
+	// Trust a part S3 reports only when it has a non-empty ETag and its stored
+	// size matches what this artifact expects for that part number; a mismatched,
+	// partial, or ETag-less part is dropped here so it gets re-uploaded rather
+	// than poisoning the final CompleteMultipartUpload with a bad ETag.
 	uploaded := make(map[int]string, len(resume.UploadedParts))
 	for _, p := range resume.UploadedParts {
 		if p.ETag == "" {
@@ -1494,6 +1809,11 @@ func (c *Client) resumeMultipartPlan(ctx context.Context, req *UploadBuildReques
 	}, nil
 }
 
+// driveMultipartUpload uploads the parts S3 doesn't already have, assembles the
+// object, finalizes the build, and clears the resume record on success. Transfer
+// failures route through classifyUploadFailure: a transient interruption keeps
+// the parts and resume record so the next run continues, while an unrecoverable
+// failure abandons the upload outright.
 func (c *Client) driveMultipartUpload(ctx context.Context, req *UploadBuildRequest, fileSize int64, stateKey string, plan *multipartPlan) (*UploadBuildResponse, error) {
 	completed, err := c.uploadMultipartParts(ctx, req.FilePath, fileSize, plan)
 	if err != nil {
@@ -1504,10 +1824,16 @@ func (c *Client) driveMultipartUpload(ctx context.Context, req *UploadBuildReque
 		return nil, c.classifyUploadFailure(stateKey, plan, err)
 	}
 
+	// The object is assembled; record that so a create failure resumes at
+	// finalize instead of re-uploading everything.
 	c.markUploadAssembled(stateKey)
 	return c.finalizeStagedUpload(ctx, req, stateKey, plan.uploadID)
 }
 
+// finalizeStagedUpload turns the assembled staging object into a build and
+// clears the resume record. A failure here keeps the record (the object is
+// safe) so a re-run retries finalize directly — see the Assembled branch in
+// uploadBuildMultipart.
 func (c *Client) finalizeStagedUpload(ctx context.Context, req *UploadBuildRequest, stateKey, uploadID string) (*UploadBuildResponse, error) {
 	resp, err := c.createBuildFromStagedUpload(ctx, req, uploadID)
 	if err != nil {
@@ -1517,6 +1843,8 @@ func (c *Client) finalizeStagedUpload(ctx context.Context, req *UploadBuildReque
 	return resp, nil
 }
 
+// markUploadAssembled flips the persisted resume record to the assembled phase
+// (best effort: if it can't be written, a re-run simply re-uploads as before).
 func (c *Client) markUploadAssembled(stateKey string) {
 	st := c.loadResumableUploadState(stateKey)
 	if st == nil {
@@ -1526,6 +1854,12 @@ func (c *Client) markUploadAssembled(stateKey string) {
 	c.saveResumableUploadState(stateKey, st)
 }
 
+// classifyUploadFailure decides whether a failed transfer is resumable. A
+// permanent failure (a part or the assembly step S3 will reject on every
+// attempt) is checked first — even under cancellation — and abandons the upload
+// so a re-run starts clean instead of looping on a transfer that can never
+// finish. Anything else (a transient stall, a dropped connection, Ctrl-C) keeps
+// the parts and resume record and tells the user to re-run.
 func (c *Client) classifyUploadFailure(stateKey string, plan *multipartPlan, err error) error {
 	var permanent *permanentUploadError
 	if errors.As(err, &permanent) {
@@ -1536,6 +1870,13 @@ func (c *Client) classifyUploadFailure(stateKey string, plan *multipartPlan, err
 	return fmt.Errorf("%w; re-run the same command to resume from where it stopped", err)
 }
 
+// resumeSessionUnusable reports whether a resume failed for a reason that means
+// the stored upload can never be resumed: 409 (a version conflict, or parts
+// inconsistent with the file) or 410 (gone/expired). Only then should the client
+// discard its saved state and start fresh. Every other failure — a transient 4xx
+// like 401/403 (token expired mid-upload), 408/429 (timeout/rate limit), or any
+// 5xx/network error — keeps the state so a plain re-run resumes instead of
+// re-uploading from zero.
 func resumeSessionUnusable(err error) bool {
 	apiErr, ok := err.(*APIError)
 	if !ok {
@@ -1544,6 +1885,8 @@ func resumeSessionUnusable(err error) bool {
 	return apiErr.StatusCode == http.StatusConflict || apiErr.StatusCode == http.StatusGone
 }
 
+// partLength returns the byte length of one part, accounting for the short
+// final part, or 0 if the part number is out of range for the file.
 func partLength(partNumber int, partSize, fileSize int64) int64 {
 	offset := int64(partNumber-1) * partSize
 	if offset >= fileSize {
@@ -1555,6 +1898,8 @@ func partLength(partNumber int, partSize, fileSize int64) int64 {
 	return partSize
 }
 
+// multipartCompletePartXML and multipartCompleteRequestXML form the S3
+// CompleteMultipartUpload request body.
 type multipartCompletePartXML struct {
 	PartNumber int    `xml:"PartNumber"`
 	ETag       string `xml:"ETag"`
@@ -1565,6 +1910,16 @@ type multipartCompleteRequestXML struct {
 	Parts   []multipartCompletePartXML `xml:"Part"`
 }
 
+// completeMultipartUploadAtS3 assembles the uploaded parts by POSTing the
+// part ETags to the presigned CompleteMultipartUpload URL. Quirks handled:
+// S3 may return 200 with an <Error> document in the body (retryable), and a
+// retry whose earlier attempt already assembled the object gets NoSuchUpload
+// — treated as success, because the subsequent create call fails cleanly if
+// the staged object genuinely doesn't exist. A first-attempt NoSuchUpload
+// means the upload was aborted or expired out-of-band, and a non-retryable
+// status (e.g. InvalidPart) means the parts list S3 holds can never assemble;
+// both are wrapped as *permanentUploadError so the caller abandons the upload
+// instead of looping a re-run that re-completes the same broken parts.
 func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL string, parts []multipartCompletedPart) error {
 	xmlParts := make([]multipartCompletePartXML, len(parts))
 	for i, part := range parts {
@@ -1626,6 +1981,16 @@ func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL st
 	return err
 }
 
+// uploadMultipartParts uploads every part not already in S3, retrying across
+// passes so a transient drop costs one part, not the whole artifact. Within a
+// pass each missing part uploads concurrently with its own retry budget and,
+// unlike a fail-fast pass, a sibling failure no longer cancels the rest — so a
+// pass makes as much forward progress as the link allows. A pass that makes no
+// progress drops to a single connection (the usual cause is a constrained or
+// proxied uplink that cannot sustain parallel PUTs); only after repeated
+// no-progress passes at one connection does the run give up, returning an
+// *uploadInterruptedError so the caller keeps the resume record. Returns all
+// parts' ETags (freshly uploaded plus pre-existing) sorted by part number.
 func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, fileSize int64, plan *multipartPlan) ([]multipartCompletedPart, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -1660,6 +2025,9 @@ func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, file
 		before := len(completed)
 		if passErr := c.uploadPartsPass(ctx, file, fileSize, plan.partSize, missing, concurrency, completed); passErr != nil {
 			lastErr = passErr
+			// A part that can never succeed dooms the artifact; surface it now
+			// so the caller abandons the upload rather than looping or saving
+			// resume state for a transfer no re-run could finish.
 			var pe *permanentUploadError
 			if errors.As(passErr, &pe) {
 				return nil, passErr
@@ -1674,6 +2042,9 @@ func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, file
 			continue
 		}
 
+		// No part landed this pass. Shed parallelism first — a single
+		// connection is far likelier to survive a saturated uplink — and only
+		// give up once even that makes no progress repeatedly.
 		if concurrency > 1 {
 			concurrency = 1
 			debugLogf("multipart upload: no progress, dropping to a single connection")
@@ -1701,6 +2072,10 @@ func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, file
 	return result, nil
 }
 
+// uploadPartsPass uploads the given missing parts with the given concurrency,
+// recording each success into completed (guarded by mu). It attempts every part
+// regardless of sibling failures and returns the last part error seen (nil if
+// all succeeded), leaving the caller to decide whether to retry the stragglers.
 func (c *Client) uploadPartsPass(ctx context.Context, file *os.File, fileSize, partSize int64, missing []multipartUploadPartURL, concurrency int, completed map[int]string) error {
 	if concurrency > len(missing) {
 		concurrency = len(missing)
@@ -1758,6 +2133,8 @@ dispatch:
 	}
 	close(jobs)
 	wg.Wait()
+	// A permanent failure takes precedence: it dooms the whole upload, so the
+	// caller must see it even if a later transient failure overwrote lastErr.
 	if permErr != nil {
 		return permErr
 	}
@@ -1769,7 +2146,7 @@ dispatch:
 // finish within the 24h presigned-URL window — a fixed whole-request timeout
 // would put a hard bandwidth floor under every part that no retry can clear.
 func partUploadAttemptTimeout(length int64) time.Duration {
-	const floorBytesPerSecond = 32 * 1024
+	const floorBytesPerSecond = 32 * 1024 // ~0.25 Mbps per concurrent part
 	timeout := 2*time.Minute + time.Duration(length/floorBytesPerSecond)*time.Second
 	if timeout < UploadTimeout {
 		return UploadTimeout
@@ -1777,6 +2154,10 @@ func partUploadAttemptTimeout(length int64) time.Duration {
 	return timeout
 }
 
+// uploadPartWithRetry PUTs one part to its presigned URL and returns the ETag
+// S3 responds with. Each part retries independently using the same retryable
+// status / backoff rules as single-shot uploads, so one broken pipe costs one
+// part, not the whole artifact.
 func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part multipartUploadPartURL, offset, length int64) (string, error) {
 	var etag string
 	var permanent bool
@@ -1784,6 +2165,7 @@ func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part mu
 		attemptCtx, cancel := context.WithTimeout(ctx, partUploadAttemptTimeout(length))
 		defer cancel()
 
+		// ReadAt is safe for concurrent use, so all workers share one *os.File.
 		reader := io.NewSectionReader(file, offset, length)
 		uploadReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPut, part.UploadURL, reader)
 		if err != nil {
@@ -1792,6 +2174,9 @@ func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part mu
 		}
 		uploadReq.ContentLength = length
 
+		// A copy of uploadClient without its whole-request timeout: attemptCtx
+		// bounds the attempt instead, scaled to the part size. The copy shares
+		// the transport, so connection pooling is unaffected.
 		partClient := *c.uploadClient
 		partClient.Timeout = 0
 		uploadResp, err := partClient.Do(uploadReq)
@@ -1804,6 +2189,10 @@ func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part mu
 			_, _ = io.Copy(io.Discard, uploadResp.Body)
 			uploadResp.Body.Close()
 			if etag == "" {
+				// Deterministic: S3 always returns an ETag on a successful
+				// part PUT, so a missing header (e.g. stripped by a proxy)
+				// will be missing on every attempt — retrying just re-uploads
+				// the part for the same outcome.
 				permanent = true
 				return true, fmt.Errorf(
 					"part %d upload returned no ETag (a proxy may be stripping response headers)",
@@ -1869,6 +2258,25 @@ func (c *Client) bestEffortDeleteBuildVersion(versionID string) {
 	}
 }
 
+// validateLocalBuildArtifact runs the same hard pre-flight checks that
+// AppUploadField applies in the web UI. Bad artifacts are rejected before any
+// HTTP work — no presigned URL, no S3 upload, no orphaned build row.
+//
+// Hard rejections (regardless of platform):
+//   - .aab (Android App Bundles aren't supported)
+//   - .ipa (real-device builds; we only run simulators)
+//   - .apks / split APK archives (we install one APK artifact)
+//   - .zip with an IPA-shaped Payload/*.app/ tree
+//
+// Platform-aware structural checks for .zip files:
+//   - iOS:     must contain a *.app/Info.plist
+//   - Android: must contain exactly one non-split .apk
+//   - unknown: must look like one of the two
+//
+// The deeper iOS simulator check (DTPlatformName != iphoneos) and the Android
+// ABI check still run server-side when the build is created; this function
+// exists so obvious mistakes fail locally with a clear error instead of after
+// upload.
 func validateLocalBuildArtifact(filePath string, metadata map[string]interface{}) error {
 	fileName := strings.ToLower(filepath.Base(filePath))
 
@@ -1907,6 +2315,8 @@ func validateLocalBuildArtifact(filePath string, metadata map[string]interface{}
 		return nil
 	}
 
+	// Other extensions fall through to the backend's _validate_file_extension
+	// gate, which is the canonical source of accepted extensions.
 	return nil
 }
 
@@ -1917,6 +2327,8 @@ func looksLikeLocalSplitAPKName(path string) bool {
 		strings.HasPrefix(baseName, "config.")
 }
 
+// validateLocalZipArtifact opens a .zip and inspects its top-level contents to
+// decide whether it looks like a wrapped iOS .app or a wrapped Android APK.
 func validateLocalZipArtifact(filePath string, platform string) error {
 	reader, err := zip.OpenReader(filePath)
 	if err != nil {
@@ -1998,6 +2410,9 @@ func validateLocalAndroidAPKPaths(apkPaths []string) error {
 	return nil
 }
 
+// resolveUploadPlatform reads metadata.platform and lowercases it. Returns ""
+// when the caller didn't pin a platform — in which case the structural check
+// accepts either iOS or Android shapes.
 func resolveUploadPlatform(metadata map[string]interface{}) string {
 	if metadata == nil {
 		return ""
@@ -2013,39 +2428,67 @@ func resolveUploadPlatform(metadata map[string]interface{}) string {
 	return strings.ToLower(strings.TrimSpace(platform))
 }
 
+// CreateBuildFromURLRequest represents a server-side URL-based build ingestion request.
+// The backend downloads the artifact directly from the provided URL, so the CLI
+// never needs the binary on disk.
 type CreateBuildFromURLRequest struct {
 	GitBranchName string `json:"git_branch_name,omitempty"`
 	BranchID      string `json:"branch_id,omitempty"`
 	BranchName    string `json:"branch_name,omitempty"`
-	AppID         string `json:"-"`
+	// AppID is the target Revyl app to store the build under.
+	AppID string `json:"-"`
 
+	// FromURL is the remote artifact URL (e.g. Artifactory, S3, GCS, EAS).
 	FromURL string `json:"from_url"`
 
+	// Headers are optional HTTP headers forwarded when fetching FromURL (e.g. Authorization).
 	Headers map[string]string `json:"headers,omitempty"`
 
+	// Version is the version label for the build (must be unique within the app).
 	Version string `json:"version"`
 
+	// Metadata is optional key-value metadata attached to the build record.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 
+	// Pin pins the destination branch to the new build; without it the
+	// branch's pin is unchanged.
 	Pin bool `json:"pin,omitempty"`
 }
 
+// CreateBuildFromURLResponse represents the server response after a URL-based build ingestion.
 type CreateBuildFromURLResponse struct {
 	BranchID   string `json:"branch_id,omitempty"`
 	BranchName string `json:"branch_name,omitempty"`
-	ID         string `json:"id"`
+	// ID is the unique identifier of the created build version.
+	ID string `json:"id"`
 
+	// AppID is the app the build was stored under.
 	AppID string `json:"app_id"`
 
+	// Version is the version label that was assigned.
 	Version string `json:"version"`
 
+	// ArtifactURL is the S3 key where the artifact was stored.
 	ArtifactURL string `json:"artifact_url"`
 
+	// PackageName is the extracted package identifier (bundle ID / package name), if any.
 	PackageName string `json:"package_name,omitempty"`
 
+	// WasReused indicates the version already existed and was returned as-is (idempotent).
 	WasReused bool `json:"was_reused,omitempty"`
 }
 
+// CreateBuildFromURL ingests a build artifact from a remote URL server-side.
+// The backend streams the download, uploads to S3, extracts package metadata,
+// and creates the build record. The CLI does not need the binary locally.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The URL-based build request (AppID, FromURL, optional Headers/Version/Metadata)
+//
+// Returns:
+//   - *CreateBuildFromURLResponse: The created build version info
+//   - error: Any error (502 if the backend cannot fetch the URL, 409 if version exists and is not idempotent)
 func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
 	if err := validateGitBranchName(req.GitBranchName); err != nil {
 		return nil, err
@@ -2118,6 +2561,12 @@ func formatUploadStatusError(statusCode int, body []byte, readErr error) error {
 	}
 }
 
+// retryUploadAttempts runs attemptFn with the client's retry budget and
+// exponential backoff, stopping early on context cancellation. attemptFn
+// returns done=true to stop immediately (err nil = success, err non-nil =
+// permanent failure) or done=false with a retryable error; when the budget is
+// exhausted the last retryable error is wrapped as
+// "<operation> failed after N attempts".
 func (c *Client) retryUploadAttempts(ctx context.Context, operation string, attemptFn func(attempt int) (bool, error)) error {
 	attempts := c.maxRetries + 1
 	var lastErr error
@@ -2208,6 +2657,8 @@ func (c *Client) uploadFileWithClientAndRetry(ctx context.Context, uploadClient 
 	})
 }
 
+// BuildVersion represents a build version.
+// Matches backend BuildVersionResponse schema.
 type BuildVersion struct {
 	ArtifactKind string                 `json:"artifact_kind,omitempty"`
 	BranchID     string                 `json:"branch_id,omitempty"`
@@ -2221,6 +2672,8 @@ type BuildVersion struct {
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// BuildVersionsPage represents a paginated build versions response.
+// Matches backend PaginatedBuildVersionsResponse schema.
 type BuildVersionsPage struct {
 	Items       []BuildVersion `json:"items"`
 	Total       int            `json:"total"`
@@ -2236,6 +2689,15 @@ const (
 	maxBuildVersionsPageSize     = 100
 )
 
+// ListBuildVersions lists build versions for an app.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - appID: The app ID
+//
+// Returns:
+//   - []BuildVersion: List of build versions
+//   - error: Any error that occurred
 func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVersion, error) {
 	page, err := c.ListBuildVersionsPage(ctx, appID, 1, defaultBuildVersionsPageSize)
 	if err != nil {
@@ -2244,10 +2706,30 @@ func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVe
 	return page.Items, nil
 }
 
+// ListBuildVersionsPage lists one page of build versions for an app.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - appID: The app ID
+//   - page: 1-indexed page number
+//   - pageSize: items per page (max 100)
+//
+// Returns:
+//   - *BuildVersionsPage: Paginated build versions
+//   - error: Any error that occurred
 func (c *Client) ListBuildVersionsPage(ctx context.Context, appID string, page int, pageSize int) (*BuildVersionsPage, error) {
 	return c.ListBuildVersionsWithOptions(ctx, appID, BuildListOptions{Page: page, PageSize: pageSize})
 }
 
+// GetTest retrieves a test by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test ID
+//
+// Returns:
+//   - *TestSummary: The test data
+//   - error: Any error that occurred
 func (c *Client) GetTest(ctx context.Context, testID string) (*TestSummary, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/tests/get_test_by_id/%s", testID), nil)
@@ -2281,11 +2763,15 @@ func (c *Client) GetExistingTestsByIDs(ctx context.Context, testIDs []string) ([
 	return result, nil
 }
 
+// MobileTargetEntry represents a saved device target from test_mobile_targets.
 type MobileTargetEntry struct {
 	DeviceModel string `json:"device_model"`
 	OSVersion   string `json:"os_version"`
 }
 
+// TestSummary represents the high-level shape returned by GetTest.
+// Renamed from `Test` to avoid colliding with the generated
+// ActionBlockVariableScope enum constant `Test`.
 type TestSummary struct {
 	BranchID       string                 `json:"branch_id,omitempty"`
 	BuildSelection BuildSelectionMode     `json:"build_selection,omitempty"`
@@ -2302,28 +2788,45 @@ type TestSummary struct {
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	MobileTargets  []MobileTargetEntry    `json:"mobile_targets,omitempty"`
 	Orientation    string                 `json:"orientation,omitempty"`
-	RunConfig      map[string]interface{} `json:"run_config,omitempty"`
+	// RunConfig is the test's persisted run configuration (TestRunConfig
+	// from cognisim_schemas). Kept as a raw map so the CLI can edit
+	// individual keys without binding to every nested field type.
+	RunConfig map[string]interface{} `json:"run_config,omitempty"`
 }
 
+// UpdateTestRequest represents a test update request.
 type UpdateTestRequest struct {
 	*SavedBuildSelection
-	TestID          string                 `json:"-"`
-	Name            string                 `json:"name,omitempty"`
-	Description     string                 `json:"description,omitempty"`
-	Platform        string                 `json:"platform,omitempty"`
-	Tasks           interface{}            `json:"tasks,omitempty"`
-	AppID           string                 `json:"app_id,omitempty"`
-	PinnedVersionID string                 `json:"pinned_version,omitempty"`
-	ExpectedVersion int                    `json:"expected_version,omitempty"`
-	Force           bool                   `json:"-"`
-	RunConfig       map[string]interface{} `json:"run_config,omitempty"`
+	TestID          string      `json:"-"`
+	Name            string      `json:"name,omitempty"`
+	Description     string      `json:"description,omitempty"`
+	Platform        string      `json:"platform,omitempty"`
+	Tasks           interface{} `json:"tasks,omitempty"`
+	AppID           string      `json:"app_id,omitempty"`
+	PinnedVersionID string      `json:"pinned_version,omitempty"`
+	ExpectedVersion int         `json:"expected_version,omitempty"`
+	Force           bool        `json:"-"`
+	// RunConfig persists the test's run configuration. Send the merged
+	// map (read-modify-write) — the backend stores it as-is, replacing
+	// any previous run_config.
+	RunConfig map[string]interface{} `json:"run_config,omitempty"`
 }
 
+// UpdateTestResponse represents a test update response.
 type UpdateTestResponse struct {
 	ID      string `json:"id"`
 	Version int    `json:"version"`
 }
 
+// UpdateTest updates a test definition.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The update request
+//
+// Returns:
+//   - *UpdateTestResponse: The update response
+//   - error: Any error that occurred
 func (c *Client) UpdateTest(ctx context.Context, req *UpdateTestRequest) (*UpdateTestResponse, error) {
 	if err := req.SavedBuildSelection.Validate(); err != nil {
 		return nil, err
@@ -2342,24 +2845,41 @@ func (c *Client) UpdateTest(ctx context.Context, req *UpdateTestRequest) (*Updat
 	return &result, nil
 }
 
+// CreateTestRequest represents a test creation request.
 type CreateTestRequest struct {
 	*SavedBuildSelection
-	PinnedVersionID string                 `json:"pinned_version,omitempty"`
-	Name            string                 `json:"name"`
-	Platform        string                 `json:"platform"`
-	Tasks           interface{}            `json:"tasks"`
-	AppID           string                 `json:"app_id,omitempty"`
-	OrgID           string                 `json:"org_id,omitempty"`
-	RunConfig       map[string]interface{} `json:"run_config,omitempty"`
+	PinnedVersionID string      `json:"pinned_version,omitempty"`
+	Name            string      `json:"name"`
+	Platform        string      `json:"platform"`
+	Tasks           interface{} `json:"tasks"`
+	AppID           string      `json:"app_id,omitempty"`
+	OrgID           string      `json:"org_id,omitempty"`
+	// RunConfig is the new test's run configuration (TestRunConfig).
+	RunConfig map[string]interface{} `json:"run_config,omitempty"`
 }
 
+// CreateTestResponse represents a test creation response.
+// The backend returns the full Test object, but we only need id and version.
 type CreateTestResponse struct {
 	ID      string `json:"id"`
 	Version int    `json:"version"`
 	Name    string `json:"name,omitempty"`
 }
 
+// CreateTest creates a new test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request
+//
+// Returns:
+//   - *CreateTestResponse: The creation response
+//   - error: Any error that occurred
 func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*CreateTestResponse, error) {
+	// Every test must be associated with an app. This is the single chokepoint
+	// all CLI test creation funnels through, so enforcing here guarantees no
+	// command path (create, hot-reload, interactive, init) can create an
+	// app-less test. Mirrors the backend guard in create_authored_test.
 	if req == nil || strings.TrimSpace(req.AppID) == "" {
 		return nil, fmt.Errorf(
 			"a test must be associated with an app: provide an app_id before creating a test",
@@ -2392,12 +2912,15 @@ func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*Creat
 	return &result, nil
 }
 
+// CreateTestFromBlocksRequest represents a test creation request backed by
+// already-compiled editor blocks.
 type CreateTestFromBlocksRequest struct {
 	Blocks   []map[string]interface{} `json:"blocks"`
 	Metadata map[string]interface{}   `json:"metadata"`
 	Options  map[string]interface{}   `json:"options,omitempty"`
 }
 
+// CreateTestFromBlocksResponse represents the response from /tests/yaml/from-blocks.
 type CreateTestFromBlocksResponse struct {
 	Success      bool     `json:"success"`
 	TestID       string   `json:"test_id"`
@@ -2447,6 +2970,7 @@ func (c *Client) ValidateYAML(ctx context.Context, req *ValidateYAMLRequest) (*V
 	return &result, nil
 }
 
+// CreateTestFromBlocks creates a test from editor blocks using the YAML v2 API.
 func (c *Client) CreateTestFromBlocks(ctx context.Context, req *CreateTestFromBlocksRequest) (*CreateTestFromBlocksResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/yaml/from-blocks", req)
 	if err != nil {
@@ -2461,6 +2985,7 @@ func (c *Client) CreateTestFromBlocks(ctx context.Context, req *CreateTestFromBl
 	return &result, nil
 }
 
+// StartRecordingCompile starts a recording/session compilation job.
 func (c *Client) StartRecordingCompile(ctx context.Context, req *CompileRecordingRequest) (*CompileRecordingStartResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/recordings/compile", req)
 	if err != nil {
@@ -2475,6 +3000,7 @@ func (c *Client) StartRecordingCompile(ctx context.Context, req *CompileRecordin
 	return &result, nil
 }
 
+// GetRecordingCompileStatus fetches the current status and result for a compile job.
 func (c *Client) GetRecordingCompileStatus(ctx context.Context, jobID string) (*CompileRecordingStatusResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf(
 		"/api/v1/recordings/compile/%s",
@@ -2492,27 +3018,45 @@ func (c *Client) GetRecordingCompileStatus(ctx context.Context, jobID string) (*
 	return &result, nil
 }
 
+// ValidateAPIKeyResponse represents the response from API key validation.
+// Contains user information returned when an API key is successfully validated.
 type ValidateAPIKeyResponse struct {
+	// UserID is the unique identifier for the authenticated user.
 	UserID string `json:"user_id"`
 
+	// OrgID is the organization ID the user belongs to.
 	OrgID string `json:"org_id"`
 
+	// OrgName is the human-readable organization name from PropelAuth.
 	OrgName string `json:"org_name"`
 
+	// Email is the user's email address.
 	Email string `json:"email"`
 
+	// ConcurrencyLimit is the maximum number of concurrent test executions allowed.
 	ConcurrencyLimit int `json:"concurrency_limit"`
 }
 
+// RevokeCLIAPIKeyRequest revokes a browser-generated CLI API key by ID.
 type RevokeCLIAPIKeyRequest struct {
 	APIKeyID string `json:"api_key_id"`
 }
 
+// RevokeCLIAPIKeyResponse represents the response from revoking a browser-generated CLI API key.
 type RevokeCLIAPIKeyResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
+// ValidateAPIKey validates the client's API key against the backend.
+// Returns user information if the API key is valid.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *ValidateAPIKeyResponse: User information if API key is valid
+//   - error: APIError with StatusCode 401 if invalid, or other errors
 func (c *Client) ValidateAPIKey(ctx context.Context) (*ValidateAPIKeyResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/entity/users/get_user_uuid", nil)
 	if err != nil {
@@ -2527,7 +3071,7 @@ func (c *Client) ValidateAPIKey(ctx context.Context) (*ValidateAPIKeyResponse, e
 	return &result, nil
 }
 
-// RevokeCLIAPIKey revokes the specified browser-generated CLI API key ID.
+// RevokeCLIAPIKey revokes the current machine's browser-generated CLI API key.
 func (c *Client) RevokeCLIAPIKey(ctx context.Context, apiKeyID string) error {
 	resp, err := c.doRequestOnce(
 		ctx,
@@ -2546,45 +3090,73 @@ func (c *Client) RevokeCLIAPIKey(ctx context.Context, apiKeyID string) error {
 	return nil
 }
 
+// GithubInstallURLResponse is the response from GET
+// /api/v1/integrations/github/install-url. It carries the GitHub App
+// installation URL (with the CSRF state token already embedded) plus the bare
+// state token for callers that need it separately.
 type GithubInstallURLResponse struct {
 	// StateToken is the CSRF token bound to the user+org for this install.
 	StateToken string `json:"state_token"`
 
+	// InstallURL is the GitHub App installation URL to open in a browser.
 	InstallURL string `json:"install_url"`
 }
 
+// GithubOrgRepository is a single repository visible to the org's GitHub App
+// installation.
 type GithubOrgRepository struct {
+	// Owner is the repository owner/namespace (e.g. "revyl").
 	Owner string `json:"owner"`
 
+	// Repo is the repository name (e.g. "my-app").
 	Repo string `json:"repo"`
 
+	// InstallationID is the GitHub App installation that exposes this repo.
 	InstallationID int64 `json:"installation_id"`
 }
 
+// GithubOrgInstallation describes the org's GitHub App installation row.
 type GithubOrgInstallation struct {
+	// ID is the Revyl-side installation record UUID.
 	ID string `json:"id"`
 
+	// PropelOrgID is the PropelAuth organization ID that owns the install.
 	PropelOrgID string `json:"propel_org_id"`
 
+	// InstallationID is the numeric GitHub App installation ID.
 	InstallationID int64 `json:"installation_id"`
 
+	// Status is the installation status (e.g. "active").
 	Status string `json:"status"`
 
+	// CreatedAt is the ISO timestamp the installation was recorded.
 	CreatedAt string `json:"created_at"`
 
+	// GHInstallationOwnerID is the GitHub account ID that owns the install.
 	GHInstallationOwnerID string `json:"gh_installation_owner_id,omitempty"`
 
+	// VerifiedAt is the ISO timestamp the install was last verified, if any.
 	VerifiedAt string `json:"verified_at,omitempty"`
 }
 
+// GithubRepositoriesResponse mirrors the backend OrganizationRepositoriesResponse
+// from GET /api/v1/integrations/github/repositories. It is the richest single
+// signal for whether GitHub is connected for the authenticated org.
 type GithubRepositoriesResponse struct {
+	// Repositories are the repos accessible to the active installation.
 	Repositories []GithubOrgRepository `json:"repositories"`
 
+	// Installation is the org's installation row, or nil when not installed.
 	Installation *GithubOrgInstallation `json:"installation"`
 
+	// HasAccess is true when the org has an active GitHub App installation.
 	HasAccess bool `json:"has_access"`
 }
 
+// IsConnected reports whether the org has an active GitHub App installation.
+//
+// Returns:
+//   - bool: true when an installation row exists and the org has access.
 func (r *GithubRepositoriesResponse) IsConnected() bool {
 	if r == nil {
 		return false
@@ -2592,6 +3164,16 @@ func (r *GithubRepositoriesResponse) IsConnected() bool {
 	return r.Installation != nil && r.HasAccess
 }
 
+// GetGithubInstallURL fetches the GitHub App installation URL for the
+// authenticated organization. The org is resolved from the API key; no org
+// header is required.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//
+// Returns:
+//   - *GithubInstallURLResponse: The install URL plus its CSRF state token.
+//   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
 func (c *Client) GetGithubInstallURL(ctx context.Context) (*GithubInstallURLResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/integrations/github/install-url", nil)
 	if err != nil {
@@ -2605,6 +3187,17 @@ func (c *Client) GetGithubInstallURL(ctx context.Context) (*GithubInstallURLResp
 	return &result, nil
 }
 
+// GetGithubRepositories fetches the GitHub App installation state and visible
+// repositories for the authenticated organization. This endpoint returns HTTP
+// 200 whether or not GitHub is connected, so callers should inspect
+// IsConnected rather than relying on error status.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//
+// Returns:
+//   - *GithubRepositoriesResponse: Installation state plus accessible repos.
+//   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
 func (c *Client) GetGithubRepositories(ctx context.Context) (*GithubRepositoriesResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/integrations/github/repositories", nil)
 	if err != nil {
@@ -2618,6 +3211,10 @@ func (c *Client) GetGithubRepositories(ctx context.Context) (*GithubRepositories
 	return &result, nil
 }
 
+// StreamUploadBuild uploads a build using streaming (alternative to presigned URL).
+//
+// SimpleTest represents a lightweight test item for listing.
+// Includes optional app and tag metadata used by the TUI browse/filter view.
 type SimpleTest struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
@@ -2627,12 +3224,24 @@ type SimpleTest struct {
 	Tags     []TestTag `json:"tags,omitempty"`
 }
 
+// CLISimpleTestListResponse represents the response from listing simple tests.
+// This is a CLI-specific type that uses SimpleTest instead of the generated type.
 type CLISimpleTestListResponse struct {
 	Tests []SimpleTest `json:"tests"`
 	Count int          `json:"count"`
 }
 
-// ListOrgTests fetches one paginated slice of lightweight organization tests (including optional app and tag metadata).
+// ListOrgTests fetches all tests for the authenticated user's organization.
+// Returns a lightweight list with just id, name, and platform.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum number of tests to return (default: 100)
+//   - offset: Number of tests to skip for pagination (default: 0)
+//
+// Returns:
+//   - *CLISimpleTestListResponse: List of tests with count
+//   - error: Any error that occurred
 func (c *Client) ListOrgTests(ctx context.Context, limit, offset int) (*CLISimpleTestListResponse, error) {
 	if limit <= 0 {
 		limit = 100
@@ -2655,6 +3264,16 @@ func (c *Client) ListOrgTests(ctx context.Context, limit, offset int) (*CLISimpl
 	return &result, nil
 }
 
+// ListAllOrgTests fetches all tests for the authenticated organization using
+// offset pagination until exhaustion.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - pageSize: Page size for each request (default: 200, max: 500)
+//
+// Returns:
+//   - []SimpleTest: All tests in the organization
+//   - error: Any error that occurred
 func (c *Client) ListAllOrgTests(ctx context.Context, pageSize int) ([]SimpleTest, error) {
 	if pageSize <= 0 {
 		pageSize = 200
@@ -2686,10 +3305,12 @@ func (c *Client) ListAllOrgTests(ctx context.Context, pageSize int) ([]SimpleTes
 		all = append(all, resp.Tests...)
 		offset += len(resp.Tests)
 
+		// Stop when we've consumed the reported count.
 		if resp.Count > 0 && offset >= resp.Count {
 			break
 		}
 
+		// Defensive stop when page is short despite missing/incorrect count.
 		if len(resp.Tests) < pageSize {
 			break
 		}
@@ -2709,6 +3330,8 @@ func (c *Client) ListAllOrgTests(ctx context.Context, pageSize int) ([]SimpleTes
 
 const listAllOrgTestsConcurrency = 4
 
+// listOrgTestPages fetches the full pages from startOffset up to totalCount
+// concurrently and returns them in offset order. Any failed page fails the call.
 func (c *Client) listOrgTestPages(ctx context.Context, pageSize, startOffset, totalCount int) ([]*CLISimpleTestListResponse, error) {
 	var offsets []int
 	for offset := startOffset; offset < totalCount; offset += pageSize {
@@ -2736,6 +3359,8 @@ func (c *Client) listOrgTestPages(ctx context.Context, pageSize, startOffset, to
 	return pages, nil
 }
 
+// TestWithTags represents a test with its associated tags.
+// Used by the full get_tests endpoint which includes tag data.
 type TestWithTags struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
@@ -2743,19 +3368,31 @@ type TestWithTags struct {
 	Tags     []TestTag `json:"tags"`
 }
 
+// TestTag represents a tag on a test (subset of CLITagResponse).
 type TestTag struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Color string `json:"color,omitempty"`
 }
 
+// CLITestListWithTagsResponse represents the response from the full test list endpoint.
 type CLITestListWithTagsResponse struct {
 	Tests      []TestWithTags `json:"tests"`
 	Count      int            `json:"count"`
 	TotalCount *int           `json:"total_count,omitempty"`
 }
 
-// ListOrgTestsWithTags fetches one limit/offset page of organization tests with tags.
+// ListOrgTestsWithTags fetches all tests with their tags.
+// Uses the full get_tests endpoint which includes tag data per test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum number of tests to return (default: 150)
+//   - offset: Number of tests to skip for pagination (default: 0)
+//
+// Returns:
+//   - *CLITestListWithTagsResponse: List of tests with tags
+//   - error: Any error that occurred
 func (c *Client) ListOrgTestsWithTags(ctx context.Context, limit, offset int) (*CLITestListWithTagsResponse, error) {
 	if limit <= 0 {
 		limit = 150
@@ -2778,6 +3415,8 @@ func (c *Client) ListOrgTestsWithTags(ctx context.Context, limit, offset int) (*
 	return &result, nil
 }
 
+// App represents an app in the organization.
+// This is a CLI-specific type that's simpler than the generated API response types.
 type App struct {
 	AutoGitBranchEnabled       *bool  `json:"auto_git_branch_enabled,omitempty"`
 	DefaultBranchID            string `json:"default_branch_id,omitempty"`
@@ -2797,6 +3436,7 @@ func (app App) AutomaticGitBranchEnabled() bool {
 	return app.AutoGitBranchEnabled == nil || *app.AutoGitBranchEnabled
 }
 
+// AtlasQuery carries the shared filters supported by Atlas inspection endpoints.
 type AtlasQuery struct {
 	BranchID            string
 	RecentBuildLimit    int
@@ -2821,6 +3461,7 @@ type AtlasQuery struct {
 	LaunchTerms []string
 }
 
+// AtlasLaunchTermsHeader carries launch-variable filter terms to the graph API.
 const AtlasLaunchTermsHeader = "X-Atlas-Launch-Terms"
 
 func atlasLaunchTermsHeaders(terms []string) []map[string]string {
@@ -2834,6 +3475,8 @@ func atlasLaunchTermsHeaders(terms []string) []map[string]string {
 	return []map[string]string{{AtlasLaunchTermsHeader: strings.Join(encoded, ",")}}
 }
 
+// AtlasFilterQuery selects the map filter options: groups and keys when Group
+// and Key are empty, otherwise that key's most common values.
 type AtlasFilterQuery struct {
 	AppID            string
 	Group            string
@@ -2846,6 +3489,8 @@ type AtlasFilterQuery struct {
 	RecentBuildLimit int
 }
 
+// GetAtlasGraphFilters lists filter groups and keys, or one key's values, with
+// run counts over the selected branch, build and time scope.
 func (c *Client) GetAtlasGraphFilters(ctx context.Context, query AtlasFilterQuery) (AtlasResponse, error) {
 	values := url.Values{}
 	for name, value := range map[string]string{
@@ -2879,6 +3524,7 @@ func (c *Client) GetAtlasGraphFilters(ctx context.Context, query AtlasFilterQuer
 	return result, nil
 }
 
+// AtlasResponse is a generic JSON object returned by Atlas inspection endpoints.
 type AtlasResponse map[string]interface{}
 
 func (q AtlasQuery) values() url.Values {
@@ -3033,6 +3679,8 @@ func (c *Client) GetAtlasEntityObservations(ctx context.Context, query AtlasQuer
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/entities/%s/observations", url.PathEscape(query.AppID), url.PathEscape(entityID)), query)
 }
 
+// GetAtlasNodeDetails reads one node's full detail payload, such as its state
+// stacks and observation evidence, scoped by the same launch terms as the graph.
 func (c *Client) GetAtlasNodeDetails(ctx context.Context, query AtlasQuery, nodeID string) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/nodes/%s/details", url.PathEscape(query.AppID), url.PathEscape(nodeID)), query)
 }
@@ -3041,6 +3689,8 @@ func (c *Client) GetAtlasObservation(ctx context.Context, query AtlasQuery, obse
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/observations/%s", url.PathEscape(query.AppID), url.PathEscape(observationID)), query)
 }
 
+// CLIPaginatedAppsResponse represents a paginated list of apps.
+// This is a CLI-specific type that uses App instead of the generated type.
 type CLIPaginatedAppsResponse struct {
 	Items       []App `json:"items"`
 	Total       int   `json:"total"`
@@ -3051,7 +3701,17 @@ type CLIPaginatedAppsResponse struct {
 	HasPrevious bool  `json:"has_previous"`
 }
 
-// ListApps fetches one paginated page of organization apps.
+// ListApps fetches all apps for the authenticated user's organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - platform: Optional platform filter (android, ios, or empty for all)
+//   - page: Page number (1-indexed, default: 1)
+//   - pageSize: Number of items per page (default: 50, max: 100)
+//
+// Returns:
+//   - *CLIPaginatedAppsResponse: Paginated list of apps
+//   - error: Any error that occurred
 func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize int) (*CLIPaginatedAppsResponse, error) {
 	return c.listApps(ctx, platform, "", page, pageSize, true)
 }
@@ -3098,6 +3758,8 @@ func (c *Client) listApps(ctx context.Context, platform string, search string, p
 	return &result, nil
 }
 
+// ListAllApps retrieves all apps for the authenticated user's organization by
+// following page-based pagination until exhaustion.
 func (c *Client) ListAllApps(ctx context.Context, platform string, pageSize int) ([]App, error) {
 	if pageSize <= 0 {
 		pageSize = 100
@@ -3189,6 +3851,15 @@ func appNeedsVersionSummaryHydration(app App) bool {
 	return app.VersionsCount == 0 || strings.TrimSpace(app.LatestVersion) == ""
 }
 
+// GetApp retrieves an app by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - appID: The app ID
+//
+// Returns:
+//   - *App: The app data
+//   - error: Any error that occurred
 func (c *Client) GetApp(ctx context.Context, appID string) (*App, error) {
 	return c.getApp(ctx, appID, true)
 }
@@ -3211,25 +3882,43 @@ func (c *Client) getApp(ctx context.Context, appID string, hydrate bool) (*App, 
 	return &result, nil
 }
 
+// CreateAppRequest represents a request to create a new app.
 type CreateAppRequest struct {
+	// Name is the display name for the app.
 	Name string `json:"name"`
 
+	// Platform is the target platform (ios, android, or web).
 	Platform string `json:"platform"`
 
+	// Description is an optional description.
 	Description string `json:"description,omitempty"`
 }
 
+// CreateAppResponse represents the response from creating an app.
 type CreateAppResponse struct {
 	DefaultBranchID   string `json:"default_branch_id,omitempty"`
 	DefaultBranchName string `json:"default_branch_name,omitempty"`
-	ID                string `json:"id"`
+	// ID is the unique identifier for the created app.
+	ID string `json:"id"`
 
+	// Name is the display name.
 	Name string `json:"name"`
 
+	// Platform is the target platform.
 	Platform string `json:"platform"`
 }
 
+// CreateApp creates a new app in the organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request with name, platform, and optional description
+//
+// Returns:
+//   - *CreateAppResponse: The created app
+//   - error: Any error that occurred
 func (c *Client) CreateApp(ctx context.Context, req *CreateAppRequest) (*CreateAppResponse, error) {
+	// Normalize platform to match backend enum (iOS, Android, web).
 	normalizedReq := &CreateAppRequest{
 		Name:        req.Name,
 		Platform:    normalizePlatform(req.Platform),
@@ -3249,6 +3938,13 @@ func (c *Client) CreateApp(ctx context.Context, req *CreateAppRequest) (*CreateA
 	return &result, nil
 }
 
+// normalizePlatform converts platform strings to backend enum format.
+//
+// Parameters:
+//   - platform: The platform string (e.g., "ios", "android", "web")
+//
+// Returns:
+//   - string: The normalized platform ("iOS", "Android", or "web")
 func normalizePlatform(platform string) string {
 	switch strings.ToLower(platform) {
 	case "ios":
@@ -3262,31 +3958,53 @@ func normalizePlatform(platform string) string {
 	}
 }
 
+// CLICreateWorkflowRequest represents a workflow creation request.
+// This is a CLI-specific type for creating workflows.
+// Matches backend WorkflowData schema.
 type CLICreateWorkflowRequest struct {
+	// Name is the workflow name.
 	Name string `json:"name"`
 
+	// Tests is an optional list of test IDs to include in the workflow.
 	Tests []string `json:"tests"`
 
 	// Schedule is the workflow schedule (defaults to "No Schedule").
 	Schedule string `json:"schedule"`
 
+	// Owner is the user ID who owns this workflow (required by backend).
 	Owner string `json:"owner"`
 
+	// OrgID is the organization ID (optional).
 	OrgID string `json:"org_id,omitempty"`
 }
 
+// CLICreateWorkflowResponse represents a workflow creation response.
+// This is a CLI-specific type that matches the backend CreateWorkflowResponse.
 type CLICreateWorkflowResponse struct {
+	// Data contains the created workflow record.
 	Data struct {
+		// ID is the unique identifier for the created workflow.
 		ID string `json:"id"`
 
+		// Name is the workflow name.
 		Name string `json:"name"`
 	} `json:"data"`
 }
 
+// GetID returns the workflow ID from the response.
 func (r *CLICreateWorkflowResponse) GetID() string {
 	return r.Data.ID
 }
 
+// CreateWorkflow creates a new workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request with name and optional test IDs
+//
+// Returns:
+//   - *CLICreateWorkflowResponse: The creation response with workflow ID
+//   - error: Any error that occurred
 func (c *Client) CreateWorkflow(ctx context.Context, req *CLICreateWorkflowRequest) (*CLICreateWorkflowResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/workflows/create", req)
 	if err != nil {
@@ -3301,36 +4019,53 @@ func (c *Client) CreateWorkflow(ctx context.Context, req *CLICreateWorkflowReque
 	return &result, nil
 }
 
+// CLITestStatusResponse represents the status of a test execution.
+// This is a CLI-specific type that matches the backend TestStatusResponse schema.
 type CLITestStatusResponse struct {
+	// ID is the execution task ID.
 	ID string `json:"id"`
 
+	// TestID is the test definition ID.
 	TestID string `json:"test_id"`
 
+	// Status is the current execution status (queued, running, completed, failed, etc.).
 	Status string `json:"status"`
 
+	// Progress is the completion percentage (0-100).
 	Progress float64 `json:"progress"`
 
+	// CurrentStep is the description of the current step being executed.
 	CurrentStep string `json:"current_step,omitempty"`
 
+	// CurrentStepIndex is the 0-based index of the current step.
 	CurrentStepIndex int `json:"current_step_index"`
 
+	// TotalSteps is the total number of steps in the test.
 	TotalSteps int `json:"total_steps"`
 
+	// StepsCompleted is the number of steps that have been completed.
 	StepsCompleted int `json:"steps_completed"`
 
+	// ErrorMessage contains the error message if the test failed.
 	ErrorMessage string `json:"error_message,omitempty"`
 
+	// Success indicates whether the test passed (nil if not yet complete).
 	Success *bool `json:"success,omitempty"`
 
+	// WorkflowRunID is the parent workflow run ID if this test is part of a workflow.
 	WorkflowRunID string `json:"workflow_run_id,omitempty"`
 
+	// StartedAt is when the test execution started.
 	StartedAt string `json:"started_at,omitempty"`
 
+	// CompletedAt is when the test execution completed.
 	CompletedAt string `json:"completed_at,omitempty"`
 
+	// ExecutionTimeSeconds is the total execution time in seconds.
 	ExecutionTimeSeconds float64 `json:"execution_time_seconds,omitempty"`
 }
 
+// Workflow represents a workflow definition.
 type Workflow struct {
 	DefaultConcurrencyLimit *int                   `json:"default_concurrency_limit"`
 	ID                      string                 `json:"id"`
@@ -3341,11 +4076,15 @@ type Workflow struct {
 	OverrideLocation        bool                   `json:"override_location,omitempty"`
 	BuildConfig             map[string]interface{} `json:"build_config,omitempty"`
 	OverrideBuildConfig     bool                   `json:"override_build_config,omitempty"`
-	RunConfig               map[string]interface{} `json:"run_config,omitempty"`
-	OverrideRunConfig       bool                   `json:"override_run_config,omitempty"`
+	// RunConfig is the stored TestRunConfig that replaces every test's own
+	// run config while OverrideRunConfig is true. It stays a raw map so a
+	// read-modify-write preserves keys this CLI does not model.
+	RunConfig         map[string]interface{} `json:"run_config,omitempty"`
+	OverrideRunConfig bool                   `json:"override_run_config,omitempty"`
 }
 
-// RunConfigRetries returns the stored run_config.execution_mode.retries count regardless of OverrideRunConfig.
+// RunConfigRetries returns run_config.execution_mode.retries, the attempts
+// each test gets (including the first) while the run config override is on.
 func (w *Workflow) RunConfigRetries() (int, bool) {
 	executionMode, ok := w.RunConfig["execution_mode"].(map[string]interface{})
 	if !ok {
@@ -3361,6 +4100,8 @@ func (w *Workflow) RunConfigRetries() (int, bool) {
 	}
 }
 
+// SetRunConfigRetries sets run_config.execution_mode.retries on a copy of the
+// stored run config, keeping every other key.
 func (w *Workflow) SetRunConfigRetries(retries int) {
 	runConfig := make(map[string]interface{}, len(w.RunConfig)+1)
 	for key, value := range w.RunConfig {
@@ -3377,6 +4118,9 @@ func (w *Workflow) SetRunConfigRetries(retries int) {
 	w.RunConfig = runConfig
 }
 
+// RunConfigUpdate returns the update_run_config body for the workflow's
+// current run config and override flag. The backend replaces both columns,
+// so the body always carries the full stored run config.
 func (w *Workflow) RunConfigUpdate() WorkflowRunConfigPatch {
 	runConfig := w.RunConfig
 	if runConfig == nil {
@@ -3388,6 +4132,8 @@ func (w *Workflow) RunConfigUpdate() WorkflowRunConfigPatch {
 	}
 }
 
+// CLIWorkflowLastExecution holds the last execution metadata returned by the
+// get_with_last_status endpoint.
 type CLIWorkflowLastExecution struct {
 	Status    string   `json:"status"`
 	LastRun   *string  `json:"last_run,omitempty"`
@@ -3396,6 +4142,8 @@ type CLIWorkflowLastExecution struct {
 	ID        *string  `json:"id,omitempty"`
 }
 
+// SimpleWorkflow represents a workflow returned by the list endpoint,
+// including last-execution metadata and test count.
 type SimpleWorkflow struct {
 	ID            string                    `json:"id"`
 	Name          string                    `json:"name"`
@@ -3403,6 +4151,7 @@ type SimpleWorkflow struct {
 	LastExecution *CLIWorkflowLastExecution `json:"last_execution,omitempty"`
 }
 
+// CLIWorkflowListResponse represents the response from the list workflows endpoint.
 type CLIWorkflowListResponse struct {
 	Workflows  []SimpleWorkflow `json:"data"`
 	Count      int              `json:"count"`
@@ -3412,6 +4161,8 @@ type CLIWorkflowListResponse struct {
 	TotalCount *int             `json:"total_count,omitempty"`
 }
 
+// WorkflowCatalogLimitError reports that a complete workflow catalog cannot be
+// returned without exceeding the caller's explicit safety bound.
 type WorkflowCatalogLimitError struct {
 	MaxWorkflows int
 	TotalCount   *int
@@ -3424,11 +4175,29 @@ func (e *WorkflowCatalogLimitError) Error() string {
 	return fmt.Sprintf("workflow catalog exceeds the limit of %d workflows", e.MaxWorkflows)
 }
 
-// ListWorkflows fetches one default-sized page of organization workflows.
+// ListWorkflows retrieves all workflows for the current organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLIWorkflowListResponse: The list of workflows
+//   - error: Any error that occurred
 func (c *Client) ListWorkflows(ctx context.Context) (*CLIWorkflowListResponse, error) {
 	return c.ListWorkflowsPage(ctx, 200, 0)
 }
 
+// ListWorkflowsPage retrieves workflows for the current organization using
+// explicit limit/offset pagination.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum workflows to fetch in this call (default: 200)
+//   - offset: Number of workflows to skip (default: 0)
+//
+// Returns:
+//   - *CLIWorkflowListResponse: The paginated workflow list
+//   - error: Any error that occurred
 func (c *Client) ListWorkflowsPage(ctx context.Context, limit, offset int) (*CLIWorkflowListResponse, error) {
 	if limit <= 0 {
 		limit = 200
@@ -3454,10 +4223,23 @@ func (c *Client) ListWorkflowsPage(ctx context.Context, limit, offset int) (*CLI
 	return &result, nil
 }
 
+// ListAllWorkflows retrieves all workflows for the current organization using
+// limit/offset pagination until exhaustion.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - pageSize: Page size per call (default: 200, max: 200)
+//
+// Returns:
+//   - []SimpleWorkflow: All workflows
+//   - error: Any error that occurred
 func (c *Client) ListAllWorkflows(ctx context.Context, pageSize int) ([]SimpleWorkflow, error) {
 	return c.listWorkflows(ctx, pageSize, 0)
 }
 
+// ListWorkflowsBounded retrieves the complete workflow catalog while enforcing
+// an explicit maximum number of workflows. It fails instead of returning a
+// partial catalog when the maximum would be exceeded.
 func (c *Client) ListWorkflowsBounded(ctx context.Context, pageSize, maxWorkflows int) ([]SimpleWorkflow, error) {
 	if maxWorkflows <= 0 {
 		return nil, fmt.Errorf("maximum workflow count must be positive")
@@ -3544,6 +4326,15 @@ func (c *Client) listWorkflows(ctx context.Context, pageSize, maxWorkflows int) 
 	return all, nil
 }
 
+// GetWorkflow retrieves a workflow by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow ID
+//
+// Returns:
+//   - *Workflow: The workflow data
+//   - error: Any error that occurred
 func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*Workflow, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/workflows/get_workflow_info?workflow_id=%s", workflowID), nil)
@@ -3559,6 +4350,8 @@ func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*Workflow,
 	return &result, nil
 }
 
+// WorkflowInfoTestItem contains per-test metadata returned by the lightweight
+// workflow info endpoint (name, platform, last execution status).
 type WorkflowInfoTestItem struct {
 	ID                string   `json:"id"`
 	Name              string   `json:"name"`
@@ -3568,12 +4361,24 @@ type WorkflowInfoTestItem struct {
 	LastDuration      *float64 `json:"last_duration,omitempty"`
 }
 
+// WorkflowInfoResponse is the parsed response from the lightweight workflow
+// info endpoint, returning test_info with names and platforms.
 type WorkflowInfoResponse struct {
 	ID       string                 `json:"id"`
 	Name     string                 `json:"name"`
 	TestInfo []WorkflowInfoTestItem `json:"test_info"`
 }
 
+// GetWorkflowInfo retrieves lightweight workflow data including resolved test
+// names, platforms, and per-test last execution status.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//
+// Returns:
+//   - *WorkflowInfoResponse: Workflow info with test details
+//   - error: Any error that occurred
 func (c *Client) GetWorkflowInfo(ctx context.Context, workflowID string) (*WorkflowInfoResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/workflows/get_info/%s", workflowID), nil)
@@ -3591,6 +4396,15 @@ func (c *Client) GetWorkflowInfo(ctx context.Context, workflowID string) (*Workf
 	return &wrapper.Data, nil
 }
 
+// GetTestStatus retrieves the current status of a test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The execution task ID
+//
+// Returns:
+//   - *CLITestStatusResponse: The current test status
+//   - error: Any error that occurred
 func (c *Client) GetTestStatus(ctx context.Context, taskID string) (*CLITestStatusResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/tests/get_test_execution_task?task_id=%s", taskID), nil)
@@ -3606,6 +4420,15 @@ func (c *Client) GetTestStatus(ctx context.Context, taskID string) (*CLITestStat
 	return &result, nil
 }
 
+// CancelTest cancels a running test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The execution task ID to cancel
+//
+// Returns:
+//   - *CancelTestResponse: The cancellation response
+//   - error: Any error that occurred
 func (c *Client) CancelTest(ctx context.Context, taskID string) (*CancelTestResponse, error) {
 	resp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/execution/tests/status/cancel/%s", taskID), nil)
@@ -3621,6 +4444,15 @@ func (c *Client) CancelTest(ctx context.Context, taskID string) (*CancelTestResp
 	return &result, nil
 }
 
+// CancelWorkflow cancels a running workflow execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The workflow task ID to cancel
+//
+// Returns:
+//   - *WorkflowCancelResponse: The cancellation response
+//   - error: Any error that occurred
 func (c *Client) CancelWorkflow(ctx context.Context, taskID string) (*WorkflowCancelResponse, error) {
 	resp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/workflows/status/cancel/%s", taskID), nil)
@@ -3636,6 +4468,7 @@ func (c *Client) CancelWorkflow(ctx context.Context, taskID string) (*WorkflowCa
 	return &result, nil
 }
 
+// CreateHotReloadRelay provisions a backend-owned relay session.
 func (c *Client) CreateHotReloadRelay(
 	ctx context.Context,
 	req HotReloadRelayCreateParams,
@@ -3652,6 +4485,7 @@ func (c *Client) CreateHotReloadRelay(
 	return &result, nil
 }
 
+// HeartbeatHotReloadRelay refreshes a relay session TTL.
 func (c *Client) HeartbeatHotReloadRelay(
 	ctx context.Context,
 	relayID string,
@@ -3673,6 +4507,7 @@ func (c *Client) HeartbeatHotReloadRelay(
 	return &result, nil
 }
 
+// RevokeHotReloadRelay tears down a relay session on the backend.
 func (c *Client) RevokeHotReloadRelay(ctx context.Context, relayID string) error {
 	resp, err := c.doRequest(
 		ctx,
@@ -3686,6 +4521,16 @@ func (c *Client) RevokeHotReloadRelay(ctx context.Context, relayID string) error
 	return parseResponse(resp, nil)
 }
 
+// FindDevClientBuilds searches for development client builds in the organization.
+// Looks for apps with names containing "dev" or "development".
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - platform: Platform filter ("ios", "android", or empty for all)
+//
+// Returns:
+//   - []App: List of matching apps
+//   - error: Any error that occurred
 func (c *Client) FindDevClientBuilds(ctx context.Context, platform string) ([]App, error) {
 	resp, err := c.ListApps(ctx, platform, 1, 100)
 	if err != nil {
@@ -3704,6 +4549,15 @@ func (c *Client) FindDevClientBuilds(ctx context.Context, platform string) ([]Ap
 	return devBuilds, nil
 }
 
+// GetLatestBuildVersion retrieves the latest version for an app.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - appID: The app ID
+//
+// Returns:
+//   - *BuildVersion: The latest build version, or nil if none exist
+//   - error: Any error that occurred
 func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*BuildVersion, error) {
 	detail, err := c.ResolveBuildSelection(ctx, appID, BuildSelection{Mode: BuildSelectionModeLatest})
 	if errors.Is(err, ErrBranchHasNoBuilds) {
@@ -3715,6 +4569,8 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 	return detail.BuildVersion(), nil
 }
 
+// BuildVersionDetail represents a build version with an optional download URL.
+// Returned by GetBuildVersionDownloadURL.
 type BuildVersionDetail struct {
 	AutoGitBranchEnabled *bool                  `json:"auto_git_branch_enabled,omitempty"`
 	BranchSource         BranchSource           `json:"branch_source,omitempty"`
@@ -3729,6 +4585,15 @@ type BuildVersionDetail struct {
 	Metadata             map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// GetBuildVersionDownloadURL retrieves a build version with a presigned download URL.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - versionID: The build version ID
+//
+// Returns:
+//   - *BuildVersionDetail: The build version with download URL
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*BuildVersionDetail, error) {
 	return c.GetBuildVersionDetail(ctx, versionID, true)
 }
@@ -3748,27 +4613,38 @@ func (c *Client) GetBuildVersionDetail(ctx context.Context, versionID string, in
 	return &result, nil
 }
 
+// StartDeviceRequest represents a request to start a device session.
+// Used for interactive test creation mode.
 type StartDeviceRequest struct {
 	GitBranchName  string             `json:"git_branch_name,omitempty"`
 	BranchID       string             `json:"branch_id,omitempty"`
 	BranchName     string             `json:"branch_name,omitempty"`
 	BuildSelection BuildSelectionMode `json:"build_selection,omitempty"`
 	PinnedBuildID  string             `json:"pinned_build_id,omitempty"`
-	Platform       string             `json:"platform"`
-	Web            *DeviceWebOptions  `json:"web,omitempty"`
+	// Platform is the target platform (ios, android, or web).
+	Platform string            `json:"platform"`
+	Web      *DeviceWebOptions `json:"web,omitempty"`
 
+	// TestID is the test ID to associate with this device session.
+	// Required unless IsSimulation is true.
 	TestID string `json:"test_id,omitempty"`
 
+	// AppPackage is the bundle ID / package name of the app.
 	AppPackage string `json:"app_package,omitempty"`
 
+	// AppID is the CogniSim apps table UUID (latest build is resolved server-side).
 	AppID string `json:"app_id,omitempty"`
 
+	// BuildID is the CogniSim builds table UUID for the installed artifact.
 	BuildID string `json:"build_id,omitempty"`
 
+	// AppURL is a downloadable app artifact URL (.apk/.ipa/.zip).
 	AppURL string `json:"app_url,omitempty"`
 
+	// AppLink is a presigned or direct URL to the app binary artifact.
 	AppLink string `json:"app_link,omitempty"`
 
+	// LaunchEnvVarIds are org launch variable IDs selected for a raw device session.
 	LaunchEnvVarIds []string `json:"launch_env_var_ids,omitempty"`
 
 	// EnvVars are inline launch environment variables (KEY=VALUE) applied to the
@@ -3778,41 +4654,61 @@ type StartDeviceRequest struct {
 	// LaunchArguments are non-secret inline iOS app arguments in exact token order.
 	LaunchArguments []string `json:"launch_arguments,omitempty"`
 
+	// IsSimulation enables simulation mode (streaming without test execution).
 	IsSimulation bool `json:"is_simulation,omitempty"`
 
+	// IdleTimeoutSeconds controls how long a session can be idle before auto-timeout.
+	// Defaults to 300 seconds when omitted.
 	IdleTimeoutSeconds int `json:"idle_timeout_seconds,omitempty"`
 
+	// DeviceModel overrides the target device model (e.g. "iPhone 16", "Pixel 7").
 	DeviceModel string `json:"device_model,omitempty"`
 
+	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").
 	OsVersion string `json:"os_version,omitempty"`
 
+	// DeviceRunnerID pins the session to a specific worker DEVICE_ID label.
 	DeviceRunnerID string `json:"device_runner_id,omitempty"`
 
+	// SessionID allows callers to pre-generate the canonical device session identifier.
 	SessionID string `json:"session_id,omitempty"`
 
+	// ComputerSessionID runs the app session inside this running computer.
 	ComputerSessionID string `json:"computer_session_id,omitempty"`
 
 	// Inference "local" runs an iOS or Web session's steps inside a computer on
 	// that computer's own model first.
 	Inference string `json:"inference,omitempty"`
 
+	// RunConfig contains optional execution configuration.
 	RunConfig *DeviceRunConfig `json:"run_config,omitempty"`
 
+	// SessionProfile, SessionProfileSource and SessionProfileFiles ask Revyl to
+	// run a session profile on its hosted runner before the session is ready,
+	// or carry applied outputs such as a --cookies-file's storage state.
 	SessionProfile       *SessionProfileRequest       `json:"session_profile,omitempty"`
 	SessionProfileSource *SessionProfileSource        `json:"session_profile_source,omitempty"`
 	SessionProfileFiles  *SessionProfileCheckoutFiles `json:"session_profile_files,omitempty"`
 }
 
+// SessionProfileRequest is a start's session_profile instruction. It mirrors
+// SessionProfileInstruction but keeps applied outputs' browser storage state as
+// the validated JSON document: the generated cookie expiry is float32, which
+// would round real expiry timestamps.
 type SessionProfileRequest struct {
 	Instruction SessionProfileInstructionKind `json:"instruction"`
 	Name        string                        `json:"name,omitempty"`
 	Outputs     *AppliedSessionProfileOutputs `json:"outputs,omitempty"`
 }
 
+// AppliedSessionProfileOutputs mirrors SessionProfileOutputs but keeps browser
+// storage state as the validated JSON document.
 type AppliedSessionProfileOutputs struct {
 	BrowserStorageState json.RawMessage `json:"browser_storage_state,omitempty"`
 }
 
+// GetBackendCapabilities lists the optional behaviors the backend supports.
+// A backend older than the route answers 404 as an *APIError.
 func (c *Client) GetBackendCapabilities(ctx context.Context) ([]string, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/backend-capabilities", nil)
 	if err != nil {
@@ -3832,26 +4728,43 @@ func (c *Client) GetBackendCapabilities(ctx context.Context) ([]string, error) {
 	return capabilities, nil
 }
 
+// DeviceRunConfig contains optional execution configuration for device sessions.
 type DeviceRunConfig struct {
+	// MaxRetries is the maximum number of retries for failed steps.
 	MaxRetries int `json:"max_retries,omitempty"`
 
+	// TimeoutSeconds is the maximum execution time in seconds.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 
+	// ExecutionMode contains execution-mode flags understood by the backend.
 	ExecutionMode *DeviceExecutionModeConfig `json:"execution_mode,omitempty"`
 }
 
+// DeviceExecutionModeConfig contains execution behavior flags for device sessions.
 type DeviceExecutionModeConfig struct {
 	// SkipAppInstall prevents the backend boot path from installing the app.
 	// Dev-loop flows use this so the CLI-owned install/relaunch step is the
 	// single source of truth.
 	SkipAppInstall bool `json:"skip_app_install,omitempty"`
 
+	// InitialOrientation sets the device orientation before the session app
+	// launches.
 	InitialOrientation string `json:"initial_orientation,omitempty"`
 
+	// InitialLocale sets the device locale before the session app launches.
 	InitialLocale string `json:"initial_locale,omitempty"`
 }
 
-// StartDevice starts a device session and returns the augmented StartDeviceResult.
+// StartDevice starts a device session for interactive test creation.
+// Returns the generated StartDeviceResponse type.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The device start request
+//
+// Returns:
+//   - *StartDeviceResult: The device start response with workflow run ID
+//   - error: Any error that occurred
 func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*StartDeviceResult, error) {
 	if req == nil {
 		return nil, fmt.Errorf("start device request is nil")
@@ -3903,13 +4816,17 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	return &result, nil
 }
 
-// StartDeviceResult embeds StartDeviceResponse and shadows or augments selected billing fields.
+// StartDeviceResult is the device start response with the billing fields the
+// generated contract does not carry yet.
 type StartDeviceResult struct {
 	StartDeviceResponse
+	// BillingURL, BillingAction and UpgradeBenefits describe a start refused
+	// for billing; empty when the refusal offers no billing step.
 	BillingURL      string           `json:"-"`
 	BillingAction   BillingAction    `json:"-"`
 	UpgradeBenefits *UpgradeBenefits `json:"-"`
-	UsageNotice     *UsageNotice     `json:"-"`
+	// UsageNotice is the usage notice attached to an accepted start.
+	UsageNotice *UsageNotice `json:"-"`
 }
 
 func traceHandoffHeadersFromContext(ctx context.Context) map[string]string {
@@ -3920,6 +4837,14 @@ func traceHandoffHeadersFromContext(ctx context.Context) map[string]string {
 	return handoff.Headers()
 }
 
+// GetDeviceTargets fetches the backend's current device target matrix.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *AllPlatformTargets: The current device target matrix
+//   - error: Any error that occurred
 func (c *Client) GetDeviceTargets(ctx context.Context) (*AllPlatformTargets, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/execution/device-targets", nil)
 	if err != nil {
@@ -3934,30 +4859,52 @@ func (c *Client) GetDeviceTargets(ctx context.Context) (*AllPlatformTargets, err
 	return &result, nil
 }
 
+// GroundElementRequest is the payload for the grounding proxy endpoint.
 type GroundElementRequest struct {
+	// Target is a natural language description of the UI element to locate.
 	Target string `json:"target"`
 
+	// ImageBase64 is the base64-encoded screenshot (PNG or JPEG).
 	ImageBase64 string `json:"image_base64"`
 
+	// Width is the screenshot width in pixels.
 	Width int `json:"width"`
 
+	// Height is the screenshot height in pixels.
 	Height int `json:"height"`
 
+	// Platform is the device platform (android or ios).
 	Platform string `json:"platform,omitempty"`
 
+	// SessionID is the device session ID for cost tracking.
 	SessionID string `json:"session_id,omitempty"`
 }
 
+// GroundElementResponse is the response from the grounding proxy endpoint.
 type GroundElementResponse struct {
+	// X is the absolute X pixel coordinate.
 	X int `json:"x"`
 
+	// Y is the absolute Y pixel coordinate.
 	Y int `json:"y"`
 
+	// Found indicates whether the element was successfully located.
 	Found bool `json:"found"`
 
+	// Error is the error message if grounding failed.
 	Error string `json:"error,omitempty"`
 }
 
+// GroundElement locates a UI element in a screenshot via the backend grounding
+// proxy, which routes the request through the Hatchet grounder-only workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - req: The grounding request with target description and screenshot.
+//
+// Returns:
+//   - *GroundElementResponse: The grounding result with coordinates.
+//   - error: Any error that occurred during the API call.
 func (c *Client) GroundElement(ctx context.Context, req *GroundElementRequest) (*GroundElementResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/ground", req)
 	if err != nil {
@@ -3972,6 +4919,18 @@ func (c *Client) GroundElement(ctx context.Context, req *GroundElementRequest) (
 	return &result, nil
 }
 
+// GetWorkerWSURL retrieves the worker WebSocket URL for a workflow run.
+// The URL may not be immediately available after starting a device.
+// Poll this endpoint until status is "ready".
+// Returns the generated WorkerConnectionResponse type.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowRunID: The workflow run ID from StartDevice
+//
+// Returns:
+//   - *WorkerConnectionResponse: The worker connection info
+//   - error: Any error that occurred
 func (c *Client) GetWorkerWSURL(ctx context.Context, workflowRunID string) (*WorkerConnectionResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/execution/streaming/worker-connection/%s", workflowRunID), nil)
@@ -3987,6 +4946,16 @@ func (c *Client) GetWorkerWSURL(ctx context.Context, workflowRunID string) (*Wor
 	return &result, nil
 }
 
+// GetActiveDeviceSessions retrieves all active device sessions for an organization.
+// Returns sessions with status IN ('starting', 'running').
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - orgID: The organization ID to query sessions for
+//
+// Returns:
+//   - *ActiveDeviceSessionsResponse: List of active sessions
+//   - error: Any error that occurred
 func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*ActiveDeviceSessionsResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/execution/device-sessions/active?org_id=%s", orgID), nil)
@@ -4002,6 +4971,7 @@ func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*Ac
 	return &result, nil
 }
 
+// DeviceSessionDetail is the response shape for GET /device-sessions/{session_id}.
 type DeviceSessionDetail struct {
 	AppID           string                  `json:"app_id,omitempty"`
 	BuildID         string                  `json:"build_id,omitempty"`
@@ -4037,15 +5007,18 @@ type DeviceSessionDetail struct {
 	TestName        *string                 `json:"test_name"`
 	UserEmail       *string                 `json:"user_email"`
 	CanCancel       bool                    `json:"can_cancel"`
-	SessionProfile  *SessionProfileReport   `json:"session_profile,omitempty"`
+	// SessionProfile is the session's profile and how its hosted run is going.
+	SessionProfile *SessionProfileReport `json:"session_profile,omitempty"`
 
 	ViewerLookupTimedOut bool `json:"viewer_lookup_timed_out,omitempty"`
 }
 
 var webAppFailurePattern = regexp.MustCompile(`; app_failure=([a-z_]{1,64}); (.+)$`)
 
-// FailureReason extracts the trailing sentence after an "app_failure=<code>; " marker when present,
-// otherwise returns the trimmed ErrorMessage (or "").
+// FailureReason returns the user-facing reason a session failed: the sentence
+// from a "web_session_failed: ...; app_failure=<code>; <sentence>" error
+// message, otherwise the trimmed error message, otherwise "". Unknown codes
+// are treated like known ones so new codes need no client release.
 func (s DeviceSessionDetail) FailureReason() string {
 	if s.ErrorMessage == nil {
 		return ""
@@ -4071,6 +5044,7 @@ func (s DeviceSessionDetail) StopConfirmed() bool {
 	}
 }
 
+// GetDeviceSessionByID retrieves a single device session by its ID.
 func (c *Client) GetDeviceSessionByID(ctx context.Context, sessionID string) (*DeviceSessionDetail, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/execution/device-sessions/%s", sessionID), nil)
@@ -4086,14 +5060,18 @@ func (c *Client) GetDeviceSessionByID(ctx context.Context, sessionID string) (*D
 	return &result, nil
 }
 
+// CancelDeviceResponse represents the response from cancelling a device session.
 type CancelDeviceResponse struct {
 	// Success acknowledges the request; settlement and release are separate facts.
 	Success bool `json:"success"`
 
+	// Message contains additional information about the cancellation.
 	Message string `json:"message,omitempty"`
 
+	// WorkflowRunID identifies the workflow targeted by the stop request.
 	WorkflowRunID string `json:"workflow_run_id,omitempty"`
 
+	// DBUpdated indicates whether the database was updated.
 	DBUpdated        bool   `json:"db_updated,omitempty"`
 	RequestAccepted  *bool  `json:"request_accepted,omitempty"`
 	SessionSettled   *bool  `json:"session_settled,omitempty"`
@@ -4119,6 +5097,15 @@ func (e *DeviceSessionStopPendingError) Error() string {
 	return "device stop request accepted; session cleanup is not yet confirmed. Check 'revyl device list --json' or retry 'revyl device stop'"
 }
 
+// CancelDevice cancels a running device session.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowRunID: The workflow run ID to cancel
+//
+// Returns:
+//   - *CancelDeviceResponse: The cancellation response
+//   - error: Any error that occurred
 func (c *Client) CancelDevice(ctx context.Context, workflowRunID string) (*CancelDeviceResponse, error) {
 	return c.requestDeviceSessionStop(ctx, fmt.Sprintf("/api/v1/execution/device/status/cancel/%s", workflowRunID))
 }
@@ -4129,6 +5116,9 @@ func (c *Client) StopDeviceSession(ctx context.Context, sessionID string) (*Canc
 
 const deviceStopRequestAttempts = 3
 
+// requestDeviceSessionStop resends the stop only after a transport failure
+// before any response: the backend reuses a recorded stop request, so asking
+// again cannot stop anything twice.
 func (c *Client) requestDeviceSessionStop(ctx context.Context, path string) (*CancelDeviceResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", path, nil)
 	attempts := 1
@@ -4162,12 +5152,24 @@ func (c *Client) requestDeviceSessionStop(ctx context.Context, path string) (*Ca
 	return &result, nil
 }
 
+// DeleteTestResponse represents the response from deleting a test.
 type DeleteTestResponse struct {
+	// ID is the ID of the deleted test.
 	ID string `json:"id"`
 
+	// Message is a success message.
 	Message string `json:"message"`
 }
 
+// DeleteTest deletes a test by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test ID to delete
+//
+// Returns:
+//   - *DeleteTestResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) DeleteTest(ctx context.Context, testID string) (*DeleteTestResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/tests/delete/%s", testID), nil)
@@ -4183,12 +5185,25 @@ func (c *Client) DeleteTest(ctx context.Context, testID string) (*DeleteTestResp
 	return &result, nil
 }
 
+// CLIDeleteWorkflowResponse represents the response from deleting a workflow.
+// This is a CLI-specific type that simplifies the generated DeleteWorkflowResponse.
 type CLIDeleteWorkflowResponse struct {
+	// ID is the ID of the deleted workflow.
 	ID string `json:"id"`
 
+	// Message is a success message.
 	Message string `json:"message"`
 }
 
+// DeleteWorkflow deletes a workflow by ID (soft delete).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow ID to delete
+//
+// Returns:
+//   - *CLIDeleteWorkflowResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) DeleteWorkflow(ctx context.Context, workflowID string) (*CLIDeleteWorkflowResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/workflows/delete/%s", workflowID), nil)
@@ -4196,23 +5211,37 @@ func (c *Client) DeleteWorkflow(ctx context.Context, workflowID string) (*CLIDel
 		return nil, err
 	}
 
+	// Parse the full response first
 	var fullResult DeleteWorkflowResponse
 	if err := parseResponse(resp, &fullResult); err != nil {
 		return nil, err
 	}
 
+	// Convert to CLI-friendly response
 	return &CLIDeleteWorkflowResponse{
 		ID:      fullResult.Data.Id,
 		Message: fullResult.Message,
 	}, nil
 }
 
+// CLIDeleteAppResponse represents the response from deleting an app.
 type CLIDeleteAppResponse struct {
+	// Message is a success message.
 	Message string `json:"message"`
 
+	// DetachedTests is the number of tests that were detached from this app.
 	DetachedTests int `json:"detached_tests,omitempty"`
 }
 
+// DeleteApp deletes an app and all its versions.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - appID: The app ID to delete
+//
+// Returns:
+//   - *CLIDeleteAppResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) DeleteApp(ctx context.Context, appID string) (*CLIDeleteAppResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/apps/%s", appID), nil)
@@ -4228,10 +5257,15 @@ func (c *Client) DeleteApp(ctx context.Context, appID string) (*CLIDeleteAppResp
 	return &result, nil
 }
 
+// DeleteBuildVersionResponse represents the response from deleting a build version.
 type DeleteBuildVersionResponse struct {
+	// Message is a success message.
 	Message string `json:"message"`
 }
 
+// --- Module API methods ---
+
+// CLIModuleResponse represents a module for CLI display.
 type CLIModuleResponse struct {
 	ID          string        `json:"id"`
 	Name        string        `json:"name"`
@@ -4243,22 +5277,26 @@ type CLIModuleResponse struct {
 	OrgID       string        `json:"org_id"`
 }
 
+// CLIModulesListResponse represents the response from listing modules.
 type CLIModulesListResponse struct {
 	Message string              `json:"message"`
 	Result  []CLIModuleResponse `json:"result"`
 }
 
+// CLIModuleSingleResponse represents the response from a single module operation.
 type CLIModuleSingleResponse struct {
 	Message string            `json:"message"`
 	Result  CLIModuleResponse `json:"result"`
 }
 
+// CLICreateModuleRequest represents a module creation request.
 type CLICreateModuleRequest struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description,omitempty"`
 	Blocks      []interface{} `json:"blocks"`
 }
 
+// CLIUpdateModuleRequest represents a module update request.
 type CLIUpdateModuleRequest struct {
 	Name            *string        `json:"name,omitempty"`
 	Description     *string        `json:"description,omitempty"`
@@ -4266,10 +5304,19 @@ type CLIUpdateModuleRequest struct {
 	ExpectedVersion *int           `json:"expected_version,omitempty"`
 }
 
+// CLIDeleteModuleResponse represents the response from deleting a module.
 type CLIDeleteModuleResponse struct {
 	Message string `json:"message"`
 }
 
+// ListModules fetches all modules for the authenticated user's organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLIModulesListResponse: List of modules
+//   - error: Any error that occurred
 func (c *Client) ListModules(ctx context.Context) (*CLIModulesListResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/modules/list", nil)
 	if err != nil {
@@ -4284,6 +5331,15 @@ func (c *Client) ListModules(ctx context.Context) (*CLIModulesListResponse, erro
 	return &result, nil
 }
 
+// GetModule retrieves a module by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The module data
+//   - error: Any error that occurred
 func (c *Client) GetModule(ctx context.Context, moduleID string) (*CLIModuleSingleResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/modules/%s", moduleID), nil)
@@ -4299,6 +5355,15 @@ func (c *Client) GetModule(ctx context.Context, moduleID string) (*CLIModuleSing
 	return &result, nil
 }
 
+// CreateModule creates a new module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The created module
+//   - error: Any error that occurred
 func (c *Client) CreateModule(ctx context.Context, req *CLICreateModuleRequest) (*CLIModuleSingleResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/modules/create", req)
 	if err != nil {
@@ -4313,6 +5378,16 @@ func (c *Client) CreateModule(ctx context.Context, req *CLICreateModuleRequest) 
 	return &result, nil
 }
 
+// UpdateModule updates an existing module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - req: The update request
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The updated module
+//   - error: Any error that occurred
 func (c *Client) UpdateModule(ctx context.Context, moduleID string, req *CLIUpdateModuleRequest) (*CLIModuleSingleResponse, error) {
 	resp, err := c.doRequest(ctx, "PUT",
 		fmt.Sprintf("/api/v1/modules/update/%s", moduleID), req)
@@ -4328,6 +5403,15 @@ func (c *Client) UpdateModule(ctx context.Context, moduleID string, req *CLIUpda
 	return &result, nil
 }
 
+// DeleteModule deletes a module by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *CLIDeleteModuleResponse: The deletion response
+//   - error: Any error that occurred (409 if module is in use)
 func (c *Client) DeleteModule(ctx context.Context, moduleID string) (*CLIDeleteModuleResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/modules/delete/%s", moduleID), nil)
@@ -4343,6 +5427,19 @@ func (c *Client) DeleteModule(ctx context.Context, moduleID string) (*CLIDeleteM
 	return &result, nil
 }
 
+// --- Module lifecycle API methods ---
+
+// GetModuleVersions lists version history for a module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - limit: Maximum number of versions to return
+//   - offset: Number of versions to skip (for pagination)
+//
+// Returns:
+//   - *ModuleVersionListResponse: Paginated list of module versions
+//   - error: Any error that occurred
 func (c *Client) GetModuleVersions(ctx context.Context, moduleID string, limit, offset int) (*ModuleVersionListResponse, error) {
 	path := fmt.Sprintf("/api/v1/modules/%s/versions?limit=%d&offset=%d", moduleID, limit, offset)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -4358,6 +5455,15 @@ func (c *Client) GetModuleVersions(ctx context.Context, moduleID string, limit, 
 	return &result, nil
 }
 
+// RestoreModuleVersion restores a module to a specific historical version.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - version: The version number to restore to
+//
+// Returns:
+//   - error: Any error that occurred (404 if version not found)
 func (c *Client) RestoreModuleVersion(ctx context.Context, moduleID string, version int) error {
 	body := map[string]int{"version": version}
 	resp, err := c.doRequest(ctx, "POST",
@@ -4369,6 +5475,15 @@ func (c *Client) RestoreModuleVersion(ctx context.Context, moduleID string, vers
 	return parseResponse(resp, nil)
 }
 
+// GetModuleUsage lists the tests that reference a specific module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *ModuleUsageResponse: List of tests that use the module
+//   - error: Any error that occurred
 func (c *Client) GetModuleUsage(ctx context.Context, moduleID string) (*ModuleUsageResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/modules/%s/tests", moduleID), nil)
@@ -4384,6 +5499,9 @@ func (c *Client) GetModuleUsage(ctx context.Context, moduleID string) (*ModuleUs
 	return &result, nil
 }
 
+// --- Tag API methods ---
+
+// CLITagResponse represents a tag for CLI display.
 type CLITagResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -4392,30 +5510,36 @@ type CLITagResponse struct {
 	TestCount   int    `json:"test_count,omitempty"`
 }
 
+// CLITagListResponse represents the response from listing tags.
 type CLITagListResponse struct {
 	Tags []CLITagResponse `json:"tags"`
 }
 
+// CLICreateTagRequest represents a tag creation request.
 type CLICreateTagRequest struct {
 	Name  string `json:"name"`
 	Color string `json:"color,omitempty"`
 }
 
+// CLIUpdateTagRequest represents a tag update request.
 type CLIUpdateTagRequest struct {
 	Name        *string `json:"name,omitempty"`
 	Color       *string `json:"color,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
 
+// CLISyncTagsRequest represents a request to sync (replace) tags on a test.
 type CLISyncTagsRequest struct {
 	TagNames []string `json:"tag_names"`
 }
 
+// CLISyncTagsResponse represents the response from syncing tags on a test.
 type CLISyncTagsResponse struct {
 	TestID string             `json:"test_id"`
 	Tags   []CLITagSyncResult `json:"tags"`
 }
 
+// CLITagSyncResult represents the result of syncing a single tag.
 type CLITagSyncResult struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -4423,29 +5547,41 @@ type CLITagSyncResult struct {
 	Created bool   `json:"created"`
 }
 
+// CLIBulkSyncTagsRequest represents a request to add/remove tags on multiple tests.
 type CLIBulkSyncTagsRequest struct {
 	TestIDs      []string `json:"test_ids"`
 	TagsToAdd    []string `json:"tags_to_add,omitempty"`
 	TagsToRemove []string `json:"tags_to_remove,omitempty"`
 }
 
+// CLIBulkSyncTagsResponse represents the response from bulk syncing tags.
 type CLIBulkSyncTagsResponse struct {
 	Results      []CLIBulkSyncResult `json:"results"`
 	SuccessCount int                 `json:"success_count"`
 	ErrorCount   int                 `json:"error_count"`
 }
 
+// CLIBulkSyncResult represents the result for a single test in a bulk sync.
 type CLIBulkSyncResult struct {
 	TestID  string  `json:"test_id"`
 	Success bool    `json:"success"`
 	Error   *string `json:"error,omitempty"`
 }
 
+// CLIDeleteTagResponse represents the response from deleting a tag.
 type CLIDeleteTagResponse struct {
 	Deleted bool   `json:"deleted"`
 	TagID   string `json:"tag_id"`
 }
 
+// ListTags fetches all tags for the authenticated user's organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLITagListResponse: List of tags with test counts
+//   - error: Any error that occurred
 func (c *Client) ListTags(ctx context.Context) (*CLITagListResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/tests/tags", nil)
 	if err != nil {
@@ -4460,6 +5596,15 @@ func (c *Client) ListTags(ctx context.Context) (*CLITagListResponse, error) {
 	return &result, nil
 }
 
+// CreateTag creates a new tag (upserts if name exists).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request
+//
+// Returns:
+//   - *CLITagResponse: The created tag
+//   - error: Any error that occurred
 func (c *Client) CreateTag(ctx context.Context, req *CLICreateTagRequest) (*CLITagResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/tags", req)
 	if err != nil {
@@ -4474,6 +5619,16 @@ func (c *Client) CreateTag(ctx context.Context, req *CLICreateTagRequest) (*CLIT
 	return &result, nil
 }
 
+// UpdateTag updates an existing tag.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - tagID: The tag UUID
+//   - req: The update request
+//
+// Returns:
+//   - *CLITagResponse: The updated tag
+//   - error: Any error that occurred
 func (c *Client) UpdateTag(ctx context.Context, tagID string, req *CLIUpdateTagRequest) (*CLITagResponse, error) {
 	resp, err := c.doRequest(ctx, "PATCH",
 		fmt.Sprintf("/api/v1/tests/tags/%s", tagID), req)
@@ -4489,6 +5644,14 @@ func (c *Client) UpdateTag(ctx context.Context, tagID string, req *CLIUpdateTagR
 	return &result, nil
 }
 
+// DeleteTag deletes a tag by ID (cascades from all tests).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - tagID: The tag UUID
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) DeleteTag(ctx context.Context, tagID string) error {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/tests/tags/%s", tagID), nil)
@@ -4499,6 +5662,15 @@ func (c *Client) DeleteTag(ctx context.Context, tagID string) error {
 	return parseResponse(resp, nil)
 }
 
+// GetTestTags retrieves tags for a specific test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - []CLITagResponse: List of tags on the test
+//   - error: Any error that occurred
 func (c *Client) GetTestTags(ctx context.Context, testID string) ([]CLITagResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/tests/tags/tests/%s", testID), nil)
@@ -4514,6 +5686,17 @@ func (c *Client) GetTestTags(ctx context.Context, testID string) ([]CLITagRespon
 	return result, nil
 }
 
+// SyncTestTags replaces all tags on a test with the given tag names.
+// Tags are auto-created if they don't exist.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - req: The sync request with tag names
+//
+// Returns:
+//   - *CLISyncTagsResponse: The sync result
+//   - error: Any error that occurred
 func (c *Client) SyncTestTags(ctx context.Context, testID string, req *CLISyncTagsRequest) (*CLISyncTagsResponse, error) {
 	resp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/tests/tags/tests/%s/sync", testID), req)
@@ -4529,6 +5712,15 @@ func (c *Client) SyncTestTags(ctx context.Context, testID string, req *CLISyncTa
 	return &result, nil
 }
 
+// BulkSyncTestTags adds/removes tags on multiple tests.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The bulk sync request
+//
+// Returns:
+//   - *CLIBulkSyncTagsResponse: The bulk sync result
+//   - error: Any error that occurred
 func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsRequest) (*CLIBulkSyncTagsResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/tags/tests/bulk-sync", req)
 	if err != nil {
@@ -4543,6 +5735,9 @@ func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsReque
 	return &result, nil
 }
 
+// --- Enhanced History API types ---
+
+// CLIEnhancedTask represents the task details within an enhanced history item.
 type CLIEnhancedTask struct {
 	AppID                              string  `json:"app_id,omitempty"`
 	BuildID                            string  `json:"build_id,omitempty"`
@@ -4573,6 +5768,7 @@ type CLIEnhancedTask struct {
 	ExecutionTimeSeconds               float64 `json:"execution_time_seconds,omitempty"`
 }
 
+// CLIEnhancedHistoryItem represents a single execution in the enhanced history.
 type CLIEnhancedHistoryItem struct {
 	ID            string           `json:"id"`
 	TestUID       string           `json:"test_uid"`
@@ -4583,6 +5779,7 @@ type CLIEnhancedHistoryItem struct {
 	HasReport     bool             `json:"has_report"`
 }
 
+// CLIEnhancedHistoryResponse represents the response from the enhanced history endpoint.
 type CLIEnhancedHistoryResponse struct {
 	Items          []CLIEnhancedHistoryItem `json:"items"`
 	TotalCount     int                      `json:"total_count"`
@@ -4590,6 +5787,15 @@ type CLIEnhancedHistoryResponse struct {
 	FoundCount     int                      `json:"found_count"`
 }
 
+// GetDashboardMetrics fetches org-level dashboard metrics including total tests,
+// workflows, test runs, failure rate, and average duration with week-over-week deltas.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *DashboardMetrics: The dashboard metrics (type from generated.go)
+//   - error: Any error that occurred
 func (c *Client) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/entity/users/get_dashboard_metrics", nil)
 	if err != nil {
@@ -4604,10 +5810,24 @@ func (c *Client) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, er
 	return &result, nil
 }
 
+// GetTestEnhancedHistory retrieves the enhanced execution history for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test ID
+//   - limit: Maximum number of items to return
+//   - offset: Number of items to skip for pagination
+//
+// Returns:
+//   - *CLIEnhancedHistoryResponse: The enhanced history
+//   - error: Any error that occurred
 func (c *Client) GetTestEnhancedHistory(ctx context.Context, testID string, limit, offset int) (*CLIEnhancedHistoryResponse, error) {
 	return c.GetTestEnhancedHistoryWithOptions(ctx, testID, "", "", limit, offset)
 }
 
+// GetTestEnhancedHistoryWithOptions retrieves execution history for one test,
+// or for every test run that used a branch for its tests from Git or for its
+// Revyl build, or read an exact Git commit.
 func (c *Client) GetTestEnhancedHistoryWithOptions(ctx context.Context, testID, runBranchName, gitCommitSHA string, limit, offset int) (*CLIEnhancedHistoryResponse, error) {
 	if limit <= 0 {
 		limit = 10
@@ -4647,6 +5867,8 @@ func (c *Client) GetTestEnhancedHistoryWithOptions(ctx context.Context, testID, 
 	return &result, nil
 }
 
+// CLITestRunQueuedInWorkflow is a test's run that its workflow execution
+// queued, before the run's device session exists.
 type CLITestRunQueuedInWorkflow struct {
 	WorkflowExecutionID             string `json:"workflow_execution_id"`
 	QueuedAt                        string `json:"queued_at"`
@@ -4656,6 +5878,9 @@ type CLITestRunQueuedInWorkflow struct {
 	TestDefinitionSource            string `json:"test_definition_source"`
 }
 
+// CLITestLatestRunResult is one test's newest run that matches the filters:
+// LatestRun once the run's device session exists, else
+// LatestRunQueuedInWorkflow.
 type CLITestLatestRunResult struct {
 	TestID                          string                      `json:"test_id"`
 	TestName                        string                      `json:"test_name,omitempty"`
@@ -4665,6 +5890,8 @@ type CLITestLatestRunResult struct {
 	RunResultCountsSinceCreatedFrom *RunResultCounts            `json:"run_result_counts_since_created_from,omitempty"`
 }
 
+// CLITestLatestRunResultsResponse is one page of each test's newest matching
+// run, failed first, with counts across every page.
 type CLITestLatestRunResultsResponse struct {
 	Items                           []CLITestLatestRunResult `json:"items"`
 	TotalCount                      int                      `json:"total_count"`
@@ -4673,6 +5900,8 @@ type CLITestLatestRunResultsResponse struct {
 	RunResultCountsSinceCreatedFrom *RunResultCounts         `json:"run_result_counts_since_created_from,omitempty"`
 }
 
+// LatestRunResultsFilter selects the runs that can be a test's newest run.
+// A nil CreatedFrom leaves the runs' age unbounded.
 type LatestRunResultsFilter struct {
 	TestID        string
 	RunBranchName string
@@ -4680,8 +5909,13 @@ type LatestRunResultsFilter struct {
 	CreatedFrom   *time.Time
 }
 
+// ErrLatestRunResultsUnsupported means the server has no route for each test's
+// newest matching run.
 var ErrLatestRunResultsUnsupported = errors.New("this Revyl server can't show test status by branch or commit yet")
 
+// GetLatestRunResults returns one page of each test's newest run that matches
+// filter, failed first, then running, unknown and passed. A run matches a
+// branch by its Git branch, else by its Revyl build branch.
 func (c *Client) GetLatestRunResults(ctx context.Context, filter LatestRunResultsFilter, limit, offset int) (*CLITestLatestRunResultsResponse, error) {
 	query := url.Values{}
 	if filter.TestID != "" {
@@ -4714,6 +5948,7 @@ func (c *Client) GetLatestRunResults(ctx context.Context, filter LatestRunResult
 	return &result, nil
 }
 
+// Only a server older than branch queries without a test requires test_id.
 func isMissingTestIDValidationError(err error) bool {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity {
@@ -4724,12 +5959,19 @@ func isMissingTestIDValidationError(err error) bool {
 	})
 }
 
-// CLIReportContextEnvelope pairs the raw response bytes with the typed OpenAPI-generated ReportContextResponse.
+// --- Report V3 API types ---
+
+// CLIReportContextEnvelope preserves both the raw response bytes and the
+// typed report. Report is the generated ReportContextResponse — the single
+// source of truth regenerated from the backend OpenAPI, so a backend field
+// can never silently fail to round-trip into the CLI (the drift that hid
+// the live-artifact *_partial bug).
 type CLIReportContextEnvelope struct {
 	Raw    json.RawMessage
 	Report *ReportContextResponse
 }
 
+// GetReportContextByExecution retrieves the canonical high-context report for an execution.
 func (c *Client) GetReportContextByExecution(ctx context.Context, executionID string, includeSteps, includeActions, includeLLMCalls bool) (*CLIReportContextEnvelope, error) {
 	path := fmt.Sprintf(
 		"/api/v1/reports-v3/reports/by-execution/%s/context?include_steps=%t&include_actions=%t&include_llm_calls=%t",
@@ -4755,6 +5997,7 @@ func (c *Client) GetReportContextByExecution(ctx context.Context, executionID st
 	}, nil
 }
 
+// GetReportBySession retrieves the high-context report for a device session.
 func (c *Client) GetReportBySession(ctx context.Context, sessionID string, includeSteps, includeActions, includeLLMCalls bool) (*CLIReportContextEnvelope, error) {
 	path := fmt.Sprintf(
 		"/api/v1/reports-v3/reports/by-session/%s/context?include_steps=%t&include_actions=%t&include_llm_calls=%t",
@@ -4780,6 +6023,11 @@ func (c *Client) GetReportBySession(ctx context.Context, sessionID string, inclu
 	}, nil
 }
 
+// GetDeviceLogsDownloadURL fetches a presigned URL for the device-logs
+// artifact attached to the given report. Device logs are not embedded
+// in the context envelope (unlike network / perf / trace / device-state) —
+// they live behind a dedicated endpoint. Returns a 404 (mapped to
+// APIError) when no device logs were uploaded for the run.
 func (c *Client) GetDeviceLogsDownloadURL(ctx context.Context, reportID string) (*DeviceLogsDownloadResponse, error) {
 	path := fmt.Sprintf("/api/v1/reports-v3/reports/%s/device-logs", reportID)
 	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
@@ -4793,28 +6041,38 @@ func (c *Client) GetDeviceLogsDownloadURL(ctx context.Context, reportID string) 
 	return &result, nil
 }
 
+// --- Shareable Link API types ---
+
+// CLIShareableLinkRequest represents a request to generate a shareable report link.
 type CLIShareableLinkRequest struct {
 	TaskID          string `json:"task_id"`
 	Origin          string `json:"origin,omitempty"`
 	ExpirationHours *int   `json:"expiration_hours"`
 }
 
+// CLIShareableSessionLinkRequest represents a request to generate a shareable
+// device-session report link.
 type CLIShareableSessionLinkRequest struct {
 	SessionID       string `json:"session_id"`
 	Origin          string `json:"origin,omitempty"`
 	ExpirationHours *int   `json:"expiration_hours"`
 }
 
+// CLIWorkflowShareableLinkRequest represents a request to generate a shareable
+// workflow report link.
 type CLIWorkflowShareableLinkRequest struct {
 	WorkflowTaskID  string `json:"workflow_task_id"`
 	Origin          string `json:"origin,omitempty"`
 	ExpirationHours *int   `json:"expiration_hours"`
 }
 
+// CLIShareableLinkResponse represents the response containing a shareable link.
 type CLIShareableLinkResponse struct {
 	ShareableLink string `json:"shareable_link"`
 }
 
+// CLIWorkflowShareableLinkResponse represents the workflow share response, which
+// can also report how many child test links were created.
 type CLIWorkflowShareableLinkResponse struct {
 	ShareableLink     string `json:"shareable_link"`
 	ChildLinksCreated *int   `json:"child_links_created,omitempty"`
@@ -4888,6 +6146,9 @@ func (c *Client) GenerateWorkflowShareableLink(ctx context.Context, workflowTask
 	return &result, nil
 }
 
+// --- Workflow Status/History/Report API types ---
+
+// CLIWorkflowChildExecution is a resolved child from workflow status and monitor events.
 type CLIWorkflowChildExecution struct {
 	AutoGitBranchEnabled        *bool        `json:"auto_git_branch_enabled,omitempty"`
 	ID                          string       `json:"id"`
@@ -4908,6 +6169,7 @@ type CLIWorkflowChildExecution struct {
 	TestDefinitionGitBranchName string       `json:"test_definition_git_branch_name,omitempty"`
 }
 
+// CLIWorkflowStatusResponse represents a workflow execution status.
 type CLIWorkflowStatusResponse struct {
 	ChildTasks          []CLIWorkflowChildExecution `json:"child_tasks,omitempty"`
 	ExecutionID         string                      `json:"execution_id,omitempty"`
@@ -4924,6 +6186,7 @@ type CLIWorkflowStatusResponse struct {
 	ErrorMessage        string                      `json:"error_message,omitempty"`
 }
 
+// CLIWorkflowHistoryResponse represents workflow execution history.
 type CLIWorkflowHistoryResponse struct {
 	WorkflowID      string                      `json:"workflow_id"`
 	Executions      []CLIWorkflowStatusResponse `json:"executions"`
@@ -4932,6 +6195,7 @@ type CLIWorkflowHistoryResponse struct {
 	AverageDuration *float64                    `json:"average_duration,omitempty"`
 }
 
+// CLIWorkflowTaskInfo contains workflow execution snapshot data.
 type CLIWorkflowTaskInfo struct {
 	TaskID         string   `json:"task_id"`
 	WorkflowID     string   `json:"workflow_id,omitempty"`
@@ -4947,6 +6211,7 @@ type CLIWorkflowTaskInfo struct {
 	TriggeredBy    string   `json:"triggered_by,omitempty"`
 }
 
+// CLIWorkflowDetailInfo contains workflow definition data.
 type CLIWorkflowDetailInfo struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name,omitempty"`
@@ -4954,12 +6219,14 @@ type CLIWorkflowDetailInfo struct {
 	Tests       []string `json:"tests"`
 }
 
+// CLIWorkflowTestInfo contains test name/platform info for a workflow.
 type CLIWorkflowTestInfo struct {
 	ID       string `json:"id"`
 	Name     string `json:"name,omitempty"`
 	Platform string `json:"platform,omitempty"`
 }
 
+// CLIChildTaskReportInfo contains individual test execution data within a workflow.
 type CLIChildTaskReportInfo struct {
 	AutoGitBranchEnabled        *bool        `json:"auto_git_branch_enabled,omitempty"`
 	AppID                       string       `json:"app_id,omitempty"`
@@ -4987,6 +6254,7 @@ type CLIChildTaskReportInfo struct {
 	ErrorMessage                string       `json:"error_message,omitempty"`
 }
 
+// CLIUnifiedWorkflowReportResponse represents a comprehensive workflow report.
 type CLIUnifiedWorkflowReportResponse struct {
 	WorkflowTask   CLIWorkflowTaskInfo      `json:"workflow_task"`
 	WorkflowDetail *CLIWorkflowDetailInfo   `json:"workflow_detail,omitempty"`
@@ -4994,6 +6262,7 @@ type CLIUnifiedWorkflowReportResponse struct {
 	ChildTasks     []CLIChildTaskReportInfo `json:"child_tasks"`
 }
 
+// GetWorkflowStatus retrieves the real-time status of a workflow execution.
 func (c *Client) GetWorkflowStatus(ctx context.Context, taskID string) (*CLIWorkflowStatusResponse, error) {
 	path := fmt.Sprintf("/api/v1/workflows/status/%s", taskID)
 	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
@@ -5009,6 +6278,7 @@ func (c *Client) GetWorkflowStatus(ctx context.Context, taskID string) (*CLIWork
 	return &result, nil
 }
 
+// GetWorkflowHistory retrieves execution history for a workflow.
 func (c *Client) GetWorkflowHistory(ctx context.Context, workflowID string, limit, offset int) (*CLIWorkflowHistoryResponse, error) {
 	path := fmt.Sprintf("/api/v1/workflows/status/history/%s?limit=%d&offset=%d",
 		workflowID, limit, offset)
@@ -5025,6 +6295,7 @@ func (c *Client) GetWorkflowHistory(ctx context.Context, workflowID string, limi
 	return &result, nil
 }
 
+// GetWorkflowUnifiedReport retrieves a comprehensive workflow report.
 func (c *Client) GetWorkflowUnifiedReport(ctx context.Context, workflowTaskID string) (*CLIUnifiedWorkflowReportResponse, error) {
 	body := map[string]interface{}{
 		"workflow_task_id": workflowTaskID,
@@ -5042,6 +6313,9 @@ func (c *Client) GetWorkflowUnifiedReport(ctx context.Context, workflowTaskID st
 	return &result, nil
 }
 
+// --- Test Launch Var Attachment API methods ---
+
+// ListTestLaunchEnvVarAttachments retrieves all org launch vars attached to a test.
 func (c *Client) ListTestLaunchEnvVarAttachments(ctx context.Context, testID string) (*OrgLaunchVariablesResponse, error) {
 	path := fmt.Sprintf("/api/v1/variables/org_launch_env/test-attachments?test_id=%s", testID)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -5057,6 +6331,7 @@ func (c *Client) ListTestLaunchEnvVarAttachments(ctx context.Context, testID str
 	return &result, nil
 }
 
+// ReplaceTestLaunchEnvVarAttachments replaces the launch vars attached to a test.
 func (c *Client) ReplaceTestLaunchEnvVarAttachments(ctx context.Context, testID string, envVarIDs []string) (*OrgLaunchVariablesResponse, error) {
 	body := map[string]interface{}{
 		"test_id":     testID,
@@ -5075,6 +6350,17 @@ func (c *Client) ReplaceTestLaunchEnvVarAttachments(ctx context.Context, testID 
 	return &result, nil
 }
 
+// UpdateDeviceTarget updates the saved device target for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - deviceModel: Target device model (empty string or "AUTO" for auto)
+//   - osVersion: Target OS version (empty string or "AUTO" for auto)
+//   - orientation: Device orientation ("portrait" or "landscape", empty to skip)
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) UpdateDeviceTarget(ctx context.Context, testID, deviceModel, osVersion, orientation string) error {
 	path := fmt.Sprintf("/api/v1/tests/%s/device-target", testID)
 	body := map[string]*string{}
@@ -5094,6 +6380,9 @@ func (c *Client) UpdateDeviceTarget(ctx context.Context, testID, deviceModel, os
 	return parseResponse(resp, nil)
 }
 
+// --- Workflow Settings API methods ---
+
+// UpdateWorkflowName renames a workflow while preserving its ID/history.
 func (c *Client) UpdateWorkflowName(ctx context.Context, workflowID, name string) error {
 	body := map[string]string{
 		"name": name,
@@ -5106,6 +6395,7 @@ func (c *Client) UpdateWorkflowName(ctx context.Context, workflowID, name string
 	return parseResponse(resp, nil)
 }
 
+// UpdateWorkflowLocationConfig updates the stored location config for a workflow.
 func (c *Client) UpdateWorkflowLocationConfig(ctx context.Context, workflowID string, locationConfig map[string]interface{}, override bool) error {
 	body := map[string]interface{}{
 		"location_config":   locationConfig,
@@ -5120,6 +6410,7 @@ func (c *Client) UpdateWorkflowLocationConfig(ctx context.Context, workflowID st
 	return parseResponse(resp, nil)
 }
 
+// UpdateWorkflowBuildConfig updates the stored build/app config for a workflow.
 func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID string, buildConfig map[string]interface{}, override bool) error {
 	body := map[string]interface{}{
 		"build_config":          buildConfig,
@@ -5134,6 +6425,9 @@ func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID strin
 	return parseResponse(resp, nil)
 }
 
+// UpdateWorkflowRunConfig atomically updates supplied workflow settings.
+// Use RunConfigUpdate for test settings so unknown keys and the override survive;
+// a concurrency-only patch leaves those settings untouched.
 func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, request WorkflowRunConfigPatch) error {
 	if request.RunConfig == nil && request.DefaultConcurrencyLimit == nil {
 		return errors.New("update workflow run config: supply a run configuration or concurrency limit")
@@ -5146,6 +6440,7 @@ func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string,
 	return parseResponse(resp, nil)
 }
 
+// CLIDeviceSessionHistoryResponse represents paginated device session history.
 type CLIDeviceSessionHistoryResponse struct {
 	Sessions []CLIDeviceSessionHistoryItem `json:"sessions"`
 	Total    int                           `json:"total"`
@@ -5153,6 +6448,7 @@ type CLIDeviceSessionHistoryResponse struct {
 	Offset   int                           `json:"offset"`
 }
 
+// CLIDeviceSessionHistoryItem represents a single device session in the history list.
 type CLIDeviceSessionHistoryItem struct {
 	ID                                 string                  `json:"id"`
 	AppID                              *string                 `json:"app_id"`
@@ -5180,6 +6476,16 @@ type CLIDeviceSessionHistoryItem struct {
 	HasUncommittedDefinitionChanges    *bool                   `json:"has_uncommitted_definition_changes,omitempty"`
 }
 
+// GetDeviceSessionHistory retrieves paginated device session history.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum number of sessions to return
+//   - offset: Number of sessions to skip for pagination
+//
+// Returns:
+//   - *CLIDeviceSessionHistoryResponse: The paginated session history
+//   - error: Any error that occurred
 func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int) (*CLIDeviceSessionHistoryResponse, error) {
 	return c.QueryDeviceSessionHistory(ctx, url.Values{"limit": {fmt.Sprint(limit)}, "offset": {fmt.Sprint(offset)}})
 }
@@ -5220,8 +6526,9 @@ func (c *Client) QueryDeviceSessionHistory(ctx context.Context, filters url.Valu
 	return &result, nil
 }
 
-// ErrRunBranchAndGitCommitFiltersUnsupported reports that the server did not confirm support for
-// run_branch_name and git_commit_sha history filters or refused a query without a test.
+// ErrRunBranchAndGitCommitFiltersUnsupported means the server can't apply the
+// run_branch_name and git_commit_sha history filters: it answered without
+// them, so its rows weren't filtered, or it refused a query without a test.
 var ErrRunBranchAndGitCommitFiltersUnsupported = errors.New("this Revyl server can't filter history by Git branch or Git commit yet")
 
 func requireHistoryFiltersCapability(resp *http.Response, requested bool) error {
@@ -5248,6 +6555,15 @@ func historyFiltersSupported(resp *http.Response, filterNames ...string) bool {
 	return true
 }
 
+// DeleteBuildVersion deletes a specific build version.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - versionID: The build version ID to delete
+//
+// Returns:
+//   - *DeleteBuildVersionResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*DeleteBuildVersionResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/apps/builds/%s", versionID), nil)
@@ -5263,15 +6579,39 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 	return &result, nil
 }
 
+// ---------------------------------------------------------------------------
+// Worker Control Relay
+// ---------------------------------------------------------------------------
+
+// DeviceOpenURLTemplateRequest asks the backend relay to resolve session launch
+// variables before forwarding the URL to the worker.
 type DeviceOpenURLTemplateRequest struct {
 	URLTemplate string `json:"url_template"`
 }
 
+// DeviceOpenURLRequest asks the worker to open a fully resolved URL.
 type DeviceOpenURLRequest struct {
 	URL string `json:"url"`
 }
 
-// proxyNoRetryActions lists non-idempotent worker actions sent without automatic retries.
+// ProxyWorkerRequest forwards a device action request through the backend.
+// CLI/MCP device control uses this relay as the canonical transport so
+// sandboxed environments do not depend on direct worker DNS reachability.
+// The relay infers the underlying HTTP method from the action name.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - workflowRunID: The Hatchet workflow run powering the session.
+//   - action: Worker endpoint name (e.g. "tap", "swipe", "health").
+//   - body: JSON-serializable request body (nil for GET-like actions).
+//
+// Returns:
+//   - []byte: Raw response body from the worker.
+//   - int: HTTP status code from the worker.
+//   - error: Any error from the proxy call itself.
+//
+// proxyNoRetryActions lists worker actions that are not idempotent.
+// Retrying these creates duplicate side-effects (e.g. duplicate agent steps).
 var proxyNoRetryActions = map[string]bool{
 	"set_fold_state":    true,
 	"input":             true,
@@ -5286,8 +6626,6 @@ var proxyLongRunningActions = map[string]bool{
 	"install": true,
 }
 
-// ProxyWorkerRequest relays a device worker action through the backend proxy,
-// selecting the HTTP method from action.
 func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action string, body interface{}) ([]byte, int, error) {
 	data, statusCode, _, err := c.ProxyWorkerRequestWithScreenToken(ctx, workflowRunID, action, body, false)
 	return data, statusCode, err
@@ -5336,13 +6674,17 @@ func (c *Client) ProxyWorkerRequestWithScreenToken(ctx context.Context, workflow
 	return resp.Body, resp.StatusCode, resp.ScreenToken, err
 }
 
+// ProxyWorkerResponse is a device-proxy response with the headers callers act on.
 type ProxyWorkerResponse struct {
 	Body        []byte
 	StatusCode  int
 	ScreenToken string
-	RetryAfter  time.Duration
+	// RetryAfter is the response's Retry-After delay, or zero when absent or unusable.
+	RetryAfter time.Duration
 }
 
+// ProxyWorkerRequestDetailed sends one device-proxy action and returns the
+// response body, status, screenshot token, and Retry-After delay.
 func (c *Client) ProxyWorkerRequestDetailed(ctx context.Context, workflowRunID, action string, body interface{}, noRetry bool) (ProxyWorkerResponse, error) {
 	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
 
@@ -5391,6 +6733,8 @@ func (c *Client) ProxyWorkerRequestDetailed(ctx context.Context, workflowRunID, 
 	}, nil
 }
 
+// ProxyWorkerActionIsRead reports whether the device proxy sends action as a
+// read-only GET, which is safe to repeat.
 func ProxyWorkerActionIsRead(action string) bool {
 	return proxyWorkerMethodForAction(action) == http.MethodGet
 }
@@ -5399,6 +6743,9 @@ func proxyWorkerMethodForAction(action string) string {
 	if idx := strings.Index(action, "?"); idx >= 0 {
 		action = action[:idx]
 	}
+	// Read-only device_state sub-paths route GET; the rest go POST.
+	// (``userdefaults`` is POST despite being read-only so the proxy
+	// doesn't have to thread query strings — body carries the args.)
 	switch action {
 	case "device_state", "device_state/list":
 		return http.MethodGet
@@ -5408,6 +6755,7 @@ func proxyWorkerMethodForAction(action string) string {
 		"device_state/sqlite/query":
 		return http.MethodPost
 	}
+	// Extract base action for compound paths (e.g. "step_status/{id}").
 	base := action
 	if idx := strings.Index(action, "/"); idx >= 0 {
 		base = action[:idx]
@@ -5420,6 +6768,16 @@ func proxyWorkerMethodForAction(action string) string {
 	}
 }
 
+// ProxyScreenshot retrieves a device screenshot through the backend proxy.
+// Returns the raw PNG bytes.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - workflowRunID: The Hatchet workflow run powering the session.
+//
+// Returns:
+//   - []byte: PNG image data.
+//   - error: Any error that occurred.
 func (c *Client) ProxyScreenshot(ctx context.Context, workflowRunID string) ([]byte, error) {
 	data, status, err := c.ProxyWorkerRequest(ctx, workflowRunID, "screenshot", nil)
 	if err != nil {
@@ -5431,6 +6789,9 @@ func (c *Client) ProxyScreenshot(ctx context.Context, workflowRunID string) ([]b
 	return data, nil
 }
 
+// --- Script API methods ---
+
+// CLIScriptInfo represents a script for CLI display.
 type CLIScriptInfo struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -5441,11 +6802,13 @@ type CLIScriptInfo struct {
 	UpdatedAt   string  `json:"updated_at"`
 }
 
+// CLIScriptListResponse represents the response from listing scripts.
 type CLIScriptListResponse struct {
 	Scripts []CLIScriptInfo `json:"scripts"`
 	Count   int             `json:"count"`
 }
 
+// CLICreateScriptRequest represents a script creation request.
 type CLICreateScriptRequest struct {
 	Name        string  `json:"name"`
 	Code        string  `json:"code"`
@@ -5453,6 +6816,7 @@ type CLICreateScriptRequest struct {
 	Description *string `json:"description,omitempty"`
 }
 
+// CLIUpdateScriptRequest represents a script update request.
 type CLIUpdateScriptRequest struct {
 	Name        *string `json:"name,omitempty"`
 	Code        *string `json:"code,omitempty"`
@@ -5460,11 +6824,14 @@ type CLIUpdateScriptRequest struct {
 	Description *string `json:"description,omitempty"`
 }
 
+// CLIScriptUsageResponse represents the response from checking script usage.
 type CLIScriptUsageResponse struct {
 	Tests []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"tests"`
+	// Modules holds scripts used only transitively via a module that a test
+	// imports (as opposed to Tests, which is direct script-step usage).
 	Modules []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -5472,6 +6839,7 @@ type CLIScriptUsageResponse struct {
 	Total int `json:"total"`
 }
 
+// ListScripts fetches all scripts for the authenticated user's organization.
 func (c *Client) ListScripts(ctx context.Context, runtime string, limit, offset int) (*CLIScriptListResponse, error) {
 	path := "/api/v1/tests/scripts?"
 	params := url.Values{}
@@ -5499,6 +6867,7 @@ func (c *Client) ListScripts(ctx context.Context, runtime string, limit, offset 
 	return &result, nil
 }
 
+// ListAllScripts pages through every saved script in the organization.
 func (c *Client) ListAllScripts(ctx context.Context) ([]CLIScriptInfo, error) {
 	const pageSize = 1000
 	var scripts []CLIScriptInfo
@@ -5514,6 +6883,7 @@ func (c *Client) ListAllScripts(ctx context.Context) ([]CLIScriptInfo, error) {
 	}
 }
 
+// GetScript retrieves a script by ID.
 func (c *Client) GetScript(ctx context.Context, scriptID string) (*CLIScriptInfo, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), nil)
@@ -5529,6 +6899,7 @@ func (c *Client) GetScript(ctx context.Context, scriptID string) (*CLIScriptInfo
 	return &result, nil
 }
 
+// CreateScript creates a new script.
 func (c *Client) CreateScript(ctx context.Context, req *CLICreateScriptRequest) (*CLIScriptInfo, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/scripts", req)
 	if err != nil {
@@ -5543,6 +6914,7 @@ func (c *Client) CreateScript(ctx context.Context, req *CLICreateScriptRequest) 
 	return &result, nil
 }
 
+// UpdateScript updates an existing script.
 func (c *Client) UpdateScript(ctx context.Context, scriptID string, req *CLIUpdateScriptRequest) (*CLIScriptInfo, error) {
 	resp, err := c.doRequest(ctx, "PUT",
 		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), req)
@@ -5558,6 +6930,7 @@ func (c *Client) UpdateScript(ctx context.Context, scriptID string, req *CLIUpda
 	return &result, nil
 }
 
+// DeleteScript deletes a script by ID.
 func (c *Client) DeleteScript(ctx context.Context, scriptID string) error {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), nil)
@@ -5565,6 +6938,7 @@ func (c *Client) DeleteScript(ctx context.Context, scriptID string) error {
 		return err
 	}
 
+	// 204 No Content means success - body is empty
 	if resp.StatusCode == 204 {
 		resp.Body.Close()
 		return nil
@@ -5573,6 +6947,7 @@ func (c *Client) DeleteScript(ctx context.Context, scriptID string) error {
 	return parseResponse(resp, nil)
 }
 
+// GetScriptUsage retrieves all tests that use a specific script.
 func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScriptUsageResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/tests/scripts/%s/tests", scriptID), nil)
@@ -5587,6 +6962,8 @@ func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScrip
 
 	return &result, nil
 }
+
+// --- Custom Variable API methods ---
 
 // CustomVariable represents a test variable used in {{variable-name}} or
 // {{variable_name}} syntax.
@@ -5606,16 +6983,27 @@ type CustomVariable struct {
 	IsSecret      bool   `json:"is_secret"`
 }
 
+// CustomVariablesResponse represents the response from listing custom variables.
 type CustomVariablesResponse struct {
 	Message string           `json:"message"`
 	Result  []CustomVariable `json:"result"`
 }
 
+// CustomVariableResponse represents the response from a single custom variable operation.
 type CustomVariableResponse struct {
 	Message string         `json:"message"`
 	Result  CustomVariable `json:"result"`
 }
 
+// ListCustomVariables retrieves all custom variables for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - *CustomVariablesResponse: List of variables
+//   - error: Any error that occurred
 func (c *Client) ListCustomVariables(ctx context.Context, testID string) (*CustomVariablesResponse, error) {
 	path := fmt.Sprintf("/api/v1/variables/custom/read_variables?test_uid=%s", testID)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -5631,6 +7019,17 @@ func (c *Client) ListCustomVariables(ctx context.Context, testID string) (*Custo
 	return &result, nil
 }
 
+// AddCustomVariable adds a new custom variable to a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name
+//   - value: Variable value (may be empty)
+//
+// Returns:
+//   - *CustomVariableResponse: The created variable
+//   - error: Any error that occurred (409 if duplicate name)
 func (c *Client) AddCustomVariable(ctx context.Context, testID, name, value string) (*CustomVariableResponse, error) {
 	body := map[string]string{
 		"test_uid":       testID,
@@ -5650,6 +7049,16 @@ func (c *Client) AddCustomVariable(ctx context.Context, testID, name, value stri
 	return &result, nil
 }
 
+// UpdateCustomVariableValue updates the value of an existing custom variable.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - variableID: The variable UUID
+//   - newValue: The new value
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) UpdateCustomVariableValue(ctx context.Context, testID, variableID, newValue string) error {
 	body := map[string]string{
 		"test_uid":    testID,
@@ -5664,6 +7073,16 @@ func (c *Client) UpdateCustomVariableValue(ctx context.Context, testID, variable
 	return parseResponse(resp, nil)
 }
 
+// RenameCustomVariable updates the name of an existing custom variable.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The owning test UID (required by the backend for ownership checks)
+//   - variableID: The variable UUID
+//   - newName: The new variable name
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) RenameCustomVariable(ctx context.Context, testID, variableID, newName string) error {
 	body := map[string]string{
 		"test_uid":      testID,
@@ -5678,6 +7097,15 @@ func (c *Client) RenameCustomVariable(ctx context.Context, testID, variableID, n
 	return parseResponse(resp, nil)
 }
 
+// DeleteCustomVariable deletes a custom variable by name.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name to delete
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) DeleteCustomVariable(ctx context.Context, testID, name string) error {
 	path := fmt.Sprintf("/api/v1/variables/custom/delete?test_uid=%s&variable_name=%s", url.QueryEscape(testID), url.QueryEscape(name))
 	resp, err := c.doRequest(ctx, "DELETE", path, nil)
@@ -5688,6 +7116,14 @@ func (c *Client) DeleteCustomVariable(ctx context.Context, testID, name string) 
 	return parseResponse(resp, nil)
 }
 
+// DeleteAllCustomVariables deletes all custom variables for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) DeleteAllCustomVariables(ctx context.Context, testID string) error {
 	path := fmt.Sprintf("/api/v1/variables/custom/delete_all?test_uid=%s", testID)
 	resp, err := c.doRequest(ctx, "DELETE", path, nil)
@@ -5698,6 +7134,16 @@ func (c *Client) DeleteAllCustomVariables(ctx context.Context, testID string) er
 	return parseResponse(resp, nil)
 }
 
+// CheckCustomVariableExists checks whether a variable with the given name exists for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name to check
+//
+// Returns:
+//   - *CheckVariableExistsResponse: Whether the variable exists and its ID
+//   - error: Any error that occurred
 func (c *Client) CheckCustomVariableExists(ctx context.Context, testID, name string) (*CheckVariableExistsResponse, error) {
 	path := fmt.Sprintf("/api/v1/variables/custom/check_exists?test_id=%s&variable_name=%s", testID, name)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -5713,6 +7159,17 @@ func (c *Client) CheckCustomVariableExists(ctx context.Context, testID, name str
 	return &result, nil
 }
 
+// --- Test Duplication ---
+
+// DuplicateTest creates a copy of an existing test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The duplication request (uses generated DuplicateTestRequest)
+//
+// Returns:
+//   - *DuplicateTestResponse: The newly created duplicate test
+//   - error: Any error that occurred
 func (c *Client) DuplicateTest(ctx context.Context, req *DuplicateTestRequest) (*DuplicateTestResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/duplicate", req)
 	if err != nil {
@@ -5725,6 +7182,17 @@ func (c *Client) DuplicateTest(ctx context.Context, req *DuplicateTestRequest) (
 	return &result, nil
 }
 
+// --- Test Versioning ---
+
+// GetTestVersions lists version history for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - *TestVersionListResponse: The version history (uses generated type)
+//   - error: Any error that occurred
 func (c *Client) GetTestVersions(ctx context.Context, testID string) (*TestVersionListResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/tests/%s/versions", testID), nil)
 	if err != nil {
@@ -5737,6 +7205,15 @@ func (c *Client) GetTestVersions(ctx context.Context, testID string) (*TestVersi
 	return &result, nil
 }
 
+// RestoreTestVersion restores a test to a specific version.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - version: The version number to restore
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) RestoreTestVersion(ctx context.Context, testID string, version int) error {
 	body := TestRestoreVersionRequest{Version: version}
 	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/tests/%s/restore", testID), body)
@@ -5746,6 +7223,9 @@ func (c *Client) RestoreTestVersion(ctx context.Context, testID string, version 
 	return parseResponse(resp, nil)
 }
 
+// --- Workflow Test Management ---
+
+// WorkflowTestWithPolicy represents a workflow-test attachment with failure policy.
 type WorkflowTestWithPolicy struct {
 	WorkflowTestID string `json:"id"`
 	TestID         string `json:"test_id"`
@@ -5754,6 +7234,15 @@ type WorkflowTestWithPolicy struct {
 	FailurePolicy  string `json:"failure_policy,omitempty"`
 }
 
+// GetWorkflowTestsWithPolicy lists workflow tests with their failure policies.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//
+// Returns:
+//   - []WorkflowTestWithPolicy: The workflow tests with policies
+//   - error: Any error that occurred
 func (c *Client) GetWorkflowTestsWithPolicy(ctx context.Context, workflowID string) ([]WorkflowTestWithPolicy, error) {
 	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/workflows/workflow/%s/tests", workflowID), nil)
 	if err != nil {
@@ -5769,6 +7258,15 @@ func (c *Client) GetWorkflowTestsWithPolicy(ctx context.Context, workflowID stri
 	return wrapper.Data, nil
 }
 
+// UpdateWorkflowTestFailurePolicy updates the failure policy for a test in a workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowTestID: The workflow-test attachment UUID
+//   - policy: The failure policy ("fail_workflow" or "ignore_failure")
+//
+// Returns:
+//   - error: Any error that occurred
 func (c *Client) UpdateWorkflowTestFailurePolicy(ctx context.Context, workflowTestID string, policy string) error {
 	body := map[string]string{"failure_policy": policy}
 	resp, err := c.doRequest(ctx, "PATCH", fmt.Sprintf("/api/v1/workflows/workflow-tests/%s", workflowTestID), body)
@@ -5778,6 +7276,15 @@ func (c *Client) UpdateWorkflowTestFailurePolicy(ctx context.Context, workflowTe
 	return parseResponse(resp, nil)
 }
 
+// UpdateWorkflowTests atomically replaces the test list for a workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//   - testIDs: Full replacement list of test UUIDs
+//
+// Returns:
+//   - error: Any error that occurred (400 if invalid test IDs, 404 if workflow not found)
 func (c *Client) UpdateWorkflowTests(ctx context.Context, workflowID string, testIDs []string) error {
 	path := fmt.Sprintf("/api/v1/workflows/update_tests/%s", workflowID)
 	resp, err := c.doRequest(ctx, "PUT", path, testIDs)
@@ -5788,6 +7295,11 @@ func (c *Client) UpdateWorkflowTests(ctx context.Context, workflowID string, tes
 	return parseResponse(resp, nil)
 }
 
+// ---------------------------------------------------------------------------
+// Org Files
+// ---------------------------------------------------------------------------
+
+// CLIOrgFile represents a file in the organization.
 type CLIOrgFile struct {
 	ID          string `json:"id"`
 	OrgID       string `json:"org_id"`
@@ -5801,11 +7313,14 @@ type CLIOrgFile struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+// CLIOrgFileListResponse represents the response from listing org files.
 type CLIOrgFileListResponse struct {
 	Files []CLIOrgFile `json:"files"`
 	Count int          `json:"count"`
 }
 
+// CLIOrgFileUploadRequest represents the request to get a presigned upload URL.
+// Also reused for replace-url (same request shape).
 type CLIOrgFileUploadRequest struct {
 	Filename    string `json:"filename"`
 	FileSize    int64  `json:"file_size"`
@@ -5814,6 +7329,7 @@ type CLIOrgFileUploadRequest struct {
 	ContentType string `json:"content_type,omitempty"`
 }
 
+// CLIOrgFileUploadResponse represents the response from getting an upload URL.
 type CLIOrgFileUploadResponse struct {
 	File        CLIOrgFile `json:"file"`
 	UploadURL   string     `json:"upload_url"`
@@ -5822,12 +7338,14 @@ type CLIOrgFileUploadResponse struct {
 	ContentType string     `json:"content_type"`
 }
 
+// CLIOrgFileDownloadResponse represents the response from getting a download URL.
 type CLIOrgFileDownloadResponse struct {
 	URL       string `json:"url"`
 	Filename  string `json:"filename"`
 	ExpiresIn int    `json:"expires_in"`
 }
 
+// CLIOrgFileCompleteUploadRequest represents the request to confirm a file upload.
 type CLIOrgFileCompleteUploadRequest struct {
 	S3Key       string `json:"s3_key,omitempty"`
 	Filename    string `json:"filename,omitempty"`
@@ -5836,11 +7354,13 @@ type CLIOrgFileCompleteUploadRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+// CLIOrgFileUpdateRequest represents the request to update file metadata.
 type CLIOrgFileUpdateRequest struct {
 	Filename    *string `json:"filename,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
 
+// ListOrgFiles fetches all files for the authenticated user's organization.
 func (c *Client) ListOrgFiles(ctx context.Context, limit, offset int) (*CLIOrgFileListResponse, error) {
 	path := fmt.Sprintf("/api/v1/files/?limit=%d&offset=%d", limit, offset)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -5854,6 +7374,7 @@ func (c *Client) ListOrgFiles(ctx context.Context, limit, offset int) (*CLIOrgFi
 	return &result, nil
 }
 
+// GetOrgFileUploadURL gets a presigned URL for uploading a new file.
 func (c *Client) GetOrgFileUploadURL(ctx context.Context, req *CLIOrgFileUploadRequest) (*CLIOrgFileUploadResponse, error) {
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/files/upload-url", req)
 	if err != nil {
@@ -5866,6 +7387,7 @@ func (c *Client) GetOrgFileUploadURL(ctx context.Context, req *CLIOrgFileUploadR
 	return &result, nil
 }
 
+// GetOrgFileDownloadURL gets a presigned URL for downloading a file.
 func (c *Client) GetOrgFileDownloadURL(ctx context.Context, fileID string) (*CLIOrgFileDownloadResponse, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/files/%s/download-url", fileID), nil)
@@ -5879,6 +7401,7 @@ func (c *Client) GetOrgFileDownloadURL(ctx context.Context, fileID string) (*CLI
 	return &result, nil
 }
 
+// UpdateOrgFile updates file metadata (filename and/or description).
 func (c *Client) UpdateOrgFile(ctx context.Context, fileID string, req *CLIOrgFileUpdateRequest) (*CLIOrgFile, error) {
 	resp, err := c.doRequest(ctx, "PUT",
 		fmt.Sprintf("/api/v1/files/%s", fileID), req)
@@ -5892,6 +7415,8 @@ func (c *Client) UpdateOrgFile(ctx context.Context, fileID string, req *CLIOrgFi
 	return &result, nil
 }
 
+// GetOrgFileReplaceURL gets a presigned URL for replacing a file's content.
+// The file ID is preserved so revyl-file:// references remain valid.
 func (c *Client) GetOrgFileReplaceURL(ctx context.Context, fileID string, req *CLIOrgFileUploadRequest) (*CLIOrgFileUploadResponse, error) {
 	resp, err := c.doRequest(ctx, "PUT",
 		fmt.Sprintf("/api/v1/files/%s/replace-url", fileID), req)
@@ -5905,6 +7430,7 @@ func (c *Client) GetOrgFileReplaceURL(ctx context.Context, fileID string, req *C
 	return &result, nil
 }
 
+// DeleteOrgFile deletes a file.
 func (c *Client) DeleteOrgFile(ctx context.Context, fileID string) error {
 	resp, err := c.doRequest(ctx, "DELETE",
 		fmt.Sprintf("/api/v1/files/%s", fileID), nil)
@@ -5918,6 +7444,7 @@ func (c *Client) DeleteOrgFile(ctx context.Context, fileID string) error {
 	return parseResponse(resp, nil)
 }
 
+// CompleteOrgFileUpload confirms that an S3 upload completed successfully.
 func (c *Client) CompleteOrgFileUpload(ctx context.Context, fileID string, req *CLIOrgFileCompleteUploadRequest) (*CLIOrgFile, error) {
 	resp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/files/%s/complete-upload", fileID), req)
@@ -5931,6 +7458,8 @@ func (c *Client) CompleteOrgFileUpload(ctx context.Context, fileID string, req *
 	return &result, nil
 }
 
+// UploadOrgFile uploads a file using the presigned URL flow.
+// It stats the file, infers content type, gets a presigned URL, and uploads to S3.
 func (c *Client) UploadOrgFile(ctx context.Context, filePath, displayName, description string) (*CLIOrgFile, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -5970,6 +7499,8 @@ func (c *Client) UploadOrgFile(ctx context.Context, filePath, displayName, descr
 	return confirmed, nil
 }
 
+// ReplaceOrgFileContent replaces a file's content using the presigned URL flow.
+// The file ID is preserved so revyl-file:// references remain valid.
 func (c *Client) ReplaceOrgFileContent(ctx context.Context, fileID, filePath, displayName, description string) (*CLIOrgFile, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -6015,10 +7546,15 @@ func (c *Client) ReplaceOrgFileContent(ctx context.Context, fileID, filePath, di
 	return confirmed, nil
 }
 
+// DownloadFileFromURL downloads a file from a URL to a local path.
+// It uses atomic writes (temp file + rename) and cleans up on failure.
 func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath string) error {
 	return c.DownloadFileFromURLWithProgress(ctx, fileURL, destPath, nil)
 }
 
+// DownloadFileFromURLWithProgress downloads a file to a local path and reports
+// bytes copied when progress is non-nil. totalBytes is -1 when the server does
+// not provide a Content-Length header.
 func (c *Client) DownloadFileFromURLWithProgress(ctx context.Context, fileURL, destPath string, progress func(downloadedBytes, totalBytes int64)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
@@ -6036,6 +7572,7 @@ func (c *Client) DownloadFileFromURLWithProgress(ctx context.Context, fileURL, d
 		return formatUploadStatusError(resp.StatusCode, body, nil)
 	}
 
+	// Write to temp file in same directory for atomic rename.
 	dir := filepath.Dir(destPath)
 	tmp, err := os.CreateTemp(dir, ".revyl-download-*")
 	if err != nil {
@@ -6085,6 +7622,11 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// --- Global Variable API methods ---
+
+// Global variable response models are generated in generated.go from OpenAPI.
+
+// OrgLaunchVariable represents an org-scoped reusable launch variable.
 type OrgLaunchVariable struct {
 	ID                      string   `json:"id"`
 	OrgID                   string   `json:"org_id"`
@@ -6116,27 +7658,32 @@ func (v *OrgLaunchVariable) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// OrgLaunchVariableWriteOptions controls optional launch-variable write fields.
 type OrgLaunchVariableWriteOptions struct {
 	IsSecret                *bool
 	ReadableByAutomatedRuns *bool
 }
 
+// OrgLaunchVariablesResponse represents the response from listing org launch variables.
 type OrgLaunchVariablesResponse struct {
 	Message string              `json:"message"`
 	Result  []OrgLaunchVariable `json:"result"`
 }
 
+// OrgLaunchVariableResponse represents the response from a single org launch variable operation.
 type OrgLaunchVariableResponse struct {
 	Message string            `json:"message"`
 	Result  OrgLaunchVariable `json:"result"`
 }
 
+// OrgLaunchVariableDeleteResponse represents the response from deleting an org launch variable.
 type OrgLaunchVariableDeleteResponse struct {
 	Message           string            `json:"message"`
 	Result            OrgLaunchVariable `json:"result"`
 	DetachedTestCount int               `json:"detached_test_count"`
 }
 
+// ListGlobalVariables retrieves all global variables for the authenticated user's org.
 func (c *Client) ListGlobalVariables(ctx context.Context) (*GlobalVariablesResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/variables/global", nil)
 	if err != nil {
@@ -6151,6 +7698,7 @@ func (c *Client) ListGlobalVariables(ctx context.Context) (*GlobalVariablesRespo
 	return &result, nil
 }
 
+// GlobalVariableWriteOptions controls optional global variable write fields.
 type GlobalVariableWriteOptions struct {
 	IsSecret                *bool
 	ReadableByAutomatedRuns *bool
@@ -6173,6 +7721,7 @@ func (c *Client) RevealGlobalVariable(ctx context.Context, variableID string) (*
 	return &result, nil
 }
 
+// AddGlobalVariable creates a new global variable for the authenticated user's org.
 func (c *Client) AddGlobalVariable(ctx context.Context, name, value string, opts GlobalVariableWriteOptions) (*GlobalVariableResponse, error) {
 	body := map[string]interface{}{
 		"variable_name":  name,
@@ -6197,6 +7746,7 @@ func (c *Client) AddGlobalVariable(ctx context.Context, name, value string, opts
 	return &result, nil
 }
 
+// UpdateGlobalVariable updates an existing global variable by its UUID.
 func (c *Client) UpdateGlobalVariable(ctx context.Context, variableID, name string, value *string, opts GlobalVariableWriteOptions) (*GlobalVariableResponse, error) {
 	body := map[string]interface{}{
 		"variable_name": name,
@@ -6224,6 +7774,7 @@ func (c *Client) UpdateGlobalVariable(ctx context.Context, variableID, name stri
 	return &result, nil
 }
 
+// DeleteGlobalVariable deletes a global variable by its UUID.
 func (c *Client) DeleteGlobalVariable(ctx context.Context, variableID string) error {
 	path := fmt.Sprintf("/api/v1/variables/global/%s", variableID)
 	resp, err := c.doRequest(ctx, "DELETE", path, nil)
@@ -6234,6 +7785,7 @@ func (c *Client) DeleteGlobalVariable(ctx context.Context, variableID string) er
 	return parseResponse(resp, nil)
 }
 
+// ListOrgLaunchVariables retrieves all org launch variables for the authenticated user's org.
 func (c *Client) ListOrgLaunchVariables(ctx context.Context) (*OrgLaunchVariablesResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/variables/org_launch_env", nil)
 	if err != nil {
@@ -6248,6 +7800,7 @@ func (c *Client) ListOrgLaunchVariables(ctx context.Context) (*OrgLaunchVariable
 	return &result, nil
 }
 
+// AddOrgLaunchVariable creates a new org launch variable for the authenticated user's org.
 func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, description *string, opts OrgLaunchVariableWriteOptions) (*OrgLaunchVariableResponse, error) {
 	body := map[string]interface{}{
 		"key":   key,
@@ -6275,6 +7828,7 @@ func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, de
 	return &result, nil
 }
 
+// UpdateOrgLaunchVariable updates an existing org launch variable by UUID.
 func (c *Client) UpdateOrgLaunchVariable(ctx context.Context, variableID string, key, value, description *string, opts OrgLaunchVariableWriteOptions) (*OrgLaunchVariableResponse, error) {
 	body := map[string]interface{}{}
 	if key != nil {
@@ -6324,6 +7878,7 @@ func (c *Client) RevealOrgLaunchVariable(ctx context.Context, variableID string)
 	return &result, nil
 }
 
+// DeleteOrgLaunchVariable deletes an org launch variable by UUID.
 func (c *Client) DeleteOrgLaunchVariable(ctx context.Context, variableID string) (*OrgLaunchVariableDeleteResponse, error) {
 	path := fmt.Sprintf("/api/v1/variables/org_launch_env/%s", variableID)
 	resp, err := c.doRequest(ctx, "DELETE", path, nil)
@@ -6339,6 +7894,21 @@ func (c *Client) DeleteOrgLaunchVariable(ctx context.Context, variableID string)
 	return &result, nil
 }
 
+// ---------------------------------------------------------------------------
+// Session artifact upload (ephemeral presigned URLs for dev-push deltas)
+// ---------------------------------------------------------------------------
+
+// GetSessionArtifactUploadURL generates presigned S3 URLs for an ephemeral
+// artifact scoped to the given device session. No database record is created.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - sessionID: the device session UUID
+//   - req: file size and content type
+//
+// Returns:
+//   - SessionArtifactUploadResponse with upload and download URLs
+//   - error: API or network failure
 func (c *Client) GetSessionArtifactUploadURL(ctx context.Context, sessionID string, req *SessionArtifactUploadRequest) (*SessionArtifactUploadResponse, error) {
 	path := fmt.Sprintf("/api/v1/execution/device-sessions/%s/artifacts/upload-url", sessionID)
 	resp, err := c.doRequest(ctx, "POST", path, req)
@@ -6352,6 +7922,22 @@ func (c *Client) GetSessionArtifactUploadURL(ctx context.Context, sessionID stri
 	return &result, nil
 }
 
+// ---------------------------------------------------------------------------
+// Remote Build
+// ---------------------------------------------------------------------------
+
+// GetRemoteBuildUploadURL obtains a presigned S3 URL for uploading a source
+// archive used by a remote build.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - appID: UUID of the target app
+//   - filename: name of the archive file (e.g. "source.tar.gz")
+//   - fileSize: size of the archive in bytes
+//
+// Returns:
+//   - *RemoteBuildSourceUploadResponse containing upload URL and S3 key
+//   - error on API or network failure
 func (c *Client) GetRemoteBuildUploadURL(ctx context.Context, appID uuid.UUID, filename string, fileSize int64) (*RemoteBuildSourceUploadResponse, error) {
 	size := int(fileSize)
 	req := &RemoteBuildSourceUploadRequest{
@@ -6370,8 +7956,16 @@ func (c *Client) GetRemoteBuildUploadURL(ctx context.Context, appID uuid.UUID, f
 	return &result, nil
 }
 
-// TriggerRemoteBuild dispatches a remote build job; when timeoutSeconds is non-nil it overrides
-// req.TimeoutSeconds, while nil preserves any timeout already set on req.
+// TriggerRemoteBuild dispatches a remote build job via the backend.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - req: build parameters including source key and build command
+//   - timeoutSeconds: optional server-side build timeout in seconds (omit for backend default)
+//
+// Returns:
+//   - *RemoteBuildTriggerResponse with the build_job_id for status polling
+//   - error on API or network failure
 func (c *Client) TriggerRemoteBuild(ctx context.Context, req *RemoteBuildRequest, timeoutSeconds *int) (*RemoteBuildTriggerResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("remote build request is nil")
@@ -6390,6 +7984,15 @@ func (c *Client) TriggerRemoteBuild(ctx context.Context, req *RemoteBuildRequest
 	return &result, nil
 }
 
+// GetRemoteBuildStatus polls the current status of a remote build job.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - buildJobID: UUID returned by TriggerRemoteBuild
+//
+// Returns:
+//   - *RemoteBuildStatusResponse with current phase, logs tail, and result
+//   - error on API or network failure
 func (c *Client) GetRemoteBuildStatus(ctx context.Context, buildJobID string) (*RemoteBuildStatusResponse, error) {
 	path := fmt.Sprintf("/api/v1/apps/remote/%s/status", buildJobID)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -6424,15 +8027,39 @@ func (c *Client) GetRemoteBuildLogs(ctx context.Context, buildJobID string, afte
 	return &result, nil
 }
 
+// UploadFileToPresignedURL uploads a file to a presigned S3 PUT URL with retry.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - uploadURL: presigned S3 PUT URL
+//   - contentType: MIME type for the upload
+//   - filePath: local file path to upload
+//   - fileSize: size of the file in bytes
+//
+// Returns:
+//   - error on upload failure after retries
 func (c *Client) UploadFileToPresignedURL(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
 	return c.uploadFileWithRetry(ctx, uploadURL, contentType, filePath, fileSize)
 }
 
+// UploadFileToPresignedURLWithHeaders applies every header returned by the
+// signing endpoint. The exact header set is part of the S3 signature contract.
 func (c *Client) UploadFileToPresignedURLWithHeaders(ctx context.Context, uploadURL string, headers map[string]string, filePath string, fileSize int64) error {
 	return c.uploadFileWithHeadersAndRetry(ctx, uploadURL, headers, filePath, fileSize)
 }
 
-// UploadFileToPresignedPost uploads filePath using the caller-supplied presigned S3 POST form policy and fields.
+// UploadFileToPresignedPost uploads a file via a presigned S3 POST policy
+// (multipart form). This enforces server-side content-length-range limits
+// that presigned PUT URLs cannot enforce.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - postURL: presigned POST URL (S3 bucket endpoint)
+//   - fields: form fields from the presigned POST policy
+//   - filePath: local file path to upload
+//
+// Returns:
+//   - error on upload failure after retries
 func (c *Client) UploadFileToPresignedPost(ctx context.Context, postURL string, fields map[string]string, filePath string) error {
 	attempts := c.maxRetries + 1
 	var lastErr error
@@ -6504,15 +8131,29 @@ func (c *Client) doPresignedPostUpload(ctx context.Context, postURL string, fiel
 	return nil
 }
 
+// CancelRemoteBuild requests cancellation of a running remote build.
+// The backend marks the build as cancelled and stops its Hatchet run.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - buildJobID: UUID returned by TriggerRemoteBuild
+//
+// Returns:
+//   - error on API or network failure
 func (c *Client) CancelRemoteBuild(ctx context.Context, buildJobID string) error {
 	path := fmt.Sprintf("/api/v1/apps/remote/%s", buildJobID)
 	resp, err := c.doRequest(ctx, "DELETE", path, nil)
 	if err != nil {
 		return err
 	}
+	// Surface non-2xx as *APIError so callers can distinguish 404/403/409
+	// (e.g. cancelling an already-terminal build) instead of reporting success.
 	return parseResponse(resp, nil)
 }
 
+// StoreKitConfigRefUpsertRequest creates or replaces the explicit iOS StoreKit
+// config choice for one scope. ScopeType is "app", "build", or "test". Mode is
+// "file" (FileID required) or "disabled" (FileID nil).
 type StoreKitConfigRefUpsertRequest struct {
 	ScopeType string  `json:"scope_type"`
 	ScopeID   string  `json:"scope_id"`
@@ -6520,6 +8161,7 @@ type StoreKitConfigRefUpsertRequest struct {
 	FileID    *string `json:"file_id"`
 }
 
+// StoreKitConfigRef is the explicit StoreKit config attached to one scope.
 type StoreKitConfigRef struct {
 	ID        string  `json:"id"`
 	ScopeType string  `json:"scope_type"`
@@ -6530,11 +8172,14 @@ type StoreKitConfigRef struct {
 	FileSize  *int64  `json:"file_size"`
 }
 
+// StoreKitConfigRefResponse wraps a single StoreKit config ref read/mutation.
 type StoreKitConfigRefResponse struct {
 	Message string             `json:"message"`
 	Result  *StoreKitConfigRef `json:"result,omitempty"`
 }
 
+// UpsertStoreKitConfigRef attaches (mode=file) or disables (mode=disabled) a
+// StoreKit config for an app/build/test scope.
 func (c *Client) UpsertStoreKitConfigRef(ctx context.Context, req *StoreKitConfigRefUpsertRequest) (*StoreKitConfigRefResponse, error) {
 	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/ios_storekit/refs", req)
 	if err != nil {
@@ -6547,6 +8192,8 @@ func (c *Client) UpsertStoreKitConfigRef(ctx context.Context, req *StoreKitConfi
 	return &result, nil
 }
 
+// GetStoreKitConfigRef returns the explicit StoreKit config for one scope.
+// Result is nil when the scope has no explicit config (it inherits the default).
 func (c *Client) GetStoreKitConfigRef(ctx context.Context, scopeType, scopeID string) (*StoreKitConfigRefResponse, error) {
 	path := fmt.Sprintf("/api/v1/variables/ios_storekit/refs?scope_type=%s&scope_id=%s",
 		url.QueryEscape(scopeType), url.QueryEscape(scopeID))
@@ -6561,6 +8208,8 @@ func (c *Client) GetStoreKitConfigRef(ctx context.Context, scopeType, scopeID st
 	return &result, nil
 }
 
+// DeleteStoreKitConfigRef removes the explicit StoreKit config for one scope,
+// so the scope inherits the default again.
 func (c *Client) DeleteStoreKitConfigRef(ctx context.Context, scopeType, scopeID string) error {
 	path := fmt.Sprintf("/api/v1/variables/ios_storekit/refs?scope_type=%s&scope_id=%s",
 		url.QueryEscape(scopeType), url.QueryEscape(scopeID))
@@ -6575,6 +8224,15 @@ func (c *Client) DeleteStoreKitConfigRef(ctx context.Context, scopeType, scopeID
 	return parseResponse(resp, nil)
 }
 
+// ListBuildCaches lists the org's stored remote-build cache objects.
+// Response types (BuildCacheListResponse etc.) live in generated.go.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *BuildCacheListResponse: Cache objects with size and last-use time
+//   - error: Any error that occurred
 func (c *Client) ListBuildCaches(ctx context.Context) (*BuildCacheListResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/apps/build-caches", nil)
 	if err != nil {

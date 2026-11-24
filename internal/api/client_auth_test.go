@@ -53,6 +53,7 @@ func TestRevokeCLIAPIKeyPostsExpectedPayload(t *testing.T) {
 	}
 }
 
+// TestSetAPIKeyUpdatesSubsequentAuthorization verifies credential refreshes affect later requests.
 func TestSetAPIKeyUpdatesSubsequentAuthorization(t *testing.T) {
 	var seenAuthorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +99,7 @@ func TestValidateAPIKeyAcceptsOrgRuntimeIdentity(t *testing.T) {
 	}
 }
 
+// TestAPIKeyAccessIsConcurrentSafe verifies credential refresh can overlap request reads.
 func TestAPIKeyAccessIsConcurrentSafe(t *testing.T) {
 	client := NewClient("initial-token")
 	var waitGroup sync.WaitGroup

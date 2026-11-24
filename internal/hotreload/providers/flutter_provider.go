@@ -14,17 +14,49 @@ func init() {
 	hotreload.RegisterProvider(&FlutterProvider{})
 }
 
-// FlutterProvider detects Flutter projects; revyl dev uses a rebuild-based loop rather than a live dev server.
+// FlutterProvider implements the Provider interface for Flutter projects.
+//
+// Flutter uses a rebuild-based dev loop with automatic file watching:
+// Dart file changes trigger `flutter build` + delta push to the cloud device.
+// No live hot-reload dev server is needed; the CLI watches files locally.
+//
+// Detection looks for:
+//   - pubspec.yaml with "sdk: flutter" dependency
+//   - lib/ directory with .dart files
 type FlutterProvider struct{}
 
+// Name returns the unique identifier for this provider.
+//
+// Returns:
+//   - string: "flutter"
 func (p *FlutterProvider) Name() string {
 	return "flutter"
 }
 
+// DisplayName returns the human-readable name for this provider.
+//
+// Returns:
+//   - string: "Flutter"
 func (p *FlutterProvider) DisplayName() string {
 	return "Flutter"
 }
 
+// Detect checks if this is a Flutter project.
+//
+// Detection criteria:
+//   - pubspec.yaml exists and contains "sdk: flutter"
+//   - Optionally: lib/ directory with .dart files
+//
+// Confidence is 0.75, between Swift (0.7) and bare React Native (0.8),
+// to avoid conflicts with cross-platform projects that may also contain
+// ios/ or android/ directories.
+//
+// Parameters:
+//   - dir: The project directory to analyze
+//
+// Returns:
+//   - *hotreload.DetectionResult: Detection result with confidence 0.75, or nil if not detected
+//   - error: Any error that occurred during detection
 func (p *FlutterProvider) Detect(dir string) (*hotreload.DetectionResult, error) {
 	pubspecPath := filepath.Join(dir, "pubspec.yaml")
 	content, err := os.ReadFile(pubspecPath)
@@ -70,6 +102,16 @@ func (p *FlutterProvider) Detect(dir string) (*hotreload.DetectionResult, error)
 	}, nil
 }
 
+// GetProjectInfo extracts Flutter project information from pubspec.yaml.
+//
+// Parses the project name from the "name:" field in pubspec.yaml.
+//
+// Parameters:
+//   - dir: The project directory to analyze
+//
+// Returns:
+//   - *hotreload.ProjectInfo: Extracted project information
+//   - error: Any error that occurred during extraction
 func (p *FlutterProvider) GetProjectInfo(dir string) (*hotreload.ProjectInfo, error) {
 	name := parsePubspecName(filepath.Join(dir, "pubspec.yaml"))
 	if name == "" {
@@ -92,18 +134,53 @@ func (p *FlutterProvider) GetProjectInfo(dir string) (*hotreload.ProjectInfo, er
 	}, nil
 }
 
+// GetDefaultConfig returns a default configuration for Flutter projects.
+//
+// Flutter's rebuild-based dev loop requires no special provider config
+// (no port, scheme, or bundle ID). The build command and output are
+// managed by the build.platforms section of config.yaml.
+//
+// Parameters:
+//   - info: Project information from GetProjectInfo
+//
+// Returns:
+//   - *config.ProviderConfig: Empty default configuration
 func (p *FlutterProvider) GetDefaultConfig(info *hotreload.ProjectInfo) *config.ProviderConfig {
 	return &config.ProviderConfig{}
 }
 
+// CreateDevServer returns an error because Flutter uses a rebuild-based dev loop
+// rather than a live dev server. The rebuild loop is handled by runDevRebuildOnly
+// in dev.go with automatic file watching.
+//
+// Parameters:
+//   - cfg: Provider configuration (unused)
+//   - workDir: Working directory (unused)
+//
+// Returns:
+//   - hotreload.DevServer: nil
+//   - error: Explanation that Flutter uses rebuild-based dev loop
 func (p *FlutterProvider) CreateDevServer(cfg *config.ProviderConfig, workDir string) (hotreload.DevServer, error) {
 	return nil, fmt.Errorf("Flutter uses an auto-rebuild dev loop — no dev server needed")
 }
 
+// IsSupported returns false because Flutter does not use a hot-reload dev server.
+// It routes through the rebuild-only path in revyl dev with file watching.
+//
+// Returns:
+//   - bool: false
 func (p *FlutterProvider) IsSupported() bool {
 	return false
 }
 
+// parsePubspecName extracts the "name:" field from a pubspec.yaml file.
+// Returns empty string if the file cannot be read or parsed.
+//
+// Parameters:
+//   - path: Path to the pubspec.yaml file
+//
+// Returns:
+//   - string: The project name, or empty string on failure
 func parsePubspecName(path string) string {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -120,6 +197,7 @@ func parsePubspecName(path string) string {
 	return ""
 }
 
+// dirExists checks if a directory exists at the given path.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {

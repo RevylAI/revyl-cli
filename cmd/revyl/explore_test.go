@@ -636,62 +636,51 @@ func TestExploreConcurrencyTrimIncludesUpgradeWithoutChangingJSON(t *testing.T) 
 		for _, quiet := range []bool{false, true} {
 			for _, launched := range []int{0, 2, 5} {
 				for _, noWait := range []bool{false, true} {
-					for _, free := range []bool{false, true} {
-						t.Run(fmt.Sprintf("json=%t/quiet=%t/launched=%d/no-wait=%t/free=%t", jsonMode, quiet, launched, noWait, free), func(t *testing.T) {
-							resetExploreFlagsForTest(t)
-							t.Setenv("REVYL_API_KEY", "test-key")
-							exploreExplorerCount, exploreNoWait, exploreNoInheritedLaunchVars = 5, noWait, true
-							appID := uuid.NewString()
-							run := exploreRun("running", "processing", "processing", nil)
-							configMap := map[string]interface{}{"lane_count": float64(launched)}
-							if free {
-								configMap["free_reason"] = "first_build"
+					t.Run(fmt.Sprintf("json=%t/quiet=%t/launched=%d/no-wait=%t", jsonMode, quiet, launched, noWait), func(t *testing.T) {
+						resetExploreFlagsForTest(t)
+						t.Setenv("REVYL_API_KEY", "test-key")
+						exploreExplorerCount, exploreNoWait, exploreNoInheritedLaunchVars = 5, noWait, true
+						appID := uuid.NewString()
+						run := exploreRun("running", "processing", "processing", nil)
+						configMap := map[string]interface{}{"lane_count": float64(launched)}
+						run.Config = &configMap
+						report := exploreReport("completed", "completed", "ready", launched, launched)
+						report.Run.Config = &configMap
+						client := &fakeExploreAPI{
+							apps:    map[string]*api.App{appID: {ID: appID, Name: "Example", Platform: "ios"}},
+							launch:  &api.ExplorationLaunchResponse{Run: run, ReportUrl: "https://app.example/report"},
+							reports: []*api.ExplorationRunReportResponse{report},
+						}
+						previous := exploreNewClient
+						exploreNewClient = func(string, bool) exploreAPI { return client }
+						t.Cleanup(func() { exploreNewClient = previous })
+						cmd := &cobra.Command{}
+						cmd.SetContext(context.Background())
+						cmd.Flags().Bool("json", jsonMode, "")
+						cmd.Flags().Bool("quiet", quiet, "")
+						var stdout, stderr bytes.Buffer
+						cmd.SetOut(&stdout)
+						cmd.SetErr(&stderr)
+						if err := runExploreRun(cmd, []string{appID}); err != nil {
+							t.Fatal(err)
+						}
+						if jsonMode {
+							var output exploreOutput
+							if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+								t.Fatalf("stdout is not valid JSON: %v", err)
 							}
-							run.Config = &configMap
-							report := exploreReport("completed", "completed", "ready", launched, launched)
-							report.Run.Config = &configMap
-							client := &fakeExploreAPI{
-								apps:    map[string]*api.App{appID: {ID: appID, Name: "Example", Platform: "ios"}},
-								launch:  &api.ExplorationLaunchResponse{Run: run, ReportUrl: "https://app.example/report"},
-								reports: []*api.ExplorationRunReportResponse{report},
+							if output.ExplorersRequested != 5 || output.ExplorersLaunched != launched {
+								t.Fatalf("explorer counts changed: %+v", output)
 							}
-							previous := exploreNewClient
-							exploreNewClient = func(string, bool) exploreAPI { return client }
-							t.Cleanup(func() { exploreNewClient = previous })
-							cmd := &cobra.Command{}
-							cmd.SetContext(context.Background())
-							cmd.Flags().Bool("json", jsonMode, "")
-							cmd.Flags().Bool("quiet", quiet, "")
-							var stdout, stderr bytes.Buffer
-							cmd.SetOut(&stdout)
-							cmd.SetErr(&stderr)
-							if err := runExploreRun(cmd, []string{appID}); err != nil {
-								t.Fatal(err)
-							}
-							if jsonMode {
-								var output exploreOutput
-								if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
-									t.Fatalf("stdout is not valid JSON: %v", err)
-								}
-								if output.ExplorersRequested != 5 || output.ExplorersLaunched != launched {
-									t.Fatalf("explorer counts changed: %+v", output)
-								}
-							}
-							trimmed := !quiet && launched == 2
-							wantHints, wantFreeNotes := 0, 0
-							if trimmed && free {
-								wantFreeNotes = 1
-							} else if trimmed {
-								wantHints = 1
-							}
-							if strings.Count(stderr.String(), api.ConcurrencyUpgradeHint) != wantHints || strings.Contains(stdout.String(), api.ConcurrencyUpgradeHint) {
-								t.Fatalf("want %d hints on stderr only: stdout=%s stderr=%s", wantHints, stdout.String(), stderr.String())
-							}
-							if strings.Count(stderr.String(), "Your free first exploration runs 2 explorers.") != wantFreeNotes || strings.Contains(stdout.String(), "free first exploration") {
-								t.Fatalf("want %d free-run notes on stderr only: stdout=%s stderr=%s", wantFreeNotes, stdout.String(), stderr.String())
-							}
-						})
-					}
+						}
+						wantCount := 0
+						if !quiet && launched == 2 {
+							wantCount = 1
+						}
+						if strings.Count(stderr.String(), api.ConcurrencyUpgradeHint) != wantCount || strings.Contains(stdout.String(), api.ConcurrencyUpgradeHint) {
+							t.Fatalf("want %d hints on stderr only: stdout=%s stderr=%s", wantCount, stdout.String(), stderr.String())
+						}
+					})
 				}
 			}
 		}

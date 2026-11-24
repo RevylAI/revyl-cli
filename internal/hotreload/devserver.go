@@ -1,59 +1,157 @@
+// Package hotreload provides hot reload functionality for rapid development iteration.
+//
+// Hot reload enables near-instant testing by:
+//   - Starting a local dev server (Expo, Swift, or Android)
+//   - Creating a backend-owned relay to expose it publicly
+//   - Running tests against a pre-built development client
+//
+// This package supports multiple dev server providers through the DevServer interface,
+// allowing extensibility for different frameworks and platforms.
 package hotreload
 
 import (
 	"context"
 )
 
+// DevServerOutputStream identifies which process stream emitted a log line.
 type DevServerOutputStream string
 
 const (
+	// DevServerOutputStdout indicates the line came from stdout.
 	DevServerOutputStdout DevServerOutputStream = "stdout"
+
+	// DevServerOutputStderr indicates the line came from stderr.
 	DevServerOutputStderr DevServerOutputStream = "stderr"
 
-	// DevServerOutputHMR indicates an HMR event synthesized from dev-server output.
+	// DevServerOutputHMR indicates an HMR-related event synthesized from
+	// dev-server output (e.g. file change detected, re-bundle complete).
 	DevServerOutputHMR DevServerOutputStream = "hmr"
 )
 
+// DevServerOutput represents a single line emitted by the dev server process.
 type DevServerOutput struct {
+	// Stream is the source stream (stdout or stderr).
 	Stream DevServerOutputStream
-	Line   string
+
+	// Line is the raw log line emitted by the process.
+	Line string
 }
 
 // MaxDevServerOutputLineBytes bounds one dev-server output line, so a long
 // bundler line is still read instead of stopping the stdout reader.
 const MaxDevServerOutputLineBytes = 16 * 1024 * 1024
 
+// DevServerOutputCallback receives streamed dev-server process output.
 type DevServerOutputCallback func(output DevServerOutput)
 
-// DevServer manages the lifecycle of a local development server for hot reload.
+// DevServer defines the interface for hot reload development servers.
+//
+// Implementations of this interface manage the lifecycle of a local development
+// server and provide the necessary information to connect a remote device to it.
+//
+// Current implementations:
+//   - ExpoDevServer: Expo/React Native development server
+//
+// Future implementations:
+//   - SwiftDevServer: InjectionIII for native iOS hot reload
+//   - AndroidDevServer: Metro/Gradle for native Android hot reload
 type DevServer interface {
+	// Start launches the development server and blocks until it's ready to accept connections.
+	//
+	// The server should be fully initialized and accepting connections before this method returns.
+	// If the server fails to start within a reasonable timeout, an error should be returned.
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation. If cancelled, the server should stop and return ctx.Err()
+	//
+	// Returns:
+	//   - error: nil if server started successfully, otherwise the error that occurred
 	Start(ctx context.Context) error
+
+	// Stop terminates the development server and cleans up any resources.
+	//
+	// This method should be idempotent - calling it multiple times should not cause errors.
+	// Any child processes should be terminated gracefully, with a fallback to forceful termination.
+	//
+	// Returns:
+	//   - error: nil if server stopped successfully, otherwise the error that occurred
 	Stop() error
+
+	// GetPort returns the port number the development server is listening on.
+	//
+	// This port is used to configure the public relay to forward traffic to the local server.
+	//
+	// Returns:
+	//   - int: The port number (e.g., 8081 for Expo)
 	GetPort() int
+
+	// GetDeepLinkURL constructs the deep link URL for launching the development client.
+	//
+	// The deep link URL is used to launch the pre-built development client app on the device
+	// and connect it to the local development server through the tunnel.
+	//
+	// Parameters:
+	//   - tunnelURL: The public relay URL (e.g., "https://hr-abc123.revyl.ai")
+	//
+	// Returns:
+	//   - string: The deep link URL (e.g., "myapp://expo-development-client/?url=https://...")
 	GetDeepLinkURL(tunnelURL string) string
+
+	// Name returns the human-readable name of the development server provider.
+	//
+	// This is used for logging and user-facing messages.
+	//
+	// Returns:
+	//   - string: The provider name (e.g., "Expo", "Swift", "Android")
 	Name() string
-	// SetProxyURL configures the public tunnel URL for bundle URL rewriting; must be called before Start.
+
+	// SetProxyURL sets the tunnel URL for bundle URL rewriting.
+	//
+	// For Expo servers, this sets the EXPO_PACKAGER_PROXY_URL environment variable
+	// which causes Metro to rewrite bundle URLs to use the tunnel URL instead of localhost.
+	// This is required for remote devices to fetch JavaScript bundles through the tunnel.
+	//
+	// Must be called before Start() for the setting to take effect.
+	//
+	// Parameters:
+	//   - tunnelURL: The public relay URL (e.g., "https://hr-abc123.revyl.ai")
 	SetProxyURL(tunnelURL string)
 }
 
+// DevServerOutputEmitter is implemented by DevServer implementations that can
+// stream process output lines as they are emitted.
 type DevServerOutputEmitter interface {
-	// SetOutputCallback registers a process output callback; nil disables streaming.
+	// SetOutputCallback registers a callback for process output lines.
+	// Implementations should treat nil as "no callback".
 	SetOutputCallback(callback DevServerOutputCallback)
 }
 
+// DevServerDebugConfigurable is implemented by DevServer implementations that
+// support debug-mode startup behavior.
 type DevServerDebugConfigurable interface {
+	// SetDebugMode enables or disables debug-mode startup behavior.
 	SetDebugMode(enabled bool)
 }
 
+// DevServerFailureReporter is implemented by DevServer implementations that can
+// report asynchronous runtime failures after startup has completed.
 type DevServerFailureReporter interface {
 	Failures() <-chan RuntimeFailure
 }
 
+// DevServerStatus represents the current status of a development server.
 type DevServerStatus string
 
 const (
-	DevServerStatusStopped  DevServerStatus = "stopped"
+	// DevServerStatusStopped indicates the server is not running.
+	DevServerStatusStopped DevServerStatus = "stopped"
+
+	// DevServerStatusStarting indicates the server is starting up.
 	DevServerStatusStarting DevServerStatus = "starting"
-	DevServerStatusRunning  DevServerStatus = "running"
-	DevServerStatusError    DevServerStatus = "error"
+
+	// DevServerStatusRunning indicates the server is running and ready.
+	DevServerStatusRunning DevServerStatus = "running"
+
+	// DevServerStatusError indicates the server encountered an error.
+	DevServerStatusError DevServerStatus = "error"
 )

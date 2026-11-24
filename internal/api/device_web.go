@@ -48,7 +48,8 @@ type WebBuild struct {
 	BranchName           string       `json:"branch_name,omitempty"`
 	BranchSource         BranchSource `json:"branch_source,omitempty"`
 	GitBranchName        string       `json:"git_branch_name,omitempty"`
-	DeployURL            string       `json:"deploy_url,omitempty"`
+	// DeployURL is the address a URL build opens.
+	DeployURL string `json:"deploy_url,omitempty"`
 	// Metadata.Web describes how Revyl runs a bundle build; nil on URL builds.
 	Metadata struct {
 		Web *WebBuildMetadata `json:"web,omitempty"`

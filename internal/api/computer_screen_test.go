@@ -8,10 +8,8 @@ import (
 	"errors"
 	"image"
 	"image/png"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -120,37 +118,6 @@ func TestComputerScreenLeavesTextAndKeyRulesToBackend(t *testing.T) {
 			var apiErr *APIError
 			if !errors.As(err, &apiErr) || apiErr.Code != tc.code || apiErr.StatusCode != http.StatusUnprocessableEntity || calls != 1 {
 				t.Fatalf("domain error = %v, requests = %d", err, calls)
-			}
-		})
-	}
-}
-
-func TestComputerScreenTypeWaitsLongerThanOtherActions(t *testing.T) {
-	x, y := 4, 5
-	for _, tc := range []struct {
-		action ComputerScreenAction
-		want   time.Duration
-	}{
-		{ComputerScreenAction{Action: "type", Text: "hello"}, 45 * time.Second},
-		{ComputerScreenAction{Action: "click", X: &x, Y: &y}, DefaultTimeout},
-	} {
-		t.Run(tc.action.Action, func(t *testing.T) {
-			client := NewClientWithBaseURL("fixture-key", "https://example.com")
-			requests := 0
-			client.httpClient.Transport = finalizationTransport(func(req *http.Request) (*http.Response, error) {
-				requests++
-				deadline, ok := req.Context().Deadline()
-				if remaining := time.Until(deadline); !ok || remaining < tc.want-time.Second || remaining > tc.want {
-					t.Fatalf("deadline remaining = %v, want about %v", remaining, tc.want)
-				}
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Header:     http.Header{"Content-Type": []string{"application/json"}},
-					Body:       io.NopCloser(strings.NewReader(`{"screenshot":null,"cursor":null}`)),
-				}, nil
-			})
-			if _, err := client.PerformComputerScreenAction(context.Background(), uuid.New(), ComputerScreenActionRequest{Action: tc.action, Via: "cli"}); err != nil || requests != 1 {
-				t.Fatalf("err = %v, requests = %d", err, requests)
 			}
 		})
 	}

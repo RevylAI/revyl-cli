@@ -14,6 +14,10 @@ import (
 	"github.com/revyl/cli/internal/backendheaders"
 )
 
+// proofMediaPathFormat is the multipart publish endpoint. It is deliberately
+// absent from the generated model surface (see scripts/openapi-excluded-paths.txt):
+// multipart bodies produce no useful generated client, so the transport and the
+// response model below are handwritten wrappers.
 const proofMediaPathFormat = "/api/v1/reports-v3/sessions/%s/proof-media"
 
 // SessionProofMediaResponse is the published location of one proof-media file.
@@ -26,9 +30,22 @@ type SessionProofMediaResponse struct {
 	PublicURL string `json:"public_url"`
 }
 
-// PublishSessionProofMedia uploads a local PNG, JPEG, GIF, or WebP for a device session and returns
-// its published name and unauthenticated public URL. Publishing discloses the media URL and session
-// report to anyone holding the link; the backend may re-encode the image and assign a digest-bound name.
+// PublishSessionProofMedia uploads an image for a device session and returns
+// its public URL.
+//
+// Publishing is a disclosure: the returned URL, and the session's report, become
+// readable by anyone who holds the link.
+//
+// Parameters:
+//   - ctx: cancellation context.
+//   - sessionID: the device session the media belongs to.
+//   - filePath: a local PNG, JPEG, GIF, or WebP. Its base name becomes the
+//     published name, so it must satisfy the backend's strict name rules.
+//
+// Returns:
+//   - The published file name and public URL.
+//   - An error when the file cannot be read, the session is not accessible to
+//     the caller's organization, or the backend rejects the file.
 func (c *Client) PublishSessionProofMedia(ctx context.Context, sessionID, filePath string) (*SessionProofMediaResponse, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

@@ -70,7 +70,7 @@ test("adds the bundled skills without replacing ones the user installed", async 
   const workspace = skills.get("revyl-workspace")
   assert.equal(workspace.autoinvoke, true)
   assert.match(workspace.description, /^Open an app's Revyl Atlas map/)
-  assert.match(workspace.path, /skills\/revyl-workspace\/SKILL\.md$/)
+  assert.match(workspace.path, /skills[/\\]revyl-workspace[/\\]SKILL\.md$/)
   assert.match(workspace.content, /^# Revyl Workspace/)
   assert.equal(skills.get("revyl-cli-auth-bypass").autoinvoke, false)
 })

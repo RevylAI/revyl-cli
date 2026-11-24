@@ -109,6 +109,7 @@ func (c *Client) ReplaceProjectConfiguration(
 	return &result, nil
 }
 
+// GetProjectCursorProofAuthorization reads the current server-owned authorization.
 func (c *Client) GetProjectCursorProofAuthorization(
 	ctx context.Context,
 	projectID string,

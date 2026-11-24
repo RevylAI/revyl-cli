@@ -11,21 +11,44 @@ import (
 	"github.com/revyl/cli/internal/backendheaders"
 )
 
-// proofCommentPath is excluded from generated models (scripts/openapi-excluded-paths.txt)
-// because it authenticates via proof-run credentials or approved Cursor correlation.
+// proofCommentPath relays a proof agent's write-up onto the pull request it is
+// proving. Deliberately absent from the generated model surface (see
+// scripts/openapi-excluded-paths.txt): it authenticates with a proof-run
+// runtime credential rather than an ordinary API key, so a generated client
+// would advertise it to callers who can never use it.
 const proofCommentPath = "/api/v1/scm/proof-runs/comment"
 
-// ProofCommentRequest carries a PR proof write-up; run identity comes from proof credentials
-// or approved agent correlation, Problem and Blocked are mutually exclusive, and omitting both reports a pass.
+// ProofCommentRequest is one write-up for the pull request under proof.
+//
+// It names no run: the backend reads that from the credential, so an agent can
+// only ever write into the comment for the pull request it was launched on.
+//
+// Problem and Blocked are the two ways a run ends other than well, and they
+// are mutually exclusive: an agent that never observed the app cannot also
+// have found a bug in it. Sending neither claims a pass.
 type ProofCommentRequest struct {
 	Body    string `json:"body"`
 	Problem string `json:"problem,omitempty"`
 	Blocked string `json:"blocked,omitempty"`
 }
 
-// PublishProofComment posts a proof write-up for the run identified by the caller's proof credential
-// or approved Cursor correlation. One-shot runs settle on write-up and reject later posts; reporting
-// both problem and blocked or exceeding comment limits fails.
+// PublishProofComment sends a proof agent's write-up to the pull request.
+//
+// Each call replaces the previous write-up rather than appending, so an agent
+// can post early and post again as it learns more.
+//
+// Parameters:
+//   - ctx: cancellation context.
+//   - body: markdown authored by the agent.
+//   - problem: one sentence naming what is broken about the pull request.
+//     Empty unless the agent found something, which is the normal case.
+//   - blocked: one sentence naming what stopped the agent from observing the
+//     change at all. Empty unless the run never got to see the app behave.
+//
+// Returns:
+//   - An error when the credential is not a proof-run credential, the run has
+//     already finished, both outcomes were reported at once, or the body
+//     exceeds what a comment can hold.
 func (c *Client) PublishProofComment(ctx context.Context, body, problem, blocked string) error {
 	payload, err := json.Marshal(ProofCommentRequest{
 		Body:    body,

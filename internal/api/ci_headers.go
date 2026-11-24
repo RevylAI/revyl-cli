@@ -7,6 +7,8 @@ import (
 	"github.com/revyl/cli/internal/build"
 )
 
+// setCIHeaders attaches X-CI-* headers when the CLI is invoked from a supported
+// CI runner. Missing values are omitted rather than sent as empty headers.
 func setCIHeaders(req *http.Request) {
 	context, ok := build.CIContextFromContext(req.Context())
 	if !ok {

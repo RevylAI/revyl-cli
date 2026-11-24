@@ -68,6 +68,8 @@ func TestResumableUploadStateIgnoresRecordMissingIDs(t *testing.T) {
 	dir := t.TempDir()
 	client.uploadStateDir = dir
 
+	// A record missing the S3 upload id can't be resumed; load must treat it as
+	// absent so the caller starts fresh instead of calling resume with junk.
 	if err := os.WriteFile(filepath.Join(dir, "k.json"), []byte(`{"upload_id":"u"}`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -75,6 +77,7 @@ func TestResumableUploadStateIgnoresRecordMissingIDs(t *testing.T) {
 		t.Fatalf("load of record without s3_upload_id = %+v, want nil", got)
 	}
 
+	// Corrupt JSON is likewise treated as absent, never a hard error.
 	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{not json`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -92,6 +95,8 @@ func TestResumableUploadStateMatches(t *testing.T) {
 	if state.matches(101, "abc123") {
 		t.Fatal("matches = true after size change, want false")
 	}
+	// The critical case: same byte size, different content (hash) — must NOT
+	// match, or a rebuilt artifact would reuse stale S3 parts and corrupt.
 	if state.matches(100, "def456") {
 		t.Fatal("matches = true after content (hash) change, want false")
 	}
@@ -102,6 +107,7 @@ func TestFileSHA256(t *testing.T) {
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+	// echo -n hello | shasum -a 256
 	const want = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 	got, err := fileSHA256(path)
 	if err != nil {

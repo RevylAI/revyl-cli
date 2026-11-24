@@ -2,8 +2,8 @@ package api
 
 import "encoding/json"
 
-// WorkflowRunConfigPatch carries a full-map RunConfig/OverrideRunConfig pair alongside a
-// double-pointer DefaultConcurrencyLimit so omitted and explicit null concurrency stay distinct.
+// WorkflowRunConfigPatch preserves omitted versus null concurrency and unknown
+// saved run-config keys, which the generated optional pointers cannot represent.
 type WorkflowRunConfigPatch struct {
 	RunConfig               map[string]interface{}
 	OverrideRunConfig       bool

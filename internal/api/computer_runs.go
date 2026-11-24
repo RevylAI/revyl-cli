@@ -44,6 +44,10 @@ func (c *Client) GetComputerRun(ctx context.Context, id uuid.UUID) (*ComputerRep
 	return readComputerReportDetail(response, err, id)
 }
 
+// AwaitComputerRunStarted re-reads a starting computer until it leaves starting
+// and, when it was created with a session profile, until that profile has
+// finished on the active computer, or ctx ends, returning the latest report
+// either way.
 func (c *Client) AwaitComputerRunStarted(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
 	report, err := c.awaitComputerRun(ctx, report, computerStartPollInterval, func(report ComputerReport) bool {
 		return InspectComputerReport(report).State == "starting"
@@ -58,6 +62,9 @@ func (c *Client) AwaitComputerRunStarted(ctx context.Context, report *ComputerRe
 	})
 }
 
+// AwaitComputerRunSettled re-reads a stopped computer while its release or
+// evidence is still pending, until both settle or ctx ends, returning the
+// latest report either way.
 func (c *Client) AwaitComputerRunSettled(ctx context.Context, report *ComputerReport) (*ComputerReport, error) {
 	return c.awaitComputerRun(ctx, report, computerReleasePollInterval, func(report ComputerReport) bool {
 		return ComputerRunUnsettled(InspectComputerReport(report))
@@ -68,6 +75,9 @@ func ComputerRunUnsettled(status ComputerReportStatus) bool {
 	return status.Release == "pending" || status.Evidence == "pending"
 }
 
+// awaitComputerRun re-reads a computer while waiting holds for its report or
+// until ctx ends. Reads never dispatch, so a transient read failure is retried
+// within ctx and only a refusal ends the wait with an error.
 func (c *Client) awaitComputerRun(ctx context.Context, report *ComputerReport, interval time.Duration, waiting func(ComputerReport) bool) (*ComputerReport, error) {
 	id := report.ComputerSessionId
 	for waiting(*report) {
@@ -128,8 +138,10 @@ func (c *Client) ExportComputerHarbor(ctx context.Context, id uuid.UUID, destina
 	return nil
 }
 
+// ComputerListMaxLimit is the most computers one list read returns.
 const ComputerListMaxLimit = 100
 
+// ListComputerRuns reads the organization's newest computers, newest first.
 func (c *Client) ListComputerRuns(ctx context.Context, limit int) (*ComputerRunListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("computer list limit must be from 1 to %d", ComputerListMaxLimit)
@@ -146,6 +158,8 @@ func (c *Client) ListComputerRuns(ctx context.Context, limit int) (*ComputerRunL
 	return &list, nil
 }
 
+// GetComputerHosting reads which app-session platforms a running computer can
+// host now. It is empty until the computer is running.
 func (c *Client) GetComputerHosting(ctx context.Context, id uuid.UUID) (*ComputerHostingCapability, error) {
 	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/hosting?launch_values=true", id))
 	body, err := readComputerBody(response, err)
@@ -159,6 +173,7 @@ func (c *Client) GetComputerHosting(ctx context.Context, id uuid.UUID) (*Compute
 	return &hosting, nil
 }
 
+// ListComputerSessions reads the newest app sessions hosted inside a computer.
 func (c *Client) ListComputerSessions(ctx context.Context, id uuid.UUID, limit int) (*ComputerRelatedSessionListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("computer session list limit must be from 1 to %d", ComputerListMaxLimit)
@@ -221,6 +236,9 @@ func (c *Client) GetComputerPerformanceReport(ctx context.Context, id uuid.UUID,
 	return &page, nil
 }
 
+// StopComputerRun stops a computer. Stopped by a persistent computer's own ID,
+// it also returns that computer's status, usually still stopping while its host
+// saves the disk; the status is nil for any other computer.
 func (c *Client) StopComputerRun(ctx context.Context, id uuid.UUID) (*ComputerReport, *PersistentComputerStatus, error) {
 	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/stop", id), nil, id.String(), 310*time.Second)
 	body, err := readComputerBody(response, err)
@@ -253,11 +271,17 @@ func (c *Client) ExtendComputerRun(ctx context.Context, id uuid.UUID, timeoutSec
 	return readComputerReport(response, err, id)
 }
 
+// PersistentComputerStartRequest is handwritten because persistent computers'
+// routes stay off the public generated surface. A field left nil takes
+// create's default.
 type PersistentComputerStartRequest struct {
 	Display        *ComputerDisplaySize `json:"display,omitempty"`
 	TimeoutSeconds *int                 `json:"timeout_seconds,omitempty"`
 }
 
+// StartComputer boots a stopped persistent computer's saved disk as a new run
+// on the host that saved it, with the request's display and lifetime. It
+// answers while the new run is still starting.
 func (c *Client) StartComputer(ctx context.Context, id uuid.UUID, request PersistentComputerStartRequest) (*PersistentComputerStatus, error) {
 	var body any
 	if request.Display != nil || request.TimeoutSeconds != nil {
@@ -267,6 +291,8 @@ func (c *Client) StartComputer(ctx context.Context, id uuid.UUID, request Persis
 	return readPersistentComputerStatus(response, err, id)
 }
 
+// DeleteComputer stops a persistent computer's current run without saving it
+// and deletes the computer and its saved disk.
 func (c *Client) DeleteComputer(ctx context.Context, id uuid.UUID) error {
 	response, err := c.doComputerRequestOnce(ctx, http.MethodDelete, fmt.Sprintf("/api/v1/computer-runs/%s", id), nil, id.String(), 310*time.Second)
 	if err == nil && response.StatusCode == http.StatusNoContent {
@@ -279,6 +305,9 @@ func (c *Client) DeleteComputer(ctx context.Context, id uuid.UUID) error {
 	return errComputerResponse
 }
 
+// AwaitPersistentComputer re-reads a persistent computer while it is in the
+// given state or until ctx ends, returning the latest status either way. Reads
+// never dispatch, so a transient read failure is retried within ctx.
 func (c *Client) AwaitPersistentComputer(ctx context.Context, status *PersistentComputerStatus, waiting PersistentComputerStatusState) (*PersistentComputerStatus, error) {
 	for status.State == waiting {
 		select {
@@ -303,6 +332,8 @@ func (c *Client) AwaitPersistentComputer(ctx context.Context, status *Persistent
 	return status, nil
 }
 
+// PersistentComputerListResponse is handwritten because persistent computers
+// are an internal preview kept off the public OpenAPI surface.
 type PersistentComputerListResponse struct {
 	Computers []PersistentComputerStatus `json:"computers"`
 	Limit     int                        `json:"limit"`
@@ -310,6 +341,8 @@ type PersistentComputerListResponse struct {
 	Total     int                        `json:"total"`
 }
 
+// ListPersistentComputers reads the organization's newest persistent
+// computers, stopped ones included.
 func (c *Client) ListPersistentComputers(ctx context.Context, limit int) (*PersistentComputerListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("computer list limit must be from 1 to %d", ComputerListMaxLimit)
@@ -334,6 +367,10 @@ func (c *Client) ListPersistentComputers(ctx context.Context, limit int) (*Persi
 	return &list, nil
 }
 
+// ComputerSnapshot is handwritten because persistent computers are an internal
+// preview kept off the public OpenAPI surface. A snapshot names one durable
+// save of a stopped persistent computer; ExpiresAt is nil when the save's host
+// recorded no end for it.
 type ComputerSnapshot struct {
 	ID         uuid.UUID  `json:"id"`
 	Name       string     `json:"name"`
@@ -351,10 +388,15 @@ type ComputerSnapshotListResponse struct {
 
 var computerSnapshotReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
+// ValidComputerSnapshotReference reports whether value can name a snapshot:
+// its ID, or a name of 1 to 64 letters, digits, '.', '_' or '-' that starts
+// with a letter or digit.
 func ValidComputerSnapshotReference(value string) bool {
 	return computerSnapshotReferencePattern.MatchString(value)
 }
 
+// SaveComputerSnapshot names the stopped persistent computer's current durable
+// save. It copies no bytes, so the snapshot is ready when this returns.
 func (c *Client) SaveComputerSnapshot(ctx context.Context, computerID uuid.UUID, name string) (*ComputerSnapshot, error) {
 	if _, err := uuid.Parse(name); err == nil || !ValidComputerSnapshotReference(name) {
 		return nil, errors.New("snapshot name must be 1-64 letters, digits, '.', '_' or '-', start with a letter or digit, and not be a UUID")
@@ -370,6 +412,7 @@ func (c *Client) SaveComputerSnapshot(ctx context.Context, computerID uuid.UUID,
 	return snapshot, nil
 }
 
+// ListComputerSnapshots reads the organization's newest live snapshots.
 func (c *Client) ListComputerSnapshots(ctx context.Context, limit int) (*ComputerSnapshotListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("snapshot list limit must be from 1 to %d", ComputerListMaxLimit)
@@ -395,6 +438,7 @@ func (c *Client) ListComputerSnapshots(ctx context.Context, limit int) (*Compute
 	return &list, nil
 }
 
+// GetComputerSnapshot reads one live snapshot by its ID or name.
 func (c *Client) GetComputerSnapshot(ctx context.Context, reference string) (*ComputerSnapshot, error) {
 	if !ValidComputerSnapshotReference(reference) {
 		return nil, errors.New("computer snapshot requires a snapshot ID or name")
@@ -410,6 +454,8 @@ func (c *Client) GetComputerSnapshot(ctx context.Context, reference string) (*Co
 	return snapshot, nil
 }
 
+// DeleteComputerSnapshot deletes one snapshot by its ID or name. Computers
+// already created from it keep their own disks.
 func (c *Client) DeleteComputerSnapshot(ctx context.Context, reference string) error {
 	if !ValidComputerSnapshotReference(reference) {
 		return errors.New("computer snapshot requires a snapshot ID or name")
@@ -537,6 +583,10 @@ func (c *Client) GetComputerOperation(ctx context.Context, id, operationID uuid.
 	return readComputerOperation(response, err, id, operationID, true)
 }
 
+// awaitComputerOperation reads a submitted operation the backend answered as
+// still running until its evidence settles, never resubmitting it. A read never
+// dispatches, so a failed read is retried within the bound unless it is a
+// definite refusal.
 func (c *Client) awaitComputerOperation(ctx context.Context, id, operationID uuid.UUID) (*ComputerCommandResponse, error) {
 	var unrecorded *ComputerCommandResponse
 	for {

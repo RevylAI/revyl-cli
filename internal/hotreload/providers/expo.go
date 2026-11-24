@@ -1,3 +1,5 @@
+// Package providers contains implementations of the DevServer interface
+// for different development frameworks and platforms.
 package providers
 
 import (
@@ -18,31 +20,75 @@ import (
 )
 
 func init() {
+	// Register the Expo dev server factory with the hotreload package
 	hotreload.RegisterExpoDevServerFactory(func(workDir, appScheme string, port int, useExpPrefix bool) hotreload.DevServer {
 		return NewExpoDevServer(workDir, appScheme, port, useExpPrefix)
 	})
 }
 
-// ExpoDevServer manages an Expo development server via npx expo start --dev-client.
+// ExpoDevServer implements the DevServer interface for Expo/React Native.
+//
+// It manages the Expo development server lifecycle and provides deep link URLs
+// for connecting development clients to the local Metro bundler.
 type ExpoDevServer struct {
-	Port      int
+	// Port is the port for the Expo dev server (default: 8081).
+	Port int
+
+	// AppScheme is the app's URL scheme from app.json (e.g., "myapp").
 	AppScheme string
-	// UseExpPrefix prepends "exp+" to AppScheme in deep links (exp+{scheme}://...).
-	UseExpPrefix   bool
-	WorkDir        string
-	proxyURL       string
-	cmd            *exec.Cmd
-	cancel         context.CancelFunc
-	processDone    chan error
-	stderr         *processStderr
-	stopping       bool
-	mu             sync.Mutex
-	ready          bool
+
+	// UseExpPrefix controls whether to use "exp+" prefix in deep links.
+	// When true: exp+{scheme}://expo-development-client/?url=...
+	// When false: {scheme}://expo-development-client/?url=...
+	UseExpPrefix bool
+
+	// WorkDir is the working directory for the Expo project.
+	WorkDir string
+
+	// proxyURL is the tunnel URL for bundle URL rewriting (EXPO_PACKAGER_PROXY_URL).
+	proxyURL string
+
+	// cmd is the running Expo process.
+	cmd *exec.Cmd
+
+	// cancel is the context cancel function for stopping the server.
+	cancel context.CancelFunc
+
+	// processDone receives the result of the single cmd.Wait goroutine.
+	processDone chan error
+
+	// stderr keeps the running process's last stderr lines.
+	stderr *processStderr
+
+	// stopping suppresses failure reports for intentional shutdown.
+	stopping bool
+
+	// mu protects concurrent access to the server state.
+	mu sync.Mutex
+
+	// ready indicates whether the server is ready to accept connections.
+	ready bool
+
+	// outputCallback receives streamed stdout/stderr lines from Expo.
 	outputCallback hotreload.DevServerOutputCallback
-	debugMode      bool
-	failureCh      chan hotreload.RuntimeFailure
+
+	// debugMode enables watch-friendly Expo startup behavior for local debugging.
+	debugMode bool
+
+	// failureCh reports asynchronous runtime failures after startup.
+	failureCh chan hotreload.RuntimeFailure
 }
 
+// NewExpoDevServer creates a new Expo development server instance.
+//
+// Parameters:
+//   - workDir: The working directory containing the Expo project
+//   - appScheme: The app's URL scheme from app.json
+//   - port: The port for the dev server (0 for default 8081)
+//   - useExpPrefix: Whether to use "exp+" prefix in deep links
+//
+// Returns:
+//   - *ExpoDevServer: A new Expo dev server instance
 func NewExpoDevServer(workDir, appScheme string, port int, useExpPrefix bool) *ExpoDevServer {
 	if port == 0 {
 		port = 8081
@@ -56,29 +102,53 @@ func NewExpoDevServer(workDir, appScheme string, port int, useExpPrefix bool) *E
 	}
 }
 
+// Start launches the Expo development server and waits until it's ready.
+//
+// The server is started with:
+//   - --dev-client: Enables development client mode
+//   - --port: Uses the configured port
+//   - --non-interactive: Enabled for non-debug runs
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - error: nil if server started successfully, otherwise the error
 func (e *ExpoDevServer) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// Snapshot callback for goroutines to avoid lock contention while Start holds e.mu.
 	outputCallback := e.outputCallback
 
+	// Check if npx is available
 	if _, err := exec.LookPath("npx"); err != nil {
 		return fmt.Errorf("npx not found. Install Node.js: https://nodejs.org/")
 	}
 
+	// Check if port is available
 	if !e.isPortAvailable() {
 		return fmt.Errorf("port %d is already in use. Stop the existing process or use --port to specify a different port\n\nTo kill the process using port %d, run:\n  lsof -ti :%d | xargs kill -9\n\nOr specify a different port:\n  revyl dev --port 8082", e.Port, e.Port, e.Port)
 	}
 
+	// Create cancellable context
 	ctx, e.cancel = context.WithCancel(ctx)
 
+	// Build command
 	e.cmd = exec.CommandContext(ctx, "npx", e.expoStartArgs()...)
 	e.cmd.Dir = e.WorkDir
 
+	// Set process group so we can kill all child processes
 	setSysProcAttr(e.cmd)
 
+	// Set environment to avoid interactive prompts
 	e.cmd.Env = e.expoEnvironment()
 
+	// Configure Metro to use the tunnel URL for all generated URLs.
+	// EXPO_PACKAGER_PROXY_URL rewrites bundle URLs in the manifest.
+	// REACT_NATIVE_PACKAGER_HOSTNAME ensures Metro embeds the tunnel hostname
+	// in HMR WebSocket URLs (without it, Metro defaults to localhost which the
+	// cloud simulator cannot reach).
 	if e.proxyURL != "" {
 		normalizedURL, hostname := normalizeProxyURL(e.proxyURL)
 		e.cmd.Env = append(e.cmd.Env, fmt.Sprintf("EXPO_PACKAGER_PROXY_URL=%s", normalizedURL))
@@ -87,6 +157,7 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// Capture stdout for ready detection
 	stdout, err := e.cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to capture stdout: %w", err)
@@ -106,6 +177,7 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	e.cmd.Stderr = e.stderr
 	e.cmd.WaitDelay = processOutputWaitDelay
 
+	// Start the process
 	if err := e.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start Expo dev server: %w", err)
 	}
@@ -113,13 +185,16 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	e.processDone = make(chan error, 1)
 	go e.watchProcess(ctx, e.cmd, e.processDone)
 
+	// Wait for server to be ready
 	readyChan := make(chan bool, 1)
 	signalReady := newReadyNotifier(readyChan)
 
+	// Monitor stdout for ready indicators
 	go func() {
 		e.streamStdout(stdout, outputCallback, signalReady)
 	}()
 
+	// Also poll the health endpoint
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
@@ -137,6 +212,7 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Wait for ready signal with timeout
 	select {
 	case <-readyChan:
 		e.ready = true
@@ -162,12 +238,18 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	}
 }
 
+// Stop terminates the Expo development server and all its child processes.
+//
+// Returns:
+//   - error: nil if server stopped successfully
 func (e *ExpoDevServer) Stop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.stopLocked()
 }
 
+// stopLocked stops the Expo process and clears state.
+//
 // Callers must hold e.mu.
 func (e *ExpoDevServer) stopLocked() error {
 
@@ -184,12 +266,17 @@ func (e *ExpoDevServer) stopLocked() error {
 		pid := cmd.Process.Pid
 		done := e.processDone
 
+		// Kill the entire process group
+		// This ensures Metro bundler and all child processes are killed
 		killProcessGroup(pid)
 
+		// Wait briefly for graceful shutdown
 		if done != nil {
 			select {
 			case <-done:
+				// Process exited gracefully
 			case <-time.After(2 * time.Second):
+				// Force kill the process group
 				forceKillProcessGroup(pid)
 				<-time.After(500 * time.Millisecond)
 			}
@@ -231,11 +318,25 @@ func (e *ExpoDevServer) emitFailure(f hotreload.RuntimeFailure) {
 	}
 }
 
+// GetPort returns the port the Expo dev server is listening on.
+//
+// Returns:
+//   - int: The port number
 func (e *ExpoDevServer) GetPort() int {
 	return e.Port
 }
 
-// BuildExpoDeepLinkURL builds an Expo dev-client deep link for tunnelURL.
+// BuildExpoDeepLinkURL constructs an Expo development client deep link URL
+// without requiring an ExpoDevServer instance. Use this when the dev server is
+// managed externally (e.g. via --tunnel).
+//
+// Parameters:
+//   - appScheme: The app's URL scheme from app.json (e.g. "myapp")
+//   - useExpPrefix: Whether to use the "exp+" prefix (Expo SDK 45+ with addGeneratedScheme: true)
+//   - tunnelURL: The public tunnel URL that the device should connect to
+//
+// Returns:
+//   - string: The deep link URL for launching the dev client
 func BuildExpoDeepLinkURL(appScheme string, useExpPrefix bool, tunnelURL string) string {
 	encodedURL := url.QueryEscape(tunnelURL)
 	if useExpPrefix {
@@ -244,35 +345,70 @@ func BuildExpoDeepLinkURL(appScheme string, useExpPrefix bool, tunnelURL string)
 	return fmt.Sprintf("%s://expo-development-client/?url=%s", appScheme, encodedURL)
 }
 
-// GetDeepLinkURL builds the Expo dev-client deep link, or returns tunnelURL when AppScheme is empty.
+// GetDeepLinkURL constructs the deep link URL for the Expo development client.
+//
+// The deep link format depends on UseExpPrefix:
+//   - With prefix: exp+{scheme}://expo-development-client/?url={tunnelURL}
+//   - Without prefix: {scheme}://expo-development-client/?url={tunnelURL}
+//
+// The "exp+" prefix is used by newer Expo dev client builds (SDK 45+) with
+// addGeneratedScheme: true. Older builds or those with addGeneratedScheme: false
+// only register the base scheme.
+//
+// Parameters:
+//   - tunnelURL: The public relay URL
+//
+// Returns:
+//   - string: The deep link URL for launching the dev client, or the tunnel
+//     URL when the app has no dev-client scheme
 func (e *ExpoDevServer) GetDeepLinkURL(tunnelURL string) string {
 	if e.AppScheme == "" {
+		// An app without expo-dev-client has no dev-client scheme: its Debug
+		// build loads JavaScript from Metro, like bare React Native.
 		return tunnelURL
 	}
+	// URL encode the tunnel URL
 	encodedURL := url.QueryEscape(tunnelURL)
 
+	// Construct deep link with or without exp+ prefix based on config
 	if e.UseExpPrefix {
 		return fmt.Sprintf("exp+%s://expo-development-client/?url=%s", e.AppScheme, encodedURL)
 	}
 	return fmt.Sprintf("%s://expo-development-client/?url=%s", e.AppScheme, encodedURL)
 }
 
+// Name returns the human-readable name of this dev server provider.
+//
+// Returns:
+//   - string: "Expo"
 func (e *ExpoDevServer) Name() string {
 	return "Expo"
 }
 
+// SetProxyURL sets the tunnel URL for bundle URL rewriting.
+//
+// This sets the EXPO_PACKAGER_PROXY_URL environment variable which causes Metro
+// to rewrite bundle URLs to use the tunnel URL instead of localhost.
+// This is required for remote devices to fetch JavaScript bundles through the tunnel.
+//
+// Must be called before Start() for the setting to take effect.
+//
+// Parameters:
+//   - tunnelURL: The public relay URL (e.g., "https://hr-abc.revyl.ai")
 func (e *ExpoDevServer) SetProxyURL(tunnelURL string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.proxyURL = tunnelURL
 }
 
+// SetOutputCallback registers a callback for Expo process output lines.
 func (e *ExpoDevServer) SetOutputCallback(callback hotreload.DevServerOutputCallback) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.outputCallback = callback
 }
 
+// SetDebugMode toggles watch-friendly Expo startup behavior.
 func (e *ExpoDevServer) SetDebugMode(enabled bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -289,6 +425,8 @@ func (e *ExpoDevServer) emitProcessOutput(callback hotreload.DevServerOutputCall
 	})
 }
 
+// streamStdout emits every stdout line, signals readiness when indicators appear,
+// and synthesizes HMR events when Metro logs re-bundle activity.
 func (e *ExpoDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.DevServerOutputCallback, signalReady func()) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), hotreload.MaxDevServerOutputLineBytes)
@@ -304,6 +442,10 @@ func (e *ExpoDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.
 	}
 }
 
+// classifyHMREvent inspects a Metro stdout line and returns a short HMR event
+// description if the line indicates re-bundle activity, or empty string if it
+// does not. This lets callers surface "[hmr]" tagged events without parsing
+// Metro's output format themselves.
 func classifyHMREvent(line string) string {
 	lower := strings.ToLower(line)
 	switch {
@@ -320,6 +462,7 @@ func classifyHMREvent(line string) string {
 	}
 }
 
+// isPortAvailable checks if the configured port is available.
 func (e *ExpoDevServer) isPortAvailable() bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", e.Port))
 	if err != nil {
@@ -337,6 +480,7 @@ func (e *ExpoDevServer) expoStartArgs() []string {
 		"--port", fmt.Sprintf("%d", e.Port),
 	}
 	if !e.debugMode {
+		// Keep deterministic non-interactive behavior for non-debug runs.
 		args = append(args, "--non-interactive")
 	}
 	return args
@@ -345,12 +489,25 @@ func (e *ExpoDevServer) expoStartArgs() []string {
 func (e *ExpoDevServer) expoEnvironment() []string {
 	env := envWithoutKey(os.Environ(), "EXPO_NO_TELEMETRY")
 	env = append(env, "EXPO_NO_TELEMETRY=1")
+	// Strip CI from the inherited environment so Metro runs in full dev mode.
+	// Hot reload needs HMR/Fast Refresh which CI=1 can disable in some Expo
+	// versions. The --non-interactive flag (in expoStartArgs) already handles
+	// suppressing interactive prompts.
 	env = envWithoutKey(env, "CI")
 	return env
 }
 
-// normalizeProxyURL adds an explicit default port (:443/:80) because React Native's
-// WebSocket URL parser fails to infer default HTTPS ports (Expo #42316).
+// normalizeProxyURL parses a tunnel URL and returns a normalized version with
+// an explicit port, plus the extracted hostname. An explicit port is required
+// because React Native's WebSocket code fails to parse the default port from
+// HTTPS URLs (Expo #42316), causing HMR connections to break.
+//
+// Parameters:
+//   - rawURL: The relay URL (e.g., "https://hr-abc.revyl.ai")
+//
+// Returns:
+//   - normalized: URL with explicit port (e.g., "https://hr-abc.revyl.ai:443")
+//   - hostname: The hostname portion (e.g., "hr-abc.revyl.ai")
 func normalizeProxyURL(rawURL string) (normalized string, hostname string) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -392,6 +549,7 @@ func newReadyNotifier(readyChan chan<- bool) func() {
 	}
 }
 
+// isReadyIndicator checks if a log line indicates the server is ready.
 func (e *ExpoDevServer) isReadyIndicator(line string) bool {
 	readyIndicators := []string{
 		"Metro waiting on",
@@ -410,9 +568,11 @@ func (e *ExpoDevServer) isReadyIndicator(line string) bool {
 	return false
 }
 
+// checkHealth checks if the Expo dev server is responding to health checks.
 func (e *ExpoDevServer) checkHealth() bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 
+	// Try the status endpoint
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", e.Port))
 	if err != nil {
 		return false
@@ -422,6 +582,10 @@ func (e *ExpoDevServer) checkHealth() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// IsReady returns whether the server is ready to accept connections.
+//
+// Returns:
+//   - bool: True if server is ready
 func (e *ExpoDevServer) IsReady() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()

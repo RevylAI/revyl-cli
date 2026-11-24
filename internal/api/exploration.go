@@ -14,6 +14,9 @@ const (
 	explorationCancelPathTemplate = "/api/v1/explorations/%s/cancel"
 )
 
+// LaunchExploration starts one exploration run. The launch request is sent
+// exactly once because the endpoint is non-idempotent and a transport retry
+// could create a duplicate run.
 func (c *Client) LaunchExploration(
 	ctx context.Context,
 	appID string,
@@ -32,6 +35,7 @@ func (c *Client) LaunchExploration(
 	return &result, nil
 }
 
+// GetExploration returns the current parent-run state.
 func (c *Client) GetExploration(
 	ctx context.Context,
 	runID string,
@@ -49,6 +53,7 @@ func (c *Client) GetExploration(
 	return &result, nil
 }
 
+// GetExplorationReport returns the parent run plus per-explorer progress.
 func (c *Client) GetExplorationReport(
 	ctx context.Context,
 	runID string,
@@ -66,6 +71,7 @@ func (c *Client) GetExplorationReport(
 	return &result, nil
 }
 
+// CancelExploration requests cancellation for the parent run and its lanes.
 func (c *Client) CancelExploration(
 	ctx context.Context,
 	runID string,

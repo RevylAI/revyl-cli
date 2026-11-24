@@ -52,7 +52,7 @@ var relayRequestManagedHeaders = map[string]bool{
 	"content-length": true,
 }
 
-// CheckRelayConnectivity verifies the Revyl backend /health_check endpoint responds with < 400.
+// CheckRelayConnectivity validates that the backend relay control plane is reachable.
 func CheckRelayConnectivity(ctx context.Context, apiClient *api.Client) error {
 	if apiClient == nil {
 		return fmt.Errorf("relay requires an authenticated API client")
@@ -809,6 +809,7 @@ type RelayTunnelBackend struct {
 	disconnects     chan error
 }
 
+// NewRelayTunnelBackend creates a backend-owned relay transport.
 func NewRelayTunnelBackend(client *api.Client, provider string) TunnelBackend {
 	return &RelayTunnelBackend{
 		client:      client,
@@ -818,6 +819,7 @@ func NewRelayTunnelBackend(client *api.Client, provider string) TunnelBackend {
 	}
 }
 
+// SetLogCallback registers a log callback on the relay backend.
 func (r *RelayTunnelBackend) SetLogCallback(cb func(string)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -857,6 +859,7 @@ func (r *RelayTunnelBackend) emitFailure(f RuntimeFailure) {
 	}
 }
 
+// Metadata returns relay transport metadata.
 func (r *RelayTunnelBackend) Metadata() TunnelBackendInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1227,6 +1230,7 @@ func (r *RelayTunnelBackend) currentRelayMatches(relayID string) bool {
 	return r.currentRelayID() == relayID
 }
 
+// Stop tears down the relay session and websocket connection.
 func (r *RelayTunnelBackend) Stop() error {
 	r.mu.Lock()
 	r.stopped = true
@@ -1273,6 +1277,7 @@ func isRelayNotFoundError(err error) bool {
 	return strings.Contains(msg, "not found") || strings.Contains(msg, "404")
 }
 
+// PublicURL returns the current relay URL.
 func (r *RelayTunnelBackend) PublicURL() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()

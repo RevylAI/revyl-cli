@@ -354,15 +354,7 @@ environment variable and never prints its value. Text may be any Unicode,
 including accented letters, CJK and emoji, up to 500 characters (code points)
 and 1,500 UTF-8 bytes. Newline types Return and tab types Tab; other control
 characters are refused. A refused text, or one the computer cannot type, fails
-with `screen_text_unsupported` and types nothing.
-
-`type` is not idempotent: sending the same text twice types it twice. Never
-retry a failed `type` blindly; take a screenshot first to see what was typed.
-`screen_input_uncertain` means Revyl sent the action but its answer was lost,
-for example to a timeout or a dropped connection, so it may still be applied. Text with characters outside
-printable ASCII types more slowly, up to about 28 seconds for long text.
-
-Use `--json` for a stable machine-readable
+with `screen_text_unsupported` and types nothing. Use `--json` for a stable machine-readable
 result: screenshots return `width`, `height`, `observed_at`, `png` and `cursor`;
 actions return `screenshot` (null unless `--out` is set), `cursor`, and `point`
 and `engine` after a click with `--target`. The cursor

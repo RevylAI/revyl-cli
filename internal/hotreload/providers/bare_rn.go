@@ -1,3 +1,5 @@
+// Package providers contains implementations of the DevServer interface
+// for different development frameworks and platforms.
 package providers
 
 import (
@@ -21,10 +23,22 @@ func init() {
 	})
 }
 
-// BareRNDevServer manages a bare React Native Metro server via npx react-native start.
+// BareRNDevServer implements the DevServer interface for bare React Native
+// projects (without Expo). It manages the Metro bundler lifecycle directly
+// via `npx react-native start`.
+//
+// Unlike ExpoDevServer, this provider does not use EXPO_PACKAGER_PROXY_URL.
+// It relies solely on REACT_NATIVE_PACKAGER_HOSTNAME to ensure Metro embeds
+// the tunnel hostname in all generated URLs (bundle + HMR WebSocket).
 type BareRNDevServer struct {
-	Port     int
-	WorkDir  string
+	// Port is the port for the Metro dev server (default: 8081).
+	Port int
+
+	// WorkDir is the working directory for the React Native project.
+	WorkDir string
+
+	// proxyURL is the tunnel URL; its hostname is extracted and set as
+	// REACT_NATIVE_PACKAGER_HOSTNAME for Metro URL rewriting.
 	proxyURL string
 
 	cmd            *exec.Cmd
@@ -39,6 +53,14 @@ type BareRNDevServer struct {
 	failureCh      chan hotreload.RuntimeFailure
 }
 
+// NewBareRNDevServer creates a new bare React Native development server instance.
+//
+// Parameters:
+//   - workDir: The working directory containing the React Native project
+//   - port: The port for the dev server (0 for default 8081)
+//
+// Returns:
+//   - *BareRNDevServer: A new bare RN dev server instance
 func NewBareRNDevServer(workDir string, port int) *BareRNDevServer {
 	if port == 0 {
 		port = 8081
@@ -50,6 +72,17 @@ func NewBareRNDevServer(workDir string, port int) *BareRNDevServer {
 	}
 }
 
+// Start launches the Metro bundler and waits until it's ready.
+//
+// The server is started with:
+//   - npx react-native start --port {port}
+//   - REACT_NATIVE_PACKAGER_HOSTNAME set to the tunnel hostname (if proxy configured)
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - error: nil if server started successfully, otherwise the error
 func (b *BareRNDevServer) Start(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -73,6 +106,10 @@ func (b *BareRNDevServer) Start(ctx context.Context) error {
 
 	b.cmd.Env = b.metroEnvironment()
 
+	// Set REACT_NATIVE_PACKAGER_HOSTNAME so Metro advertises the tunnel
+	// hostname in bundle and HMR WebSocket URLs. Unlike Expo, bare RN does
+	// not support EXPO_PACKAGER_PROXY_URL -- the hostname env var alone is
+	// sufficient because Metro embeds it in all generated URLs.
 	if b.proxyURL != "" {
 		_, hostname := normalizeProxyURL(b.proxyURL)
 		if hostname != "" {
@@ -154,6 +191,10 @@ func (b *BareRNDevServer) Start(ctx context.Context) error {
 	}
 }
 
+// Stop terminates the Metro bundler and all its child processes.
+//
+// Returns:
+//   - error: nil if server stopped successfully
 func (b *BareRNDevServer) Stop() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -221,31 +262,58 @@ func (b *BareRNDevServer) emitFailure(f hotreload.RuntimeFailure) {
 	}
 }
 
+// GetPort returns the port the Metro bundler is listening on.
+//
+// Returns:
+//   - int: The port number
 func (b *BareRNDevServer) GetPort() int {
 	return b.Port
 }
 
-// GetDeepLinkURL returns tunnelURL directly because bare React Native has no dev-client deep-link scheme.
+// GetDeepLinkURL returns the tunnel URL for connecting a development build.
+//
+// Bare React Native does not have a standardized deep link format like Expo's
+// dev client. The returned URL is the Metro server's tunnel endpoint. The
+// caller (worker / device session) is responsible for configuring the app to
+// load its JS bundle from this URL.
+//
+// Parameters:
+//   - tunnelURL: The public relay URL
+//
+// Returns:
+//   - string: The tunnel URL for bundle loading
 func (b *BareRNDevServer) GetDeepLinkURL(tunnelURL string) string {
 	return tunnelURL
 }
 
+// Name returns the human-readable name of this dev server provider.
+//
+// Returns:
+//   - string: "React Native"
 func (b *BareRNDevServer) Name() string {
 	return "React Native"
 }
 
+// SetProxyURL sets the tunnel URL used for REACT_NATIVE_PACKAGER_HOSTNAME.
+//
+// Must be called before Start() for the setting to take effect.
+//
+// Parameters:
+//   - tunnelURL: The public relay URL (e.g., "https://hr-abc.revyl.ai")
 func (b *BareRNDevServer) SetProxyURL(tunnelURL string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.proxyURL = tunnelURL
 }
 
+// SetOutputCallback registers a callback for Metro process output lines.
 func (b *BareRNDevServer) SetOutputCallback(callback hotreload.DevServerOutputCallback) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.outputCallback = callback
 }
 
+// SetDebugMode toggles watch-friendly Metro startup behavior.
 func (b *BareRNDevServer) SetDebugMode(enabled bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -262,6 +330,7 @@ func (b *BareRNDevServer) emitProcessOutput(callback hotreload.DevServerOutputCa
 	})
 }
 
+// streamStdout emits every stdout line and signals readiness when Metro indicators appear.
 func (b *BareRNDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.DevServerOutputCallback, signalReady func()) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), hotreload.MaxDevServerOutputLineBytes)
@@ -292,10 +361,14 @@ func (b *BareRNDevServer) metroStartArgs() []string {
 }
 
 func (b *BareRNDevServer) metroEnvironment() []string {
+	// Strip CI so Metro runs in full dev mode with HMR/Fast Refresh enabled.
 	env := envWithoutKey(os.Environ(), "CI")
 	return env
 }
 
+// isReadyIndicator checks if a log line indicates Metro is ready.
+// These are standard Metro bundler output lines, shared with Expo since both
+// use Metro under the hood.
 func (b *BareRNDevServer) isReadyIndicator(line string) bool {
 	return isMetroReadyIndicator(line)
 }
@@ -312,6 +385,10 @@ func (b *BareRNDevServer) checkHealth() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// IsReady returns whether the server is ready to accept connections.
+//
+// Returns:
+//   - bool: True if server is ready
 func (b *BareRNDevServer) IsReady() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

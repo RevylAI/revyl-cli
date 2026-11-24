@@ -289,14 +289,22 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 	return body, nil
 }
 
+// computerRefusalMaxSentence bounds the readable sentence a 422 or coded 404
+// refusal carries, such as a session profile or project the backend lacks.
 const computerRefusalMaxSentence = 500
 
+// computerRefusalCodePattern is the shape of a top-level refusal code, such as
+// project_not_found, that the CLI may surface.
 var computerRefusalCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
+// computerRefusalNameValid reports whether a repository or branch name a
+// refusal carries is short single-line text the CLI may print.
 func computerRefusalNameValid(name string) bool {
 	return name != "" && len(name) <= 255 && !strings.ContainsFunc(name, unicode.IsControl)
 }
 
+// computerLimitOfferMaxMessage bounds the step a computer_limit refusal names;
+// a longer one is replaced by the action's own line.
 const computerLimitOfferMaxMessage = 160
 
 func decodeComputerJSON(body []byte, target any, required ...string) error {
@@ -350,6 +358,8 @@ func readComputerReportDetail(response *http.Response, requestErr error, id uuid
 	return detail, err
 }
 
+// readComputerReportDetailAndReport reads a computer's detail and the report it
+// carries without step command displays.
 func readComputerReportDetailAndReport(response *http.Response, requestErr error, id uuid.UUID) (*ComputerReportDetail, *ComputerReport, error) {
 	body, err := readComputerBody(response, requestErr)
 	if err != nil {
@@ -565,6 +575,7 @@ func validComputerProcess(process ComputerProcessInfo, id uuid.UUID) bool {
 		(process.ExitCode == nil || *process.ExitCode >= -255 && *process.ExitCode <= 255)
 }
 
+// wholeDuration prints a whole-second duration without zero trailing units, such as 5h30m for 19800 seconds.
 func wholeDuration(d time.Duration) string {
 	text := d.String()
 	if strings.HasSuffix(text, "m0s") {

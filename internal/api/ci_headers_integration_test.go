@@ -182,6 +182,11 @@ func TestUploadBuildBuildkiteSCMContext(t *testing.T) {
 	}
 }
 
+// TestExecuteWorkflow_SendsCIHeaders is a wire-level smoke test: it spins up a
+// fake backend, runs the real ExecuteWorkflow code path against it with
+// faked GitHub Actions env vars, and asserts the X-CI-* headers arrived
+// correctly. This is the closest we can get to option (a) without a real
+// staging backend / API key.
 func TestExecuteWorkflow_SendsCIHeaders(t *testing.T) {
 	dir := t.TempDir()
 	eventPath := filepath.Join(dir, "event.json")
@@ -202,6 +207,7 @@ func TestExecuteWorkflow_SendsCIHeaders(t *testing.T) {
 
 	var captured http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Snapshot headers off the request before responding.
 		captured = r.Header.Clone()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -296,6 +302,7 @@ func TestExecuteWorkflow_NoCIHeadersOutsideSupportedCI(t *testing.T) {
 			t.Errorf("unexpected CI header outside supported CI: %s = %q", key, captured.Get(key))
 		}
 	}
+	// Sanity: X-Revyl-Client always sent.
 	if got := captured.Get("X-Revyl-Client"); got != "cli" {
 		t.Errorf("X-Revyl-Client = %q, want cli", got)
 	}
