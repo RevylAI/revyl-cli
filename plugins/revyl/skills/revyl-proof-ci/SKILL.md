@@ -1,6 +1,6 @@
 ---
 name: revyl-proof-ci
-description: Verify a mobile pull request using an exact-SHA match among its app's CI-uploaded Revyl builds, collect device evidence, and prepare a proof summary without rebuilding.
+description: Verify a pull request (iOS, Android, or Web) using an exact-SHA match among its app's CI-uploaded Revyl builds, collect device evidence, and prepare a proof summary without rebuilding.
 ---
 
 # Revyl Proof from CI Builds
@@ -75,8 +75,9 @@ file to get past the error.
 
 ## Proof loop
 
-1. Find a CI-uploaded build whose `metadata.scm_head_sha` exactly equals the
-   full PR SHA. Narrow the list to the pull request's head Git branch and read
+1. Find a CI-uploaded build whose `metadata.scm_head_sha`, `metadata.commit_sha`,
+   `metadata.source_metadata.commit_sha`, or `metadata.git.commit` exactly equals the
+   full PR SHA, skipping any build whose `metadata.git.dirty` is true. Narrow the list to the pull request's head Git branch and read
    it a page at a time, newest first:
 
    ```sh
@@ -100,8 +101,10 @@ file to get past the error.
    its exact session ID:
 
    ```sh
-   "$LAUNCHER" device start --build-version-id <matching-build-id> --json
+   "$LAUNCHER" device start --build-version-id <matching-build-id> --json --open=false
    ```
+
+   For a web app, add `--platform web --app-id <web-app-id>`.
 
    Give the user the viewer URL immediately as a link when one is present. When
    the hosted Revyl workspace tools are connected (an `open_revyl_workspace`

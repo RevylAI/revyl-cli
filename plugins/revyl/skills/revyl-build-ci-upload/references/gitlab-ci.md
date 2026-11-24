@@ -7,7 +7,7 @@ Add to the job that builds the app, after the build commands. Store
 build-ios:
   script:
     - ./scripts/build-simulator-app.sh
-    - curl -fsSL https://revyl.com/install.sh | sh
+    - curl -fsSL https://revyl.com/setup | sh
     - export PATH="$HOME/.revyl/bin:$PATH"
     - >
       revyl build upload --file path/to/MyApp.app.zip --platform ios

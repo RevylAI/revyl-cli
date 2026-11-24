@@ -87,8 +87,8 @@ func TestRunInitNonInteractiveExpoWritesNativeDevelopmentAndPreviewProfiles(t *t
 		"revyl app create --name "+quoteCLIRecoveryArgument("expo-app Android")+" --platform android",
 		"2. revyl config validate",
 		"3. revyl github status",
-		"4. revyl config push",
-		"5. revyl build --build-profile preview --platform <ios|android> --remote",
+		"4. revyl build --build-profile preview --platform <ios|android> --remote",
+		"5. revyl config push",
 		"6. revyl device start --app-id <app-id>",
 	)
 	for _, retired := range []string{"smoke-test", "revyl test create", "revyl test run", "revyl auth login", "revyl init --force"} {
@@ -156,8 +156,8 @@ func TestPrintInitNextStepsBuildsTheOnlyRunnableProfilePlatform(t *testing.T) {
 		"       revyl app create --name " + quoteCLIRecoveryArgument("rn-app Android") + " --platform android",
 		"  3. revyl config validate",
 		"  4. revyl github status   # if GitHub is not connected: revyl github connect",
-		"  5. revyl config push",
-		"  6. revyl build --build-profile development --platform android --remote",
+		"  5. revyl build --build-profile development --platform android --remote",
+		"  6. revyl config push   # only after the build succeeds",
 		"  7. revyl device start --app-id <app-id>",
 	}
 	if !reflect.DeepEqual(messages, want) {
@@ -216,7 +216,7 @@ func TestPrintInitNextStepsAsksForAPreviewRecipeWhenNoneIsRunnable(t *testing.T)
 
 	assertOrderedSubstrings(t, messages,
 		"1. Add build_commands and output_path to build.profiles.preview.<ios|android> in .revyl/config.yaml",
-		`revyl app create --name "<name> <platform>" --platform <ios|android>`,
+		`revyl app create --name "<name> <platform>" --platform <ios|android|web>`,
 		"revyl build --build-profile preview --platform <ios|android> --remote",
 	)
 }

@@ -13,7 +13,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $script:RuntimeUnavailableMessage = "The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path."
-$script:LoginGuidance = "Run revyl auth login and post the printed approval URL as a clickable markdown link. Wait for approval. REVYL_API_KEY is optional for unattended agents."
+$script:LoginGuidance = "If Revyl says you are signed out, run revyl auth login in the background (or a second terminal) and give the user the approval URL it prints as a clickable link. The request expires after 10 minutes; run it again if it does. If browser approval is not possible, ask for a REVYL_API_KEY exported in the shell."
 $script:InstallOnFirstCommand = "The Revyl CLI installs on the first revyl command."
 
 # Resolve-PluginRoot returns the logical plugin install root for copied or linked hooks.

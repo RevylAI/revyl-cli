@@ -27,7 +27,7 @@ device, and the Automation comments on the PR.
    - Trigger **CI completed** / **Workflow run completed** on the upload job.
    - Add secret `REVYL_API_KEY` and variable `REVYL_APP_ID`.
 
-The Automation runner installs the CLI with `install.sh`. The desktop plugin
+The Automation runner installs the CLI with its install command. The desktop plugin
 pin does not apply there.
 
 ## Flow

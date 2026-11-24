@@ -364,7 +364,7 @@ func loginWithDeviceApproval(cmd *cobra.Command, mgr *auth.Manager, devMode bool
 	if err != nil {
 		ui.PrintError("Could not start authorization: %v", err)
 		ui.Println()
-		ui.PrintInfo("For an unattended machine, use: revyl auth login --api-key")
+		ui.PrintInfo("For an unattended machine, set REVYL_API_KEY in the environment")
 		return err
 	}
 

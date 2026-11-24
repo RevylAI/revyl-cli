@@ -13,7 +13,7 @@ Use this skill when tests should be authored and managed through MCP tools.
 
 1. Build YAML from ordered instructions and validations.
 2. Create or update:
-   - `create_test(name="...", platform="ios", yaml_content="...")`
+   - `create_test(name="...", platform="ios", yaml_content="...")` (or `platform="android"`, `platform="web"`)
    - `update_test(test_name_or_id="...", yaml_content="...", force=true)`
 3. Execute and inspect:
    - `run_test(test_name="...")`
@@ -28,7 +28,7 @@ test, module and script files, uncommitted changes included, and
 
 ## Authoring Rules
 
-1. One action per instruction step.
+1. One user goal per instruction step; several taps toward that goal are fine.
 2. Keep validations separate from instructions.
 3. Validate user-visible outcomes.
 4. Use variables for sensitive or dynamic values.

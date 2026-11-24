@@ -1,0 +1,1 @@
+- This plugin pins its Revyl CLI and moves that pin itself, so never upgrade or replace the CLI, even when a command says a newer version is available.

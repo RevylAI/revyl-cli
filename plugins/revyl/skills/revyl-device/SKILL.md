@@ -96,8 +96,8 @@ branch to its build ID first, or use the CLI's `--branch`. Otherwise use the
 CLI:
 
 ```sh
-"$LAUNCHER" device start --platform <ios|android|web> --app-id <app-id> --json
-"$LAUNCHER" device start --build-version-id <build-id> --json
+"$LAUNCHER" device start --platform <ios|android|web> --app-id <app-id> --json --open=false
+"$LAUNCHER" device start --build-version-id <build-id> --json --open=false
 ```
 
 Add `--branch <name>` to the first form for a branch. Record the returned

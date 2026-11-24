@@ -6,7 +6,7 @@ request's head commit (`BUILDKITE_PULL_REQUEST_HEAD_COMMIT`, else
 the full commit the artifact was built from, and the branch:
 
 ```sh
-curl -fsSL https://revyl.com/install.sh | sh
+curl -fsSL https://revyl.com/setup | sh
 export PATH="$HOME/.revyl/bin:$PATH"
 revyl build upload \
   --file path/to/app-release.apk \

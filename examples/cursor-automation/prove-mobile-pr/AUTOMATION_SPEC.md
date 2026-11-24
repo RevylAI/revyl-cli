@@ -27,7 +27,7 @@ Do **not** rely on `gh` or raw GitHub API tokens for commenting. The native
 Comment tool posts as the Automation identity.
 
 The desktop plugin pin does not apply to Automation runners. PROMPT.md starts
-with `install.sh` so `revyl` is on PATH.
+with the install command so `revyl` is on PATH.
 
 ## Secrets and variables
 
@@ -50,7 +50,7 @@ Build secrets (signing keys, Expo tokens, store credentials) stay in **your** CI
    `revyl build upload` and
    `--version "${{ github.event.pull_request.head.sha || github.sha }}"`
    so GitHub Actions metadata (`scm_head_sha`, PR number, etc.) is stamped.
-2. CLI on the Automation runner PATH via `install.sh` in PROMPT.md, with
+2. CLI on the Automation runner PATH via the install command in PROMPT.md, with
    `REVYL_API_KEY`.
 3. Paid Cursor plan, and the repo connected in Cursor, so Comment on pull
    request works.

@@ -40,8 +40,8 @@ the user asks for one, with an explicit `platform`:
   `get_build`, or the `latest_build_id` that `list_apps` returned.
 - `web` for a cloud browser on a Web app. `app_id` is required; `build_id`
   picks an exact build.
-- `macos` for a bare cloud Mac computer, with no app. Its screen does not show
-  in the embedded view: give the user the returned `computer_url` to watch and
+- `macos` for a bare cloud Mac computer, with no app. Claude does not show
+  its screen: give the user the returned `computer_url` to watch and
   control it in Revyl. Computers must be enabled for the organization; if the
   result says they are not, pass that on rather than retrying.
 

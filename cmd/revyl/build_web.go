@@ -142,7 +142,7 @@ func resolveWebUploadApp(cmd *cobra.Command, client *api.Client) (string, error)
 		return "", err
 	}
 	if appID == "" {
-		return "", analytics.WithFailureClass(fmt.Errorf("no Web app is configured; pass '--app <name-or-id>' or add 'build.profiles.<name>.web.app_id' to .revyl/config.yaml (revyl init sets it up)"), analytics.FailureClassConfig)
+		return "", analytics.WithFailureClass(fmt.Errorf("no Web app is configured; pass '--app <name-or-id>' or add 'build.profiles.<name>.web.app_id' to .revyl/config.yaml (create it with 'revyl app create --platform web'; revyl init writes no Web entries)"), analytics.FailureClassConfig)
 	}
 	recordAppliedDefault(cmd, appliedDefault{Flag: "app", Value: appID, Reason: "project_web_profile"})
 	return appID, nil

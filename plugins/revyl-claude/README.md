@@ -55,6 +55,7 @@ you ask, and it creates or changes a saved test only when you ask.
 | `update_test`           | Replaces a test's steps as a new version                         |
 | `validate_test`         | Checks test YAML and saves nothing                               |
 | `connect_gitlab`        | Reports whether GitLab is connected and where to connect it      |
+| `connect_github`        | Issues the GitHub App install link, after the user agrees        |
 
 Claude can show the Atlas and device views inside the conversation under a
 Verified directory listing, or, for a custom connector, where Claude offers

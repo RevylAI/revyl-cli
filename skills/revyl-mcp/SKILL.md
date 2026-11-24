@@ -11,7 +11,7 @@ Use this skill when execution should happen through Revyl MCP tools.
 
 ## Route to Specific MCP Skills
 
-- Use `revyl-mcp-dev-loop` for live app interaction loops.
+- Use `revyl-mcp-dev-loop` for live app interaction loops on mobile and Web apps.
 - Use `revyl-mcp-create` for test authoring and update flows.
 - Use `revyl-mcp-analyze` for execution triage.
 

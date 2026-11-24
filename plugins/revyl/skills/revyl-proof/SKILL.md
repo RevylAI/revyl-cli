@@ -93,7 +93,7 @@ Never fall back to another commit's build or start a build.
 Ask once, naming the pull request, app, platform, build, and that it uses the
 organization's device time. Then follow `revyl-proof-ci` from its device step:
 start a session on that exact build (hosted `start_device_session` with
-`platform` and `build_id`, plus `app_id` for web, or `"$LAUNCHER" device start --build-version-id <build-id> --json`),
+`platform` and `build_id`, plus `app_id` for web, or `"$LAUNCHER" device start --build-version-id <build-id> --json --open=false`),
 share `viewer_url`, exercise only the changed behavior with instructions and
 validations, capture screenshots and look at them, and stop the session even
 when a check fails, retrying a stop once as `revyl-proof-ci` describes. Prefer

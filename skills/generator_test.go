@@ -15,7 +15,7 @@ import (
 	"github.com/revyl/cli/internal/pinnedskills"
 )
 
-func TestCursorPluginCopiesMatchCompletePackages(t *testing.T) {
+func TestCursorPluginCopiesMatchRenderedPackages(t *testing.T) {
 	for _, name := range []string{RevylCLIDevLoopName, RevylCLIAuthBypassName} {
 		files, err := Files(name)
 		if err != nil {
@@ -64,9 +64,9 @@ func TestCursorPluginCopiesMatchCompletePackages(t *testing.T) {
 	}
 }
 
-func TestSyncCursorPluginSkillsPreservesResourcesAndModes(t *testing.T) {
+func TestSyncCursorPluginSkillsRendersMarkdownAndPreservesResourcesAndModes(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Makefile copy target uses POSIX commands")
+		t.Skip("Makefile target uses POSIX paths")
 	}
 	makePath, err := exec.LookPath("make")
 	if err != nil {
@@ -78,7 +78,7 @@ func TestSyncCursorPluginSkillsPreservesResourcesAndModes(t *testing.T) {
 	}
 	root := t.TempDir()
 	fixtures := map[string]File{
-		"skills/revyl-cli-auth-bypass/SKILL.md":                   {Content: []byte("skill"), Mode: 0o644},
+		"skills/revyl-cli-auth-bypass/SKILL.md":                   {Content: []byte("# Skill\n\n## Revyl agent rules\n\n- Pass `--intent` on commands.\n- Report problems with Revyl yourself.\n- When a `revyl` command says a newer Revyl CLI is available, upgrade.\n\n## Shared Contract\n"), Mode: 0o644},
 		"skills/revyl-cli-auth-bypass/agents/openai.yaml":         {Content: []byte("metadata: preserved\n"), Mode: 0o644},
 		"skills/revyl-cli-auth-bypass/references/nested/guide.md": {Content: []byte("reference"), Mode: 0o644},
 		"skills/revyl-cli-auth-bypass/scripts/check.sh":           {Content: []byte("#!/bin/sh\nexit 0\n"), Mode: 0o755},
@@ -106,6 +106,14 @@ func TestSyncCursorPluginSkillsPreservesResourcesAndModes(t *testing.T) {
 		}
 		for _, name := range []string{"SKILL.md", "agents/openai.yaml", "references/nested/guide.md", "scripts/check.sh", "assets/icon.png"} {
 			fixture := fixtures["skills/revyl-cli-auth-bypass/"+name]
+			if name == "SKILL.md" {
+				if fixture.Content, err = pinnedskills.Render("revyl-cli-auth-bypass/SKILL.md", fixture.Content); err != nil {
+					t.Fatal(err)
+				}
+				if bytes.Contains(fixture.Content, []byte("--intent")) {
+					t.Fatal("pinned rendering kept the source agent rules")
+				}
+			}
 			copiedPath := filepath.Join(root, "cursor-plugin", "skills", "revyl-cli-auth-bypass", filepath.FromSlash(name))
 			content, err := os.ReadFile(copiedPath)
 			if err != nil {

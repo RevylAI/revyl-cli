@@ -9,8 +9,9 @@ alwaysApply: false
 Use this rule when the user asks to run, change, preview, debug, screenshot, or
 verify a mobile or Web app on a Revyl device.
 
-For Web setup, load `revyl-cli-auth-bypass` and its `references/web.md` guide
-first. Configure the project by hand; do not apply mobile detection defaults.
+For Web setup, follow the Web apps section of `revyl-cli-dev-loop` and the
+`references/web.md` guide of `revyl-cli-auth-bypass`. Configure the project by hand; do
+not apply mobile detection defaults.
 
 Drive devices with the Revyl CLI. Load `revyl-cli-dev-loop` for the device loop.
 Use shell CLI commands as the default path.

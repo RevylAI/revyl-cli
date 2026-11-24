@@ -65,9 +65,9 @@ validate config) and report what you would run and what it would cost.
   `"$LAUNCHER" build status <job-id> --json` until it finishes. Treat Android
   the same unless this machine has the Android SDK.
 - For a development loop of a native or standalone build, use
-  `"$LAUNCHER" dev --remote --detach --json`. Expo and React Native
+  `"$LAUNCHER" dev --remote --detach --json --open=false`. Expo and React Native
   development clients load their JavaScript through Metro, which `--remote`
-  doesn't start: use `"$LAUNCHER" dev --detach --json` for them. Never start
+  doesn't start: use `"$LAUNCHER" dev --detach --json --open=false` for them. Never start
   the interactive `dev` interface.
 
 ## Bounded waits

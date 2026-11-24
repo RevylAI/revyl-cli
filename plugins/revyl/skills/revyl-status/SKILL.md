@@ -38,27 +38,15 @@ URL to the user as soon as you have it:
 - **Claude Code**: the full `https://` URL on its own line.
 - **Codex**: a Markdown link, such as `[Open the Revyl device](URL)`.
 
-## Hosted tools first, CLI for the workspace
+## Hosted tools
 
-This plugin bundles Revyl's hosted `revyl-workspace` MCP tools. Use them first
-for looking up builds and for device work: `list_apps`, `list_builds`,
-`get_build`, `start_device_session`, `device_instruction`,
-`device_validation`, `get_device_step`, `screenshot`, `list_device_sessions`,
-and `stop_device_session`. They return the screenshot as an image you can see,
-wait for a starting device, and confirm a stop. Keep the CLI for what needs this
-workspace (building, uploading, the dev loop, and project config) and for any
-hosted tool that is missing, needs sign-in, or fails.
-
-Claude Code can list a plugin's MCP tools by name only, as deferred tools. Load
-the ones you need with one ToolSearch call before the first of them, such as
-`select:mcp__plugin_revyl-cli_revyl-workspace__list_builds,mcp__plugin_revyl-cli_revyl-workspace__start_device_session`;
-a deferred tool is available once loaded. If the hosted tools need sign-in,
-mention it once (Claude Code: `/mcp` and **Authenticate** on
-`plugin:revyl-cli:revyl-workspace`; Codex: `codex mcp login revyl-workspace`)
-and carry on with the CLI. Never use `start_device_session` for a session the
-CLI started. If the hosted tools can't see a session the CLI returned, the two
-sign-ins point at different accounts or organizations: say so instead of
-starting another device.
+This plugin bundles Revyl's hosted `revyl-workspace` MCP tools. This skill needs
+only `list_device_sessions`. Claude Code lists a plugin's MCP tools by name only,
+as deferred tools, so load it with one ToolSearch call such as
+`select:mcp__plugin_revyl-cli_revyl-workspace__list_device_sessions`. If the
+hosted tools need sign-in, mention it once (Claude Code: `/mcp` and
+**Authenticate** on `plugin:revyl-cli:revyl-workspace`; Codex:
+`codex mcp login revyl-workspace`) and carry on with the CLI.
 
 ## Checks
 
@@ -86,7 +74,7 @@ Answer in a short list:
   that none applies; any configuration problem `doctor` names.
 - **GitHub**: App connected, this repository granted, and the project's
   pull-request automation status (`enabled`, `not_published`, `disabled`,
-  `not_configured`). When `enabled`, pushed pull requests get Revyl builds to
+  `not_configured`, `invalid`). When `enabled`, pushed pull requests get Revyl builds to
   test. Otherwise say what's missing and that `revyl-setup` can fix it.
 - **Hosted tools**: available, needs sign-in, or not listed.
 - **Running**: dev contexts in this worktree and device sessions, with their

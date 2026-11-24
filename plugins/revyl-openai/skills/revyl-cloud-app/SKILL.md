@@ -66,7 +66,7 @@ and configure its exact profile, platform, build steps, and output for the
 actual framework. Do not overwrite an existing config with `--force`.
 Resolve the app using `"$LAUNCHER" app list --json`. Only when explicitly
 authorized to create a new remote app, use
-`"$LAUNCHER" app create --name <name> --platform <ios-or-android> --json`.
+`"$LAUNCHER" app create --name <name> --platform <ios|android|web> --json`.
 Use its returned app ID in the selected recipe, then run
 `"$LAUNCHER" config validate`. Do not publish configuration with `config push`
 unless separately requested. Keep secrets out of source, config, argv, and
@@ -77,12 +77,12 @@ evidence; use established encrypted build-secret and launch-variable references.
 Read `build --help` from the pinned runtime, then submit one authorized build:
 
 ```sh
-"$LAUNCHER" build --remote --profile <profile> --platform <ios-or-android> \
-  --timeout 1800 --detach --no-set-current --json
+"$LAUNCHER" build --remote --build-profile <profile> --platform <ios|android|web> \
+  --timeout 1800 --detach --json
 "$LAUNCHER" build status <returned-build-job-id> --json
 ```
 
-Use the agreed timeout if different. `--remote` moves compilation to Revyl,
+Use the agreed timeout if different. Never pass `--pin` unless the user asks. `--remote` moves compilation to Revyl,
 but the CLI still needs the source checkout and recipe to submit the build.
 Retain the returned job ID and source revision/worktree state. Poll that job
 at intervals of at least five seconds, with a total deadline matching the
@@ -93,12 +93,12 @@ On failure, inspect the reported logs before making an authorized correction.
 On cancellation or deadline, cancel only the owned job with
 `"$LAUNCHER" build cancel <job-id> --json` and check its final status.
 
-Start verification on the successful build, without changing the app's current
-version or opening a browser from the shell:
+Start verification on the successful build without opening a browser from the
+shell. For a Web app, add `--app-id <web-app-id>`:
 
 ```sh
 "$LAUNCHER" device start --build-version-id <returned-build-version-id> \
-  --platform <ios-or-android> --timeout 900 --open=false --json
+  --platform <ios|android|web> --timeout 900 --open=false --json
 "$LAUNCHER" device screenshot -s <returned-session-id> --out <image-path>
 "$LAUNCHER" device validation -s <returned-session-id> "<expected visible behavior>" --json
 "$LAUNCHER" device report -s <returned-session-id> --json

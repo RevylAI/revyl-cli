@@ -35,7 +35,7 @@ that workflow. Do not add a second unrelated workflow file.
 
 ```bash
 revyl build upload \
-  --file path/to/app.apk \
+  --file path/to/app.app.zip \
   --app "<your-app-id>" \
   --platform ios \
   --version "${{ github.event.pull_request.head.sha || github.sha }}" \
@@ -43,8 +43,11 @@ revyl build upload \
   --json
 ```
 
-Use `--platform ios` or `--platform android` to match the Revyl app. Do not
-guess Android. Wait until the platform is known before writing the upload
+Use `--platform ios` with a simulator `.app.zip`, or `--platform android` with an
+`.apk`, to match the Revyl app. For a web app, there is no file: run
+`revyl build upload --platform web --url <preview-url> --app "<web-app-id>" --json`
+after the preview deploys. Web uploads take no `--version`: GitHub Actions supplies
+the commit, and outside supported CI pass `--repo <owner>/<repo> --commit <sha>`. Do not guess Android. Wait until the platform is known before writing the upload
 command. Use the PR head SHA. Store `REVYL_API_KEY` as a CI secret. Bake the
 app id into the command — do not also create a `REVYL_APP_ID` GitHub variable.
 GitHub Actions metadata (`scm_head_sha`, PR number, and related fields) is
@@ -76,7 +79,7 @@ The agent cannot create the Automation. Tell the user to finish at
 5. Surface, do not pretend to fix: paid Cursor plan, and the repo connected in
    Cursor so Comment on pull request works.
 
-The Automation runner must install the CLI itself (`install.sh` in PROMPT.md).
+The Automation runner must install the CLI itself (the install command in PROMPT.md).
 The desktop plugin pin does not apply there.
 
 Do **not** rely on `gh` or the GitHub API for commenting. The native Comment

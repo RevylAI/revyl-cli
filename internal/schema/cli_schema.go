@@ -167,6 +167,8 @@ func getCommonWorkflows() []Workflow {
 			Description: "Set up Revyl for a new project",
 			Steps: []string{
 				"revyl auth login",
+				"# Find mobile and Web apps in the repository:",
+				"revyl setup detect --json",
 				"# Run init from the app's own folder, not a monorepo root:",
 				"revyl init -y",
 				"# A test needs an app. Find the app's id, or create the app:",
@@ -413,7 +415,7 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("Before running any test commands, you MUST:\n\n")
 	sb.WriteString("1. **Authenticate**: `revyl auth login` OR set `REVYL_API_KEY` environment variable\n")
 	sb.WriteString("2. **Check status**: `revyl auth status` (verify authentication works)\n")
-	sb.WriteString("3. **Initialize project**: `revyl init -y` from the app's own folder, not a monorepo root (creates .revyl/config.yaml there)\n\n")
+	sb.WriteString("3. **Initialize project**: `revyl init -y` from the app's own folder, not a monorepo root (creates .revyl/config.yaml there; for Web apps run `revyl setup detect --json` first, because init writes no Web recipe)\n\n")
 	sb.WriteString("If you get 'REVYL_API_KEY not found', run `revyl auth login` first.\n\n")
 
 	// Key Concepts section - critical for understanding

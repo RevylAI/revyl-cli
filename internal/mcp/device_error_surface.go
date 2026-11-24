@@ -47,7 +47,7 @@ var deviceNextStepText = map[ErrorSurface]map[deviceNextStep]string{
 	ErrorSurfaceCLI: {
 		nextStepListSessions:         "Run 'revyl device list' to see active sessions",
 		nextStepSelectSession:        "Specify -s <index or session ID> or run 'revyl device list --json' to see active sessions and their IDs",
-		nextStepStartSession:         "Start one with 'revyl device start' (add --platform android for Android)",
+		nextStepStartSession:         "Start one with 'revyl device start' (use --platform ios|android|web; Web also needs --app-id and --url)",
 		nextStepStartNewSession:      "Start a new session with 'revyl device start'",
 		nextStepStartPlatformSession: "Start a new one with 'revyl device start --platform %s'",
 		nextStepScreenshot:           "Run 'revyl device screenshot --out screen.png' to see the current screen, then adjust --target",

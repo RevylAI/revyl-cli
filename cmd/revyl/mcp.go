@@ -49,9 +49,9 @@ TOOL PROFILES:
     Adds workflow, module, script, tag, file, and variable management.
 
   (no --tool-profile flag)
-    Legacy mode: all ~95 individual tools registered flat.
+    Legacy mode: every individual tool registered flat.
     Kept for backward compatibility; not recommended for new setups.
-The server exposes the following tools:
+In legacy mode the flat surface includes these tools, and more:
 
 Test execution:
   - run_test: Run a test by name or ID (supports --location override)

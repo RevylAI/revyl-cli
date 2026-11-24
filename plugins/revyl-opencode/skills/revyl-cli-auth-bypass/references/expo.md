@@ -11,4 +11,4 @@ Use this reference only for an Expo app. Apply the shared contract, implementati
 - Launch vars are fixed when the session starts. A Metro or `revyl dev` reload keeps the old values; start a new session after changing one.
 - After `revyl device kill-app`, a cold custom-scheme deep link can open the Expo dev launcher instead of the app. Run `revyl device launch`, wait for the project to load, then navigate.
 - A cloud device cannot reach a backend on `localhost`. If the backend runs only locally, expose it through a public HTTPS tunnel and point the dev build at it.
-- Bug Bazaar is the reference shape: root provider, `app/revyl-auth.tsx` backstop, launch-var gate, allowlisted role/redirect handling, and visible accepted/rejected state.
+- A complete handler has a root provider, `app/revyl-auth.tsx` backstop, launch-var gate, allowlisted role/redirect handling, and visible accepted/rejected state.

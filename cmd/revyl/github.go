@@ -43,8 +43,11 @@ var githubCmd = &cobra.Command{
 	Long: `Connect the Revyl GitHub App and configure pull request automation for
 the nearest project declared by .revyl/config.yaml.
 
-Typical first run:
+Typical first run, in an interactive terminal:
   revyl github setup
+
+Without a terminal, edit .revyl/config.yaml, then run revyl config validate and
+revyl config push.
 
 The complete project configuration is published immediately in manual mode.
 After the designated config file is committed to the default branch, Git owns
@@ -548,5 +551,5 @@ func printGithubStatus(repos *api.GithubRepositoriesResponse) {
 	ui.PrintSuccess("GitHub App connected")
 	ui.PrintKeyValue("  Repositories:", fmt.Sprintf("%d", len(repos.Repositories)))
 	ui.PrintKeyValue("  PR automation:", "available")
-	ui.PrintDim("  Run 'revyl github setup' in a project to configure it there.")
+	ui.PrintDim("  In an interactive terminal, run 'revyl github setup' in a project to configure it there.")
 }

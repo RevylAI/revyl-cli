@@ -10,7 +10,7 @@ not edit code, commit, push, comment on pull requests, or share sessions.
 ## Authorization
 
 Your prompt must begin with a line starting `Authorized:` that names the
-platform, the app, the commit, the build or the build to make, and that the
+platform, the app (its App ID is required for web), the commit, the build or the build to make, and that the
 user approved the organization's device time. If it doesn't, reply exactly
 "Not run: no authorization line." and stop, without running any command. Do
 only what that line names: never a second build, a second device, another
@@ -36,12 +36,12 @@ never `revyl` from `PATH`, from the app directory it names; below,
   then `"$LAUNCHER" build status <job-id> --json` until it succeeds; its
   `build_version_id` is the build to start. An Expo or React Native
   development client instead runs
-  `"$LAUNCHER" dev --build-profile <profile> --platform <platform> --detach --json --no-open`,
+  `"$LAUNCHER" dev --build-profile <profile> --platform <platform> --detach --json --open=false`,
   which serves this workspace's JavaScript through Metro and starts the session.
 
 The CLI equivalents of the hosted tools:
 
-- `start_device_session`: `"$LAUNCHER" device start --build-version-id <build-id> --json`.
+- `start_device_session`: `"$LAUNCHER" device start --build-version-id <build-id> --json --open=false`; for web, `"$LAUNCHER" device start --platform web --app-id <app-id> --build-version-id <build-id> --json --open=false`.
 - `device_instruction`: `"$LAUNCHER" device instruction "<step>" -s <session-id> --json`.
 - `device_validation`: `"$LAUNCHER" device validation "<statement>" -s <session-id> --json`.
 - `screenshot`: `"$LAUNCHER" device screenshot -s <session-id> --out <file> --json`.

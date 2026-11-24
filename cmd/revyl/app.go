@@ -22,7 +22,8 @@ var appCmd = &cobra.Command{
 	Short: "Manage apps",
 	Long: `Manage apps for your organization.
 
-An app is a named container that stores versions of your app binary.
+An app is a named container that stores versions of your app binary, or the
+URL builds of a Web app.
 Tests reference an app to know which binary to install on the device.
 
 Commands:
@@ -188,7 +189,9 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("  Platform:  Web")
 		ui.Println()
 		ui.PrintInfo("Next:")
-		ui.PrintDim("  revyl device start --platform web --app %s --url https://example.com/", result.ID)
+		ui.PrintDim("  Put the app ID in build.profiles.preview.web.app_id in .revyl/config.yaml")
+		ui.PrintDim("  revyl setup check-url <public-https-address>")
+		ui.PrintDim("  revyl device start --platform web --app-id %s --url <public-https-address>", result.ID)
 		return nil
 	}
 	ui.PrintInfo("  Platform:  %s", platform)

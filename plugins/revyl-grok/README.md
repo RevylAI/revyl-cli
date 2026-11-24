@@ -54,6 +54,7 @@ you ask, and it creates or changes a saved test only when you ask.
 | `update_test`           | Replaces a test's steps as a new version                         |
 | `validate_test`         | Checks test YAML and saves nothing                               |
 | `connect_gitlab`        | Reports whether GitLab is connected and where to connect it      |
+| `connect_github`        | Issues the GitHub App install link, after the user agrees        |
 
 For other editors and the Revyl CLI, see
 [Revyl's IDE and MCP setup guide](https://docs.revyl.com/agents/mcp).

@@ -29,7 +29,7 @@ as you have one.
 
 const agentsMDBlockBody = `On a local machine the CLI opens the live viewer in the user's browser
 automatically when the session is ready (check "opened_browser" in the
-handshake; --no-open disables it). ALWAYS also post viewer_url as a clickable
+handshake; --open=false disables it). ALWAYS also post viewer_url as a clickable
 markdown link — that is the fallback on cloud VMs — and never try to open a
 browser yourself.
 

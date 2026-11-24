@@ -1,0 +1,1 @@
+1. Find the Web app from its files: a `package.json` that depends on a Web framework such as `next`, `vite`, `astro`, `nuxt`, or `@sveltejs/kit` and has a dev script, which names its dev command and port. An Expo or React Native app is a mobile app even when it can also run in a browser.

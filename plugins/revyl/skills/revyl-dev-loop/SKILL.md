@@ -134,7 +134,7 @@ the mode from the app's stack, as the reference below describes:
 
   ```sh
   "$LAUNCHER" dev --build-profile <exact-profile> --platform <ios-or-android> \
-    --remote --detach --json --no-open
+    --remote --detach --json --open=false
   ```
 
 - **Expo and React Native** profiles whose development client loads JavaScript
@@ -143,7 +143,7 @@ the mode from the app's stack, as the reference below describes:
 
   ```sh
   "$LAUNCHER" dev --build-profile <exact-profile> --platform <ios-or-android> \
-    --detach --json --no-open
+    --detach --json --open=false
   ```
 
 Give the handshake's `viewer_url` to the user immediately without opening it.
@@ -183,7 +183,7 @@ path and read it for framework behavior, evidence, and troubleshooting. This
 skill overrides that reference whenever they conflict:
 
 - Do not use its browser-opening, URL-opening, foreground, persistent-shell,
-  `PATH`, or installed-CLI examples. Use `--detach --json --no-open` and the
+  `PATH`, or installed-CLI examples. Use `--detach --json --open=false` and the
   absolute launcher above.
 - Do not start a local app source/configuration change, a device, build, or
   paid action without the named authorization above.
@@ -192,7 +192,9 @@ skill overrides that reference whenever they conflict:
   fallback.
 - Use exact resolved profile and platform values, and clean up only the context
   and session created for the authorized request.
-- Send the reference's "Revyl got in your way" reports through the launcher,
-  such as `"$LAUNCHER" feedback --type bug --body "<report>"`.
+- Run every Revyl command the reference shows, including its agent rules and
+  Web apps steps, through the absolute launcher, such as
+  `"$LAUNCHER" feedback --type bug --body "<report>"`. Add `--open=false` to a
+  Web `device start`.
 
 Report an unavailable authorization or ambiguous target instead of guessing.

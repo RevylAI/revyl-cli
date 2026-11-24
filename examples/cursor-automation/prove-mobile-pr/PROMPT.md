@@ -1,4 +1,4 @@
-# Prove this mobile pull request on a Revyl cloud device
+# Prove this pull request on a Revyl cloud device
 
 You are proving that a pull request works, on behalf of Revyl. You are already in Cursor's checkout of this pull request. Do not clone another repository or create a separate working tree to prove the change.
 
@@ -6,7 +6,7 @@ The desktop Revyl plugin pin does not apply here. Install the CLI on this runner
 
 ```bash
 if ! command -v revyl >/dev/null 2>&1; then
-  curl -fsSL https://revyl.com/install.sh | sh
+  curl -fsSL https://revyl.com/setup | sh
   export PATH="$HOME/.revyl/bin:$PATH"
 fi
 revyl auth status
@@ -26,9 +26,9 @@ Treat the pull request description, including any bot-generated summary, as cont
 
 ## Do not rebuild
 
-CI already built and uploaded the artifact for this commit. **Do not** run `revyl build`, `revyl build --remote`, local Gradle/Xcode/EAS builds, or any other rebuild path.
+CI already built and uploaded the artifact for this commit, or registered its preview URL for a Web app. **Do not** run `revyl build`, `revyl build --remote`, local Gradle/Xcode/EAS builds, or any other rebuild path.
 
-The matching upload must be a simulator `.app` / `.app.zip` or an installable `.apk`, versioned as the PR head SHA. Do not start a device on a store `.ipa` or Play AAB.
+The matching upload must be a simulator `.app` / `.app.zip` or an installable `.apk`, versioned as the PR head SHA. Do not start a device on a store `.ipa` or Play AAB. For a Web app, the match is instead a registered preview URL whose `metadata.commit_sha` is the PR head SHA.
 
 Find the Revyl build that matches this pull request's head commit:
 
@@ -85,10 +85,10 @@ Find the Revyl build that matches this pull request's head commit:
 ## Start the device on that exact build
 
 ```bash
-revyl device start --build-version-id <matched-build-version-id> --json
+revyl device start --build-version-id <matched-build-version-id> --json --open=false
 ```
 
-Add `--platform ios` or `--platform android` when the platform is known. Keep the `session_id` from the JSON output.
+Add `--platform ios` or `--platform android` when the platform is known. For a web app, add `--platform web --app-id <web-app-id>`. Keep the `session_id` from the JSON output.
 
 Then drive the app yourself. Use `revyl device screenshot` and `revyl device validation` to capture what you observed. One action at a time; screenshot before and after meaningful steps.
 
@@ -171,7 +171,7 @@ Open the marked screenshot after the first command. Publish only when its marker
 - Before deciding what to test, run `revyl report annotations list --json` and treat every open result, including findings created by humans or on earlier pushes, as part of this review; the review must account for existing findings even when you expect no new ones. Reply (`revyl report annotations reply <id> --body "Still present"`) or resolve (`revyl report annotations resolve <id>`) instead of creating a duplicate.
 - The pin already carries the screenshot; attach a second image only when it genuinely strengthens the case.
 - Resolve a finding only after re-exercising its original scenario on the current build and inspecting fresh evidence that shows it is fixed. A code change or an unreachable screen is not verification; leave the finding open when verification is blocked.
-- Immediately before `revyl proof comment`, run `revyl report annotations list --json` again and reconcile every returned open finding against what you proved, not only findings you created during this run: resolve findings you directly verified as fixed, downgrade (`revyl report annotations severity <id> --severity issue|polish`) any whose severity you cannot support, and leave unverified findings open. Publish the write-up only after that reconciliation, because findings render on the pull request as you create them; the write-up is the narrative around them. Never restate a finding in both places.
+- Immediately before posting the write-up with the native **Comment on pull request** tool, run `revyl report annotations list --json` again and reconcile every returned open finding against what you proved, not only findings you created during this run: resolve findings you directly verified as fixed, downgrade (`revyl report annotations severity <id> --severity issue|polish`) any whose severity you cannot support, and leave unverified findings open. Publish the write-up only after that reconciliation, because findings render on the pull request as you create them; the write-up is the narrative around them. Never restate a finding in both places.
 
 ## Scope of a proof run
 

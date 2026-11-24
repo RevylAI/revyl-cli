@@ -8,18 +8,18 @@ import (
 )
 
 func TestRenderReplacesListItemsThePinnedRuntimeCannotFollow(t *testing.T) {
-	source := "# Dev loop\n\n- **Billing:** follow the line.\n- **Revyl got in your way:** run @revyl feedback --type friction@\n  with --ref <id>.\n- **OS permission prompts:** run\n  @revyl device permissions set@; upgrade it.\n- **Slow Metro startup:** wait.\n"
-	rendered, err := Render("revyl-cli-dev-loop/SKILL.md", []byte(strings.ReplaceAll(source, "@", "`")))
+	source := "# Auth bypass\n\n- Pass @--intent \"<goal>\"@ on @revyl@ commands.\n- Report problems with Revyl yourself. Run @revyl feedback --type friction@\n  with --ref <id>.\n- Billing: follow the line.\n- When a @revyl@ command says a newer Revyl CLI is available, run the upgrade command.\n  Report a failed upgrade.\n- Keep going.\n"
+	rendered, err := Render("revyl-cli-auth-bypass/SKILL.md", []byte(strings.ReplaceAll(source, "@", "`")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(rendered)
-	for _, removed := range []string{"friction", "--ref", "device permissions", "upgrade it"} {
+	for _, removed := range []string{"--intent", "friction", "--ref", "upgrade command", "failed upgrade"} {
 		if strings.Contains(text, removed) {
 			t.Errorf("rendered skill keeps %q:\n%s", removed, text)
 		}
 	}
-	for _, kept := range []string{"- **Billing:** follow the line.\n", "revyl feedback --type bug", "- **OS permission prompts:** answer", "- **Slow Metro startup:** wait.\n"} {
+	for _, kept := range []string{"never upgrade or replace the CLI", "revyl feedback --type other", "- Billing: follow the line.\n- Keep going.\n"} {
 		if !strings.Contains(text, kept) {
 			t.Errorf("rendered skill lost %q:\n%s", kept, text)
 		}

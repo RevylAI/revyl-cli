@@ -9,8 +9,7 @@ metadata:
 
 Compare existing captures of the same product on iOS and Android. Find useful
 differences inside confidently matched screens or regions. Figma and a local dev
-server are not required. This skill can be supplied directly as a file before
-it ships in the CLI.
+server are not required.
 
 ## Review boundary
 
@@ -31,8 +30,8 @@ could not be established, not that either app is missing functionality.
 
 Check `command -v revyl`, `revyl version`, and `revyl auth status`. Reuse existing
 setup. If absent, check `$HOME/.revyl/bin`; when setup is requested, follow the
-[official CLI installation instructions](https://github.com/RevylAI/revyl-cli#installation)
-for the current OS. On macOS/Linux, download `https://revyl.com/install.sh` to a
+[official CLI installation instructions](https://github.com/RevylAI/revyl-cli#install)
+for the current OS. On macOS/Linux, download `https://revyl.com/setup` to a
 temporary file with fail-on-HTTP-error and bounded timeouts, then run `sh` only
 after a successful download. Bound the installer process, use
 `REVYL_NO_MODIFY_PATH=1`, and add `$HOME/.revyl/bin` to this shell's PATH. Verify

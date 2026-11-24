@@ -166,7 +166,7 @@ Apply these rules to every format; the reference adds format-specific mappings.
   calls the user's test-data API and prints only the value, stored with
   `variable_name`. The script runs in Revyl's cloud sandbox, so the API must be
   reachable from the internet. Create it with `revyl script create`; see
-  `revyl-cli-create` and https://docs.revyl.com for the script contract.
+  `revyl-cli-create` and https://docs.revyl.com/tests/yaml for the script contract.
 - **There is no per-run pre-launch hook for test runs.** Each run installs the
   app fresh and starts logged out, so data setup happens in CI before
   `revyl test run` or in a leading `code_execution` block.
@@ -225,9 +225,6 @@ break the test. Check every file for them:
   with `revyl global var list` before creating the test.
 - Module files contain only a top-level `blocks:` list, so `revyl test validate`
   does not accept them; `revyl module create` checks them.
-- `revyl schema`'s note that `build:` is not a YAML field refers to build
-  platforms in `.revyl/config.yaml`. In test YAML, `test.build.name` is the
-  Revyl app name and is required.
 
 ## Phase 4: Write, Validate and Push
 
@@ -358,9 +355,8 @@ Phases 1-3 and 6 unchanged and use:
 - `manage_modules` `create` for modules, `manage_variables` for test variables;
   the user still creates secret globals.
 - `manage_tests` `create` (or `update` with `force`) per test; it validates on
-  create, so fix each returned error and resubmit. It accepts only `ios` and
-  `android`, so web tests need `revyl test push`; without a shell, stop and
-  report that the web tests were not created. Never resubmit them as mobile.
+  create, so fix each returned error and resubmit. It accepts `ios`, `android`, and `web`; create each test with its own
+  platform.
 - `manage_tests` `run` and `status`, then read the report. Without
   `--fail-fast`, ask the user to enable fail-fast on the imported tests
   (`revyl test config set <test> fail-fast true`) before running.

@@ -9,7 +9,7 @@ commit. One folder serves both hosts: one
 set of skills, one checksum-pinned launcher, one `.mcp.json`, one
 `hooks/hooks.json`, and a manifest for each host.
 
-After an agent changes mobile app code, `revyl-dev-loop` has it offer to check
+After an agent changes mobile or web app code, `revyl-dev-loop` has it offer to check
 the change on a Revyl cloud device before calling the work done, instead of
 leaving problems to the pull request's proof of changes. Nothing that uses
 device or build time starts without the user's go-ahead.

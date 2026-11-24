@@ -383,7 +383,7 @@ func deprecatedBuildUploadLocalBuildError() error {
 }
 
 func missingConfiguredBuildAppError(platform string) error {
-	return fmt.Errorf("no app is configured for platform %q; run revyl init or add build.platforms.%s.app_id to .revyl/config.yaml", platform, platform)
+	return fmt.Errorf("no app is configured for platform %q; run revyl init or add build.profiles.<profile>.%s.app_id to .revyl/config.yaml", platform, platform)
 }
 
 func checkLocalBuildSupported() error {
@@ -1513,7 +1513,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		err := missingConfiguredBuildAppError(platformKey)
 		ui.PrintError("No app is configured for platform %q.", platformKey)
 		ui.PrintInfo("Run: revyl init")
-		ui.PrintInfo("Or add build.platforms.%s.app_id to .revyl/config.yaml.", platformKey)
+		ui.PrintInfo("Or add build.profiles.<profile>.%s.app_id to .revyl/config.yaml.", platformKey)
 		return err
 	}
 

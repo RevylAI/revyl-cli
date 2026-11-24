@@ -22,7 +22,7 @@ func (s Skill) Files() ([]skills.File, error) {
 var catalog = []Skill{
 	{
 		Name:        skills.RevylCLIName,
-		Description: "Base CLI skill for Revyl command workflows. Routes to CLI Atlas/create/analyze/dev-loop skills.",
+		Description: "Base CLI skill for Revyl command workflows. Holds the CLI agent rules and routes to the other CLI skills.",
 		Content:     skills.RevylCLIContent,
 	},
 	{
@@ -47,7 +47,7 @@ var catalog = []Skill{
 	},
 	{
 		Name:        skills.RevylCLIDevLoopName,
-		Description: "CLI-first dev loop and manual Web setup for starting sessions, exploring flows, and converting successful paths into tests.",
+		Description: "CLI-first dev loop for mobile devices and Web browsers: starting sessions, exploring flows, and converting successful paths into tests.",
 		Content:     skills.RevylCLIDevLoopContent,
 	},
 	{

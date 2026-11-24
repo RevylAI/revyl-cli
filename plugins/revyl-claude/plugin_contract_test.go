@@ -66,7 +66,7 @@ func TestSkillUsesOnlyHostedTools(t *testing.T) {
 	if !strings.HasPrefix(skill, "---\nname: revyl-workspace\n") {
 		t.Fatal("SKILL.md frontmatter must start with name: revyl-workspace")
 	}
-	for _, tool := range []string{"list_apps", "open_revyl_workspace", "list_device_sessions", "start_device_session", "screenshot", "stop_device_session", "device_instruction", "device_validation", "get_device_step", "start_exploration", "get_exploration", "cancel_exploration", "atlas_search", "atlas_graph", "list_builds", "get_build", "computer_action", "get_session_recording", "atlas_diff", "share_atlas", "connect_gitlab", "list_tests", "get_test", "run_test", "get_run", "cancel_run", "create_test", "update_test", "validate_test", "start_build", "cancel_build"} {
+	for _, tool := range []string{"list_apps", "open_revyl_workspace", "list_device_sessions", "start_device_session", "screenshot", "stop_device_session", "device_instruction", "device_validation", "get_device_step", "start_exploration", "get_exploration", "cancel_exploration", "atlas_search", "atlas_graph", "list_builds", "get_build", "computer_action", "get_session_recording", "atlas_diff", "share_atlas", "connect_gitlab", "connect_github", "list_tests", "get_test", "run_test", "get_run", "cancel_run", "create_test", "update_test", "validate_test", "start_build", "cancel_build"} {
 		if !strings.Contains(skill, "`"+tool) {
 			t.Fatalf("SKILL.md does not cover %s", tool)
 		}

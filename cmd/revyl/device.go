@@ -940,7 +940,7 @@ func isNoActiveDeviceSessionError(err error) bool {
 var deviceCmd = &cobra.Command{
 	Use:   "device",
 	Short: "Cloud device sessions and actions (start, tap, type, screenshot, etc.)",
-	Long: `Provision cloud-hosted Android/iOS devices and interact with them directly.
+	Long: `Provision cloud-hosted Android and iOS devices and Web (browser) sessions, and interact with them directly.
 
 Device sessions are the foundation for all device interaction. Use 'revyl dev'
 to layer a local development loop (hot reload, rebuild, tunnel) on top of a
@@ -948,6 +948,7 @@ device session.
 
 Examples:
   revyl device start --platform android --open
+  revyl device start --platform web --app-id <id> --url <public-https-address>
   revyl device tap --target "Sign In"
   revyl device screenshot --out screen.png
   revyl device instruction "log in with test@example.com and verify the dashboard loads"`,

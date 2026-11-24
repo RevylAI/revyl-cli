@@ -9,7 +9,6 @@ metadata:
 
 Help the user choose and complete a useful visual review with minimal setup.
 Use Figma MCP for design evidence and the Revyl CLI for existing app evidence.
-This skill also works when supplied directly as a file before CLI installation.
 Do not require a code checkout, Figma file cleanup, Code Connect, or a new run.
 
 For a pure iOS/Android comparison without a design reference, prefer
@@ -55,8 +54,8 @@ mean Revyl authentication is ready; Figma authentication is separate.
 Check `command -v revyl`, then `revyl version` and `revyl auth status`.
 If it is missing, check `$HOME/.revyl/bin` before installing. When setup is
 requested, install the CLI using the official instructions at
-https://github.com/RevylAI/revyl-cli#installation for the current OS. On macOS
-or Linux, download `https://revyl.com/install.sh` with fail-on-HTTP-error and
+https://github.com/RevylAI/revyl-cli#install for the current OS. On macOS
+or Linux, download `https://revyl.com/setup` with fail-on-HTTP-error and
 bounded timeouts to a temporary file, run it with `sh` only after a successful
 download, and add `$HOME/.revyl/bin` to this shell's PATH. Use
 `REVYL_NO_MODIFY_PATH=1` to avoid editing shell startup files. Recheck the binary.

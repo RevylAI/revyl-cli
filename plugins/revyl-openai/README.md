@@ -93,7 +93,7 @@ generator validates package structure, not endpoint availability or OAuth.
 Use a fresh output path; the generator does not overwrite an existing archive.
 
 For client installation and account connection, use the authoritative
-[MCP setup guide](https://docs.revyl.com/cli/mcp-setup). For OpenAI packaging and
+[MCP setup guide](https://docs.revyl.com/agents/mcp). For OpenAI packaging and
 submission, follow [Package your plugin](https://developers.openai.com/plugins/build/plugins)
 and [Submit your plugin](https://developers.openai.com/plugins/deploy/submission).
 

@@ -6,7 +6,7 @@ runner installs its own Revyl CLI.
 ```yaml
       - name: Install Revyl CLI
         run: |
-          curl -fsSL https://revyl.com/install.sh | sh
+          curl -fsSL https://revyl.com/setup | sh
           echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       - name: Upload build to Revyl

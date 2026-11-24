@@ -54,7 +54,8 @@ need the user's yes first:
   unless the user asks.
 
 Build secrets are values only the user enters: ask them to run
-`revyl build secret set NAME` themselves (it prompts without echoing), and
+`"<absolute launcher path>" build secret set NAME` in their own terminal (it prompts
+without echoing), and
 reference the name in the recipe. Never read, print, or write a secret value.
 
 ## Start from detection
@@ -62,7 +63,8 @@ reference the name in the recipe. Never read, print, or write a secret value.
 Work in the directory that owns `.revyl/config.yaml`, never a monorepo root
 that only contains it.
 
-1. No config yet: `"$LAUNCHER" init --non-interactive` detects the build
+1. No config yet: from the app's own folder, not a monorepo root,
+   `"$LAUNCHER" init --non-interactive` detects the build
    system and writes the file without the setup wizard. Read what it wrote.
 2. A config already exists: read it. `"$LAUNCHER" init --detect` re-runs
    detection; use it when the project's build system changed, and review the

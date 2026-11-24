@@ -46,20 +46,14 @@ walks you through authentication, app creation, agent skills, and first build.
 You can exit at any point — the config is saved after each step.
 
 Web projects require manual configuration; no framework or preview host is guessed.
-See https://docs.revyl.com/remote-builds/configuration#web-recipes.
+Run revyl setup detect to find Web apps. See https://docs.revyl.com/remote-builds/configuration#web-recipes.
 
-Use -y to skip all prompts and just create the config file.
-
-Examples:
-  revyl init                    # Detect, create config, continue setup
+Use -y to skip all prompts and just create the config file.`,
+	Example: `  revyl init                    # Detect, create config, continue setup
   revyl init -y                 # Non-interactive: detect + create config only
   revyl init --project ID       # Link to existing Revyl project
   revyl init --detect           # Re-run build system detection
   revyl init --force            # Overwrite existing configuration`,
-	Example: `  revyl init
-  revyl init -y
-  revyl init --project ID
-  revyl init --force`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return withConfigDiagnostic(actionableLocalConfigMessage(runInit(cmd, args)))
 	},
@@ -4073,10 +4067,9 @@ const maxNestedAppHints = 3
 func reportNoAppDetected(cwd string, setUpHere bool) error {
 	hints := findNestedAppHints(cwd)
 	if len(hints) == 0 {
-		ui.PrintWarning("No app found in this folder, so no build profiles were added")
-		ui.PrintInfo("Run revyl init from your app's folder: the one with app.json, pubspec.yaml, an .xcodeproj, or build.gradle.")
-		ui.PrintDim("Web apps are configured by hand: https://docs.revyl.com/remote-builds/configuration#web-recipes")
-		ui.PrintDim("To find the iOS, Android, and Web apps in this repository, run revyl setup detect.")
+		ui.PrintWarning("No mobile app found in this folder, so no build profiles were added")
+		ui.PrintInfo("Run revyl init from your mobile app's folder: the one with app.json, pubspec.yaml, an .xcodeproj, or build.gradle.")
+		ui.PrintInfo("For a Web app, run revyl setup detect to find it. init writes no Web recipe: https://docs.revyl.com/remote-builds/configuration#web-recipes")
 		return nil
 	}
 
@@ -4558,10 +4551,11 @@ func printInitNextSteps(cfg *initConfigDraft, includeAuthLogin bool) {
 	}
 	if len(platforms) == 0 {
 		printStep("Add build_commands and output_path to build.profiles.%s.<ios|android> in .revyl/config.yaml", profile)
+		ui.PrintInfo("       Web app: init writes no Web recipe. Run revyl setup detect to find it, then follow https://docs.revyl.com/remote-builds/configuration#web-recipes")
 	}
 	printStep("Create an app per platform and put its ID in build.profiles.%s.<platform>.app_id:", profile)
 	if len(platforms) == 0 {
-		ui.PrintInfo("       %s", cliRecoveryCommand("app", "create", "--name", "\"<name> <platform>\"", "--platform", "<ios|android>"))
+		ui.PrintInfo("       %s", cliRecoveryCommand("app", "create", "--name", "\"<name> <platform>\"", "--platform", "<ios|android|web>"))
 	}
 	for _, platform := range platforms {
 		appName := cfg.Project.Name + " " + map[string]string{"ios": "iOS", "android": "Android"}[platform]
@@ -4569,8 +4563,8 @@ func printInitNextSteps(cfg *initConfigDraft, includeAuthLogin bool) {
 	}
 	printStep("%s", cliRecoveryCommand("config", "validate"))
 	printStep("%s   # if GitHub is not connected: %s", cliRecoveryCommand("github", "status"), cliRecoveryCommand("github", "connect"))
-	printStep("%s", cliRecoveryCommand("config", "push"))
 	printStep("%s", cliRecoveryCommand("build", "--build-profile", profile, "--platform", platformArgument, "--remote"))
+	printStep("%s   # only after the build succeeds", cliRecoveryCommand("config", "push"))
 	printStep("%s", cliRecoveryCommand("device", "start", "--app-id", "<app-id>"))
 	if agentinfo.Detect().Name != "" {
 		ui.PrintInfo("If a setup step fails, report it with `revyl feedback --type bug`; if it works but is harder than it should be, use `revyl feedback --type friction`. Name the step and what blocked it.")
@@ -4755,7 +4749,7 @@ func printDynamicNextSteps(cfg *initConfigDraft, authOK bool, testID string) {
 		}
 	}
 	if !hasApps && len(cfg.Build.Recipes) > 0 {
-		steps = append(steps, ui.NextStep{Label: "Create an app:", Command: "revyl init (re-run wizard)"})
+		steps = append(steps, ui.NextStep{Label: "Create an app:", Command: "revyl app create --name <name> --platform <ios|android|web>"})
 	}
 
 	// Build upload is always a useful next step.
@@ -4767,7 +4761,7 @@ func printDynamicNextSteps(cfg *initConfigDraft, authOK bool, testID string) {
 	}
 
 	if testID == "" {
-		steps = append(steps, ui.NextStep{Label: "Create a test:", Command: "revyl test create <name> --platform <ios|android>"})
+		steps = append(steps, ui.NextStep{Label: "Create a test:", Command: "revyl test create <name> --platform <ios|android|web>"})
 	}
 
 	if testID != "" {

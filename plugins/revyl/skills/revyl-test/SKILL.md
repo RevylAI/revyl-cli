@@ -172,11 +172,11 @@ The steps, wherever they run:
    until it succeeds; its `build_version_id` is the build to start. Expo and
    React Native development clients use the hot-reload loop, which loads this
    workspace's JavaScript through Metro and starts its own session:
-   `"$LAUNCHER" dev --build-profile <profile> --platform <platform> --detach --json --no-open`.
+   `"$LAUNCHER" dev --build-profile <profile> --platform <platform> --detach --json --open=false`.
 2. **Device.** Reuse the session `dev` returned. Otherwise call hosted
    `start_device_session` with `platform` and the `build_id` (web also needs
    the app's `app_id`), or
-   `"$LAUNCHER" device start --build-version-id <build-id> --json` when the
+   `"$LAUNCHER" device start --build-version-id <build-id> --json --open=false` when the
    hosted tool isn't available. Give the user `viewer_url` at once.
 3. **Validate, with the hosted tools.** When `atlas_search` is available, look
    up the changed screen to plan how to reach it. Drive with
@@ -211,4 +211,7 @@ Screenshots: <what each shows>
 ```
 
 Offer to post it on the pull request; never post it, share a session, or
-publish screenshots without a yes. Report any Revyl problem that got in the way.
+publish screenshots without a yes. Report any Revyl problem that got in the way with
+`"$LAUNCHER" feedback --type bug --body "<report>"` (`--type other` when it only made the
+check harder; the pinned runtime has no `friction`). Never include secrets or the
+user's app data.

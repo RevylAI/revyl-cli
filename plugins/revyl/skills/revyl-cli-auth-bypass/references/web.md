@@ -2,8 +2,8 @@
 
 Use this for Web setup and test-only sign-in. Work in the app's directory. Read
 its package scripts, lockfile, deployment config and existing auth before writing
-`.revyl/config.yaml`. Preserve mobile profiles. `revyl init -y` creates project
-metadata, but does not choose a Web framework, package manager or preview host.
+`.revyl/config.yaml`. Preserve mobile profiles. `revyl init -y`, run from the
+app's own folder rather than a monorepo root, creates project metadata, but does not choose a Web framework, package manager or preview host.
 
 If the app already deploys previews, prefer an app-ID-only recipe:
 
@@ -15,12 +15,21 @@ build:
         app_id: <web-app-id>
 ```
 
+## Use a public address
+
+Revyl's browser runs in the cloud, so every address must be public HTTPS; `localhost` is refused.
+
+- For a local dev server, use the tunnel steps in the dev-loop skill's Web apps section.
+- Check an address yourself before you register it. `curl -sSL -o /dev/null -w '%{http_code}' <address>` must print `200`, and the `<title>` in the page that `curl -sSL <address>` returns must match what the code renders, such as the `<title>` in `index.html` or the root layout's metadata. A bot check, a parked domain, a hosting placeholder, a different product, or an empty title fails the check. If the page that `curl -sSL <address>` returns says `Blocked request. This host` or `Invalid Host header`, the dev server refuses the tunnel's host name: restart it for this run with the tunnel's host allowed, such as `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<tunnel host>` before Vite's dev command, without editing the app's config files, and check again. Any other `403` means access is denied: leave the dev server alone, and the address fails the check.
+
+## Register a hosted preview
+
 Create that app with `revyl app create --name "My Web App" --platform web`.
 After the existing deployment succeeds, register its HTTPS URL:
 
 ```bash
 "$LAUNCHER" build upload --platform web --url "$PREVIEW_URL" --app <web-app-id>
-"$LAUNCHER" device start --platform web --app <web-app-id>
+"$LAUNCHER" device start --platform web --app-id <web-app-id> --json
 ```
 
 Keep the existing CI/deploy provider. Do not invent a provider-specific workflow.
@@ -95,7 +104,7 @@ or verifier to a static frontend. If it needs authentication, implement the
 test-only route on its trusted backend or use the existing hosted preview.
 
 For either bundle example: `revyl build --build-profile preview --platform web`, then
-`revyl device start --platform web`. Check a screenshot/account and stop the owned
+`revyl device start --platform web --app-id <web-app-id>`. Check a screenshot/account and stop the owned
 session with `revyl device stop --session-id <session-id>`.
 
 ## Dynamic preparation

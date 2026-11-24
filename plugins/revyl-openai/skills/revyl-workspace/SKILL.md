@@ -57,7 +57,7 @@ the iframe loaded, and the absence of an image in the text response is not
 proof that embedding failed. Report the confirmed tool outcome without
 claiming to see the live UI. Use a normal viewer link as the fallback when the
 host cannot render the component. Never publish or share the session merely
-to make embedding work. In ChatGPT, present the returned `chatgpt_url` as an
+to make embedding work. In ChatGPT, when the result carries a `chatgpt_url`, present it as an
 **Open in ChatGPT** link. Clicking it navigates the persistent panel to the
 selected view; another tool call alone need not update an already-open panel.
 Do not invent this link when it is absent. Keep `workspace_url` as the ordinary
@@ -68,10 +68,10 @@ visible or playing, unless separate evidence confirms that outcome.
 
 Require an authorized app, environment, platform, and device operation. Resolve
 the target from the user's request and available read-only tools; ask when it
-is ambiguous. Supply one artifact selector to `start_device_session`: a known
-`build_version_id` for a pinned artifact, or `app_id` for the expressly selected
-app's latest build. Use `no_open=true` so the client owns viewer navigation and
-set a bounded `idle_timeout`, normally 900 seconds.
+is ambiguous. `start_device_session` takes only `platform`, `app_id`, `build_id`, and `branch`. Pass a
+known `build_id` for a pinned artifact, or `app_id` for the expressly selected
+app's default build, optionally with a `branch` to install that branch's newest
+completed build.
 
 The hosted Revyl workspace connection takes `platform` `ios`, `android`,
 `web`, or `macos` and the arguments its tool declares. `web` opens a cloud
@@ -81,7 +81,7 @@ so give the user the returned `computer_url` to watch and control it in Revyl.
 If the result says computers are not enabled for the organization, pass that
 on rather than retrying.
 
-Record the returned session ID and index. Open that same session's workspace
+Record the returned session ID. Open that same session's workspace
 when needed; do not invoke startup again to retry UI rendering. If startup
 times out, inspect `list_device_sessions` before considering another start.
 Never automatically retry an ambiguous provisioning result.
@@ -92,9 +92,7 @@ build version ID before startup. Pin both the session and the test to that ID;
 do not resolve "latest" again between operations.
 
 Pass the server-issued `session_id` to every session-scoped tool that declares
-it. For an older tool accepting only `session_index`, first confirm that the
-index still maps to the intended ID. Use the tool's declared arguments for
-screenshots, interactions, and validation. Inspect returned screenshots before
+it. Use the tool's declared arguments for screenshots, interactions, and validation. Inspect returned screenshots before
 describing them, and treat missing or false validation results as unverified
 or failed.
 
@@ -291,8 +289,7 @@ app's Atlas map. Call it only when the user asks to share the map, give the
 link only to them, and say when it expires.
 
 When the authorized work ends, stop only the owned session with
-`stop_device_session(session_id=...)`; for an older index-only tool, recheck
-the ID-to-index mapping first. Never set `all=true`. A successful
+`stop_device_session(session_id=...)`. A successful
 request to stop is not the same as a released device: the tool waits for the
 session to end, and when the result still says `stopped: false`, call it once
 more with the same `session_id` and check the active-session list. Report

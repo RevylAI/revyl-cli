@@ -8,7 +8,7 @@ description: Revyl conventions for Cursor Cloud/background agents - CLI install,
 Use this skill whenever you are running as a Cursor Cloud/background agent (headless Linux VM) and working with Revyl. Drive devices with the CLI. Do not use the plugin's `revyl-workspace` MCP tools here: they need an interactive sign-in and draw views a headless VM cannot show.
 
 For Web projects, first read [manual Web setup](../revyl-cli-auth-bypass/references/web.md)
-and use its explicit recipe/preview-URL flow instead of the mobile dev loop.
+and use its explicit recipe/preview-URL flow instead of the mobile dev loop, together with the Web apps section of the `revyl-cli-dev-loop` skill.
 
 ## Environment Ground Rules (non-negotiable)
 
@@ -25,7 +25,7 @@ The plugin cache is not on PATH. Do not invoke `${CURSOR_PLUGIN_ROOT}` or the
 cached binary as the shell command.
 
 - If a real `REVYL_API_KEY` is in the environment, run `revyl auth persist-cloud-env` once so the key never reaches argv. Never print the key.
-- If that command reports no key, run `revyl auth login` and post the printed approval URL as a clickable markdown link plus the short code, then wait. Optional `REVYL_API_KEY` as a Runtime Secret is the unattended path, not the only path. Never request or accept the key in chat.
+- If that command reports no key, run `revyl auth login` and post the printed approval URL as a clickable markdown link plus the short code, then wait. The request expires after 10 minutes; run it again if it does. Optional `REVYL_API_KEY` as a Runtime Secret is the unattended path, not the only path. Never request or accept the key in chat.
 - **The VM has no Xcode.** Native iOS dev loops must use `revyl dev --remote`. Treat Android the same unless the VM demonstrably has the SDK.
 
 ## Session Lifecycle (devices cost money and outlive the VM)

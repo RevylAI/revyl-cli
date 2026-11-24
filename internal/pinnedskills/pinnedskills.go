@@ -23,17 +23,30 @@ var overrides embed.FS
 type listItemOverride struct {
 	// item is the exact start of the list item's first line.
 	item string
-	// replacement names a file in overrides/.
+	// replacement names a file in overrides/; empty drops the item.
 	replacement string
 }
 
 // listItemOverrides lists, per skill file relative to the skills directory, the
 // list items a pinned runtime cannot follow.
 var listItemOverrides = map[string][]listItemOverride{
-	"revyl-cli-dev-loop/SKILL.md": {
-		{item: "- **Revyl got in your way:**", replacement: "revyl-got-in-your-way.md"},
-		{item: "- **OS permission prompts:**", replacement: "os-permission-prompts.md"},
+	"revyl-cli-dev-loop/SKILL.md": append(agentRuleOverrides,
+		listItemOverride{item: "1. Find the app with `revyl setup detect", replacement: "web-find-app.md"},
+		listItemOverride{item: "2. Pick an address", replacement: "web-pick-address.md"},
+		listItemOverride{item: "3. Check it with `revyl setup check-url", replacement: "web-check-address.md"},
+		listItemOverride{item: "- **OS permission prompts:**", replacement: "os-permission-prompts.md"},
+	),
+	"revyl-cli-auth-bypass/SKILL.md": agentRuleOverrides,
+	"revyl-cli-auth-bypass/references/web.md": {
+		{item: "- Check an address with `revyl setup check-url", replacement: "web-public-address-check.md"},
 	},
+}
+
+// agentRuleOverrides covers the agent rules every bundled skill shares.
+var agentRuleOverrides = []listItemOverride{
+	{item: "- Pass `--intent", replacement: "pinned-cli.md"},
+	{item: "- Report problems with Revyl yourself", replacement: "report-problems.md"},
+	{item: "- When a `revyl` command says a newer Revyl CLI is available"},
 }
 
 // Render returns one skill file, named relative to the skills directory, as a
@@ -44,6 +57,10 @@ func Render(skillPath string, content []byte) ([]byte, error) {
 		start, end, found := findListItem(text, override.item)
 		if !found {
 			return nil, fmt.Errorf("%s has no list item starting %q for pinned plugins to replace", skillPath, override.item)
+		}
+		if override.replacement == "" {
+			text = text[:start] + text[end:]
+			continue
 		}
 		replacement, err := overrides.ReadFile("overrides/" + override.replacement)
 		if err != nil {

@@ -517,7 +517,7 @@ func classifySetupURLResponse(response *http.Response, body string) (string, str
 	lowerBody := strings.ToLower(body)
 	switch {
 	case strings.Contains(body, "Blocked request. This host") || strings.Contains(body, "Invalid Host header"):
-		return "dev_server_host_blocked", "The dev server refuses requests for this host name. Allow the tunnel's host for this run (Vite: server.allowedHosts, or __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<host>), restart it, and check again."
+		return "dev_server_host_blocked", "The dev server refuses the tunnel's host name: restart it for this run with the tunnel's host allowed, such as __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<tunnel host> before Vite's dev command, without editing the app's config files, and check again."
 	case response.Header.Get("Cf-Mitigated") == "challenge" || strings.Contains(lowerBody, "challenges.cloudflare.com") || strings.Contains(lowerBody, "<title>just a moment") || strings.Contains(lowerBody, "<title>attention required"):
 		return "bot_check", "The address shows a bot check, which blocks Revyl's browser. Use a preview or staging URL without bot protection, or allowlist Revyl's IP addresses: https://docs.revyl.com/security/allowlist-ip-addresses"
 	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:

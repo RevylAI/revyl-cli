@@ -27,7 +27,7 @@ workflow's validation.
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Install Revyl CLI
         run: |
-          curl -fsSL https://revyl.com/install.sh | sh
+          curl -fsSL https://revyl.com/setup | sh
           echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
       - name: Prove on a Revyl device
         timeout-minutes: 25
@@ -75,10 +75,12 @@ commit to prove), HEAD_BRANCH, and REVYL_SESSION_FILE.
 2. In the directory with .revyl/config.yaml, find the build of exactly
    HEAD_SHA: revyl build list --app <app-id> --branch "$HEAD_BRANCH" --limit 100 --json,
    then the same without --branch if nothing matches. A build matches when
-   metadata.scm_head_sha equals HEAD_SHA. If none exists after one retry a
+   metadata.scm_head_sha, metadata.commit_sha, metadata.source_metadata.commit_sha,
+   or metadata.git.commit equals HEAD_SHA and metadata.git.dirty is not true. If none exists after one retry a
    minute later, comment that proof didn't run and stop. Never build.
 3. Start one device on that build with revyl device start --platform <platform>
-   --build-version-id <build-id> --json. Immediately write its session_id to
+   --build-version-id <build-id> --json --open=false (for a web app, add
+   --app-id <web-app-id>). Immediately write its session_id to
    the file named by REVYL_SESSION_FILE, then note its viewer_url.
 4. Check each behavior with revyl device instruction and revyl device
    validation, and take screenshots with revyl device screenshot --out.

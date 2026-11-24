@@ -99,6 +99,15 @@ to ask if an untracked file looks like a secret or credential.
 
   Require `.success == true` and `.count == 1` and use `.build.build_id`.
 
+- **Web** has no file to upload. Register a deployed HTTPS preview instead:
+
+  ```sh
+  "$LAUNCHER" build upload --platform web --url <preview-url> --app <web-app-id> --json
+  ```
+
+  Revyl's browser runs in the cloud and cannot reach `localhost`. The upload
+  creates no build job and returns at once; use `.version_id`, the build's ID.
+
 The build lands on `--branch <name>` when given, otherwise the current Git
 branch when the app detects Git branches, otherwise the app's default branch.
 Never pass `--pin` unless the user asks to make it the branch's default build.
