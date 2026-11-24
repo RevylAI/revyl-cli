@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ComputerStepRequest asks for one plain-language step on a computer's screen.
 type ComputerStepRequest struct {
 	StepType    string `json:"step_type"`
 	Description string `json:"description"`
@@ -24,7 +23,6 @@ type ComputerExtractedData struct {
 	Information string `json:"information"`
 }
 
-// ComputerStepResult is what one computer step did and which engine answered it.
 type ComputerStepResult struct {
 	StepType         string                 `json:"step_type"`
 	Success          bool                   `json:"success"`
@@ -67,7 +65,6 @@ func ValidateComputerStep(request ComputerStepRequest) error {
 	return nil
 }
 
-// RunComputerStep sends one step once; a step may click, so it is never retried.
 func (c *Client) RunComputerStep(ctx context.Context, id uuid.UUID, request ComputerStepRequest) (*ComputerStepResult, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("computer step request is invalid")

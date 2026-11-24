@@ -28,8 +28,6 @@ func withRuntimeGitBranch(ctx context.Context, selection api.BuildSelection) (ap
 	return selection, nil
 }
 
-// detectRuntimeGitBranch returns the Git branch of the directory the terminal
-// UI runs in, or "" when there is none to read.
 func detectRuntimeGitBranch(ctx context.Context) (string, error) {
 	workDir, err := os.Getwd()
 	if err != nil {

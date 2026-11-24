@@ -1,4 +1,3 @@
-// Package tui provides the execution monitor model for real-time test monitoring.
 package tui
 
 import (
@@ -20,83 +19,54 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// executionModel manages the state of a running test execution.
 type executionModel struct {
 	branchFallbackNotice string
 	buildSelection       api.BuildSelection
 	overrideAppID        string
-	// testID is the UUID of the test being executed.
-	testID string
+	testID               string
 
-	// testName is the display name of the test.
 	testName string
 
-	// apiKey is the authenticated API key.
 	apiKey string
 
-	// devMode indicates whether to use local development servers.
 	devMode bool
 
-	// taskID is the execution task ID (set after execution starts).
 	taskID string
 
-	// phase tracks the current pipeline phase.
 	phase executionPhase
 
-	// status holds the latest SSE progress update.
 	status *sse.TestStatus
 
-	// reportURL is the URL to the execution report.
 	reportURL string
 
-	// done indicates the execution has reached a terminal state.
 	done bool
 
-	// success indicates whether the test passed.
 	success bool
 
-	// errorMsg holds the error message if the execution failed.
 	errorMsg string
 
-	// startTime records when the execution started for elapsed time display.
 	startTime time.Time
 
-	// spinner provides visual activity feedback.
 	spinner spinner.Model
 
-	// width and height track terminal dimensions.
 	width  int
 	height int
 
-	// cancelFunc cancels the SSE monitoring context.
+	// cancelFunc is invoked on user cancellation when non-nil.
 	cancelFunc context.CancelFunc
 
-	// cancelled indicates the user pressed ctrl+c to cancel.
 	cancelled bool
 }
 
-// executionPhase represents the current pipeline stage.
 type executionPhase int
 
 const (
-	phaseStarting  executionPhase = iota // submitting execution request
-	phaseQueued                          // waiting for device
-	phaseRunning                         // test is actively executing
-	phaseCompleted                       // terminal state reached
+	phaseStarting executionPhase = iota
+	phaseQueued
+	phaseRunning
+	phaseCompleted
 )
 
-// newExecutionModel creates a new execution monitor for the given test.
-//
-// Parameters:
-//   - testID: the UUID of the test to execute
-//   - testName: display name for the header
-//   - apiKey: API key for authentication
-//   - devMode: whether to use local development servers
-//   - width: terminal width
-//   - height: terminal height
-//
-// Returns:
-//   - executionModel: the initialized model
 func newExecutionModel(testID, testName, apiKey string, devMode bool, width, height int) executionModel {
 	return executionModel{
 		testID:    testID,
@@ -111,10 +81,8 @@ func newExecutionModel(testID, testName, apiKey string, devMode bool, width, hei
 	}
 }
 
-// --- Tea commands ---
-
-// startMonitoredExecutionCmd starts the test execution with real-time SSE progress updates.
-// Unlike startExecutionCmd, this sends incremental progress messages to the TUI.
+// startMonitoredExecutionCmd starts a test execution and returns ExecutionStartedMsg
+// (or ExecutionDoneMsg on setup failure); SSE monitoring begins after start succeeds.
 func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, selections ...testExecutionBuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		cwd, err := os.Getwd()
@@ -126,7 +94,6 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 			return ExecutionDoneMsg{Err: actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))}
 		}
 
-		// First, start the execution
 		client := api.NewClientWithDevMode(apiKey, devMode)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -181,32 +148,16 @@ func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool, s
 	}
 }
 
-// sseProgressCh is a message carrying the channel that streams SSE progress events.
-// The first call to waitForProgressCmd is issued by monitorExecutionCmd; each subsequent
-// read re-issues itself so the TUI receives a continuous stream of ExecutionProgressMsg
-// until the monitor goroutine closes the channel.
+// sseProgressCh wraps an SSE test-status receive channel.
 type sseProgressCh struct {
 	ch <-chan sse.TestStatus
 }
 
-// monitorExecutionCmd starts SSE monitoring in a background goroutine and returns
-// a tea.Cmd that begins reading progress events from a channel. The SSE onProgress
-// callback pushes every update into the channel, and a chain of waitForProgressCmd
-// calls drains it one event at a time -- the standard Bubble Tea streaming pattern.
-//
-// Parameters:
-//   - taskID: the execution task ID to monitor
-//   - testID: the test UUID
-//   - apiKey: API key for authentication
-//   - devMode: whether to use local development servers
-//
-// Returns:
-//   - tea.Cmd that yields the first progress or done message
+// monitorExecutionCmd starts SSE monitoring in a background goroutine over a
+// bounded non-blocking channel and returns the initial waitForProgressCmd read.
 func monitorExecutionCmd(taskID, testID, apiKey string, devMode bool) tea.Cmd {
 	ch := make(chan sse.TestStatus, 16)
 
-	// Background goroutine: runs MonitorTest with a real onProgress callback,
-	// then signals completion by closing the channel.
 	go func() {
 		defer close(ch)
 
@@ -215,11 +166,9 @@ func monitorExecutionCmd(taskID, testID, apiKey string, devMode bool) tea.Cmd {
 
 		onProgress := func(status *sse.TestStatus) {
 			if status != nil {
-				// Non-blocking send; if the TUI falls behind we drop the oldest.
 				select {
 				case ch <- *status:
 				default:
-					// Channel full -- drain one stale event and push the fresh one.
 					select {
 					case <-ch:
 					default:
@@ -234,8 +183,7 @@ func monitorExecutionCmd(taskID, testID, apiKey string, devMode bool) tea.Cmd {
 
 		finalStatus, err := monitor.MonitorTest(ctx, taskID, testID, onProgress)
 
-		// Push the final status into the channel so waitForProgressCmd sees it
-		// before the channel closes.
+		// Best-effort non-blocking send of the final status before channel close.
 		if finalStatus != nil {
 			select {
 			case ch <- *finalStatus:
@@ -243,8 +191,7 @@ func monitorExecutionCmd(taskID, testID, apiKey string, devMode bool) tea.Cmd {
 			}
 		}
 
-		// If there was an error and no terminal status, push a sentinel with
-		// the error message so the done-handler can display it.
+		// Best-effort non-blocking error sentinel when monitoring ended without terminal status.
 		if err != nil && (finalStatus == nil || !statusutil.IsTerminal(finalStatus.Status)) {
 			select {
 			case ch <- sse.TestStatus{Status: "error", ErrorMessage: err.Error()}:
@@ -253,40 +200,27 @@ func monitorExecutionCmd(taskID, testID, apiKey string, devMode bool) tea.Cmd {
 		}
 	}()
 
-	// Return the first read command -- it will chain itself until the channel closes.
+	// Return the initial read command; Update forwards NextCmd to continue reading.
 	return waitForProgressCmd(ch, taskID, devMode)
 }
 
-// waitForProgressCmd reads the next SSE event from the channel. If the channel
-// is still open and the status is non-terminal, it yields an ExecutionProgressMsg
-// and re-issues itself. When the channel closes or a terminal status arrives, it
-// yields an ExecutionDoneMsg instead.
-//
-// Parameters:
-//   - ch: the channel of SSE progress events
-//   - taskID: the execution task ID (for building the report URL)
-//   - devMode: whether to use local development servers
-//
-// Returns:
-//   - tea.Cmd that yields either ExecutionProgressMsg or ExecutionDoneMsg
+// waitForProgressCmd reads one SSE event from ch, returning ExecutionDoneMsg on
+// close, error sentinel, or terminal status, or ExecutionProgressMsg with NextCmd for Update to schedule.
 func waitForProgressCmd(ch <-chan sse.TestStatus, taskID string, devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		status, ok := <-ch
 		if !ok {
-			// Channel closed -- monitoring finished with no further data.
 			return ExecutionDoneMsg{
 				ReportURL: fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), taskID),
 			}
 		}
 
-		// Sentinel error status pushed by the goroutine.
 		if status.Status == "error" && status.ErrorMessage != "" {
 			return ExecutionDoneMsg{
 				Err: fmt.Errorf("%s", status.ErrorMessage),
 			}
 		}
 
-		// Terminal status -- this is the final message.
 		if statusutil.IsTerminal(status.Status) {
 			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), taskID)
 			return ExecutionDoneMsg{
@@ -295,7 +229,7 @@ func waitForProgressCmd(ch <-chan sse.TestStatus, taskID string, devMode bool) t
 			}
 		}
 
-		// Non-terminal -- deliver the progress update and re-subscribe.
+		// Non-terminal -- package the progress update and next read command for Update.
 		return ExecutionProgressMsg{
 			Status:  &status,
 			NextCmd: waitForProgressCmd(ch, taskID, devMode),
@@ -303,17 +237,14 @@ func waitForProgressCmd(ch <-chan sse.TestStatus, taskID string, devMode bool) t
 	}
 }
 
-// tickCmd sends a tick every second for the elapsed time display.
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(_ time.Time) tea.Msg {
 		return tickMsg{}
 	})
 }
 
-// tickMsg is sent every second to update the elapsed timer.
 type tickMsg struct{}
 
-// cancelExecutionCmd sends a cancel request to the backend.
 func cancelExecutionCmd(taskID, apiKey string, devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		client := api.NewClientWithDevMode(apiKey, devMode)
@@ -325,9 +256,6 @@ func cancelExecutionCmd(taskID, apiKey string, devMode bool) tea.Cmd {
 	}
 }
 
-// --- Bubble Tea interface ---
-
-// Init starts the execution and the spinner.
 func (m executionModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
@@ -336,7 +264,6 @@ func (m executionModel) Init() tea.Cmd {
 	)
 }
 
-// Update handles messages for the execution monitor.
 func (m executionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -378,7 +305,6 @@ func (m executionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.phase = phaseRunning
 			}
 		}
-		// Continue the streaming chain -- NextCmd reads the next event from the channel.
 		return m, msg.NextCmd
 
 	case ExecutionDoneMsg:
@@ -408,7 +334,6 @@ func (m executionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey processes key events in the execution view.
 func (m executionModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -423,7 +348,6 @@ func (m executionModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		if m.done {
-			// Handled by parent (hubModel.updateExecution)
 			return m, nil
 		}
 
@@ -441,9 +365,6 @@ func (m executionModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- View rendering ---
-
-// View renders the execution monitor screen.
 func (m executionModel) View() string {
 	var b strings.Builder
 	w := m.width
@@ -451,7 +372,6 @@ func (m executionModel) View() string {
 		w = 80
 	}
 
-	// Header with test name and elapsed time
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 	statusIcon := m.phaseIcon()
 	header := titleStyle.Render(" REVYL") + "  " +
@@ -464,30 +384,25 @@ func (m executionModel) View() string {
 		b.WriteString(lipgloss.NewStyle().Width(min(w, 60)-2).MarginLeft(2).Render(warningStyle.Render(m.branchFallbackNotice)) + "\n")
 	}
 
-	// Pipeline phase tracker
 	b.WriteString(sectionStyle.Render("  Pipeline") + "\n")
 	b.WriteString(m.renderPipeline())
 
-	// Step tracker (only visible once running)
 	if m.status != nil && m.status.TotalSteps > 0 {
 		b.WriteString(sectionStyle.Render("  Steps") + "\n")
 		b.WriteString("  " + separator(min(w-4, 56)) + "\n")
 		b.WriteString(m.renderSteps())
 	}
 
-	// Metadata bar
 	if m.status != nil || m.reportURL != "" {
 		b.WriteString("\n")
 		b.WriteString(m.renderMetadata())
 	}
 
-	// Result box (when done)
 	if m.done {
 		b.WriteString("\n")
 		b.WriteString(m.renderResult())
 	}
 
-	// Footer with key hints
 	b.WriteString("\n")
 	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
 	b.WriteString("  " + m.renderHelp() + "\n")
@@ -495,7 +410,6 @@ func (m executionModel) View() string {
 	return b.String()
 }
 
-// phaseIcon returns the appropriate icon for the current phase.
 func (m executionModel) phaseIcon() string {
 	if m.done {
 		if m.cancelled {
@@ -509,7 +423,6 @@ func (m executionModel) phaseIcon() string {
 	return m.spinner.View()
 }
 
-// renderPipeline renders the pipeline phase tracker.
 func (m executionModel) renderPipeline() string {
 	var b strings.Builder
 
@@ -539,7 +452,6 @@ func (m executionModel) renderPipeline() string {
 	return b.String()
 }
 
-// renderSteps renders the step-by-step progress tracker.
 func (m executionModel) renderSteps() string {
 	if m.status == nil {
 		return ""
@@ -575,7 +487,6 @@ func (m executionModel) renderSteps() string {
 		b.WriteString(line + "\n")
 	}
 
-	// Progress summary
 	pct := 0
 	if total > 0 {
 		pct = (completed * 100) / total
@@ -586,7 +497,6 @@ func (m executionModel) renderSteps() string {
 	return b.String()
 }
 
-// renderMetadata renders the bottom metadata bar (platform, report URL).
 func (m executionModel) renderMetadata() string {
 	var parts []string
 
@@ -604,7 +514,6 @@ func (m executionModel) renderMetadata() string {
 	return "  " + strings.Join(parts, "  ") + "\n"
 }
 
-// renderResult renders the final pass/fail result box.
 func (m executionModel) renderResult() string {
 	if m.cancelled {
 		return warningStyle.Render("  ⊘ Execution cancelled") + "\n"
@@ -621,7 +530,6 @@ func (m executionModel) renderResult() string {
 	return errorStyle.Render(msg) + "\n"
 }
 
-// renderHelp renders the bottom key hint bar.
 func (m executionModel) renderHelp() string {
 	var keys []string
 

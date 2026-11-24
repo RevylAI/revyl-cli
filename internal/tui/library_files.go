@@ -1,8 +1,3 @@
-// Package tui — Files tab of the Library hub.
-//
-// Files are browsed/inspected/deleted here; description metadata can be
-// edited inline. Upload, download, and content replacement stay in the
-// `revyl file` CLI.
 package tui
 
 import (
@@ -17,9 +12,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// --- Commands ---
-
-// fetchFilesCmd loads the org's files.
 func fetchFilesCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -42,7 +34,6 @@ func fetchFilesCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// updateFileDescCmd updates a file's description metadata.
 func updateFileDescCmd(client *api.Client, fileID, description string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -53,7 +44,6 @@ func updateFileDescCmd(client *api.Client, fileID, description string) tea.Cmd {
 	}
 }
 
-// deleteFileCmd deletes a file by ID.
 func deleteFileCmd(client *api.Client, fileID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -63,9 +53,6 @@ func deleteFileCmd(client *api.Client, fileID string) tea.Cmd {
 	}
 }
 
-// --- Key handling ---
-
-// handleLibraryFilesKey handles key events for the Files tab.
 func handleLibraryFilesKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.libraryMode == libModeConfirmDelete {
 		switch msg.String() {
@@ -123,7 +110,6 @@ func handleLibraryFilesKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// list mode
 	if mm, cmd, handled := handleLibraryTabNav(m, msg); handled {
 		return mm, cmd
 	}
@@ -161,9 +147,6 @@ func handleLibraryFilesKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Rendering ---
-
-// formatLibraryFileSize renders a byte count as a human-readable string.
 func formatLibraryFileSize(size int64) string {
 	switch {
 	case size >= 1<<30:
@@ -177,7 +160,6 @@ func formatLibraryFileSize(size int64) string {
 	}
 }
 
-// renderLibraryFilesBody renders the Files tab body.
 func renderLibraryFilesBody(m hubModel, innerW int) string {
 	_ = innerW
 	var b strings.Builder
@@ -211,7 +193,6 @@ func renderLibraryFilesBody(m hubModel, innerW int) string {
 		return b.String()
 	}
 
-	// list mode
 	b.WriteString(sectionStyle.Render(fmt.Sprintf("  Files  %d", len(m.fileItems))) + "\n")
 	if len(m.fileItems) == 0 {
 		b.WriteString("  " + dimStyle.Render("No files found") + "\n")

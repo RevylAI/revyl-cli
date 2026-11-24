@@ -1,4 +1,3 @@
-// Package tui provides the hub model -- the dashboard-first TUI with quick actions.
 package tui
 
 import (
@@ -36,15 +35,13 @@ import (
 	"github.com/revyl/cli/internal/util"
 )
 
-// quickAction defines an item in the Quick Actions menu.
 type quickAction struct {
-	Label        string // display name shown in the menu
-	Key          string // internal identifier for dispatch
-	Desc         string // short description shown next to the label
-	RequiresAuth bool   // whether this action is disabled until authenticated
+	Label        string
+	Key          string
+	Desc         string
+	RequiresAuth bool
 }
 
-// quickActions is the ordered list of actions on the dashboard.
 var quickActions = []quickAction{
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
@@ -59,29 +56,24 @@ var quickActions = []quickAction{
 	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 }
 
-// dashFocus tracks which section of the dashboard has keyboard focus.
 type dashFocus int
 
 const (
-	focusActions dashFocus = iota // Quick Actions menu (default)
-	focusRecent                   // Recent Runs list
+	focusActions dashFocus = iota
+	focusRecent
 )
 
-// hubModel is the top-level Bubble Tea model for the TUI hub.
 type hubModel struct {
 	version     string
 	currentView view
 
-	// Dashboard data
 	metrics    *api.DashboardMetrics
 	recentRuns []RecentRun
 
-	// Dashboard focus and cursors
 	focus           dashFocus
 	actionCursor    int
 	recentRunCursor int
 
-	// Test list (sub-screen)
 	tests                 []TestItem
 	testCursor            int
 	filterMode            bool
@@ -91,48 +83,43 @@ type hubModel struct {
 	testListConfirmDelete bool
 	testListDeleteTarget  TestItem
 
-	// Test list filter metadata
-	filterTags        []api.CLITagResponse // all org tags for the filter picker
-	filterApps        []api.App            // all org apps for the filter picker
-	filterTagIDs      map[string]bool      // tag IDs currently active (OR logic)
-	filterAppID       string               // "" = all, "none" = no app, or app UUID
-	filterTagPickerOn bool                 // tag multi-select overlay visible
+	filterTags        []api.CLITagResponse
+	filterApps        []api.App
+	filterTagIDs      map[string]bool // tag IDs currently active (OR logic)
+	filterAppID       string          // "" = all, "none" = no app, or app UUID
+	filterTagPickerOn bool
 	filterTagCursor   int
-	filterAppPickerOn bool // app select overlay visible
+	filterAppPickerOn bool
 	filterAppCursor   int
 
-	// Runs list (sub-screen)
 	allRuns       []RecentRun
 	allRunsCursor int
 	allRunsLoaded bool
 
-	// Report drill-down state
-	reportReturnView     view                            // view to return to from run-history screens
-	selectedTestID       string                          // test selected for run drill-down
-	selectedTestName     string                          // name of selected test
-	testRuns             []api.CLIEnhancedHistoryItem    // runs for the selected test
-	testRunCursor        int                             // cursor for test runs list
-	selectedWorkflowID   string                          // workflow selected for run drill-down
-	selectedWorkflowName string                          // name of selected workflow
-	workflowRuns         []api.CLIWorkflowStatusResponse // runs for the selected workflow
-	workflowRunCursor    int                             // cursor for workflow runs list
-	reportLoading        bool                            // loading indicator for report sub-views
-	reportJSONStatus     string                          // inline status for test-run JSON/command actions
-	reportJSONError      bool                            // whether the JSON status is an error
-	reportJSONPending    bool                            // whether a JSON action is in-flight
-	reportJSONCommand    bool                            // whether to show the exact --json command
+	reportReturnView     view
+	selectedTestID       string
+	selectedTestName     string
+	testRuns             []api.CLIEnhancedHistoryItem
+	testRunCursor        int
+	selectedWorkflowID   string
+	selectedWorkflowName string
+	workflowRuns         []api.CLIWorkflowStatusResponse
+	workflowRunCursor    int
+	reportLoading        bool
+	reportJSONStatus     string
+	reportJSONError      bool
+	reportJSONPending    bool
+	reportJSONCommand    bool
 
-	// Report drill-down filter state
-	reportFilterMode  bool            // whether filter is active in report views
-	reportFilterInput textinput.Model // filter input for report views
+	reportFilterMode  bool
+	reportFilterInput textinput.Model
 
-	// Manage apps state
-	apps                 []api.App          // cached app list
-	appCursor            int                // cursor for app list
-	selectedAppID        string             // app selected for detail view
-	selectedAppName      string             // name of selected app
-	appBuilds            []api.BuildVersion // build versions for the selected app
-	appBuildCursor       int                // cursor for build versions list
+	apps                 []api.App
+	appCursor            int
+	selectedAppID        string
+	selectedAppName      string
+	appBuilds            []api.BuildVersion
+	appBuildCursor       int
 	appBuildScope        appBuildQuery
 	appBuildRequestID    string
 	appBuildPage         int
@@ -144,20 +131,17 @@ type hubModel struct {
 	buildPickerTarget    string
 	deviceBuildSelection api.BuildSelection
 	deviceBuildLabel     string
-	appsLoading          bool   // loading indicator for app views
-	confirmDelete        bool   // whether a delete confirmation is pending
+	appsLoading          bool
+	confirmDelete        bool
 	deleteTarget         string // ID of the item pending deletion ("app" or version ID)
 
-	// Help & status state
-	healthChecks        []HealthCheck       // results from the last health check
-	healthLoading       bool                // whether health checks are currently running
+	healthChecks        []HealthCheck
+	healthLoading       bool
 	projectConfigStatus projectConfigStatus // cached local config status; refreshed by state transitions
 
-	// Setup guide state (rendered in help screen)
 	setupSteps  []SetupStep
 	setupCursor int
 
-	// Test detail state
 	selectedTestDetail      *TestDetail
 	testDetailLoading       bool
 	testDetailCursor        int
@@ -171,13 +155,11 @@ type hubModel struct {
 	testRenamePreview       string
 	testRenameError         string
 
-	// Tag picker state (overlay in test detail)
 	tagPickerActive  bool
 	tagPickerLoading bool
 	tagPickerItems   []tagPickerItem
 	tagPickerCursor  int
 
-	// Tag browser state
 	tagItems         []TagItem
 	tagCursor        int
 	tagLoading       bool
@@ -185,17 +167,16 @@ type hubModel struct {
 	tagCreateActive  bool
 	tagNameInput     textinput.Model
 
-	// Device session state
 	deviceSessions               []api.ActiveDeviceSessionItem
 	deviceCursor                 int
 	devicesLoading               bool
 	deviceOrgID                  string
 	selectedDeviceID             string
-	deviceStarting               bool   // true while provisioning a new device
-	deviceStartPicking           bool   // true when the start-device overlay is showing
-	deviceStartStep              int    // current overlay step
-	devicePlatformCursor         int    // cursor for platform picker (0=ios, 1=android)
-	deviceStartPlatform          string // selected platform for the start overlay
+	deviceStarting               bool
+	deviceStartPicking           bool
+	deviceStartStep              int
+	devicePlatformCursor         int
+	deviceStartPlatform          string
 	deviceStartApps              []api.App
 	deviceStartAppCursor         int
 	deviceStartLoading           bool
@@ -203,18 +184,17 @@ type hubModel struct {
 	deviceStartFilterInput       textinput.Model
 	deviceStartErr               string
 	deviceStartNotice            string
-	deviceStartDeviceCursor      int             // cursor for device model picker (0 = auto)
-	deviceStartDeviceModel       string          // selected device model (empty = auto)
-	deviceStartOsVersion         string          // selected OS version (empty = auto)
-	deviceStartLaunchVarCursor   int             // cursor for launch var multi-select
-	deviceStartLaunchVarSelected map[string]bool // ids of launch vars chosen for this raw session
-	deviceStartLaunchVarsLoading bool            // true while loading launch vars for the picker
-	deviceConfirmStop            bool            // true when stop confirmation is pending
-	deviceStopTarget             string          // workflow run ID of the session to stop
-	deviceDetailPollSeq          int             // sequence token used to run a single detail poll loop
-	deviceListPollSeq            int             // sequence token used to run a single list poll loop
+	deviceStartDeviceCursor      int    // cursor for device model picker (0 = auto)
+	deviceStartDeviceModel       string // selected device model (empty = auto)
+	deviceStartOsVersion         string // selected OS version (empty = auto)
+	deviceStartLaunchVarCursor   int
+	deviceStartLaunchVarSelected map[string]bool
+	deviceStartLaunchVarsLoading bool
+	deviceConfirmStop            bool
+	deviceStopTarget             string
+	deviceDetailPollSeq          int // sequence token used to run a single detail poll loop
+	deviceListPollSeq            int // sequence token used to run a single list poll loop
 
-	// Module browser state
 	moduleItems         []ModuleItem
 	moduleCursor        int
 	moduleLoading       bool
@@ -223,7 +203,6 @@ type hubModel struct {
 	moduleDetailScroll  int
 	moduleConfirmDelete bool
 
-	// Library hub state (tabs: modules / launch vars / variables / scripts / files)
 	libraryTab  libraryTab
 	libraryMode libraryMode
 
@@ -233,7 +212,7 @@ type hubModel struct {
 	selectedLaunchVar         *LaunchVarItem
 	launchVarIsCreating       bool
 	launchVarIsSecret         bool
-	launchVarEditField        int // 0=key, 1=value, 2=description
+	launchVarEditField        int
 	launchVarKeyInput         textinput.Model
 	launchVarValueInput       textinput.Model
 	launchVarDescriptionInput textinput.Model
@@ -242,7 +221,7 @@ type hubModel struct {
 	scriptCursor        int
 	scriptsLoading      bool
 	selectedScript      *ScriptItem
-	scriptEditField     int // 0=name, 1=description
+	scriptEditField     int
 	scriptEditNameInput textinput.Model
 	scriptEditDescInput textinput.Model
 
@@ -258,27 +237,25 @@ type hubModel struct {
 	selectedVar   *VariableItem
 	varIsCreating bool
 	varIsSecret   bool
-	varEditField  int // 0=name, 1=value
+	varEditField  int
 	varNameInput  textinput.Model
 	varValueInput textinput.Model
 
-	// Workflow management state
-	wfItems          []WorkflowItem
-	wfCursor         int
-	wfListLoading    bool
-	wfFilterMode     bool
-	wfFilterInput    textinput.Model
-	wfDetailLoading  bool
-	selectedWfDetail *WorkflowItem
-	wfConfirmDelete  bool
-	wfDetailCursor   int
-	wfSyncLoading    bool
-	wfSyncCh         <-chan tea.Msg
-	wfSyncResults    []string
-	wfSyncProgress   string
-	wfSyncDone       bool
-	wfSyncSummary    string
-	// Workflow create wizard
+	wfItems                    []WorkflowItem
+	wfCursor                   int
+	wfListLoading              bool
+	wfFilterMode               bool
+	wfFilterInput              textinput.Model
+	wfDetailLoading            bool
+	selectedWfDetail           *WorkflowItem
+	wfConfirmDelete            bool
+	wfDetailCursor             int
+	wfSyncLoading              bool
+	wfSyncCh                   <-chan tea.Msg
+	wfSyncResults              []string
+	wfSyncProgress             string
+	wfSyncDone                 bool
+	wfSyncSummary              string
 	wfCreateStep               workflowCreateStep
 	wfCreateNameInput          textinput.Model
 	wfCreateTestCursor         int
@@ -287,13 +264,12 @@ type hubModel struct {
 	wfCreateTestFilterInput    textinput.Model
 	wfCreateTestPlatformFilter string // "", "Android", or "iOS"
 	// Workflow execution monitor
-	wfExecTaskID     string
-	wfExecStatus     *api.CLIWorkflowStatusResponse
-	wfExecDone       bool
-	wfExecNotice     string
-	wfExecStartTime  time.Time
-	wfExecReturnView view
-	// Workflow settings screen
+	wfExecTaskID           string
+	wfExecStatus           *api.CLIWorkflowStatusResponse
+	wfExecDone             bool
+	wfExecNotice           string
+	wfExecStartTime        time.Time
+	wfExecReturnView       view
 	wfSettingsSection      int
 	wfSettingsCursor       int
 	wfSettingsAllTests     []TestItem
@@ -310,7 +286,6 @@ type hubModel struct {
 	wfSettingsAppMatches   []api.App
 	wfSettingsAppCursor    int
 
-	// Shared state
 	loading bool
 	spinner spinner.Model
 	err     error
@@ -321,12 +296,10 @@ type hubModel struct {
 	devMode bool
 	authErr error
 	// Post-create refresh state so new tests come from the authoritative remote list.
-	pendingCreatedTestID   string
-	pendingCreatedTestName string
-	// True when a setup login action should return to dashboard after auth succeeds.
+	pendingCreatedTestID       string
+	pendingCreatedTestName     string
 	returnToDashboardAfterAuth bool
 
-	// Local project settings state
 	settingsCursor       int
 	settingsEditing      bool
 	settingsTimeout      int
@@ -345,21 +318,12 @@ type hubModel struct {
 	integrationsPollSeq         int
 	integrationsConnectDeadline time.Time
 
-	// Sub-models
 	executionModel   *executionModel
 	createModel      *createModel
 	createAppModel   *createAppModel
 	uploadBuildModel *uploadBuildModel
 }
 
-// newHubModel creates the initial hub model.
-//
-// Parameters:
-//   - version: the CLI version string for display
-//   - devMode: whether to use local development servers (--dev flag)
-//
-// Returns:
-//   - hubModel: the initialized model
 func newHubModel(version string, devMode bool) hubModel {
 	ti := textinput.New()
 	ti.Placeholder = "filter tests..."
@@ -463,9 +427,6 @@ func newHubModel(version string, devMode bool) hubModel {
 	}
 }
 
-// --- Tea commands for async operations ---
-
-// AuthMsg carries the authenticated client and token after initial auth succeeds.
 type AuthMsg struct {
 	Client *api.Client
 	Token  string
@@ -501,8 +462,7 @@ var currentReportCommandName = func() string {
 	return "revyl"
 }
 
-// authenticateCmd resolves the auth token and creates an API client.
-// This runs once on startup; the returned client is cached on the model.
+// authenticateCmd resolves the active auth token and returns an API client cached on the model.
 func authenticateCmd(devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		mgr := auth.NewManager()
@@ -515,7 +475,6 @@ func authenticateCmd(devMode bool) tea.Cmd {
 	}
 }
 
-// fetchTestsCmd fetches the org test list using an already-authenticated client.
 func fetchTestsCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -628,13 +587,7 @@ func fetchFilterTagsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchFilterAppsCmd fetches all org apps for the test-list app picker.
-//
-// Parameters:
-//   - client: the authenticated API client
-//
-// Returns:
-//   - tea.Cmd that produces a FilterAppsMsg
+// fetchFilterAppsCmd fetches the first page (up to 100) of org apps for the app filter picker.
 func fetchFilterAppsCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -647,7 +600,6 @@ func fetchFilterAppsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchDashboardMetricsCmd fetches org-level dashboard metrics.
 func fetchDashboardMetricsCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -657,7 +609,6 @@ func fetchDashboardMetricsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchRecentRunsCmd fetches the most recent execution for up to N tests in parallel.
 func fetchRecentRunsCmd(client *api.Client, tests []TestItem, count int) tea.Cmd {
 	return func() tea.Msg {
 		if len(tests) == 0 {
@@ -716,7 +667,7 @@ func fetchRecentRunsCmd(client *api.Client, tests []TestItem, count int) tea.Cmd
 	}
 }
 
-// fetchAllRunsCmd fetches all recent runs (up to 25) for the "View all runs" screen.
+// fetchAllRunsCmd fetches the latest execution for each of the first 25 tests.
 func fetchAllRunsCmd(client *api.Client, tests []TestItem) tea.Cmd {
 	return func() tea.Msg {
 		if len(tests) == 0 {
@@ -772,14 +723,6 @@ func fetchAllRunsCmd(client *api.Client, tests []TestItem) tea.Cmd {
 	}
 }
 
-// fetchTestHistoryCmd fetches execution history for a specific test.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - testID: the test to fetch history for
-//
-// Returns:
-//   - tea.Cmd: command that produces a TestHistoryMsg
 func fetchTestHistoryCmd(client *api.Client, testID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -792,14 +735,6 @@ func fetchTestHistoryCmd(client *api.Client, testID string) tea.Cmd {
 	}
 }
 
-// fetchWorkflowHistoryCmd fetches execution history for a specific workflow.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - workflowID: the workflow to fetch history for
-//
-// Returns:
-//   - tea.Cmd: command that produces a WorkflowHistoryMsg
 func fetchWorkflowHistoryCmd(client *api.Client, workflowID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -867,13 +802,6 @@ func copyTestRunReportCommandCmd(command string) tea.Cmd {
 	}
 }
 
-// fetchAppsCmd fetches the org app list.
-//
-// Parameters:
-//   - client: authenticated API client
-//
-// Returns:
-//   - tea.Cmd: command that produces an AppListMsg
 func fetchAppsCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -933,14 +861,6 @@ func fetchAppBuildPageCmd(client *api.Client, appID string, query appBuildQuery,
 	}
 }
 
-// deleteAppCmd deletes an app by ID.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - appID: the app to delete
-//
-// Returns:
-//   - tea.Cmd: command that produces an AppDeletedMsg
 func deleteAppCmd(client *api.Client, appID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -950,14 +870,6 @@ func deleteAppCmd(client *api.Client, appID string) tea.Cmd {
 	}
 }
 
-// deleteBuildCmd deletes a build version by ID.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - versionID: the build version to delete
-//
-// Returns:
-//   - tea.Cmd: command that produces a BuildDeletedMsg
 func deleteBuildCmd(client *api.Client, versionID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -972,7 +884,6 @@ type testDeleteLocalResult struct {
 	Warning string
 }
 
-// deleteTestFromListCmd deletes a test from remote and local project artifacts.
 func deleteTestFromListCmd(client *api.Client, selected TestItem) tea.Cmd {
 	return func() tea.Msg {
 		msg := TestDeletedMsg{
@@ -1071,14 +982,10 @@ func deleteTestLocalArtifacts(testsDir, testName, testID string) testDeleteLocal
 	return result
 }
 
-// --- Bubble Tea interface ---
-
-// Init starts the spinner and kicks off authentication.
 func (m hubModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
 }
 
-// Update handles all incoming messages and key events.
 func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.buildPicker != nil {
 		switch msg.(type) {
@@ -1097,7 +1004,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	// Delegate to sub-models when active
 	if m.currentView == viewExecution && m.executionModel != nil {
 		return m.updateExecution(msg)
 	}
@@ -1221,7 +1127,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = viewDashboard
 			m.returnToDashboardAfterAuth = false
 		}
-		// Fire tests, metrics, and recent-runs fetch all in parallel
+		// Fetch tests and dashboard metrics in parallel; recent runs start after TestListMsg.
 		return m, tea.Batch(
 			fetchTestsCmd(m.client),
 			fetchDashboardMetricsCmd(m.client),
@@ -1258,7 +1164,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if createdTestID != "" && testItemIndexByID(msg.Tests, createdTestID) < 0 {
 			m.err = createdTestRefreshError(m.err, createdTestName, "")
 		}
-		// Now fetch recent runs (depends on test list)
 		if m.client != nil {
 			return m, fetchRecentRunsCmd(m.client, m.tests, 5)
 		}
@@ -1302,14 +1207,12 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.projectConfigStatus = msg.ProjectConfigStatus
 			}
 			m.healthChecks = msg.Checks
-			// Clear stale auth warning once checks confirm authentication is valid.
 			for _, check := range msg.Checks {
 				if check.Name == "Authentication" && check.Status == "ok" {
 					m.authErr = nil
 					break
 				}
 			}
-			// Derive setup steps from health check results
 			m.setupSteps = deriveSetupSteps(msg.Checks)
 			if len(m.setupSteps) == 0 {
 				m.setupCursor = 0
@@ -1406,8 +1309,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// --- Test detail messages ---
-
 	case TestDetailMsg:
 		m.testDetailLoading = false
 		m.err = msg.Err
@@ -1423,7 +1324,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.testSyncResult = msg.Result
 		}
-		// Refresh detail after sync and refresh the browse list when sync state can change.
 		if m.selectedTestDetail != nil && m.client != nil {
 			detailCmd := fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
 			if msg.Action == "push" || msg.Action == "pull" {
@@ -1446,7 +1346,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedTestDetail = nil
 		}
 		m.err = nil
-		// Refresh test list
 		if m.client != nil {
 			return m, fetchTestsCmd(m.client)
 		}
@@ -1489,8 +1388,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchTestsCmd(m.client))
 		return m, tea.Batch(cmds...)
 
-	// --- Tag messages ---
-
 	case TagListMsg:
 		m.tagLoading = false
 		if msg.Err == nil {
@@ -1525,14 +1422,11 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TagsSyncedMsg:
 		m.tagPickerLoading = false
 		m.tagPickerActive = false
-		// Refresh test detail to show updated tags
 		if msg.Err == nil && m.selectedTestDetail != nil && m.client != nil {
 			m.testDetailLoading = true
 			return m, fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
 		}
 		return m, nil
-
-	// --- Module messages ---
 
 	case ModuleListMsg:
 		m.moduleLoading = false
@@ -1570,8 +1464,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-
-	// --- Library tab messages (scripts / files / variables) ---
 
 	case ScriptListMsg:
 		m.scriptsLoading = false
@@ -1697,8 +1589,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// --- Device session messages ---
-
 	case DeviceListPollTickMsg:
 		if msg.Seq != m.deviceListPollSeq {
 			return m, nil
@@ -1791,7 +1681,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.resetDeviceStartOverlay()
 		m.deviceStartNotice = msg.BranchFallbackNotice
-		// Refresh the session list
 		m.devicesLoading = true
 		if m.client != nil {
 			return m, fetchDeviceSessionsCmd(m.client, m.deviceOrgID)
@@ -1808,8 +1697,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// --- Integrations messages ---
-
 	case IntegrationsStatusMsg:
 		return updateIntegrationsStatus(m, msg)
 
@@ -1824,8 +1711,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case IntegrationsPublishDoneMsg:
 		return updateIntegrationsPublishDone(m, msg)
-
-	// --- Workflow management messages ---
 
 	case WorkflowBrowseListMsg:
 		m.wfListLoading = false
@@ -1956,7 +1841,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.wfExecStatus = msg.Status
 		}
-		// Continue polling
 		if m.client != nil && m.wfExecTaskID != "" {
 			return m, pollWorkflowStatusCmd(m.client, m.wfExecTaskID)
 		}
@@ -1972,8 +1856,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case WorkflowCancelledMsg:
 		m.wfExecDone = true
 		return m, nil
-
-	// --- Setup guide messages ---
 
 	case SetupActionMsg:
 		if msg.Action == setupActionLogin {
@@ -1995,7 +1877,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.projectConfigStatus = currentProjectConfigStatus()
-		// Re-run health checks after a setup action completes
 		m.healthLoading = true
 		m.healthChecks = nil
 		return m, runHealthChecksCmd(m.devMode, m.client)
@@ -2059,7 +1940,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Update filter input if in filter mode (test list view)
 	if m.filterMode {
 		var cmd tea.Cmd
 		m.filterInput, cmd = m.filterInput.Update(msg)
@@ -2070,7 +1950,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDashboardKey processes key events on the dashboard landing page.
 func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.err != nil {
 		return m.handleErrorDashboardKey(msg)
@@ -2131,7 +2010,7 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "0":
-		idx := 9 // "0" maps to the 10th item (index 9)
+		idx := 9
 		if idx < len(quickActions) {
 			m.focus = focusActions
 			m.actionCursor = idx
@@ -2169,7 +2048,6 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.metrics = nil
 		m.recentRuns = nil
 		if m.client != nil {
-			// Reuse cached client for refresh
 			return m, tea.Batch(
 				m.spinner.Tick,
 				fetchTestsCmd(m.client),
@@ -2339,7 +2217,6 @@ func (m hubModel) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// executeQuickAction dispatches the currently selected quick action.
 func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	if m.actionCursor >= len(quickActions) {
 		return m, nil
@@ -2495,15 +2372,11 @@ func runDevLoopProcessCmd(devMode bool, branches ...string) tea.Cmd {
 	})
 }
 
-// devLoopExec wraps an exec.Cmd so it can be used with tea.Exec while
-// teeing stderr to a small buffer. This lets us extract the last
-// meaningful error line when the subprocess exits with a non-zero code.
 type devLoopExec struct {
 	cmd    *exec.Cmd
 	stderr stderrCapture
 }
 
-// stderrCapture is a ring-style writer that keeps only the last maxStderrCapture bytes.
 type stderrCapture struct {
 	buf [maxStderrCapture]byte
 	n   int
@@ -2535,9 +2408,8 @@ func (d *devLoopExec) SetStdin(r io.Reader)  { d.cmd.Stdin = r }
 func (d *devLoopExec) SetStdout(w io.Writer) { d.cmd.Stdout = w }
 func (d *devLoopExec) SetStderr(w io.Writer) { d.cmd.Stderr = io.MultiWriter(w, &d.stderr) }
 
-// lastStderrLine returns the last non-empty line captured from stderr,
-// trimming ANSI escape sequences and whitespace. Returns "" if nothing
-// meaningful was captured.
+// lastStderrLine returns the last non-empty whitespace-trimmed line captured
+// from stderr, or "" if none was captured.
 func (d *devLoopExec) lastStderrLine() string {
 	raw := d.stderr.String()
 	if raw == "" {
@@ -2586,7 +2458,6 @@ func validateDevLoopPrereqs() error {
 	return nil
 }
 
-// handleTestListKey processes key events in the test list sub-screen.
 func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.testListConfirmDelete {
 		switch msg.String() {
@@ -2675,7 +2546,6 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("test '%s' has no remote ID yet; run 'revyl sync' to reconcile", selected.Name)
 			return m, nil
 		}
-		// Browse mode: navigate to test detail screen
 		m.currentView = viewTestDetail
 		m.testDetailLoading = true
 		m.testDetailCursor = 0
@@ -2739,7 +2609,6 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "s":
-		// quick status refresh for selected test list
 		m.loading = true
 		m.err = nil
 		if m.client != nil {
@@ -2756,7 +2625,6 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
 
 	case "S":
-		// full refresh entry-point from test list (mirrors sync intent in TUI)
 		m.loading = true
 		m.err = nil
 		if m.client != nil {
@@ -2768,13 +2636,11 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateExecution delegates messages to the execution model and handles navigation back.
 func (m hubModel) updateExecution(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		if m.executionModel != nil && m.executionModel.done {
 			m.currentView = viewDashboard
 			m.executionModel = nil
-			// Refresh recent runs after execution using cached client
 			if m.client != nil {
 				return m, fetchRecentRunsCmd(m.client, m.tests, 5)
 			}
@@ -2801,7 +2667,6 @@ func (m hubModel) updateExecution(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateCreate delegates messages to the create model and handles navigation back.
 func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		if m.createModel != nil && !m.createModel.creating && m.createModel.buildPicker == nil {
@@ -2834,7 +2699,6 @@ func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// If creation completed and user chose to open the editor, open it and return.
 		if m.createModel.done && m.createModel.doneAction == createDoneOpenEditor {
 			testID := m.createModel.createdID
 			testName := m.createModel.nameInput.Value()
@@ -2854,7 +2718,6 @@ func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.queueCreatedTestRefresh(testID, testName)
 		}
 
-		// If creation completed and user chose to go back
 		if m.createModel.done && m.createModel.doneAction == createDoneBackToDashboard {
 			testID := m.createModel.createdID
 			testName := m.createModel.nameInput.Value()
@@ -2902,7 +2765,6 @@ func testItemIndexByID(items []TestItem, testID string) int {
 	return -1
 }
 
-// updateCreateApp delegates messages to the create-app model and handles navigation back.
 func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		if m.createAppModel != nil && !m.createAppModel.creating {
@@ -2922,7 +2784,6 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 		appMdl := cm.(createAppModel)
 		m.createAppModel = &appMdl
 
-		// If creation completed and user chose "Upload build now"
 		if m.createAppModel.done && m.createAppModel.uploadNow {
 			appID := m.createAppModel.createdID
 			appName := m.createAppModel.createdName
@@ -2946,7 +2807,6 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.uploadBuildModel.Init()
 		}
 
-		// If creation completed and user chose "Maybe later"
 		if m.createAppModel.done && !m.createAppModel.uploadNow {
 			appID := m.createAppModel.createdID
 			appName := m.createAppModel.createdName
@@ -2975,7 +2835,6 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateUploadBuild delegates messages to the upload-build model and handles navigation back.
 func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		if m.uploadBuildModel != nil && !m.uploadBuildModel.uploading && m.uploadBuildModel.buildPicker == nil {
@@ -3012,7 +2871,6 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 		uploadMdl := um.(uploadBuildModel)
 		m.uploadBuildModel = &uploadMdl
 
-		// If upload completed and user chose "Upload another"
 		if m.uploadBuildModel.done && m.uploadBuildModel.uploadMore {
 			appID := m.uploadBuildModel.appID
 			appName := m.uploadBuildModel.appName
@@ -3024,7 +2882,6 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.uploadBuildModel.Init()
 		}
 
-		// If upload completed and user chose "Back to builds"
 		if m.uploadBuildModel.done && !m.uploadBuildModel.uploadMore {
 			m.uploadBuildModel = nil
 			m.appBuildScope, m.appBuildBranch = appBuildQuery{}, nil
@@ -3046,9 +2903,7 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Helpers ---
-
-// visibleTests returns the filtered test list, or all tests if no filter is active.
+// visibleTests returns filteredTests when non-nil, otherwise all tests.
 func (m *hubModel) visibleTests() []TestItem {
 	if m.filteredTests != nil {
 		return m.filteredTests
@@ -3056,7 +2911,6 @@ func (m *hubModel) visibleTests() []TestItem {
 	return m.tests
 }
 
-// hasActiveFilters returns true when any filter dimension (text, tags, app) is set.
 func (m *hubModel) hasActiveFilters() bool {
 	return strings.TrimSpace(m.filterInput.Value()) != "" ||
 		len(m.filterTagIDs) > 0 ||
@@ -3140,16 +2994,6 @@ func (m *hubModel) matchesAppFilter(t TestItem) bool {
 	}
 }
 
-// --- Tag picker overlay ---
-
-// handleTagPickerKey processes key events in the tag picker overlay.
-//
-// Parameters:
-//   - msg: the key event
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: any follow-up command
 func (m hubModel) handleTagPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "t":
@@ -3184,7 +3028,6 @@ func (m hubModel) handleTagPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderTagPicker draws the tag multi-select overlay.
 func (m hubModel) renderTagPicker() string {
 	var b strings.Builder
 	b.WriteString("\n  " + sectionStyle.Render("Filter by Tag") + " " + dimStyle.Render("(space toggle, esc close)") + "\n")
@@ -3213,18 +3056,8 @@ func (m hubModel) renderTagPicker() string {
 	return b.String()
 }
 
-// --- App picker overlay ---
-
-// handleAppPickerKey processes key events in the app picker overlay.
-//
-// Parameters:
-//   - msg: the key event
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: any follow-up command
 func (m hubModel) handleAppPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	itemCount := len(m.filterApps) + 2 // "All Apps" + "None (no app)" + apps
+	itemCount := len(m.filterApps) + 2
 	switch msg.String() {
 	case "esc", "a":
 		m.filterAppPickerOn = false
@@ -3255,7 +3088,6 @@ func (m hubModel) handleAppPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderAppPicker draws the app select overlay.
 func (m hubModel) renderAppPicker() string {
 	var b strings.Builder
 	b.WriteString("\n  " + sectionStyle.Render("Filter by App") + " " + dimStyle.Render("(enter select, esc close)") + "\n")
@@ -3293,7 +3125,6 @@ func (m hubModel) renderAppPicker() string {
 	return b.String()
 }
 
-// selectedAppName returns the display name for the currently selected app filter.
 func (m hubModel) selectedAppDisplayName() string {
 	switch m.filterAppID {
 	case "":
@@ -3310,7 +3141,6 @@ func (m hubModel) selectedAppDisplayName() string {
 	}
 }
 
-// deriveTestSource returns a compact source label for a test entry.
 func deriveTestSource(localTests map[string]*config.LocalTest, name string) string {
 	if lt, ok := localTests[name]; ok && lt != nil {
 		return "local"
@@ -3339,16 +3169,6 @@ func (m hubModel) isLoginOnlyState() bool {
 	return step.Label == "Log in" && (step.Status == "current" || step.Status == "hint")
 }
 
-// renderErrorDashboard renders the dashboard error state with diagnostics
-// (working directory, config status, auth status) and contextual next-step
-// suggestions so the user knows exactly what to fix.
-//
-// Parameters:
-//   - banner: the pre-rendered header banner string
-//   - innerW: the inner content width for separators
-//
-// Returns:
-//   - string: the full error dashboard view
 func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	var b strings.Builder
 	b.WriteString(banner + "\n")
@@ -3360,7 +3180,6 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	}
 	b.WriteString("\n" + errorStyle.Render("  ✗ "+errorMessage) + "\n")
 
-	// --- STATUS section ---
 	b.WriteString(sectionStyle.Render("  STATUS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
@@ -3401,7 +3220,6 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 		b.WriteString("  " + dimStyle.Render("auth          ") + warningStyle.Render("✗") + dimStyle.Render(" not logged in") + "\n")
 	}
 
-	// --- NEXT STEPS section ---
 	b.WriteString(sectionStyle.Render("  NEXT STEPS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
@@ -3449,7 +3267,6 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	return b.String()
 }
 
-// relativeTime formats a timestamp as a human-readable relative time string.
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -3479,7 +3296,6 @@ func relativeTime(t time.Time) string {
 	}
 }
 
-// statusIcon returns a styled icon for a given execution status string.
 func statusIcon(status string) string {
 	s := strings.ToLower(status)
 	switch {
@@ -3498,9 +3314,6 @@ func statusIcon(status string) string {
 	}
 }
 
-// --- View rendering ---
-
-// View renders the current screen.
 func (m hubModel) View() string {
 	if m.buildPicker != nil {
 		return m.buildPicker.View()
@@ -3568,8 +3381,6 @@ func (m hubModel) View() string {
 	return m.renderDashboard()
 }
 
-// renderDashboard renders the dashboard landing page with a styled header banner,
-// colorful stats, recent runs table, and quick actions with descriptions.
 func (m hubModel) renderDashboard() string {
 	var b strings.Builder
 	w := m.width
@@ -3578,7 +3389,6 @@ func (m hubModel) renderDashboard() string {
 	}
 	innerW := min(w-4, 58)
 
-	// Header banner with rounded border
 	bannerContent := titleStyle.Render("REVYL") + "  " + versionStyle.Render(ui.DisplayVersion(m.version))
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
@@ -3596,12 +3406,10 @@ func (m hubModel) renderDashboard() string {
 		return b.String()
 	}
 
-	// Stats
 	b.WriteString(sectionStyle.Render("  STATS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 	b.WriteString(m.renderStats())
 
-	// Recent runs
 	if m.focus == focusRecent {
 		b.WriteString(activeSectionStyle.Render("  RECENT RUNS") + "\n")
 	} else {
@@ -3610,7 +3418,6 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString("  " + separator(innerW) + "\n")
 	b.WriteString(m.renderRecentRuns())
 
-	// Quick actions
 	if m.focus == focusActions {
 		b.WriteString(activeSectionStyle.Render("  QUICK ACTIONS") + "\n")
 	} else {
@@ -3722,7 +3529,6 @@ func (m hubModel) renderSettings() string {
 	return b.String()
 }
 
-// renderStats renders the metrics summary row with colored values and WoW deltas.
 func (m hubModel) renderStats() string {
 	if m.metrics == nil {
 		return "  " + dimStyle.Render("Loading metrics...") + "\n"
@@ -3761,15 +3567,6 @@ func wowIfMeasured(wow *float32, degraded bool) *float32 {
 	return wow
 }
 
-// metricRender formats a metric label/value pair with an optional WoW delta arrow.
-//
-// Parameters:
-//   - label: the metric name (e.g. "Tests")
-//   - value: the formatted metric value (e.g. "69")
-//   - wow: optional week-over-week percentage change (nil = no delta shown)
-//
-// Returns:
-//   - string: the styled metric string
 func metricRender(label, value string, wow *float32) string {
 	out := dimStyle.Render(label+" ") + metricValueStyle.Render(value)
 	if wow != nil && *wow != 0 {
@@ -3778,17 +3575,6 @@ func metricRender(label, value string, wow *float32) string {
 	return out
 }
 
-// metricRenderFail formats the failure metric with conditional coloring.
-// Values above 20% are red, above 10% amber, otherwise green.
-//
-// Parameters:
-//   - label: the metric name
-//   - value: the formatted value string
-//   - pct: the raw percentage for color thresholds
-//   - wow: optional WoW delta
-//
-// Returns:
-//   - string: the styled metric string
 func metricRenderFail(label, value string, pct float32, wow *float32) string {
 	var valStyle lipgloss.Style
 	switch {
@@ -3806,14 +3592,6 @@ func metricRenderFail(label, value string, pct float32, wow *float32) string {
 	return out
 }
 
-// wowDelta renders a week-over-week percentage change with a colored arrow.
-// Positive values are shown in teal with an up arrow, negative in red with a down arrow.
-//
-// Parameters:
-//   - delta: the percentage change value
-//
-// Returns:
-//   - string: the styled delta string (e.g. "^5%" or "v3%")
 func wowDelta(delta float32) string {
 	if delta > 0 {
 		return wowPositiveStyle.Render(fmt.Sprintf("↑%.0f%%", delta))
@@ -3821,8 +3599,6 @@ func wowDelta(delta float32) string {
 	return wowNegativeStyle.Render(fmt.Sprintf("↓%.0f%%", -delta))
 }
 
-// renderRecentRuns renders the recent runs section with fixed-width columns for
-// icon, test name, status, and relative time.
 func (m hubModel) renderRecentRuns() string {
 	if len(m.recentRuns) == 0 {
 		return "  " + dimStyle.Render("No recent runs") + "\n"
@@ -3853,13 +3629,6 @@ func (m hubModel) renderRecentRuns() string {
 	return b.String()
 }
 
-// statusStyle returns a lipgloss.Style appropriate for the given execution status.
-//
-// Parameters:
-//   - status: the execution status string (e.g. "passed", "failed", "running")
-//
-// Returns:
-//   - lipgloss.Style: a colored style for rendering the status text
 func statusStyle(status string) lipgloss.Style {
 	s := strings.ToLower(status)
 	switch {
@@ -3878,7 +3647,6 @@ func statusStyle(status string) lipgloss.Style {
 	}
 }
 
-// renderTestList renders the test list sub-screen.
 func (m hubModel) renderTestList() string {
 	var b strings.Builder
 	w := m.width
@@ -3896,12 +3664,10 @@ func (m hubModel) renderTestList() string {
 		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.filterInput.View() + "\n")
 	}
 
-	// Active filter badges
 	if badges := m.renderFilterBadges(); badges != "" {
 		b.WriteString(badges)
 	}
 
-	// Picker overlays take over the body when open
 	if m.filterTagPickerOn {
 		b.WriteString(m.renderTagPicker())
 		b.WriteString("\n  " + separator(innerW) + "\n")
@@ -4051,7 +3817,6 @@ func (m hubModel) renderTestList() string {
 	return b.String()
 }
 
-// renderFilterBadges renders active filter indicators below the header.
 func (m hubModel) renderFilterBadges() string {
 	var parts []string
 
@@ -4077,9 +3842,6 @@ func (m hubModel) renderFilterBadges() string {
 	return "\n  " + dimStyle.Render("Filters: ") + normalStyle.Render(strings.Join(parts, " | ")) + "\n"
 }
 
-// --- Runs list sub-screen ---
-
-// handleRunsListKey processes key events in the runs list sub-screen.
 func (m hubModel) handleRunsListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -4119,7 +3881,6 @@ func (m hubModel) handleRunsListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderRunsList renders the full runs list sub-screen with scrollable entries.
 func (m hubModel) renderRunsList() string {
 	var b strings.Builder
 	w := m.width
@@ -4203,13 +3964,11 @@ func (m hubModel) renderRunsList() string {
 	return b.String()
 }
 
-// helpKeyRender formats a key hint like "enter run test".
 func helpKeyRender(key, desc string) string {
 	return lipgloss.NewStyle().Foreground(purple).Bold(true).Render(key) +
 		" " + helpStyle.Render(desc)
 }
 
-// actionNumberIndex converts a numeric key string (1-based) to a zero-based action index.
 func actionNumberIndex(key string, actionCount int) (int, bool) {
 	n, err := strconv.Atoi(strings.TrimSpace(key))
 	if err != nil || n < 1 || n > actionCount {
@@ -4218,7 +3977,6 @@ func actionNumberIndex(key string, actionCount int) (int, bool) {
 	return n - 1, true
 }
 
-// handleTestRunsKey processes key events on the test runs list.
 func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -4318,7 +4076,6 @@ func (m hubModel) selectedTestRunReportURL() string {
 	return fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), runID)
 }
 
-// renderTestRuns renders the run history list for a specific test.
 func (m hubModel) renderTestRuns() string {
 	var b strings.Builder
 	w := m.width
@@ -4407,7 +4164,6 @@ func (m hubModel) renderTestRuns() string {
 	return b.String()
 }
 
-// handleWorkflowRunsKey processes key events on the workflow runs list.
 func (m hubModel) handleWorkflowRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -4590,7 +4346,6 @@ func splitHubWord(word string, width int) (string, string) {
 	return word[:consumed], word[consumed:]
 }
 
-// renderWorkflowRuns renders the run history list for a specific workflow.
 func (m hubModel) renderWorkflowRuns() string {
 	var b strings.Builder
 	w := m.width
@@ -4659,9 +4414,6 @@ func (m hubModel) renderWorkflowRuns() string {
 	return b.String()
 }
 
-// --- Manage apps ---
-
-// handleAppListKey processes key events on the app list screen.
 func (m hubModel) handleAppListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.confirmDelete {
 		switch msg.String() {
@@ -4755,7 +4507,6 @@ func (m hubModel) handleAppListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filteredApps returns apps filtered by the report filter input.
 func (m *hubModel) filteredApps() []api.App {
 	query := strings.ToLower(m.reportFilterInput.Value())
 	if query == "" {
@@ -4771,7 +4522,6 @@ func (m *hubModel) filteredApps() []api.App {
 	return filtered
 }
 
-// handleAppDetailKey processes key events on the app detail (build versions) screen.
 func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.appBuildSearching && msg.String() != "ctrl+c" {
 		switch msg.String() {
@@ -4864,7 +4614,6 @@ func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderAppList renders the app list screen.
 func (m hubModel) renderAppList() string {
 	var b strings.Builder
 	w := m.width
@@ -4940,7 +4689,6 @@ func (m hubModel) renderAppList() string {
 	return b.String()
 }
 
-// renderAppDetail renders the build versions list for a specific app.
 func (m hubModel) renderAppDetail() string {
 	var b strings.Builder
 	w := m.width
@@ -5055,22 +4803,11 @@ func (m hubModel) renderAppDetail() string {
 	return b.String()
 }
 
-// --- Help & Status screen ---
-
-// runHealthChecksCmd runs diagnostic checks asynchronously and returns results.
-//
-// Parameters:
-//   - devMode: whether development servers are in use
-//   - client: authenticated API client (may be nil)
-//
-// Returns:
-//   - tea.Cmd: command that produces a HealthCheckMsg
 func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		var checks []HealthCheck
 		configStatus := currentProjectConfigStatus()
 
-		// Check 1: Authentication
 		mgr := auth.NewManager()
 		creds, err := mgr.GetCredentials()
 		if err != nil || creds == nil || !creds.HasValidAuth() {
@@ -5093,7 +4830,6 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			})
 		}
 
-		// Check 2: API connectivity
 		baseURL := config.GetBackendURL(devMode)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -5134,7 +4870,6 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			}
 		}
 
-		// Check 3: Project config
 		project := configStatus.Project
 		if configStatus.State == projectConfigStateUnavailable {
 			checks = append(checks, HealthCheck{
@@ -5164,7 +4899,6 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			})
 		}
 
-		// Check 4: Build system
 		if configStatus.State != projectConfigStateUnavailable {
 			detectionRoot := configStatus.WorkingDirectory
 			if project != nil {
@@ -5186,7 +4920,6 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			}
 		}
 
-		// Check 5: App linked
 		appIDs := canonicalConfiguredAppIDs(project)
 		appLinked := len(appIDs) > 0
 		if appLinked {
@@ -5203,7 +4936,6 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			})
 		}
 
-		// Check 6: Build uploaded
 		if appLinked && client != nil {
 			buildFound := false
 			for _, appID := range appIDs {
@@ -5236,7 +4968,6 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			})
 		}
 
-		// Check 7: Tests configured
 		if project != nil {
 			if linkedCount := config.CountLinkedTests(project.TestsDir); linkedCount > 0 {
 				checks = append(checks, HealthCheck{
@@ -5307,7 +5038,6 @@ func canonicalConfiguredAppIDs(project *config.ProjectContext) []string {
 	return appIDs
 }
 
-// handleHelpKey processes key events on the help & status screen.
 func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -5345,7 +5075,6 @@ func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderHelp renders the help & status screen with health checks, setup guide, and keybindings.
 func (m hubModel) renderHelp() string {
 	var b strings.Builder
 	w := m.width
@@ -5386,7 +5115,6 @@ func (m hubModel) renderHelp() string {
 		return b.String()
 	}
 
-	// Health checks section
 	b.WriteString(sectionStyle.Render("  HEALTH CHECKS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
@@ -5411,7 +5139,6 @@ func (m hubModel) renderHelp() string {
 			b.WriteString(fmt.Sprintf("  %s %s %s\n", icon, name, normalStyle.Render(check.Message)))
 		}
 
-		// Render setup guide when checks are loaded
 		guide := renderSetupGuide(m.setupSteps, m.setupCursor, innerW)
 		if guide != "" {
 			b.WriteString("\n")
@@ -5419,7 +5146,6 @@ func (m hubModel) renderHelp() string {
 		}
 	}
 
-	// Keyboard shortcuts section
 	b.WriteString(sectionStyle.Render("  KEYBOARD SHORTCUTS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
@@ -5451,16 +5177,6 @@ func (m hubModel) renderHelp() string {
 	return b.String()
 }
 
-// scrollWindow computes the visible window [start, end) for a scrollable list.
-//
-// Parameters:
-//   - cursor: current cursor position
-//   - total: total number of items
-//   - maxVisible: max items to show at once
-//
-// Returns:
-//   - start: first visible index (inclusive)
-//   - end: last visible index (exclusive)
 func scrollWindow(cursor, total, maxVisible int) (int, int) {
 	if total <= maxVisible {
 		return 0, total
@@ -5479,7 +5195,6 @@ func scrollWindow(cursor, total, maxVisible int) (int, int) {
 	return start, end
 }
 
-// min returns the smaller of two ints.
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -5487,7 +5202,6 @@ func min(a, b int) int {
 	return b
 }
 
-// max returns the larger of two ints.
 func max(a, b int) int {
 	if a > b {
 		return a

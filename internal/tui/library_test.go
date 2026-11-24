@@ -12,9 +12,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// newLibraryHubModel returns a hub model parked on the Library view at the
-// Modules tab in list mode, with the five list slices pre-populated so the
-// tests can exercise navigation without an API client.
 func newLibraryHubModel() hubModel {
 	m := newHubModel("dev", false)
 	m.width = 100
@@ -229,7 +226,6 @@ func TestLibraryVariablesCreateWizardFlow(t *testing.T) {
 	m := newLibraryHubModel()
 	m.libraryTab = libTabVariables
 
-	// Press 'n' to open the create wizard.
 	m = sendKey(t, m, "n")
 	if m.libraryMode != libModeEditing {
 		t.Fatalf("expected editing mode after 'n', got %v", m.libraryMode)
@@ -241,7 +237,6 @@ func TestLibraryVariablesCreateWizardFlow(t *testing.T) {
 		t.Fatal("create wizard should start with empty inputs")
 	}
 
-	// Type a name into the focused field.
 	for _, r := range "API_KEY" {
 		res, _ := handleLibraryKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = res.(hubModel)
@@ -250,13 +245,11 @@ func TestLibraryVariablesCreateWizardFlow(t *testing.T) {
 		t.Fatalf("expected name 'API_KEY', got %q", m.varNameInput.Value())
 	}
 
-	// Tab to value field.
 	m = sendSpecialKey(t, m, tea.KeyTab)
 	if m.varEditField != 1 {
 		t.Fatalf("expected varEditField=1 after tab, got %d", m.varEditField)
 	}
 
-	// Esc cancels back to list mode.
 	m = sendSpecialKey(t, m, tea.KeyEsc)
 	if m.libraryMode != libModeList {
 		t.Fatalf("esc should return to list mode, got %v", m.libraryMode)
@@ -367,8 +360,6 @@ func TestLibraryVariablesSaveBlocksSecretToPlaintextWithoutReplacement(t *testin
 	m.varItems[0].IsSecret = true
 	m = sendKey(t, m, "e")
 
-	// Simulate the exact dangerous state: secret was toggled off, but the
-	// placeholder mask is still in the input.
 	m.varIsSecret = false
 	m.varValueInput.SetValue(variableSecretMask)
 
@@ -604,7 +595,6 @@ func TestLibraryLaunchVarsShowPlaintextAndKeepSecretsMasked(t *testing.T) {
 }
 
 func TestLibraryDeleteConfirmRequiresExplicitYes(t *testing.T) {
-	// Variables tab: 'd' opens confirm, 'n' cancels.
 	m := newLibraryHubModel()
 	m.libraryTab = libTabVariables
 	m = sendKey(t, m, "d")
@@ -701,28 +691,24 @@ func TestLibraryMessageHandlersPopulateSlices(t *testing.T) {
 	m := newHubModel("dev", false)
 	m.currentView = viewLibrary
 
-	// Scripts
 	res, _ := m.Update(ScriptListMsg{Scripts: []ScriptItem{{ID: "s1", Name: "x"}}})
 	m = res.(hubModel)
 	if len(m.scriptItems) != 1 || m.scriptItems[0].Name != "x" {
 		t.Fatalf("ScriptListMsg should populate scriptItems, got %+v", m.scriptItems)
 	}
 
-	// Files
 	res, _ = m.Update(FileListMsg{Files: []FileItem{{ID: "f1", Filename: "a"}}})
 	m = res.(hubModel)
 	if len(m.fileItems) != 1 || m.fileItems[0].Filename != "a" {
 		t.Fatalf("FileListMsg should populate fileItems, got %+v", m.fileItems)
 	}
 
-	// Variables
 	res, _ = m.Update(VariableListMsg{Variables: []VariableItem{{ID: "v1", Name: "K", Value: "V"}}})
 	m = res.(hubModel)
 	if len(m.varItems) != 1 || m.varItems[0].Name != "K" {
 		t.Fatalf("VariableListMsg should populate varItems, got %+v", m.varItems)
 	}
 
-	// Launch vars
 	res, _ = m.Update(LaunchVarListMsg{LaunchVars: []LaunchVarItem{{ID: "lv1", Key: "API_URL", Value: "x"}}})
 	m = res.(hubModel)
 	if len(m.launchVarItems) != 1 || m.launchVarItems[0].Key != "API_URL" {

@@ -1,7 +1,3 @@
-// Package tui provides the tag browser and tag picker overlay for test management.
-//
-// The tag list shows all org tags with color dots and test counts.
-// The tag picker is an overlay used from the test detail screen to attach/detach tags.
 package tui
 
 import (
@@ -17,8 +13,6 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
-
-// --- Commands ---
 
 // fetchTagsCmd fetches the full tag list for the org.
 //
@@ -49,15 +43,6 @@ func fetchTagsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// createTagCmd creates a new tag.
-//
-// Parameters:
-//   - client: the API client
-//   - name: the tag name
-//   - color: optional hex color
-//
-// Returns:
-//   - tea.Cmd: command producing TagCreatedMsg
 func createTagCmd(client *api.Client, name, color string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -73,14 +58,6 @@ func createTagCmd(client *api.Client, name, color string) tea.Cmd {
 	}
 }
 
-// deleteTagCmd deletes a tag by ID.
-//
-// Parameters:
-//   - client: the API client
-//   - tagID: the tag ID to delete
-//
-// Returns:
-//   - tea.Cmd: command producing TagDeletedMsg
 func deleteTagCmd(client *api.Client, tagID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -121,7 +98,6 @@ func fetchTagPickerDataCmd(client *api.Client, testID string) tea.Cmd {
 			return tagPickerDataMsg{Err: tErr}
 		}
 
-		// Build set of currently attached tag names
 		attached := make(map[string]bool)
 		for _, t := range testTags {
 			attached[t.Name] = true
@@ -140,15 +116,6 @@ func fetchTagPickerDataCmd(client *api.Client, testID string) tea.Cmd {
 	}
 }
 
-// syncTestTagsCmd syncs the selected tags to a test.
-//
-// Parameters:
-//   - client: the API client
-//   - testID: the test ID
-//   - tagNames: the selected tag names
-//
-// Returns:
-//   - tea.Cmd: command producing TagsSyncedMsg
 func syncTestTagsCmd(client *api.Client, testID string, tagNames []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -160,39 +127,22 @@ func syncTestTagsCmd(client *api.Client, testID string, tagNames []string) tea.C
 	}
 }
 
-// --- Internal message types (not exported) ---
-
-// tagPickerDataMsg carries both all tags and test tag state for the picker.
 type tagPickerDataMsg struct {
 	Items []tagPickerItem
 	Err   error
 }
 
-// tagPickerItem represents a tag in the picker with selection state.
 type tagPickerItem struct {
 	Name     string
 	Color    string
 	Selected bool
 }
 
-// --- Key handling ---
-
-// handleTagListKey processes key events on the tag browser screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleTagListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Create tag input mode
 	if m.tagCreateActive {
 		return handleTagCreateKey(m, msg)
 	}
 
-	// Delete confirmation
 	if m.tagConfirmDelete {
 		switch msg.String() {
 		case "y":
@@ -234,7 +184,6 @@ func handleTagListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleTagCreateKey processes key events during tag creation.
 func handleTagCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -257,16 +206,6 @@ func handleTagCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleTagPickerKeyFromDetail processes key events in the tag picker overlay
-// (used from the test detail screen).
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleTagPickerKeyFromDetail(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -301,15 +240,6 @@ func handleTagPickerKeyFromDetail(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cm
 	return m, nil
 }
 
-// --- Rendering ---
-
-// renderTagList renders the tag browser screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderTagList(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -350,7 +280,6 @@ func renderTagList(m hubModel) string {
 			if i == m.tagCursor {
 				cursor = selectedStyle.Render("▸ ")
 			}
-			// Color dot
 			dot := dimStyle.Render("●")
 			if tag.Color != "" {
 				dot = lipgloss.NewStyle().Foreground(lipgloss.Color(tag.Color)).Render("●")
@@ -377,14 +306,6 @@ func renderTagList(m hubModel) string {
 	return b.String()
 }
 
-// renderTagPickerOverlay renders the tag picker for the test detail screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - innerW: the inner width for layout
-//
-// Returns:
-//   - string: rendered overlay
 func renderTagPickerOverlay(m hubModel, innerW int) string {
 	var b strings.Builder
 
@@ -427,7 +348,6 @@ func renderTagPickerOverlay(m hubModel, innerW int) string {
 	return b.String()
 }
 
-// truncate shortens a string to maxLen, adding "…" if truncated.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

@@ -1,8 +1,3 @@
-// Package tui provides the workflow management screens: list, detail, create wizard,
-// and execution monitor.
-//
-// Workflows can be browsed, created with a multi-step wizard, executed with inline
-// progress monitoring, and deleted from the TUI.
 package tui
 
 import (
@@ -25,13 +20,12 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// workflowCreateStep tracks the current step in the workflow create wizard.
 type workflowCreateStep int
 
 const (
-	wfCreateStepName    workflowCreateStep = iota // name input
-	wfCreateStepTests                             // multi-select tests
-	wfCreateStepConfirm                           // confirm + create
+	wfCreateStepName workflowCreateStep = iota
+	wfCreateStepTests
+	wfCreateStepConfirm
 )
 
 type workflowDetailAction struct {
@@ -48,8 +42,6 @@ var workflowDetailActions = []workflowDetailAction{
 	{Key: "y", Desc: "Sync tests"},
 	{Key: "B", Desc: "Run with branch override"},
 }
-
-// --- Commands ---
 
 // fetchWorkflowBrowseListCmd fetches the workflow list with last-run info in a
 // single API call. The get_with_last_status endpoint already returns test_count
@@ -94,15 +86,6 @@ func fetchWorkflowBrowseListCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchWorkflowDetailCmd fetches a single workflow's detail including resolved
-// test names/platforms and last execution status.
-//
-// Parameters:
-//   - client: the API client
-//   - workflowID: the workflow to fetch
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowDetailMsg
 func fetchWorkflowDetailCmd(client *api.Client, workflowID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -146,14 +129,6 @@ func fetchWorkflowDetailCmd(client *api.Client, workflowID string) tea.Cmd {
 	}
 }
 
-// executeWorkflowCmd starts a workflow execution.
-//
-// Parameters:
-//   - client: the API client
-//   - workflowID: the workflow to execute
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowExecStartedMsg
 func executeWorkflowCmd(client *api.Client, workflowID string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -213,17 +188,8 @@ func executeWorkflowCmd(client *api.Client, workflowID string, selections ...api
 	}
 }
 
-// pollWorkflowStatusCmd polls the workflow execution status.
-//
-// Parameters:
-//   - client: the API client
-//   - taskID: the task ID to poll
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowExecProgressMsg or WorkflowExecDoneMsg
 func pollWorkflowStatusCmd(client *api.Client, taskID string) tea.Cmd {
 	return func() tea.Msg {
-		// Small delay before polling
 		time.Sleep(2 * time.Second)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -243,14 +209,6 @@ func pollWorkflowStatusCmd(client *api.Client, taskID string) tea.Cmd {
 	}
 }
 
-// cancelWorkflowCmd cancels a running workflow execution.
-//
-// Parameters:
-//   - client: the API client
-//   - taskID: the task to cancel
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowCancelledMsg
 func cancelWorkflowCmd(client *api.Client, taskID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -294,14 +252,6 @@ func createWorkflowAPICmd(client *api.Client, name string, testIDs []string) tea
 	}
 }
 
-// deleteWorkflowCmd deletes a workflow by ID.
-//
-// Parameters:
-//   - client: the API client
-//   - workflowID: the workflow to delete
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowDeletedMsg
 func deleteWorkflowCmd(client *api.Client, workflowID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -400,18 +350,6 @@ func syncWorkflowTestsCmd(client *api.Client, workflowID string, devMode bool) (
 	return ch, waitForSyncMsg(ch)
 }
 
-// syncOneWorkflowTest syncs a single test from a workflow, returning a
-// human-readable status string.
-//
-// Parameters:
-//   - ctx: context for API calls
-//   - resolver: the sync resolver
-//   - localTests: map of local test aliases to definitions
-//   - testsDir: path to .revyl/tests/ directory
-//   - ti: the workflow test info item
-//
-// Returns:
-//   - string: status like "pulled v3", "imported", "up to date", "conflict (resolve via CLI)", or "error: ..."
 func syncOneWorkflowTest(ctx context.Context, resolver *sync.Resolver, localTests map[string]*config.LocalTest, testsDir string, ti api.WorkflowInfoTestItem) string {
 	localName := ""
 	for alias, lt := range localTests {
@@ -467,17 +405,6 @@ func waitForSyncMsg(ch <-chan tea.Msg) tea.Cmd {
 	}
 }
 
-// --- Key handling ---
-
-// handleWorkflowListKey processes key events on the workflow browse list.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.wfFilterMode {
 		switch msg.String() {
@@ -525,7 +452,6 @@ func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		workflows := m.filteredWorkflowItems()
 		if m.wfCursor < len(workflows) && m.client != nil {
 			wf := workflows[m.wfCursor]
-			// Browse mode: navigate to workflow detail
 			m.wfDetailLoading = true
 			m.wfDetailCursor = 0
 			m.currentView = viewWorkflowDetail
@@ -566,7 +492,6 @@ func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filteredWorkflowItems returns workflow items filtered by the workflow filter input.
 func (m *hubModel) filteredWorkflowItems() []WorkflowItem {
 	query := strings.ToLower(strings.TrimSpace(m.wfFilterInput.Value()))
 	if query == "" {
@@ -609,17 +534,7 @@ func (m *hubModel) filteredCreateTests() []TestItem {
 	return filtered
 }
 
-// handleWorkflowDetailKey processes key events on the workflow detail screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleWorkflowDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Delete confirmation
 	if m.wfConfirmDelete {
 		switch msg.String() {
 		case "y":
@@ -740,15 +655,6 @@ func executeWorkflowDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cm
 	return m, nil
 }
 
-// handleWorkflowCreateKey processes key events in the workflow create wizard.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleWorkflowCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.wfCreateStep {
 	case wfCreateStepName:
@@ -880,15 +786,6 @@ func handleWorkflowCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleWorkflowExecKey processes key events during workflow execution monitoring.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleWorkflowExecKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -914,15 +811,6 @@ func handleWorkflowExecKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Rendering ---
-
-// renderWorkflowList renders the workflow browse list screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderWorkflowList(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -996,13 +884,6 @@ func renderWorkflowList(m hubModel) string {
 	return b.String()
 }
 
-// renderWorkflowDetail renders the workflow detail screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderWorkflowDetail(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -1020,12 +901,10 @@ func renderWorkflowDetail(m hubModel) string {
 		return b.String()
 	}
 
-	// Header
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(wf.Name)
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
 
-	// Tests
 	if len(wf.TestInfo) > 0 {
 		b.WriteString(fmt.Sprintf("  %-12s %s\n",
 			dimStyle.Render("Tests"),
@@ -1052,13 +931,11 @@ func renderWorkflowDetail(m hubModel) string {
 		b.WriteString(fmt.Sprintf("  %-12s %s\n", dimStyle.Render("Last Run"), dimStyle.Render("no runs yet")))
 	}
 
-	// Delete confirmation
 	if m.wfConfirmDelete {
 		b.WriteString("\n  " + errorStyle.Render(fmt.Sprintf("Delete workflow \"%s\"? (y/n)", wf.Name)) + "\n")
 		return b.String()
 	}
 
-	// Sync status
 	if m.wfSyncLoading {
 		b.WriteString("\n  " + dimStyle.Render(m.wfSyncProgress) + "\n")
 		for _, line := range m.wfSyncResults {
@@ -1075,7 +952,6 @@ func renderWorkflowDetail(m hubModel) string {
 		}
 	}
 
-	// Actions
 	b.WriteString("\n")
 	b.WriteString(sectionStyle.Render("  ACTIONS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
@@ -1105,13 +981,6 @@ func renderWorkflowDetail(m hubModel) string {
 	return b.String()
 }
 
-// renderWorkflowCreate renders the workflow create wizard.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderWorkflowCreate(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -1222,13 +1091,6 @@ func renderWorkflowCreate(m hubModel) string {
 	return b.String()
 }
 
-// renderWorkflowExecution renders the workflow execution monitor screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderWorkflowExecution(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -1255,7 +1117,6 @@ func renderWorkflowExecution(m hubModel) string {
 		return b.String()
 	}
 
-	// Header
 	stateStyle := runningStyle
 	stateLabel := "Running"
 	if m.wfExecDone {
@@ -1280,7 +1141,6 @@ func renderWorkflowExecution(m hubModel) string {
 
 	b.WriteString("  " + separator(innerW) + "\n")
 
-	// Progress summary
 	completed := status.CompletedTests
 	total := status.TotalTests
 	passed := status.PassedTests
@@ -1292,7 +1152,6 @@ func renderWorkflowExecution(m hubModel) string {
 		errorStyle.Render(fmt.Sprintf("%d failed", failed)),
 	))
 
-	// Progress bar
 	barWidth := innerW - 4
 	if barWidth > 0 && total > 0 {
 		filled := int(float64(barWidth) * float64(completed) / float64(total))
@@ -1304,7 +1163,6 @@ func renderWorkflowExecution(m hubModel) string {
 		b.WriteString("  " + bar + "\n")
 	}
 
-	// Elapsed time
 	elapsed := time.Since(m.wfExecStartTime).Round(time.Second)
 	if status.Duration != "" {
 		b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render("Duration: "+status.Duration)))
@@ -1322,7 +1180,6 @@ func renderWorkflowExecution(m hubModel) string {
 			b.WriteString("\n" + lipgloss.NewStyle().Width(innerW).MarginLeft(2).Render(warningStyle.Render(notice)) + "\n")
 		}
 	}
-	// Footer
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	if m.wfExecDone {
 		keys := []string{
@@ -1337,8 +1194,6 @@ func renderWorkflowExecution(m hubModel) string {
 	return b.String()
 }
 
-// --- Workflow Settings Screen ---
-
 const (
 	wfSettingsSectionTests    = 0
 	wfSettingsSectionApp      = 1
@@ -1346,15 +1201,8 @@ const (
 	wfSettingsSectionCount    = 3
 )
 
-// fetchWorkflowSettingsCmd loads the data needed for the workflow settings screen:
-// the full workflow definition and all org tests (for the toggle list).
-//
-// Parameters:
-//   - client: the API client
-//   - workflowID: the workflow to configure
-//
-// Returns:
-//   - tea.Cmd: command producing WorkflowSettingsMsg
+// fetchWorkflowSettingsCmd loads a workflow definition along with best-effort
+// first-page org test (up to 200) and app (up to 100) lists for settings.
 func fetchWorkflowSettingsCmd(client *api.Client, workflowID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1441,22 +1289,11 @@ func saveWorkflowSettingsCmd(client *api.Client, workflowID string, wf *api.Work
 	}
 }
 
-// handleWorkflowSettingsKey processes key events on the workflow settings screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
-//
-// isAppEditField returns true when the current edit targets an app override.
+// isAppEditField returns true when field names an iOS or Android app override.
 func isAppEditField(field string) bool {
 	return field == "ios_app" || field == "android_app"
 }
 
-// filterAppsByQuery returns apps whose name contains the query (case-insensitive).
 func filterAppsByQuery(apps []api.App, query string) []api.App {
 	if query == "" {
 		return apps
@@ -1471,7 +1308,6 @@ func filterAppsByQuery(apps []api.App, query string) []api.App {
 	return out
 }
 
-// filterAppsByPlatform returns apps matching the given platform.
 func filterAppsByPlatform(apps []api.App, platform string) []api.App {
 	if platform == "" {
 		return apps
@@ -1486,7 +1322,6 @@ func filterAppsByPlatform(apps []api.App, platform string) []api.App {
 	return out
 }
 
-// renderAppAutocompleteList renders the filtered app matches below the input.
 func renderAppAutocompleteList(b *strings.Builder, m hubModel) {
 	if len(m.wfSettingsAppMatches) == 0 {
 		b.WriteString("    " + dimStyle.Render("No matching apps") + "\n")
@@ -1508,8 +1343,6 @@ func renderAppAutocompleteList(b *strings.Builder, m hubModel) {
 	}
 }
 
-// resolveAppName looks up an app ID in the loaded apps list and returns
-// the app's display name, or the raw ID if not found.
 func resolveAppName(apps []api.App, appID string) string {
 	for _, a := range apps {
 		if a.ID == appID {
@@ -1519,7 +1352,6 @@ func resolveAppName(apps []api.App, appID string) string {
 	return appID
 }
 
-// refreshAppMatches re-filters the app list based on the current input value.
 func refreshAppMatches(m *hubModel) {
 	platform := ""
 	if m.wfSettingsEditField == "ios_app" {
@@ -1649,7 +1481,6 @@ func handleWorkflowSettingsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// settingsSectionMaxCursor returns the maximum cursor index for the current section.
 func settingsSectionMaxCursor(m hubModel) int {
 	switch m.wfSettingsSection {
 	case wfSettingsSectionTests:
@@ -1662,7 +1493,6 @@ func settingsSectionMaxCursor(m hubModel) int {
 	return 0
 }
 
-// toggleSettingsTest toggles a test's inclusion in the workflow.
 func toggleSettingsTest(m *hubModel) {
 	if m.wfSettingsCursor < len(m.wfSettingsAllTests) {
 		tid := m.wfSettingsAllTests[m.wfSettingsCursor].ID
@@ -1671,7 +1501,6 @@ func toggleSettingsTest(m *hubModel) {
 	}
 }
 
-// collectToggledTestIDs returns the list of test IDs currently toggled on.
 func collectToggledTestIDs(m hubModel) []string {
 	var ids []string
 	for _, t := range m.wfSettingsAllTests {
@@ -1682,7 +1511,6 @@ func collectToggledTestIDs(m hubModel) []string {
 	return ids
 }
 
-// startSettingsEdit enters edit mode for the current field.
 func startSettingsEdit(m *hubModel) {
 	m.wfSettingsEditing = true
 	m.wfSettingsEditErr = ""
@@ -1749,7 +1577,6 @@ func startSettingsEdit(m *hubModel) {
 	}
 }
 
-// applySettingsEdit applies the edited value back to the workflow model.
 func applySettingsEdit(m *hubModel) {
 	val := strings.TrimSpace(m.wfSettingsInput.Value())
 	wf := m.wfSettingsWorkflow
@@ -1823,13 +1650,6 @@ func applySettingsEdit(m *hubModel) {
 	}
 }
 
-// renderWorkflowSettings renders the workflow settings screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderWorkflowSettings(m hubModel) string {
 	var b strings.Builder
 	if m.err != nil {
@@ -1857,7 +1677,6 @@ func renderWorkflowSettings(m hubModel) string {
 
 	wf := m.wfSettingsWorkflow
 
-	// --- Tests section ---
 	selectedCount := 0
 	for _, on := range m.wfSettingsTestToggle {
 		if on {
@@ -1892,7 +1711,6 @@ func renderWorkflowSettings(m hubModel) string {
 		}
 	}
 
-	// --- App Overrides section ---
 	if m.wfSettingsSection == wfSettingsSectionApp {
 		b.WriteString("\n" + sectionStyle.Render("  APP OVERRIDES") + "  " + selectedStyle.Render("◀") + "\n")
 	} else {
@@ -1946,7 +1764,6 @@ func renderWorkflowSettings(m hubModel) string {
 		renderAppAutocompleteList(&b, m)
 	}
 
-	// --- Location section ---
 	if m.wfSettingsSection == wfSettingsSectionLocation {
 		b.WriteString("\n" + sectionStyle.Render("  LOCATION OVERRIDE") + "  " + selectedStyle.Render("◀") + "\n")
 	} else {
@@ -1983,7 +1800,6 @@ func renderWorkflowSettings(m hubModel) string {
 	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", latCursor, dimStyle.Render("Latitude:"), latVal))
 	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", lngCursor, dimStyle.Render("Longitude:"), lngVal))
 
-	// --- Footer ---
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
 		helpKeyRender("space", "toggle"),

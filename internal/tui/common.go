@@ -1,8 +1,5 @@
 // Package tui provides the Bubble Tea TUI hub for the Revyl CLI.
-//
-// The TUI launches when a human runs bare `revyl` in an interactive terminal.
-// It is never activated for agents, CI/CD, or piped output -- three independent
-// gates (--json, --quiet, isatty) prevent it.
+// ShouldRunTUI gates launch on an interactive stdout TTY and the --json/--quiet flags.
 package tui
 
 import (
@@ -18,8 +15,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/sse"
 )
-
-// --- TTY gate ---
 
 // ShouldRunTUI returns true if the TUI should be launched.
 // Returns false when stdout is not a terminal, or --json/--quiet flags are set.
@@ -37,8 +32,6 @@ func ShouldRunTUI(jsonOutput, quiet bool) bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 }
 
-// --- Brand colors (mirrors internal/ui/styles.go) ---
-
 var (
 	purple   = lipgloss.Color("#9D61FF")
 	teal     = lipgloss.Color("#14B8A6")
@@ -51,119 +44,91 @@ var (
 	subtleBg = lipgloss.Color("#1F2937")
 )
 
-// --- Shared TUI styles ---
-
 var (
-	// titleStyle renders the REVYL header.
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(purple)
 
-	// versionStyle renders the version badge.
 	versionStyle = lipgloss.NewStyle().
 			Foreground(dimGray)
 
-	// headerBannerStyle renders the top-level REVYL banner with a rounded border.
 	headerBannerStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(purple).
 				Padding(0, 1)
 
-	// sectionStyle renders section headers (e.g. "Tests", "Pipeline").
 	sectionStyle = lipgloss.NewStyle().
 			Foreground(dimGray).
 			Bold(true).
 			MarginTop(1)
 
-	// activeSectionStyle renders section headers when that section has focus.
 	activeSectionStyle = lipgloss.NewStyle().
 				Foreground(purple).
 				Bold(true).
 				MarginTop(1)
 
-	// selectedStyle highlights the currently selected list item.
 	selectedStyle = lipgloss.NewStyle().
 			Foreground(purple).
 			Bold(true)
 
-	// selectedRowStyle highlights the full row of the selected item with a subtle background.
 	selectedRowStyle = lipgloss.NewStyle().
 				Foreground(purple).
 				Bold(true).
 				Background(subtleBg)
 
-	// normalStyle renders unselected list items.
 	normalStyle = lipgloss.NewStyle()
 
-	// dimStyle renders low-priority text.
 	dimStyle = lipgloss.NewStyle().
 			Foreground(dimGray)
 
-	// successStyle renders passed/success indicators.
 	successStyle = lipgloss.NewStyle().
 			Foreground(green)
 
-	// errorStyle renders failed/error indicators.
 	errorStyle = lipgloss.NewStyle().
 			Foreground(red).
 			Bold(true)
 
-	// warningStyle renders warning/cancelled/timeout indicators.
 	warningStyle = lipgloss.NewStyle().
 			Foreground(amber)
 
-	// runningStyle renders active/running indicators.
 	runningStyle = lipgloss.NewStyle().
 			Foreground(teal)
 
-	// linkStyle renders clickable URLs.
 	linkStyle = lipgloss.NewStyle().
 			Foreground(purple).
 			Underline(true)
 
-	// helpStyle renders the bottom key hint bar.
 	helpStyle = lipgloss.NewStyle().
 			Foreground(gray)
 
-	// separatorStyle renders horizontal rules.
 	separatorStyle = lipgloss.NewStyle().
 			Foreground(darkGray)
 
-	// platformStyle renders platform badges (android/ios).
 	platformStyle = lipgloss.NewStyle().
 			Foreground(dimGray)
 
-	// filterPromptStyle renders the filter prompt.
 	filterPromptStyle = lipgloss.NewStyle().
 				Foreground(purple).
 				Bold(true)
 
-	// metricValueStyle renders stat values in bold purple.
 	metricValueStyle = lipgloss.NewStyle().
 				Foreground(purple).
 				Bold(true)
 
-	// wowPositiveStyle renders positive week-over-week deltas in teal.
 	wowPositiveStyle = lipgloss.NewStyle().
 				Foreground(teal)
 
-	// wowNegativeStyle renders negative week-over-week deltas in red.
 	wowNegativeStyle = lipgloss.NewStyle().
 				Foreground(red)
 
-	// actionDescStyle renders the dim description text next to quick action labels.
 	actionDescStyle = lipgloss.NewStyle().
 			Foreground(gray)
 )
 
-// separator returns a horizontal line of the given width.
 func separator(width int) string {
 	return separatorStyle.Render(strings.Repeat("─", width))
 }
 
-// --- Shared message types ---
-
-// TestListMsg carries the fetched test list from the API.
 type TestListMsg struct {
 	Tests []TestItem
 	// Warning carries non-fatal browse-state warnings such as org mismatch.
@@ -171,32 +136,28 @@ type TestListMsg struct {
 	Err     error
 }
 
-// TestItem represents a test in the hub list.
 type TestItem struct {
 	ID            string
 	Name          string
 	Platform      string
-	Tags          []api.TestTag // tags attached to this test
-	AppID         string        // associated app UUID (empty when no app)
-	AppName       string        // resolved app display name
-	SyncStatus    string        // synced, modified, outdated, conflict, local-only, remote-only, stale
-	Source        string        // remote, config, local, merged
+	Tags          []api.TestTag
+	AppID         string // associated app UUID (empty when no app)
+	AppName       string
+	SyncStatus    string // synced, modified, outdated, conflict, local-only, remote-only, stale
+	Source        string // remote, config, local, merged
 	RemoteMissing bool
 }
 
-// FilterTagsMsg delivers the available tags for the test list tag picker.
 type FilterTagsMsg struct {
 	Tags []api.CLITagResponse
 	Err  error
 }
 
-// FilterAppsMsg delivers the available apps for the test list app picker.
 type FilterAppsMsg struct {
 	Apps []api.App
 	Err  error
 }
 
-// ExecutionStartedMsg signals that a test execution has been created.
 type ExecutionStartedMsg struct {
 	BranchFallbackNotice string
 	TaskID               string
@@ -212,21 +173,17 @@ type ExecutionProgressMsg struct {
 	NextCmd tea.Cmd
 }
 
-// ExecutionDoneMsg signals that execution has completed (terminal state).
 type ExecutionDoneMsg struct {
 	Status    *sse.TestStatus
 	ReportURL string
 	Err       error
 }
 
-// ExecutionCancelledMsg signals that the user cancelled the execution.
+// ExecutionCancelledMsg carries the result of an execution cancellation request.
 type ExecutionCancelledMsg struct {
 	Err error
 }
 
-// --- Shared spinner factory ---
-
-// newSpinner creates a consistently styled braille spinner.
 func newSpinner() spinner.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -234,61 +191,53 @@ func newSpinner() spinner.Model {
 	return s
 }
 
-// --- View enum for hub navigation ---
-
-// view represents the current TUI screen.
 type view int
 
 const (
-	viewDashboard         view = iota // dashboard landing with stats + quick actions
-	viewTestList                      // browsable test list (sub-screen)
-	viewRunsList                      // browsable runs list (sub-screen)
-	viewCreateTest                    // create-a-test flow (sub-screen)
-	viewExecution                     // test execution monitor
-	viewTestRuns                      // run history for a specific test
-	viewWorkflowRuns                  // run history for a specific workflow
-	viewAppList                       // app list for manage apps
-	viewAppDetail                     // build versions for a specific app
-	viewCreateApp                     // create-an-app flow (sub-screen)
-	viewUploadBuild                   // upload-a-build flow (sub-screen)
-	viewSettings                      // local project settings editor
-	viewHelp                          // help & status screen (doctor + keybindings)
-	viewTestDetail                    // test detail + management screen
-	viewWorkflowList                  // workflow browse list
-	viewWorkflowDetail                // workflow detail + actions
-	viewWorkflowCreate                // workflow create wizard
-	viewWorkflowExecution             // workflow execution progress monitor
-	viewWorkflowSettings              // workflow settings (tests, overrides, config)
-	viewModuleList                    // module browse list
-	viewModuleDetail                  // module detail showing blocks
-	viewTagList                       // tag browse list
-	viewDeviceList                    // device session list
-	viewDeviceDetail                  // device session detail
-	viewLibrary                       // unified library hub (modules/variables/scripts/files)
-	viewIntegrations                  // integrations hub (GitHub connect + config push)
+	viewDashboard view = iota
+	viewTestList
+	viewRunsList
+	viewCreateTest
+	viewExecution
+	viewTestRuns
+	viewWorkflowRuns
+	viewAppList
+	viewAppDetail
+	viewCreateApp
+	viewUploadBuild
+	viewSettings
+	viewHelp
+	viewTestDetail
+	viewWorkflowList
+	viewWorkflowDetail
+	viewWorkflowCreate
+	viewWorkflowExecution
+	viewWorkflowSettings
+	viewModuleList
+	viewModuleDetail
+	viewTagList
+	viewDeviceList
+	viewDeviceDetail
+	viewLibrary
+	viewIntegrations
 )
 
-// --- Dashboard data types ---
-
-// DashboardDataMsg carries the fetched dashboard metrics from the API.
 type DashboardDataMsg struct {
 	Metrics *api.DashboardMetrics
 	Err     error
 }
 
-// RecentRunsMsg carries the fetched recent execution runs across tests.
 type RecentRunsMsg struct {
 	Runs []RecentRun
 	Err  error
 }
 
-// AllRunsMsg carries the fetched full run list for the "View all runs" screen.
+// AllRunsMsg carries up to one latest execution per test for the first 25 tests.
 type AllRunsMsg struct {
 	Runs []RecentRun
 	Err  error
 }
 
-// RecentRun represents a recent test execution for the dashboard view.
 type RecentRun struct {
 	TestID   string
 	TestName string
@@ -298,7 +247,6 @@ type RecentRun struct {
 	TaskID   string
 }
 
-// TestCreatedMsg signals that a test has been created via the TUI.
 type TestCreatedMsg struct {
 	TestID   string
 	TestName string
@@ -306,7 +254,6 @@ type TestCreatedMsg struct {
 	Err      error
 }
 
-// AppCreatedMsg signals that an app has been created via the TUI.
 type AppCreatedMsg struct {
 	AppID    string
 	AppName  string
@@ -314,40 +261,32 @@ type AppCreatedMsg struct {
 	Err      error
 }
 
-// TestHistoryMsg carries the fetched execution history for a specific test.
 type TestHistoryMsg struct {
 	Runs []api.CLIEnhancedHistoryItem
 	Err  error
 }
 
-// WorkflowHistoryMsg carries the fetched execution history for a specific workflow.
 type WorkflowHistoryMsg struct {
 	Runs []api.CLIWorkflowStatusResponse
 	Err  error
 }
 
-// ReportJSONActionMsg carries the result of fetching/copying report JSON
-// for the selected run in the TUI.
 type ReportJSONActionMsg struct {
 	TaskID  string
 	Command string
 	Err     error
 }
 
-// ReportCommandActionMsg carries the result of copying the CLI report
-// command for the selected run in the TUI.
 type ReportCommandActionMsg struct {
 	Command string
 	Err     error
 }
 
-// AppListMsg carries the fetched app list from the API.
 type AppListMsg struct {
 	Apps []api.App
 	Err  error
 }
 
-// AppBuildVersionsMsg carries the fetched build versions for an app.
 type AppBuildVersionsMsg struct {
 	RequestID string
 	Page      int
@@ -359,17 +298,14 @@ type AppBuildVersionsMsg struct {
 	Err       error
 }
 
-// AppDeletedMsg signals that an app has been deleted.
 type AppDeletedMsg struct {
 	Err error
 }
 
-// BuildDeletedMsg signals that a build version has been deleted.
 type BuildDeletedMsg struct {
 	Err error
 }
 
-// BuildUploadedMsg signals that a build has been uploaded via the TUI.
 type BuildUploadedMsg struct {
 	Branch    *api.BuildBranch
 	VersionID string
@@ -380,32 +316,26 @@ type BuildUploadedMsg struct {
 	Err           error
 }
 
-// HealthCheck represents a single diagnostic check result for the help screen.
 type HealthCheck struct {
-	Name    string // e.g. "Version", "Authentication"
-	Status  string // "ok", "warning", "error"
+	Name    string
+	Status  string
 	Code    string // stable local classification used to select a recovery action
-	Message string // human-readable result
+	Message string
 }
 
-// HealthCheckMsg carries results from the async health check command.
 type HealthCheckMsg struct {
 	Checks              []HealthCheck
 	ProjectConfigStatus projectConfigStatus
 	Err                 error
 }
 
-// --- Setup guide types ---
-
-// SetupStep represents a single step in the getting-started guide on the help screen.
 type SetupStep struct {
-	Label   string // display label (e.g. "Log in")
+	Label   string
 	Status  string // "done", "current", "blocked", "hint"
-	Message string // contextual message (e.g. "authenticated" or "press enter to set up")
+	Message string
 	Action  setupAction
 }
 
-// SetupActionMsg signals that a setup step action completed.
 type SetupActionMsg struct {
 	Action setupAction
 	Err    error
@@ -415,41 +345,32 @@ type ProjectConfigMigrationDoneMsg struct {
 	Err error
 }
 
-// --- Test detail types ---
-
-// TestDetail bundles fetched information for the test detail screen.
 type TestDetail struct {
-	AppID          string
-	Version        int
-	BuildSelection api.BuildSelection
-	BuildLabel     string
-	ID             string
-	Name           string
-	Platform       string
-	// Sync
-	SyncStatus  string // "synced", "modified", "outdated", "conflict", "local-only", "remote-only", "unknown"
-	SyncVersion string // e.g. "v3"
-	// Last run
+	AppID           string
+	Version         int
+	BuildSelection  api.BuildSelection
+	BuildLabel      string
+	ID              string
+	Name            string
+	Platform        string
+	SyncStatus      string // "synced", "modified", "outdated", "conflict", "local-only", "remote-only", "unknown"
+	SyncVersion     string
 	LastRunStatus   string
 	LastRunTime     time.Time
 	LastRunDuration string
 	LastRunTaskID   string
-	// Tags
-	Tags []TagItem
-	// Env vars count
-	EnvVarCount int
+	Tags            []TagItem
+	EnvVarCount     int
 }
 
-// TestDetailMsg carries the fetched test detail data.
 type TestDetailMsg struct {
 	Detail *TestDetail
 	Err    error
 }
 
-// TestSyncActionMsg signals that a push/pull/diff action completed.
 type TestSyncActionMsg struct {
-	Action string // "push", "pull", "diff"
-	Result string // human-readable result
+	Action string
+	Result string
 	Err    error
 }
 
@@ -457,23 +378,20 @@ type TestSyncActionMsg struct {
 // workflow-scoped sync. The hub handler chains the next channel read after
 // processing each progress message.
 type WorkflowSyncProgressMsg struct {
-	TestName string // display name of the test being synced
-	Status   string // outcome: "pulled v3", "imported", "up to date", "conflict", "error: ..."
-	Current  int    // 1-based index of test just processed
-	Total    int    // total tests in the workflow
+	TestName string
+	Status   string
+	Current  int
+	Total    int
 }
 
-// WorkflowSyncMsg signals that a workflow-scoped sync (pull/import all
-// workflow tests) has completed.
 type WorkflowSyncMsg struct {
-	Synced    int   // tests successfully synced
-	Conflicts int   // tests with unresolved conflicts
-	Errors    int   // tests that errored
-	Total     int   // total tests in workflow
-	Err       error // fatal error (no per-test results)
+	Synced    int
+	Conflicts int
+	Errors    int
+	Total     int
+	Err       error
 }
 
-// TestDeletedMsg signals that a test has been deleted.
 type TestDeletedMsg struct {
 	Name          string
 	ID            string
@@ -483,7 +401,6 @@ type TestDeletedMsg struct {
 	Err           error
 }
 
-// TestRenamedMsg signals that a test rename operation has completed.
 type TestRenamedMsg struct {
 	OldName string
 	NewName string
@@ -492,9 +409,6 @@ type TestRenamedMsg struct {
 	Err     error
 }
 
-// --- Workflow management types ---
-
-// WorkflowItem represents a workflow in the browse list.
 type WorkflowItem struct {
 	ID            string
 	Name          string
@@ -505,31 +419,26 @@ type WorkflowItem struct {
 	LastRunTime   time.Time
 }
 
-// WorkflowBrowseListMsg carries the fetched workflow browse list with enriched data.
 type WorkflowBrowseListMsg struct {
 	Workflows []WorkflowItem
 	Err       error
 }
 
-// WorkflowDetailMsg carries full workflow detail for the detail screen.
 type WorkflowDetailMsg struct {
 	Workflow *WorkflowItem
 	Err      error
 }
 
-// WorkflowCreatedMsg signals that a workflow was created.
 type WorkflowCreatedMsg struct {
 	ID   string
 	Name string
 	Err  error
 }
 
-// WorkflowDeletedMsg signals that a workflow was deleted.
 type WorkflowDeletedMsg struct {
 	Err error
 }
 
-// WorkflowExecStartedMsg signals that a workflow execution was started.
 type WorkflowExecStartedMsg struct {
 	TaskID string
 	// Notice says what the run executes and any problems with the files it
@@ -538,25 +447,22 @@ type WorkflowExecStartedMsg struct {
 	Err    error
 }
 
-// WorkflowExecProgressMsg carries a workflow execution status update.
 type WorkflowExecProgressMsg struct {
 	Status *api.CLIWorkflowStatusResponse
 	Err    error
 }
 
-// WorkflowExecDoneMsg signals that a workflow execution completed.
 type WorkflowExecDoneMsg struct {
 	Status    *api.CLIWorkflowStatusResponse
 	ReportURL string
 	Err       error
 }
 
-// WorkflowCancelledMsg signals that a workflow execution was cancelled.
+// WorkflowCancelledMsg carries the result of a workflow cancellation request.
 type WorkflowCancelledMsg struct {
 	Err error
 }
 
-// WorkflowSettingsMsg carries the loaded data for the workflow settings screen.
 type WorkflowSettingsMsg struct {
 	BranchLabels map[string]string
 	Workflow     *api.Workflow
@@ -565,42 +471,32 @@ type WorkflowSettingsMsg struct {
 	Err          error
 }
 
-// WorkflowSettingsSavedMsg signals that workflow settings were saved.
 type WorkflowSettingsSavedMsg struct {
 	Err error
 }
 
-// --- Module types ---
-
-// ModuleItem represents a module in the browse list.
 type ModuleItem struct {
 	ID          string
 	Name        string
 	Description string
 	BlockCount  int
-	Blocks      []interface{} // raw block data for detail view
+	Blocks      []interface{}
 }
 
-// ModuleListMsg carries the fetched module list.
 type ModuleListMsg struct {
 	Modules []ModuleItem
 	Err     error
 }
 
-// ModuleDetailMsg carries a single module's full detail.
 type ModuleDetailMsg struct {
 	Module *ModuleItem
 	Err    error
 }
 
-// ModuleDeletedMsg signals that a module was deleted.
 type ModuleDeletedMsg struct {
 	Err error
 }
 
-// --- Library types (scripts, files, launch variables, global variables) ---
-
-// ScriptItem represents a script for the library Scripts tab.
 type ScriptItem struct {
 	ID          string
 	Name        string
@@ -609,29 +505,24 @@ type ScriptItem struct {
 	Code        string
 }
 
-// ScriptListMsg carries the fetched script list.
 type ScriptListMsg struct {
 	Scripts []ScriptItem
 	Err     error
 }
 
-// ScriptDetailMsg carries a single script's full detail.
 type ScriptDetailMsg struct {
 	Script *ScriptItem
 	Err    error
 }
 
-// ScriptUpdatedMsg signals that a script's metadata was updated.
 type ScriptUpdatedMsg struct {
 	Err error
 }
 
-// ScriptDeletedMsg signals that a script was deleted.
 type ScriptDeletedMsg struct {
 	Err error
 }
 
-// FileItem represents an org file for the library Files tab.
 type FileItem struct {
 	ID          string
 	Filename    string
@@ -640,23 +531,19 @@ type FileItem struct {
 	Description string
 }
 
-// FileListMsg carries the fetched file list.
 type FileListMsg struct {
 	Files []FileItem
 	Err   error
 }
 
-// FileUpdatedMsg signals that a file's metadata was updated.
 type FileUpdatedMsg struct {
 	Err error
 }
 
-// FileDeletedMsg signals that a file was deleted.
 type FileDeletedMsg struct {
 	Err error
 }
 
-// VariableItem represents a global variable for the library Variables tab.
 type VariableItem struct {
 	ID       string
 	Name     string
@@ -664,23 +551,19 @@ type VariableItem struct {
 	IsSecret bool
 }
 
-// VariableListMsg carries the fetched global variable list.
 type VariableListMsg struct {
 	Variables []VariableItem
 	Err       error
 }
 
-// VariableSavedMsg signals that a global variable was created or updated.
 type VariableSavedMsg struct {
 	Err error
 }
 
-// VariableDeletedMsg signals that a global variable was deleted.
 type VariableDeletedMsg struct {
 	Err error
 }
 
-// LaunchVarItem represents an org launch variable for the library Launch Vars tab.
 type LaunchVarItem struct {
 	ID                string
 	Key               string
@@ -690,25 +573,19 @@ type LaunchVarItem struct {
 	AttachedTestCount int
 }
 
-// LaunchVarListMsg carries the fetched launch variable list.
 type LaunchVarListMsg struct {
 	LaunchVars []LaunchVarItem
 	Err        error
 }
 
-// LaunchVarSavedMsg signals that an org launch variable was created or updated.
 type LaunchVarSavedMsg struct {
 	Err error
 }
 
-// LaunchVarDeletedMsg signals that an org launch variable was deleted.
 type LaunchVarDeletedMsg struct {
 	Err error
 }
 
-// --- Tag types ---
-
-// TagItem represents a tag in the browse list.
 type TagItem struct {
 	ID          string
 	Name        string
@@ -717,39 +594,31 @@ type TagItem struct {
 	TestCount   int
 }
 
-// TagListMsg carries the fetched tag list.
 type TagListMsg struct {
 	Tags []TagItem
 	Err  error
 }
 
-// TagCreatedMsg signals that a tag was created.
 type TagCreatedMsg struct {
 	ID   string
 	Name string
 	Err  error
 }
 
-// TagDeletedMsg signals that a tag was deleted.
 type TagDeletedMsg struct {
 	Err error
 }
 
-// TagsSyncedMsg signals that tags were synced on a test.
 type TagsSyncedMsg struct {
 	Err error
 }
 
-// --- Device session messages ---
-
-// DeviceSessionListMsg carries the fetched active device sessions from the API.
 type DeviceSessionListMsg struct {
 	Sessions []api.ActiveDeviceSessionItem
 	OrgID    string
 	Err      error
 }
 
-// DeviceStartedMsg signals that a device session was started (workflow run created).
 type DeviceStartedMsg struct {
 	BranchFallbackNotice string
 	WorkflowRunID        string
@@ -758,38 +627,24 @@ type DeviceStartedMsg struct {
 	Err                  error
 }
 
-// DeviceStartAppListMsg carries the fetched app list for the device-start overlay.
 type DeviceStartAppListMsg struct {
 	Platform string
 	Apps     []api.App
 	Err      error
 }
 
-// DeviceStoppedMsg signals that a device session was stopped.
 type DeviceStoppedMsg struct {
 	Err error
 }
 
-// DeviceDetailPollTickMsg triggers periodic polling while on the device detail screen.
 type DeviceDetailPollTickMsg struct {
 	Seq int
 }
 
-// DeviceListPollTickMsg triggers periodic polling while on the device list screen.
 type DeviceListPollTickMsg struct {
 	Seq int
 }
 
-// --- Tea program runner ---
-
-// RunHub launches the TUI hub. This is the main entry point called from cmd/revyl/main.go.
-//
-// Parameters:
-//   - version: the CLI version string for display
-//   - devMode: whether to use local development servers (--dev flag)
-//
-// Returns:
-//   - error: any error from the Bubble Tea runtime
 func RunHub(version string, devMode bool) error {
 	p := tea.NewProgram(
 		newHubModel(version, devMode),

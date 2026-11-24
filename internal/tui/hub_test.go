@@ -301,8 +301,6 @@ func TestHandleWorkflowExecKey_DoneEscReturnsToConfiguredView(t *testing.T) {
 	}
 }
 
-// --- Test list filter tests ---
-
 func makeFilterTestItems() []TestItem {
 	return []TestItem{
 		{
@@ -453,21 +451,18 @@ func TestHandleTagPickerKey_ToggleAndClose(t *testing.T) {
 	}
 	m.tests = makeFilterTestItems()
 
-	// Toggle first tag on
 	result, _ := m.handleTagPickerKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 	next := result.(hubModel)
 	if !next.filterTagIDs["tag-1"] {
 		t.Fatal("expected tag-1 to be selected after space")
 	}
 
-	// Toggle it off
 	result, _ = next.handleTagPickerKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 	next = result.(hubModel)
 	if next.filterTagIDs != nil && next.filterTagIDs["tag-1"] {
 		t.Fatal("expected tag-1 to be deselected after second space")
 	}
 
-	// Close with esc
 	next.filterTagPickerOn = true
 	result, _ = next.handleTagPickerKey(tea.KeyMsg{Type: tea.KeyEsc})
 	next = result.(hubModel)
@@ -486,7 +481,6 @@ func TestHandleAppPickerKey_SelectAndClose(t *testing.T) {
 	}
 	m.tests = makeFilterTestItems()
 
-	// Cursor starts at 0 = "All Apps", select it
 	result, _ := m.handleAppPickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	next := result.(hubModel)
 	if next.filterAppID != "" {
@@ -496,7 +490,6 @@ func TestHandleAppPickerKey_SelectAndClose(t *testing.T) {
 		t.Fatal("expected app picker to close after enter")
 	}
 
-	// Move to "None" and select
 	m.filterAppPickerOn = true
 	m.filterAppCursor = 1
 	result, _ = m.handleAppPickerKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -505,7 +498,6 @@ func TestHandleAppPickerKey_SelectAndClose(t *testing.T) {
 		t.Fatalf("expected 'none' filterAppID, got %q", next.filterAppID)
 	}
 
-	// Move to first app and select
 	m.filterAppPickerOn = true
 	m.filterAppCursor = 2
 	result, _ = m.handleAppPickerKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -559,7 +551,6 @@ func TestRenderTestList_ShowsFilterBadgesAndTagsAndApp(t *testing.T) {
 		{ID: "app-1", Name: "MyApp", Platform: "android"},
 	}
 
-	// Render without filters: should show tags and app inline
 	output := m.renderTestList()
 	if !strings.Contains(output, "[smoke]") {
 		t.Error("expected tag badge [smoke] in test list output")
@@ -568,7 +559,6 @@ func TestRenderTestList_ShowsFilterBadgesAndTagsAndApp(t *testing.T) {
 		t.Error("expected app badge {MyApp} in test list output")
 	}
 
-	// Set a tag filter and check badge
 	m.filterTagIDs = map[string]bool{"tag-smoke": true}
 	m.filterAppID = "app-1"
 	m.applyFilter()

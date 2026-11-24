@@ -92,10 +92,7 @@ func (c *Client) GetAtlasAnnotationThreadForSession(
 }
 
 // GetAtlasAnnotationThreadScreenshotURL returns the thread's presigned
-// evidence-screenshot URL. Served from the annotation read path, so it works
-// for capture-minted observations with no screen assignment yet ("organizing"
-// state), where the Atlas projection lookup 404s. Hand-written until the
-// generated types pick up the additive screenshot_url field.
+// evidence-screenshot URL from the annotation read path.
 func (c *Client) GetAtlasAnnotationThreadScreenshotURL(
 	ctx context.Context,
 	appID string,

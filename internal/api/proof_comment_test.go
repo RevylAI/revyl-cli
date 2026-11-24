@@ -85,8 +85,6 @@ func TestPublishProofCommentSendsBlockedWithoutProblem(t *testing.T) {
 		t.Fatalf("PublishProofComment() error = %v", err)
 	}
 
-	// An agent that observed nothing has not found a bug, so the blockage must
-	// not land in the slot that fails the pull request.
 	if seenBody.Blocked != "No device could be started, so nothing was exercised" {
 		t.Fatalf("unexpected blocked sentence %q", seenBody.Blocked)
 	}
@@ -112,8 +110,6 @@ func TestPublishProofCommentOmitsAbsentOutcomes(t *testing.T) {
 		t.Fatalf("PublishProofComment() error = %v", err)
 	}
 
-	// The usual case is nothing broken and nothing blocked, neither of which
-	// must arrive as an empty sentence sitting in an outcome slot.
 	for _, field := range []string{"problem", "blocked"} {
 		if _, present := seenKeys[field]; present {
 			t.Fatalf("expected no %s field when the agent reported neither", field)

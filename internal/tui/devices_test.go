@@ -456,21 +456,18 @@ func TestHandleDeviceStartLaunchVarsKey_ToggleAndStart(t *testing.T) {
 		{ID: "lv-2", Key: "DEBUG"},
 	}
 
-	// Toggle first entry.
 	next, _ := m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeySpace})
 	m = next.(hubModel)
 	if !m.deviceStartLaunchVarSelected["lv-1"] {
 		t.Fatalf("expected lv-1 selected, got %v", m.deviceStartLaunchVarSelected)
 	}
 
-	// Toggle off.
 	next, _ = m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeySpace})
 	m = next.(hubModel)
 	if m.deviceStartLaunchVarSelected["lv-1"] {
 		t.Fatalf("expected lv-1 unselected after second toggle")
 	}
 
-	// Select second, then press enter to start.
 	m.deviceStartLaunchVarCursor = 1
 	next, _ = m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeySpace})
 	m = next.(hubModel)

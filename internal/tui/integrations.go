@@ -1,10 +1,3 @@
-// Package tui — integrations screen.
-//
-// The integrations screen makes GitHub PR automation first-class from the TUI:
-// it shows live connection status and lets the user install the Revyl GitHub
-// App (browser-initiated) or open canonical project settings. Scope is
-// GitHub-only for now; the screen is a list so other integrations can be added
-// later.
 package tui
 
 import (
@@ -23,45 +16,36 @@ import (
 )
 
 const (
-	// integrationsPollInterval is how often the connect flow re-checks the
-	// installation status while the user completes the browser install.
 	integrationsPollInterval = 3 * time.Second
 
-	// integrationsPollTimeout bounds how long the connect flow waits for the
-	// browser install before giving up (the user can refresh to continue).
+	// integrationsPollTimeout is the deadline checked after unsuccessful connect
+	// polls before stopping the poll loop and prompting a manual refresh.
 	integrationsPollTimeout = 3 * time.Minute
 
 	integrationsPublishTimeout = 3 * time.Minute
 )
 
-// integrationAction is a selectable action row on the integrations screen.
 type integrationAction struct {
-	key   string // dispatch key + hotkey letter
-	label string // display label
-	desc  string // short description
+	key   string
+	label string
+	desc  string
 }
 
-// githubIntegrationActions are the actions available for the GitHub row.
 var githubIntegrationActions = []integrationAction{
 	{key: "connect", label: "Connect GitHub", desc: "Install the Revyl GitHub App in your browser"},
 	{key: "publish", label: "Publish config", desc: "Publish the complete project configuration"},
 	{key: "open", label: "Open dashboard", desc: "Manage GitHub in the web dashboard"},
 }
 
-// --- Messages ---
-
-// IntegrationsStatusMsg carries the result of a GitHub status fetch.
 type IntegrationsStatusMsg struct {
 	Repos *api.GithubRepositoriesResponse
 	Err   error
 }
 
-// IntegrationsConnectStartedMsg carries the result of starting the connect flow
-// (fetching the install URL and opening the browser).
 type IntegrationsConnectStartedMsg struct {
 	Install    *api.GithubInstallURLResponse
-	BrowserErr error // non-nil when the browser could not be opened
-	Err        error // non-nil when fetching the install URL failed
+	BrowserErr error
+	Err        error
 }
 
 // IntegrationsPollTickMsg fires on each connect poll interval. Seq guards
@@ -70,30 +54,17 @@ type IntegrationsPollTickMsg struct {
 	Seq int
 }
 
-// IntegrationsConnectCheckMsg carries an installation status check made during
-// the connect poll loop.
 type IntegrationsConnectCheckMsg struct {
 	Repos *api.GithubRepositoriesResponse
 	Err   error
 	Seq   int
 }
 
-// IntegrationsPublishDoneMsg carries the result of publishing the complete
-// canonical project configuration.
 type IntegrationsPublishDoneMsg struct {
 	Outcome api.ProjectConfigurationReplaceResponseOutcome
 	Err     error
 }
 
-// --- Commands ---
-
-// fetchIntegrationsStatusCmd fetches the current GitHub installation status.
-//
-// Parameters:
-//   - client: The authenticated API client.
-//
-// Returns:
-//   - tea.Cmd: A command producing an IntegrationsStatusMsg.
 func fetchIntegrationsStatusCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		if client == nil {
@@ -104,13 +75,6 @@ func fetchIntegrationsStatusCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// startIntegrationsConnectCmd fetches the install URL and opens it in a browser.
-//
-// Parameters:
-//   - client: The authenticated API client.
-//
-// Returns:
-//   - tea.Cmd: A command producing an IntegrationsConnectStartedMsg.
 func startIntegrationsConnectCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		if client == nil {
@@ -125,27 +89,12 @@ func startIntegrationsConnectCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// integrationsPollTickCmd schedules the next connect poll tick.
-//
-// Parameters:
-//   - seq: The poll sequence token to echo back.
-//
-// Returns:
-//   - tea.Cmd: A command producing an IntegrationsPollTickMsg after the interval.
 func integrationsPollTickCmd(seq int) tea.Cmd {
 	return tea.Tick(integrationsPollInterval, func(time.Time) tea.Msg {
 		return IntegrationsPollTickMsg{Seq: seq}
 	})
 }
 
-// integrationsConnectCheckCmd checks installation status during the poll loop.
-//
-// Parameters:
-//   - client: The authenticated API client.
-//   - seq: The poll sequence token to echo back.
-//
-// Returns:
-//   - tea.Cmd: A command producing an IntegrationsConnectCheckMsg.
 func integrationsConnectCheckCmd(client *api.Client, seq int) tea.Cmd {
 	return func() tea.Msg {
 		repos, err := client.GetGithubRepositories(context.Background())
@@ -177,14 +126,6 @@ func publishProjectConfigurationCmd(client *api.Client, cwd string) tea.Cmd {
 	}
 }
 
-// --- Model transitions ---
-
-// enterIntegrationsView switches to the integrations screen and kicks off the
-// initial status fetch.
-//
-// Returns:
-//   - tea.Model: The updated model.
-//   - tea.Cmd: The status fetch command, or nil when unauthenticated.
 func (m hubModel) enterIntegrationsView() (tea.Model, tea.Cmd) {
 	m.currentView = viewIntegrations
 	m.integrationsCursor = 0
@@ -200,15 +141,6 @@ func (m hubModel) enterIntegrationsView() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleIntegrationsKey processes key events on the integrations screen.
-//
-// Parameters:
-//   - m: The hub model.
-//   - msg: The key message.
-//
-// Returns:
-//   - tea.Model: The updated model.
-//   - tea.Cmd: A command to run, or nil.
 func handleIntegrationsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -253,7 +185,6 @@ func handleIntegrationsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// refreshIntegrationsStatus re-fetches the GitHub installation status.
 func (m hubModel) refreshIntegrationsStatus() (tea.Model, tea.Cmd) {
 	if m.client == nil || m.integrationsPublishing {
 		return m, nil
@@ -301,7 +232,6 @@ func (m hubModel) startProjectConfigurationPublish() (tea.Model, tea.Cmd) {
 	return m, publishProjectConfigurationCmd(m.client, cwd)
 }
 
-// openIntegrationsDashboard opens the web dashboard's GitHub integration page.
 func (m hubModel) openIntegrationsDashboard() (tea.Model, tea.Cmd) {
 	url := config.GetAppURL(m.devMode) + "/integrations/github"
 	_ = ui.OpenBrowser(url)
@@ -310,9 +240,6 @@ func (m hubModel) openIntegrationsDashboard() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Message handlers ---
-
-// updateIntegrationsStatus applies a status fetch result.
 func updateIntegrationsStatus(m hubModel, msg IntegrationsStatusMsg) (tea.Model, tea.Cmd) {
 	m.integrationsLoading = false
 	if msg.Err != nil {
@@ -324,8 +251,6 @@ func updateIntegrationsStatus(m hubModel, msg IntegrationsStatusMsg) (tea.Model,
 	return m, nil
 }
 
-// updateIntegrationsConnectStarted handles the result of opening the browser and
-// starts the poll loop on success.
 func updateIntegrationsConnectStarted(m hubModel, msg IntegrationsConnectStartedMsg) (tea.Model, tea.Cmd) {
 	if msg.Err != nil {
 		m.integrationsConnecting = false
@@ -344,7 +269,6 @@ func updateIntegrationsConnectStarted(m hubModel, msg IntegrationsConnectStarted
 	return m, integrationsPollTickCmd(m.integrationsPollSeq)
 }
 
-// updateIntegrationsPollTick triggers a status check on each poll tick.
 func updateIntegrationsPollTick(m hubModel, msg IntegrationsPollTickMsg) (tea.Model, tea.Cmd) {
 	if msg.Seq != m.integrationsPollSeq || !m.integrationsConnecting {
 		return m, nil
@@ -356,8 +280,6 @@ func updateIntegrationsPollTick(m hubModel, msg IntegrationsPollTickMsg) (tea.Mo
 	return m, integrationsConnectCheckCmd(m.client, msg.Seq)
 }
 
-// updateIntegrationsConnectCheck advances the connect loop: completing on an
-// active install, timing out past the deadline, or scheduling the next tick.
 func updateIntegrationsConnectCheck(m hubModel, msg IntegrationsConnectCheckMsg) (tea.Model, tea.Cmd) {
 	if msg.Seq != m.integrationsPollSeq || !m.integrationsConnecting {
 		return m, nil
@@ -394,15 +316,6 @@ func updateIntegrationsPublishDone(m hubModel, msg IntegrationsPublishDoneMsg) (
 	return m, nil
 }
 
-// --- Rendering ---
-
-// renderIntegrations renders the integrations screen.
-//
-// Parameters:
-//   - m: The hub model.
-//
-// Returns:
-//   - string: The full screen view.
 func renderIntegrations(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -460,7 +373,6 @@ func renderIntegrations(m hubModel) string {
 	return b.String()
 }
 
-// integrationActionHotkey returns the single-key shortcut for an action.
 func integrationActionHotkey(key string) string {
 	switch key {
 	case "connect":
@@ -473,7 +385,6 @@ func integrationActionHotkey(key string) string {
 	return "?"
 }
 
-// renderGithubStatusBadge renders the GitHub connection status badge.
 func renderGithubStatusBadge(m hubModel) string {
 	if m.integrationsLoading && m.integrationsRepos == nil {
 		return dimStyle.Render("checking...")
@@ -484,7 +395,6 @@ func renderGithubStatusBadge(m hubModel) string {
 	return warningStyle.Render("not connected")
 }
 
-// githubStatusDetail renders the secondary status detail line.
 func githubStatusDetail(m hubModel) string {
 	if m.integrationsRepos == nil {
 		return "Connect the Revyl GitHub App to enable PR automation."

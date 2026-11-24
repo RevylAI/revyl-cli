@@ -7,7 +7,6 @@ import (
 	"syscall"
 )
 
-// RuntimeFailureKind classifies hot-reload failures into user-actionable causes.
 type RuntimeFailureKind string
 
 const (
@@ -20,7 +19,6 @@ const (
 	RuntimeFailureDeviceSessionEnded RuntimeFailureKind = "device_session_ended"
 )
 
-// RuntimeFailure describes one root cause detected during a hot-reload session.
 type RuntimeFailure struct {
 	Kind     RuntimeFailureKind
 	Provider string

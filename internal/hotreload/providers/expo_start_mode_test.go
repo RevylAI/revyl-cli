@@ -234,7 +234,6 @@ func containsEnvEntry(env []string, prefix string) bool {
 		if kv == prefix {
 			return true
 		}
-		// Allow tests to tolerate process env duplicates where exact match is unavailable.
 		if strings.HasSuffix(prefix, "=") && strings.HasPrefix(kv, prefix) {
 			return true
 		}

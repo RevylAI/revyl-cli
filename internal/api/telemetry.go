@@ -50,7 +50,6 @@ const (
 
 type traceHandoffContextKey struct{}
 
-// TraceHandoff carries a trusted CLI trace context returned by the backend.
 type TraceHandoff struct {
 	Traceparent  string
 	HandoffToken string
@@ -58,7 +57,6 @@ type TraceHandoff struct {
 	RequestID    string
 }
 
-// Headers returns the private Revyl trace handoff headers for backend requests.
 func (h *TraceHandoff) Headers() map[string]string {
 	if h == nil || strings.TrimSpace(h.Traceparent) == "" || strings.TrimSpace(h.HandoffToken) == "" {
 		return nil
@@ -74,7 +72,6 @@ func (h *TraceHandoff) Headers() map[string]string {
 	}
 }
 
-// WithTraceHandoff attaches a best-effort CLI trace handoff to a request context.
 func WithTraceHandoff(ctx context.Context, handoff *TraceHandoff) context.Context {
 	if ctx == nil || handoff == nil {
 		return ctx
@@ -82,7 +79,6 @@ func WithTraceHandoff(ctx context.Context, handoff *TraceHandoff) context.Contex
 	return context.WithValue(ctx, traceHandoffContextKey{}, handoff)
 }
 
-// TraceHandoffFromContext returns a CLI trace handoff attached to ctx.
 func TraceHandoffFromContext(ctx context.Context) (*TraceHandoff, bool) {
 	if ctx == nil {
 		return nil, false
@@ -118,7 +114,6 @@ func (c *Client) effectiveVersion() string {
 	return "dev"
 }
 
-// ExportDevTraceHandoff creates a best-effort root trace for a revyl dev loop.
 func (c *Client) ExportDevTraceHandoff(ctx context.Context) (*TraceHandoff, error) {
 	return c.exportRootCLITrace(ctx, newTraceRequestID(), cliDevTraceSpanName, revylCLICommandDev)
 }
@@ -302,7 +297,6 @@ func (c *Client) postCLISpan(ctx context.Context, requestID string, payload []by
 	return nil
 }
 
-// HotReloadLocalMetroSpanInput records the local Metro side of a relayed request.
 type HotReloadLocalMetroSpanInput struct {
 	ParentTraceparent string
 	Method            string
@@ -323,7 +317,6 @@ type HotReloadLocalMetroSpanInput struct {
 	ResponseAcceptRangesPresent  bool
 }
 
-// ExportHotReloadLocalMetroSpan exports a best-effort child span for a local Metro request.
 func (c *Client) ExportHotReloadLocalMetroSpan(ctx context.Context, input HotReloadLocalMetroSpanInput) error {
 	if strings.TrimSpace(c.GetAPIKey()) == "" {
 		return fmt.Errorf("missing API key")

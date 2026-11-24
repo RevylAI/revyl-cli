@@ -1,7 +1,3 @@
-// Package tui provides the test detail screen for viewing and managing a single test.
-//
-// Reached from "Browse tests" → enter on a test. Shows sync status and tags,
-// and provides actions for push/pull/diff, delete, run, open, and tag management.
 package tui
 
 import (
@@ -21,10 +17,9 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// testDetailAction enumerates the available actions in the test detail screen.
 type testDetailAction struct {
-	Key  string // shortcut key
-	Desc string // display label
+	Key  string
+	Desc string
 }
 
 var testDetailActions = []testDetailAction{
@@ -41,19 +36,6 @@ var testDetailActions = []testDetailAction{
 	{Key: "B", Desc: "Run with branch/build override"},
 }
 
-// --- Commands ---
-
-// fetchTestDetailCmd fetches all data needed for the test detail screen.
-//
-// Parameters:
-//   - client: the API client
-//   - testID: the test to fetch
-//   - testName: the test name (for display)
-//   - platform: the test platform
-//   - devMode: whether in dev mode
-//
-// Returns:
-//   - tea.Cmd: command producing TestDetailMsg
 func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -84,7 +66,6 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 			}
 		}
 
-		// Fetch last run from history
 		histResp, err := client.GetTestEnhancedHistory(ctx, testID, 1, 0)
 		if err == nil && histResp != nil && len(histResp.Items) > 0 {
 			last := histResp.Items[0]
@@ -100,7 +81,6 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 			}
 		}
 
-		// Fetch tags
 		tags, tErr := client.GetTestTags(ctx, testID)
 		if tErr == nil {
 			for _, t := range tags {
@@ -112,7 +92,6 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 			}
 		}
 
-		// Fetch sync status from the nearest canonical project when available.
 		cwd, cwdErr := os.Getwd()
 		if cwdErr == nil {
 			project, projectErr := config.ResolveProjectContext(cwd, "")
@@ -138,16 +117,6 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 	}
 }
 
-// syncTestActionCmd performs a push, pull, or diff for a test.
-//
-// Parameters:
-//   - client: the API client
-//   - action: "push", "pull", or "diff"
-//   - testName: the test name
-//   - devMode: dev mode flag
-//
-// Returns:
-//   - tea.Cmd: command producing TestSyncActionMsg
 func syncTestActionCmd(client *api.Client, action, testName, testID string, devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -170,7 +139,6 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 
 		resolver := sync.NewResolver(client, nil, localTests)
 
-		// Resolve a stable local key for resolver operations.
 		targetName := testName
 		if testID != "" {
 			for localName, lt := range localTests {
@@ -241,14 +209,6 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 	}
 }
 
-// deleteTestCmd deletes a test by ID.
-//
-// Parameters:
-//   - client: the API client
-//   - testID: the test to delete
-//
-// Returns:
-//   - tea.Cmd: command producing TestDeletedMsg
 func deleteTestCmd(client *api.Client, testID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -258,24 +218,11 @@ func deleteTestCmd(client *api.Client, testID string) tea.Cmd {
 	}
 }
 
-// --- Key handling ---
-
-// handleTestDetailKey processes key events on the test detail screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: the updated model
-//   - tea.Cmd: next command
 func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Tag picker overlay
 	if m.tagPickerActive {
 		return handleTagPickerKeyFromDetail(m, msg)
 	}
 
-	// Rename overlay
 	if m.testRenameActive {
 		if m.testRenameConfirm {
 			switch msg.String() {
@@ -343,7 +290,6 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delete confirmation
 	if m.testDetailConfirmDelete {
 		switch msg.String() {
 		case "y":
@@ -359,7 +305,6 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Sync result display -- any key dismisses, but quit keys still work
 	if m.testSyncResult != "" {
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -516,15 +461,6 @@ func buildTestRenamePreview(oldName, newName string) string {
 	return strings.Join(lines, "\n")
 }
 
-// --- Rendering ---
-
-// renderTestDetail renders the test detail screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderTestDetail(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -542,7 +478,6 @@ func renderTestDetail(m hubModel) string {
 		return b.String()
 	}
 
-	// Header
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(detail.Name)
 	idPrefix := detail.ID
 	if len(idPrefix) > 8 {
@@ -559,11 +494,9 @@ func renderTestDetail(m hubModel) string {
 		b.WriteString("  Build: " + dimStyle.Render(detail.BuildLabel) + "\n")
 	}
 
-	// Status section
 	b.WriteString(sectionStyle.Render("  STATUS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
-	// Last run
 	if detail.LastRunStatus != "" {
 		icon := statusIcon(detail.LastRunStatus)
 		timeAgo := relativeTime(detail.LastRunTime)
@@ -581,7 +514,6 @@ func renderTestDetail(m hubModel) string {
 		b.WriteString(fmt.Sprintf("  %-12s %s\n", dimStyle.Render("Last Run"), dimStyle.Render("no runs yet")))
 	}
 
-	// Sync
 	syncIcon := syncStatusIcon(detail.SyncStatus)
 	syncColor := syncStatusStyle(detail.SyncStatus)
 	syncVer := ""
@@ -594,7 +526,6 @@ func renderTestDetail(m hubModel) string {
 		syncColor.Render(detail.SyncStatus),
 		syncVer))
 
-	// Tags
 	tagStr := dimStyle.Render("none")
 	if len(detail.Tags) > 0 {
 		names := make([]string, len(detail.Tags))
@@ -609,7 +540,6 @@ func renderTestDetail(m hubModel) string {
 	}
 	b.WriteString(fmt.Sprintf("  %-12s %s\n", dimStyle.Render("Tags"), tagStr))
 
-	// Sync result display
 	if m.testSyncResult != "" {
 		b.WriteString("\n")
 		b.WriteString(sectionStyle.Render("  RESULT") + "\n")
@@ -621,33 +551,28 @@ func renderTestDetail(m hubModel) string {
 		return b.String()
 	}
 
-	// Loading indicator
 	if m.testDetailLoading {
 		b.WriteString("\n  " + m.spinner.View() + " Working...\n")
 		return b.String()
 	}
 
-	// Delete confirmation
 	if m.testDetailConfirmDelete {
 		b.WriteString("\n  " + errorStyle.Render("Delete test \""+detail.Name+"\"? (y/n)") + "\n")
 		return b.String()
 	}
 
-	// Tag picker overlay
 	if m.tagPickerActive {
 		b.WriteString("\n")
 		b.WriteString(renderTagPickerOverlay(m, innerW))
 		return b.String()
 	}
 
-	// Rename overlay
 	if m.testRenameActive {
 		b.WriteString("\n")
 		b.WriteString(renderTestRenameOverlay(m, innerW))
 		return b.String()
 	}
 
-	// Actions section
 	b.WriteString("\n")
 	b.WriteString(sectionStyle.Render("  ACTIONS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
@@ -663,7 +588,6 @@ func renderTestDetail(m hubModel) string {
 		b.WriteString(fmt.Sprintf("  %s%s %s\n", cursor, num, descStyle.Render(a.Desc)))
 	}
 
-	// Footer
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	jumpLabel := fmt.Sprintf("1-%d", len(testDetailActions))
 	keys := []string{
@@ -714,9 +638,6 @@ func renderTestRenameOverlay(m hubModel, innerW int) string {
 	return b.String()
 }
 
-// --- Helpers ---
-
-// syncStatusIcon returns a colored icon for sync status.
 func syncStatusIcon(status string) string {
 	switch status {
 	case "synced":
@@ -736,7 +657,6 @@ func syncStatusIcon(status string) string {
 	}
 }
 
-// syncStatusStyle returns the style for a sync status string.
 func syncStatusStyle(status string) lipgloss.Style {
 	switch status {
 	case "synced":
@@ -754,8 +674,6 @@ func syncStatusStyle(status string) lipgloss.Style {
 	}
 }
 
-// startTestExecution transitions the hub model to the execution screen for a test.
-// This is a helper that avoids duplicating the pattern across views.
 func startTestExecution(m hubModel, testID, testName string) (tea.Model, tea.Cmd) {
 	em := newExecutionModel(testID, testName, m.apiKey, m.devMode, m.width, m.height)
 	m.executionModel = &em

@@ -1600,8 +1600,6 @@ func TestProbeWebSocketUpgradePathUsesRequestedPath(t *testing.T) {
 	}
 }
 
-// --- helpers ---
-
 type expoDogfoodScenario struct {
 	manifestDelay                 time.Duration
 	bundleHeaderDelay             time.Duration
@@ -1724,8 +1722,6 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-// startWebSocketServer returns a TCP listener that performs a minimal
-// WebSocket upgrade handshake for any connection.
 func startWebSocketServer(t *testing.T) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1771,8 +1767,6 @@ func computeAcceptKey(key string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-// websocketUpgradeHandler is an http.HandlerFunc that hijacks the connection
-// and performs a WebSocket upgrade.
 func websocketUpgradeHandler(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") {
 		http.Error(w, "not a websocket request", http.StatusBadRequest)

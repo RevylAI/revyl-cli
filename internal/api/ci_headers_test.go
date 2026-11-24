@@ -137,11 +137,9 @@ func TestSetCIHeaders_MissingEventPath(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://example.test", nil)
 	setCIHeaders(req)
 
-	// Still sets the system marker even when most context is missing.
 	if got := req.Header.Get("X-CI-System"); got != "github-actions" {
 		t.Errorf("X-CI-System = %q, want github-actions", got)
 	}
-	// Empty values are not sent.
 	if got := req.Header.Get("X-CI-Actor"); got != "" {
 		t.Errorf("expected no X-CI-Actor when GITHUB_ACTOR empty, got %q", got)
 	}

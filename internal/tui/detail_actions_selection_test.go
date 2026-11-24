@@ -42,7 +42,7 @@ func TestHandleTestDetailKey_EnterExecutesSelectedAction(t *testing.T) {
 	m := newHubModel("dev", false)
 	m.currentView = viewTestDetail
 	m.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout"}
-	m.testDetailCursor = 2 // Run history
+	m.testDetailCursor = 2
 
 	nextModel, cmd := handleTestDetailKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil {
@@ -63,7 +63,7 @@ func TestHandleTestDetailKey_NumberExecutesAction(t *testing.T) {
 	m.currentView = viewTestDetail
 	m.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout"}
 
-	nextModel, cmd := handleTestDetailKey(m, keyRune('8')) // Delete test
+	nextModel, cmd := handleTestDetailKey(m, keyRune('8'))
 	if cmd != nil {
 		t.Fatalf("expected nil cmd when opening delete confirmation, got %v", cmd)
 	}
@@ -147,7 +147,7 @@ func TestHandleWorkflowDetailKey_NumberExecutesAction(t *testing.T) {
 	m.currentView = viewWorkflowDetail
 	m.selectedWfDetail = &WorkflowItem{ID: "wf-1", Name: "Bug Bazaar"}
 
-	nextModel, cmd := handleWorkflowDetailKey(m, keyRune('4')) // Delete workflow
+	nextModel, cmd := handleWorkflowDetailKey(m, keyRune('4'))
 	if cmd != nil {
 		t.Fatalf("expected nil cmd when opening delete confirmation, got %v", cmd)
 	}

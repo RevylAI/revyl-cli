@@ -94,7 +94,6 @@ func TestHandleIntegrationsKeyCursorNav(t *testing.T) {
 		t.Fatalf("after up, cursor = %d, want 0", m.integrationsCursor)
 	}
 
-	// Up at the top stays at 0.
 	model, _ = handleIntegrationsKey(m, keyMsg("up"))
 	m = asHub(t, model)
 	if m.integrationsCursor != 0 {
@@ -250,7 +249,7 @@ func TestUpdateIntegrationsConnectCheckStaleSeqIgnored(t *testing.T) {
 
 	model, _ := updateIntegrationsConnectCheck(m, IntegrationsConnectCheckMsg{
 		Repos: connectedReposState(),
-		Seq:   4, // stale
+		Seq:   4,
 	})
 	m = asHub(t, model)
 	if !m.integrationsConnecting {

@@ -1,4 +1,3 @@
-// Package tui provides the create-test sub-model for inline test creation.
 package tui
 
 import (
@@ -18,16 +17,15 @@ import (
 	"github.com/revyl/cli/internal/execution"
 )
 
-// createStep tracks which stage of the create flow the user is on.
 type createStep int
 
 const (
-	stepName     createStep = iota // entering test name
-	stepPlatform                   // choosing platform
-	stepApp                        // choosing app/build stream
-	stepConfirm                    // reviewing before submit
-	stepCreating                   // API call in flight
-	stepDone                       // creation complete, offer next actions
+	stepName createStep = iota
+	stepPlatform
+	stepApp
+	stepConfirm
+	stepCreating
+	stepDone
 )
 
 type createDoneAction int
@@ -39,7 +37,6 @@ const (
 	createDoneManageApps
 )
 
-// createModel manages the state of the inline "Create a test" TUI flow.
 type createModel struct {
 	step           createStep
 	nameInput      textinput.Model
@@ -53,25 +50,21 @@ type createModel struct {
 	buildSelection api.BuildSelection
 	buildLabel     string
 
-	// API dependencies
 	apiKey  string
 	devMode bool
 	client  *api.Client
 	project *config.ProjectContext
 
-	// State
 	creating bool
 	spinner  spinner.Model
 	err      error
 	width    int
 	height   int
 
-	// Result
 	createdID  string
 	done       bool
 	doneAction createDoneAction
 
-	// Post-creation action cursor (0=open editor, 1=back to dashboard)
 	doneCursor    int
 	showEditorURL bool
 }
@@ -120,9 +113,6 @@ func newCurrentProjectCreateModel(apiKey string, devMode bool, client *api.Clien
 	return newCreateModel(apiKey, devMode, client, project, width, height), nil
 }
 
-// --- Tea commands ---
-
-// createTestCmd calls the API to create a test.
 func createTestCmd(client *api.Client, name, platform, appID string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -176,14 +166,10 @@ func fetchCreateAppsCmd(client *api.Client, platform string) tea.Cmd {
 	}
 }
 
-// --- Bubble Tea interface ---
-
-// Init starts the text input blink cursor.
 func (m createModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update handles messages for the create-test flow.
 func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.buildPicker != nil {
 		picker, cmd := m.buildPicker.Update(msg)
@@ -258,7 +244,6 @@ func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Forward to text input when on name step
 	if m.step == stepName {
 		var cmd tea.Cmd
 		m.nameInput, cmd = m.nameInput.Update(msg)
@@ -268,13 +253,10 @@ func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey processes key events for the create flow.
 func (m createModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global escape (only when not creating)
 	if key == "esc" && !m.creating {
-		// Handled by parent hub model
 		return m, nil
 	}
 
@@ -294,7 +276,6 @@ func (m createModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleNameKey processes keys during the name input step.
 func (m createModel) handleNameKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter":
@@ -315,7 +296,6 @@ func (m createModel) handleNameKey(key string, msg tea.KeyMsg) (tea.Model, tea.C
 	}
 }
 
-// handlePlatformKey processes keys during the platform selection step.
 func (m createModel) handlePlatformKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -386,7 +366,6 @@ func (m createModel) handleAppKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmKey processes keys during the confirm step.
 func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "b":
@@ -422,7 +401,6 @@ func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDoneKey processes keys after test creation is complete.
 func (m createModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -507,9 +485,6 @@ func appBranchLabel(app api.App) string {
 	return branch + " (default) · " + defaultBuild
 }
 
-// --- View rendering ---
-
-// View renders the create-test flow.
 func (m createModel) View() string {
 	if m.buildPicker != nil {
 		return m.buildPicker.View()
@@ -524,7 +499,6 @@ func (m createModel) View() string {
 	b.WriteString(titleStyle.Render(" REVYL") + "  " + dimStyle.Render("Create a test") + "\n")
 	b.WriteString(separator(sepW) + "\n\n")
 
-	// Progress indicator
 	steps := []string{"Name", "Platform", "App", "Confirm", "Create"}
 	for i, s := range steps {
 		style := dimStyle

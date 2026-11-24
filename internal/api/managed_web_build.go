@@ -34,8 +34,6 @@ func generatedWebRun(run ManagedWebRun) *WebBuildRun {
 	}
 }
 
-// managedWebUploadURLLifetime matches the backend's single-PUT presign
-// lifetime (UPLOAD_EXPIRATION_TIME); every retry reuses the same URL.
 const managedWebUploadURLLifetime = 2 * time.Hour
 
 type managedWebUploadURLResponse struct {

@@ -1,8 +1,5 @@
-// Package tui provides the module browser screens for viewing test modules.
-//
-// Modules are read-only in the TUI -- creation requires file paths and stays CLI-only.
-// The browser shows a list of modules with block counts, and detail view renders module
-// blocks in a readable, scrollable outline. Deletion is supported with y/n confirmation.
+// Package tui includes the module browser for inspecting and deleting test modules;
+// module creation and content editing stay in the CLI.
 package tui
 
 import (
@@ -16,8 +13,6 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
-
-// --- Commands ---
 
 // fetchModulesCmd fetches the full module list for the org.
 //
@@ -47,14 +42,6 @@ func fetchModulesCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchModuleDetailCmd fetches a single module's full detail.
-//
-// Parameters:
-//   - client: the API client
-//   - moduleID: the module to fetch
-//
-// Returns:
-//   - tea.Cmd: command producing ModuleDetailMsg
 func fetchModuleDetailCmd(client *api.Client, moduleID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -74,14 +61,6 @@ func fetchModuleDetailCmd(client *api.Client, moduleID string) tea.Cmd {
 	}
 }
 
-// deleteModuleCmd deletes a module by ID.
-//
-// Parameters:
-//   - client: the API client
-//   - moduleID: the module to delete
-//
-// Returns:
-//   - tea.Cmd: command producing ModuleDeletedMsg
 func deleteModuleCmd(client *api.Client, moduleID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -91,17 +70,6 @@ func deleteModuleCmd(client *api.Client, moduleID string) tea.Cmd {
 	}
 }
 
-// --- Key handling ---
-
-// handleModuleListKey processes key events on the module list screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleModuleListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -127,17 +95,7 @@ func handleModuleListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleModuleDetailKey processes key events on the module detail screen.
-//
-// Parameters:
-//   - m: the hub model
-//   - msg: the key message
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: next command
 func handleModuleDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Delete confirmation
 	if m.moduleConfirmDelete {
 		switch msg.String() {
 		case "y":
@@ -174,15 +132,6 @@ func handleModuleDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Rendering ---
-
-// renderModuleList renders the module list screen.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderModuleList(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -235,13 +184,6 @@ func renderModuleList(m hubModel) string {
 	return b.String()
 }
 
-// renderModuleDetail renders the module detail screen with readable block summaries.
-//
-// Parameters:
-//   - m: the hub model
-//
-// Returns:
-//   - string: rendered output
 func renderModuleDetail(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -260,7 +202,6 @@ func renderModuleDetail(m hubModel) string {
 		return b.String()
 	}
 
-	// Header
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(mod.Name)
 	blocksBadge := dimStyle.Render(fmt.Sprintf("%d blocks", mod.BlockCount))
 	headerLine := bannerContent + strings.Repeat(" ", max(1, innerW-lipgloss.Width(bannerContent)-lipgloss.Width(blocksBadge)+4)) + blocksBadge
@@ -270,7 +211,6 @@ func renderModuleDetail(m hubModel) string {
 		headerLines = append(headerLines, renderModuleWrappedText("  ", mod.Description, innerW+2, normalStyle)...)
 	}
 
-	// Delete confirmation
 	if m.moduleConfirmDelete {
 		for _, line := range headerLines {
 			b.WriteString(line + "\n")

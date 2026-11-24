@@ -82,7 +82,6 @@ func renameTestCmd(client *api.Client, testID, oldName, newName string) tea.Cmd 
 		}
 
 		if plan.ApplyLocalAliasRename {
-			// Local alias rename is now handled via YAML file rename below
 			summary = append(summary, fmt.Sprintf("Updated local alias: %s -> %s", plan.AliasToRename, newName))
 		}
 
@@ -142,7 +141,6 @@ func buildTestRenamePlan(testID, oldNameOrID, remoteName, newName string) (*test
 		localTests = make(map[string]*config.LocalTest)
 	}
 
-	// Build alias map from local YAML files for alias resolution
 	localAliasMap := make(map[string]string, len(localTests))
 	for alias, lt := range localTests {
 		if lt != nil && lt.Meta.RemoteID != "" {

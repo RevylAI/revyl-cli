@@ -20,8 +20,6 @@ func collectCheckoutUpload(ctx context.Context, project *config.ProjectContext, 
 	return checkoutdefinitions.CollectUpload(ctx, runProject, testIDs, "run it with revyl test run --from-checkout=false")
 }
 
-// noticeWithTestDefinition adds to notice the warnings a checkout upload found
-// and what the run executed, when the server said.
 func noticeWithTestDefinition(notice string, upload *checkoutdefinitions.Upload, testCountBySource map[api.TestDefinitionSource]int, testCountByFallbackReason map[api.TestDefinitionFallbackReason]int, gitRead api.TestDefinitionGitRead) string {
 	lines := []string{}
 	if notice != "" {

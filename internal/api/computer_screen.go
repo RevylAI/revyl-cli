@@ -153,7 +153,10 @@ func validateScreenDirections(direction string) bool {
 	return ok
 }
 
-const computerScreenTargetClickTimeout = 90 * time.Second
+const (
+	computerScreenTargetClickTimeout = 90 * time.Second
+	computerScreenTypeTimeout        = 45 * time.Second
+)
 
 func (c *Client) PerformComputerScreenAction(ctx context.Context, id uuid.UUID, request ComputerScreenActionRequest) (*ComputerScreenActionResult, error) {
 	if id == uuid.Nil || request.Via != "cli" && request.Via != "mcp" && request.Via != "api" {
@@ -165,6 +168,9 @@ func (c *Client) PerformComputerScreenAction(ctx context.Context, id uuid.UUID, 
 	timeout := DefaultTimeout
 	if request.Action.Target != "" {
 		timeout = computerScreenTargetClickTimeout
+	}
+	if request.Action.Action == "type" {
+		timeout = computerScreenTypeTimeout
 	}
 	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/screen/actions", id), request, id.String(), timeout)
 	body, err := readComputerScreenBody(response, err)

@@ -17,19 +17,11 @@ var ErrBranchHasNoBuilds = errors.New("selected branch has no builds; upload a b
 var ErrBranchHasNoCompatibleBuild = errors.New("selected branch has no usable build; upload one to it or choose another branch")
 var ErrBranchNotFound = errors.New("build branch not found")
 
-// BranchError is ErrBranchNotFound, ErrBranchHasNoBuilds or
-// ErrBranchHasNoCompatibleBuild worded with the branch and app it failed on;
-// errors.Is still matches the sentinel.
 type BranchError struct {
-	Err        error
-	BranchName string
-	// AppName is empty when the caller knows only the app's ID.
-	AppName string
-	// FromGit marks a branch named after the checked-out Git branch.
-	FromGit bool
-	// GitBranchName is the detected Git branch that was tried before the
-	// app's default branch. It is set only when the server reports that the
-	// app's default branch replaced it, including when that branch also fails.
+	Err           error
+	BranchName    string
+	AppName       string
+	FromGit       bool
 	GitBranchName string
 }
 
@@ -70,8 +62,6 @@ const MaxGitBranchNameLength = 4096
 
 const maxBranchNameLength = 255
 
-// ValidateBranchName applies the API's branch name rule (BranchName in
-// cognisim_schemas) so a bad name fails before any request.
 func ValidateBranchName(name string) error {
 	switch {
 	case name == "":
@@ -109,8 +99,6 @@ func validateBranchSelector(branchID, branchName string) error {
 	return nil
 }
 
-// gitBranchNameFor returns the detected Git branch a request may carry.
-// Latest across all branches ignores it, so such a request never sends one.
 func gitBranchNameFor(mode BuildSelectionMode, gitBranchName string) string {
 	if mode == BuildSelectionModeLatestAllBranches {
 		return ""
@@ -204,20 +192,18 @@ func (s *SavedBuildSelection) Validate() error {
 }
 
 type BuildBranch struct {
-	AutoGitBranchEnabled *bool   `json:"auto_git_branch_enabled,omitempty"`
-	ID                   string  `json:"id"`
-	AppID                string  `json:"app_id"`
-	Name                 string  `json:"name"`
-	PinnedBuildID        *string `json:"pinned_build_id"`
-	PinnedBuildVersion   *string `json:"pinned_build_version"`
-	PinnedBuildAvailable *bool   `json:"pinned_build_available"`
-	IsDefault            *bool   `json:"is_default,omitempty"`
-	CreatedAt            string  `json:"created_at,omitempty"`
-	// BranchSource and GitBranchName are set when a Git branch resolution
-	// chose this branch.
-	BranchSource  BranchSource `json:"branch_source,omitempty"`
-	GitBranchName string       `json:"git_branch_name,omitempty"`
-	// LatestBuild is set by branch lists; nil there means the branch has no builds.
+	AutoGitBranchEnabled *bool        `json:"auto_git_branch_enabled,omitempty"`
+	ID                   string       `json:"id"`
+	AppID                string       `json:"app_id"`
+	Name                 string       `json:"name"`
+	PinnedBuildID        *string      `json:"pinned_build_id"`
+	PinnedBuildVersion   *string      `json:"pinned_build_version"`
+	PinnedBuildAvailable *bool        `json:"pinned_build_available"`
+	IsDefault            *bool        `json:"is_default,omitempty"`
+	CreatedAt            string       `json:"created_at,omitempty"`
+	BranchSource         BranchSource `json:"branch_source,omitempty"`
+	GitBranchName        string       `json:"git_branch_name,omitempty"`
+	// LatestBuild is populated on branch lists; nil means no matching non-deleted candidate was returned.
 	LatestBuild *BuildBranchLatestBuild `json:"latest_build,omitempty"`
 }
 
@@ -356,12 +342,6 @@ func (c *Client) CreateBuildBranch(ctx context.Context, appID, name string) (*Bu
 	return &result, nil
 }
 
-// FindUploadBranch returns the existing branch an upload to this destination
-// lands on: the branch by ID or name, the branch named after gitBranchName, or
-// the app's default branch when no destination is given. It returns nil, with
-// no error, when the named branch doesn't exist yet. Such an upload sends the
-// name instead of creating the branch first, so the backend creates it and can
-// make a new app's first upload its default branch.
 func (c *Client) FindUploadBranch(ctx context.Context, appID, branchID, branchName, gitBranchName string) (*BuildBranch, error) {
 	var app *App
 	if branchID == "" && branchName == "" && gitBranchName != "" {
@@ -443,8 +423,6 @@ type buildResolutionResult struct {
 	DownloadURL          string       `json:"download_url"`
 }
 
-// FellBackFromGitBranch reports whether the app's default branch replaced
-// gitBranchName, the Git branch a request sent or a result reports.
 func (s BranchSource) FellBackFromGitBranch(gitBranchName string) bool {
 	return s == BranchSourceDefaultBranch && gitBranchName != ""
 }
@@ -453,7 +431,6 @@ func (c *Client) ResolveBuildSelection(ctx context.Context, appID string, select
 	return c.resolveBuildSelection(ctx, appID, selection, true)
 }
 
-// ResolveBuildSelectionMetadata applies the runnable build policy without signing an artifact URL.
 func (c *Client) ResolveBuildSelectionMetadata(ctx context.Context, appID string, selection BuildSelection) (*BuildVersionDetail, error) {
 	return c.resolveBuildSelection(ctx, appID, selection, false)
 }

@@ -31,8 +31,6 @@ const (
 
 var openBrowserFn = ui.OpenBrowser
 
-// --- Tea commands ---
-
 // fetchDeviceSessionsCmd fetches active device sessions for the org.
 //
 // Parameters:
@@ -70,14 +68,6 @@ func fetchDeviceSessionsCmd(client *api.Client, orgID string) tea.Cmd {
 	}
 }
 
-// fetchDeviceStartAppsCmd fetches org apps for the selected platform.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - platform: "android" or "ios"
-//
-// Returns:
-//   - tea.Cmd: async command that sends DeviceStartAppListMsg on completion
 func fetchDeviceStartAppsCmd(client *api.Client, platform string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -107,18 +97,8 @@ func fetchDeviceStartAppsCmd(client *api.Client, platform string) tea.Cmd {
 	}
 }
 
-// startDeviceSessionCmd starts a new device session with the given platform,
-// optional app, and optional device model/OS version overrides.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - platform: "android" or "ios"
-//   - appID: optional app ID to resolve to the latest build artifact
-//   - deviceModel: device model override (empty = platform default)
-//   - osVersion: OS version override (empty = platform default)
-//
-// Returns:
-//   - tea.Cmd: async command that sends DeviceStartedMsg on completion
+// startDeviceSessionCmd starts a device session, resolving the requested
+// build selection (or default artifact) when appID is non-empty.
 func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osVersion string, launchVarIDs []string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		branchFallbackNotice := ""
@@ -186,14 +166,6 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 	}
 }
 
-// stopDeviceSessionCmd stops a device session by cancelling its workflow run.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - workflowRunID: the workflow run ID to cancel
-//
-// Returns:
-//   - tea.Cmd: async command that sends DeviceStoppedMsg on completion
 func stopDeviceSessionCmd(client *api.Client, workflowRunID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -216,16 +188,6 @@ func deviceListPollTickCmd(seq int) tea.Cmd {
 	})
 }
 
-// --- Key handlers ---
-
-// handleDeviceListKey processes key events on the device session list screen.
-//
-// Parameters:
-//   - msg: the key message to handle
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: follow-up command (if any)
 func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.deviceConfirmStop {
 		switch msg.String() {
@@ -425,8 +387,8 @@ func (m hubModel) handleDeviceStartAppKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// deviceStartDeviceOptions returns "Auto" plus all valid pairs for the
-// selected platform. Index 0 is always Auto.
+// deviceStartDeviceOptions returns available provider target pairs for the
+// selected platform; callers prepend the synthetic "Auto" option at index 0.
 func (m hubModel) deviceStartDeviceOptions() []devicetargets.DevicePair {
 	pairs, err := devicetargets.GetAvailableTargetPairs(m.deviceStartPlatform)
 	if err != nil {
@@ -437,7 +399,7 @@ func (m hubModel) deviceStartDeviceOptions() []devicetargets.DevicePair {
 
 func (m hubModel) handleDeviceStartDeviceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	options := m.deviceStartDeviceOptions()
-	optionCount := len(options) + 1 // +1 for the "Auto" entry at index 0
+	optionCount := len(options) + 1
 
 	switch msg.String() {
 	case "q":
@@ -635,14 +597,6 @@ func (m hubModel) resetDeviceStartOverlay() hubModel {
 	return m
 }
 
-// handleDeviceDetailKey processes key events on the device detail screen.
-//
-// Parameters:
-//   - msg: the key message to handle
-//
-// Returns:
-//   - tea.Model: updated model
-//   - tea.Cmd: follow-up command (if any)
 func (m hubModel) handleDeviceDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.deviceConfirmStop {
 		switch msg.String() {
@@ -687,7 +641,6 @@ func (m hubModel) handleDeviceDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// selectedDeviceSession returns the currently selected device session, or nil.
 func (m hubModel) selectedDeviceSession() *api.ActiveDeviceSessionItem {
 	for i := range m.deviceSessions {
 		if m.deviceSessions[i].Id == m.selectedDeviceID {
@@ -716,7 +669,6 @@ func (m hubModel) selectedDeviceViewerURL() string {
 	return ""
 }
 
-// selectedDeviceReportURL returns the report URL for the selected device session.
 func (m hubModel) selectedDeviceReportURL() string {
 	session := m.selectedDeviceSession()
 	if session == nil {
@@ -729,12 +681,6 @@ func (m hubModel) selectedDeviceReportURL() string {
 	)
 }
 
-// --- Renderers ---
-
-// renderDeviceList renders the device session list screen.
-//
-// Returns:
-//   - string: the rendered TUI content
 func (m hubModel) renderDeviceList() string {
 	var b strings.Builder
 	w := m.width
@@ -923,7 +869,6 @@ func (m hubModel) renderDeviceStartOverlay(innerW int) string {
 				autoLabel = fmt.Sprintf("Auto (%s)", devicetargets.FormatPairLabel(defaultPair))
 			}
 
-			// Auto entry at index 0
 			cur := "  "
 			style := normalStyle
 			if m.deviceStartDeviceCursor == 0 {
@@ -1034,10 +979,6 @@ func (m hubModel) renderDeviceStartProgress() string {
 	return strings.Join(parts, dimStyle.Render(" -> "))
 }
 
-// renderDeviceDetail renders the device session detail screen.
-//
-// Returns:
-//   - string: the rendered TUI content
 func (m hubModel) renderDeviceDetail() string {
 	var b strings.Builder
 	w := m.width
@@ -1103,9 +1044,6 @@ func (m hubModel) renderDeviceDetail() string {
 	return b.String()
 }
 
-// --- Helpers ---
-
-// deviceStatusBadge returns a styled status string for a device session.
 func deviceStatusBadge(status string) string {
 	switch status {
 	case "running":
@@ -1171,7 +1109,6 @@ func (m *hubModel) clampDeviceStartCursor() {
 	}
 }
 
-// formatDuration formats a duration as a human-readable string (e.g. "3m 12s").
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

@@ -240,7 +240,6 @@ func mergeBranchPage(listed, page []api.BuildBranch) (merged []api.BuildBranch, 
 	return listed, repeated
 }
 
-// leadingBranchChoices counts the choices listed before the branch rows.
 func (m buildPickerModel) leadingBranchChoices() int {
 	if m.offerAllBranches {
 		return 2
@@ -248,8 +247,6 @@ func (m buildPickerModel) leadingBranchChoices() int {
 	return 1
 }
 
-// workflowOffersAllBranches reports whether a workflow picker with no branch
-// name asks between its saved settings and All branches.
 func (m buildPickerModel) workflowOffersAllBranches() bool {
 	return m.workflow && m.offerAllBranches && !m.branchOnly && m.selection.BranchName == ""
 }
@@ -258,8 +255,6 @@ func (m buildPickerModel) isDefaultBranch(branch api.BuildBranch) bool {
 	return m.defaultBranch != nil && branch.ID == m.defaultBranch.ID || branch.IsDefault != nil && *branch.IsDefault
 }
 
-// defaultBranchOption is the no-branch choice, named after the app's default
-// branch and its default build once they are known.
 func (m buildPickerModel) defaultBranchOption() string {
 	for _, branch := range m.branches {
 		if m.isDefaultBranch(branch) {

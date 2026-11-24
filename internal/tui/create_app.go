@@ -1,4 +1,3 @@
-// Package tui provides the create-app sub-model for inline app creation.
 package tui
 
 import (
@@ -15,44 +14,35 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// appCreateStep tracks which stage of the create-app flow the user is on.
 type appCreateStep int
 
 const (
-	appStepName     appCreateStep = iota // entering app name
-	appStepPlatform                      // choosing platform
-	appStepConfirm                       // reviewing before submit
-	appStepCreating                      // API call in flight
-	appStepDone                          // creation complete
+	appStepName appCreateStep = iota
+	appStepPlatform
+	appStepConfirm
+	appStepCreating
+	appStepDone
 )
 
-// createAppModel manages the state of the inline "Create an app" TUI flow.
-//
-// Fields mirror the test-creation wizard in create.go with app-specific
-// post-creation options (upload now vs maybe later).
 type createAppModel struct {
 	step           appCreateStep
 	nameInput      textinput.Model
 	platformCursor int
 	platforms      []string
 
-	// API dependencies
 	client *api.Client
 
-	// State
 	creating bool
 	spinner  spinner.Model
 	err      error
 	width    int
 	height   int
 
-	// Result
 	createdID   string
 	createdName string
 	done        bool
 	uploadNow   bool
 
-	// Post-creation action cursor (0=upload now, 1=maybe later)
 	doneCursor int
 }
 
@@ -82,17 +72,6 @@ func newCreateAppModel(client *api.Client, width, height int) createAppModel {
 	}
 }
 
-// --- Tea commands ---
-
-// createAppAPICmd calls the API to create an app.
-//
-// Parameters:
-//   - client: authenticated API client
-//   - name: display name for the app
-//   - platform: target platform (ios, android, or web)
-//
-// Returns:
-//   - tea.Cmd: async command that sends AppCreatedMsg on completion
 func createAppAPICmd(client *api.Client, name, platform string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -114,14 +93,10 @@ func createAppAPICmd(client *api.Client, name, platform string) tea.Cmd {
 	}
 }
 
-// --- Bubble Tea interface ---
-
-// Init starts the text input blink cursor.
 func (m createAppModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update handles messages for the create-app flow.
 func (m createAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -153,7 +128,6 @@ func (m createAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Forward to text input when on name step
 	if m.step == appStepName {
 		var cmd tea.Cmd
 		m.nameInput, cmd = m.nameInput.Update(msg)
@@ -163,13 +137,10 @@ func (m createAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey processes key events for the create-app flow.
 func (m createAppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global escape (only when not creating)
 	if key == "esc" && !m.creating {
-		// Handled by parent hub model
 		return m, nil
 	}
 
@@ -187,7 +158,6 @@ func (m createAppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleNameKey processes keys during the name input step.
 func (m createAppModel) handleNameKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter":
@@ -208,7 +178,6 @@ func (m createAppModel) handleNameKey(key string, msg tea.KeyMsg) (tea.Model, te
 	}
 }
 
-// handlePlatformKey processes keys during the platform selection step.
 func (m createAppModel) handlePlatformKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -229,7 +198,6 @@ func (m createAppModel) handlePlatformKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmKey processes keys during the confirm step.
 func (m createAppModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter", "y":
@@ -250,7 +218,6 @@ func (m createAppModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDoneKey processes keys after app creation is complete.
 func (m createAppModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -268,9 +235,6 @@ func (m createAppModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- View rendering ---
-
-// View renders the create-app flow.
 func (m createAppModel) View() string {
 	var b strings.Builder
 	w := m.width
@@ -282,7 +246,6 @@ func (m createAppModel) View() string {
 	b.WriteString(titleStyle.Render(" REVYL") + "  " + dimStyle.Render("Create an app") + "\n")
 	b.WriteString(separator(sepW) + "\n\n")
 
-	// Progress indicator
 	steps := []string{"Name", "Platform", "Confirm", "Create"}
 	for i, s := range steps {
 		style := dimStyle

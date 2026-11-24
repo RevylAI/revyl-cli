@@ -1,7 +1,3 @@
-// Package tui — Scripts tab of the Library hub.
-//
-// Scripts are browsed/inspected/deleted here; name and description can be
-// edited inline. Script code edits stay in the `revyl script` CLI.
 package tui
 
 import (
@@ -16,9 +12,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// --- Commands ---
-
-// fetchScriptsCmd loads the org's scripts.
 func fetchScriptsCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -45,7 +38,6 @@ func fetchScriptsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchScriptDetailCmd loads a single script's full record.
 func fetchScriptDetailCmd(client *api.Client, scriptID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -83,7 +75,6 @@ func updateScriptMetaCmd(client *api.Client, scriptID, name, description string)
 	}
 }
 
-// deleteScriptCmd deletes a script by ID.
 func deleteScriptCmd(client *api.Client, scriptID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -93,9 +84,6 @@ func deleteScriptCmd(client *api.Client, scriptID string) tea.Cmd {
 	}
 }
 
-// --- Key handling ---
-
-// handleLibraryScriptsKey handles key events for the Scripts tab.
 func handleLibraryScriptsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.libraryMode == libModeConfirmDelete {
 		switch msg.String() {
@@ -133,7 +121,6 @@ func handleLibraryScriptsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// list mode
 	if mm, cmd, handled := handleLibraryTabNav(m, msg); handled {
 		return mm, cmd
 	}
@@ -165,7 +152,6 @@ func handleLibraryScriptsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// libraryScriptsBeginEdit prepares the edit overlay for the given script.
 func libraryScriptsBeginEdit(m hubModel, s ScriptItem) hubModel {
 	m.selectedScript = &s
 	m.libraryMode = libModeEditing
@@ -177,8 +163,6 @@ func libraryScriptsBeginEdit(m hubModel, s ScriptItem) hubModel {
 	return m
 }
 
-// handleLibraryScriptsEditKey handles key events while the script edit
-// overlay is open (two fields: name, description).
 func handleLibraryScriptsEditKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -221,9 +205,6 @@ func handleLibraryScriptsEditKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd
 	}
 }
 
-// --- Rendering ---
-
-// renderLibraryScriptsBody renders the Scripts tab body.
 func renderLibraryScriptsBody(m hubModel, innerW int) string {
 	var b strings.Builder
 	if m.scriptsLoading {
@@ -271,7 +252,6 @@ func renderLibraryScriptsBody(m hubModel, innerW int) string {
 		return b.String()
 	}
 
-	// list mode
 	b.WriteString(sectionStyle.Render(fmt.Sprintf("  Scripts  %d", len(m.scriptItems))) + "\n")
 	if len(m.scriptItems) == 0 {
 		b.WriteString("  " + dimStyle.Render("No scripts found") + "\n")

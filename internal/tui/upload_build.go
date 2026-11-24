@@ -1,4 +1,3 @@
-// Package tui provides the upload-build sub-model for inline build uploads.
 package tui
 
 import (
@@ -19,20 +18,18 @@ import (
 	"github.com/revyl/cli/internal/buildselection"
 )
 
-// uploadStep tracks which stage of the upload flow the user is on.
 type uploadStep int
 
 const (
-	uploadStepFilePath  uploadStep = iota // entering file path
-	uploadStepVersion                     // entering version (optional)
-	uploadStepConfirm                     // reviewing before submit
-	uploadStepUploading                   // upload in flight
-	uploadStepDone                        // upload complete
+	uploadStepFilePath uploadStep = iota
+	uploadStepVersion
+	uploadStepConfirm
+	uploadStepUploading
+	uploadStepDone
 )
 
 const uploadPinNotice = "This upload doesn't pin the branch: a branch on Latest build runs its newest upload"
 
-// validBuildExts lists accepted file extensions for build uploads.
 var validBuildExts = map[string]bool{
 	".apk": true,
 	".ipa": true,
@@ -40,11 +37,6 @@ var validBuildExts = map[string]bool{
 	".app": true,
 }
 
-// uploadBuildModel manages the state of the inline "Upload a build" TUI flow.
-//
-// The flow is: file path -> version (optional) -> confirm -> uploading -> done.
-// The user must provide a valid path to a .apk, .ipa, .zip, or .app file.
-// The version string is optional; if left blank it is auto-generated.
 type uploadBuildModel struct {
 	step            uploadStep
 	filePathInput   textinput.Model
@@ -61,31 +53,25 @@ type uploadBuildModel struct {
 	pendingBranch        *api.BuildBranch
 	pendingVersion       string
 
-	// Context: which app we're uploading to
 	appID   string
 	appName string
 
-	// API dependencies
 	client *api.Client
 
-	// State
 	uploading bool
 	spinner   spinner.Model
 	err       error
 	width     int
 	height    int
 
-	// Validated file info (set after validation in confirm step)
 	resolvedPath string
 	fileSize     int64
 
-	// Result
 	uploadedVersionID     string
 	uploadedVersion       string
 	uploadedBranchSummary string
 	done                  bool
 
-	// Post-upload action cursor (0=upload another, 1=back to builds)
 	doneCursor int
 	uploadMore bool
 }
@@ -126,18 +112,8 @@ func newUploadBuildModel(client *api.Client, appID, appName string, width, heigh
 	}
 }
 
-// --- Tea commands ---
-
-// uploadBuildCmd calls the API to upload a build (3-step presigned URL flow).
-//
-// Parameters:
-//   - client: authenticated API client
-//   - appID: UUID of the target app
-//   - filePath: absolute path to the build file
-//   - version: version string (may be auto-generated)
-//
-// Returns:
-//   - tea.Cmd: async command that sends BuildUploadedMsg on completion
+// uploadBuildCmd resolves the selected upload branch and uploads a build
+// artifact through the API client's upload transport.
 func uploadBuildCmd(client *api.Client, appID, filePath, version string, selections ...api.BuildSelection) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -191,9 +167,6 @@ func uploadBuildCmd(client *api.Client, appID, filePath, version string, selecti
 	}
 }
 
-// --- Bubble Tea interface ---
-
-// Init starts the text input blink cursor.
 func (m uploadBuildModel) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, m.fetchUploadBranchContext())
 }
@@ -224,7 +197,6 @@ func (m uploadBuildModel) fetchUploadBranchContext() tea.Cmd {
 	}
 }
 
-// Update handles messages for the upload-build flow.
 func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if branchContext, ok := msg.(uploadGitBranchMsg); ok {
 		m.gitBranch, m.autoGitBranchEnabled, m.defaultBranchName = branchContext.name, branchContext.autoGitBranchEnabled, branchContext.defaultBranchName
@@ -286,7 +258,6 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Forward to active text input
 	switch m.step {
 	case uploadStepFilePath:
 		var cmd tea.Cmd
@@ -301,7 +272,6 @@ func (m uploadBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey processes key events for the upload flow.
 func (m uploadBuildModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -323,7 +293,6 @@ func (m uploadBuildModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleFilePathKey processes keys during the file path input step.
 func (m uploadBuildModel) handleFilePathKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter":
@@ -333,7 +302,6 @@ func (m uploadBuildModel) handleFilePathKey(key string, msg tea.KeyMsg) (tea.Mod
 			return m, nil
 		}
 
-		// Expand ~ to home directory
 		resolved := raw
 		if strings.HasPrefix(resolved, "~/") {
 			if home, homeErr := os.UserHomeDir(); homeErr == nil {
@@ -342,7 +310,6 @@ func (m uploadBuildModel) handleFilePathKey(key string, msg tea.KeyMsg) (tea.Mod
 		}
 		resolved, _ = filepath.Abs(resolved)
 
-		// Validate file exists
 		info, statErr := os.Stat(resolved)
 		if statErr != nil {
 			m.err = fmt.Errorf("file not found: %s", resolved)
@@ -353,7 +320,6 @@ func (m uploadBuildModel) handleFilePathKey(key string, msg tea.KeyMsg) (tea.Mod
 			return m, nil
 		}
 
-		// Validate extension
 		ext := strings.ToLower(filepath.Ext(resolved))
 		if !validBuildExts[ext] {
 			m.err = fmt.Errorf("invalid file type '%s': must be .apk, .ipa, .zip, or .app", ext)
@@ -375,7 +341,6 @@ func (m uploadBuildModel) handleFilePathKey(key string, msg tea.KeyMsg) (tea.Mod
 	}
 }
 
-// handleVersionKey processes keys during the version input step.
 func (m uploadBuildModel) handleVersionKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter":
@@ -401,7 +366,6 @@ func (m uploadBuildModel) handleVersionKey(key string, msg tea.KeyMsg) (tea.Mode
 	}
 }
 
-// handleConfirmKey processes keys during the confirm step.
 func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "b":
@@ -454,7 +418,6 @@ func (m uploadBuildModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDoneKey processes keys after upload is complete.
 func (m uploadBuildModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -472,9 +435,6 @@ func (m uploadBuildModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- View rendering ---
-
-// View renders the upload-build flow.
 func (m uploadBuildModel) View() string {
 	if m.buildPicker != nil {
 		return m.buildPicker.View()
@@ -489,7 +449,6 @@ func (m uploadBuildModel) View() string {
 	b.WriteString(titleStyle.Render(" REVYL") + "  " + dimStyle.Render("Upload build → "+m.appName) + "\n")
 	b.WriteString(separator(sepW) + "\n\n")
 
-	// Progress indicator
 	steps := []string{"File", "Version", "Confirm", "Upload"}
 	for i, s := range steps {
 		style := dimStyle
@@ -596,7 +555,6 @@ func (m uploadBuildModel) View() string {
 	return b.String()
 }
 
-// formatFileSize returns a human-readable file size string.
 func formatFileSize(bytes int64) string {
 	const (
 		kb = 1024

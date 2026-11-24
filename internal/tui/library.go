@@ -1,8 +1,3 @@
-// Package tui provides the unified Library hub: a tabbed browser for Modules,
-// Launch Vars, Variables, Scripts, and Files. The hub stays deliberately
-// modest -- browse, delete, and light targeted edits only. Heavy operations
-// (file upload, module YAML editing, script code editing) are handled by the
-// regular `revyl` subcommands, which the footer hints at on each tab.
 package tui
 
 import (
@@ -12,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// libraryTab identifies which tab of the Library hub is active.
 type libraryTab int
 
 const (
@@ -23,7 +17,6 @@ const (
 	libTabFiles
 )
 
-// libraryMode identifies what the user is doing within the current tab.
 type libraryMode int
 
 const (
@@ -36,7 +29,6 @@ const (
 // libraryTabOrder mirrors frontend/src/pages/library.tsx tab order.
 var libraryTabOrder = []libraryTab{libTabModules, libTabLaunchVars, libTabVariables, libTabScripts, libTabFiles}
 
-// libraryTabLabel returns the display label for a tab.
 func libraryTabLabel(t libraryTab) string {
 	switch t {
 	case libTabModules:
@@ -53,7 +45,6 @@ func libraryTabLabel(t libraryTab) string {
 	return ""
 }
 
-// libraryFetchCurrentTab loads data for whichever tab is active.
 func libraryFetchCurrentTab(m hubModel) tea.Cmd {
 	if m.client == nil {
 		return nil
@@ -73,10 +64,6 @@ func libraryFetchCurrentTab(m hubModel) tea.Cmd {
 	return nil
 }
 
-// --- Key handling ---
-
-// handleLibraryKey is the top-level router for the Library view. It dispatches
-// to the active tab's mode-specific handler.
 func handleLibraryKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.libraryTab {
 	case libTabModules:
@@ -158,7 +145,6 @@ func handleLibraryTabNav(m hubModel, msg tea.KeyMsg) (hubModel, tea.Cmd, bool) {
 	return m, nil, false
 }
 
-// nextLibraryTab advances (or rewinds) the tab index with wraparound.
 func nextLibraryTab(current libraryTab, delta int) libraryTab {
 	idx := 0
 	for i, t := range libraryTabOrder {
@@ -217,7 +203,6 @@ func handleLibraryModulesKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// list mode
 	if mm, cmd, handled := handleLibraryTabNav(m, msg); handled {
 		return mm, cmd
 	}
@@ -240,10 +225,6 @@ func handleLibraryModulesKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Rendering ---
-
-// renderLibrary renders the full Library hub: header, tab strip, body for the
-// active tab, and footer hint. The body is delegated to per-tab render funcs.
 func renderLibrary(m hubModel) string {
 	var b strings.Builder
 	w := m.width
@@ -277,8 +258,6 @@ func renderLibrary(m hubModel) string {
 	return b.String()
 }
 
-// renderLibraryTabStrip renders the horizontal tab strip with the active tab
-// highlighted in purple.
 func renderLibraryTabStrip(active libraryTab) string {
 	var parts []string
 	for i, t := range libraryTabOrder {
@@ -292,7 +271,6 @@ func renderLibraryTabStrip(active libraryTab) string {
 	return "  " + strings.Join(parts, "  ")
 }
 
-// renderLibraryFooter returns the per-tab/per-mode help line.
 func renderLibraryFooter(m hubModel) string {
 	var keys []string
 	switch m.libraryMode {
@@ -312,7 +290,7 @@ func renderLibraryFooter(m hubModel) string {
 			helpKeyRender("y", "confirm"),
 			helpKeyRender("n", "cancel"),
 		}
-	default: // list
+	default:
 		switch m.libraryTab {
 		case libTabModules:
 			keys = []string{
@@ -358,8 +336,6 @@ func renderLibraryFooter(m hubModel) string {
 	return strings.Join(keys, "  ")
 }
 
-// renderLibraryCLIHint returns a second-line hint pointing users at the
-// relevant `revyl` CLI command for heavy operations on the active tab.
 func renderLibraryCLIHint(tab libraryTab) string {
 	switch tab {
 	case libTabModules:
@@ -376,9 +352,8 @@ func renderLibraryCLIHint(tab libraryTab) string {
 	return ""
 }
 
-// renderLibraryModulesBody renders the Modules tab body. It reuses the module
-// block renderer for the detail view, but trims the banner/help footer that
-// renderModuleDetail would otherwise add (those are handled by renderLibrary).
+// renderLibraryModulesBody builds the Modules tab body directly, reusing
+// renderModuleBlockList for detail blocks while renderLibrary owns chrome.
 func renderLibraryModulesBody(m hubModel, innerW int) string {
 	var b strings.Builder
 
@@ -419,7 +394,6 @@ func renderLibraryModulesBody(m hubModel, innerW int) string {
 		return b.String()
 	}
 
-	// list mode
 	b.WriteString(sectionStyle.Render(fmt.Sprintf("  Modules  %d", len(m.moduleItems))) + "\n")
 	if len(m.moduleItems) == 0 {
 		b.WriteString("  " + dimStyle.Render("No modules found") + "\n")

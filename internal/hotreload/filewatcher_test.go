@@ -33,10 +33,8 @@ func TestFileWatcher_DetectsDartFileChange(t *testing.T) {
 	}
 	defer fw.Stop()
 
-	// Give watcher time to register
 	time.Sleep(100 * time.Millisecond)
 
-	// Modify a .dart file
 	os.WriteFile(filepath.Join(libDir, "main.dart"), []byte("void main() { print('hi'); }"), 0644)
 
 	select {
@@ -86,14 +84,12 @@ func TestFileWatcher_IgnoresExcludedDirs(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Write to excluded build/ dir -- should NOT trigger
 	os.WriteFile(filepath.Join(buildDir, "output.dart"), []byte("// build"), 0644)
 
 	select {
 	case event := <-fw.Changes():
 		t.Fatalf("should not have received event for excluded dir, got: %v", event.Files)
 	case <-time.After(500 * time.Millisecond):
-		// Expected: no event
 	}
 }
 
@@ -122,14 +118,12 @@ func TestFileWatcher_IgnoresNonMatchingExtensions(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Write a .md file -- should NOT trigger
 	os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# updated"), 0644)
 
 	select {
 	case event := <-fw.Changes():
 		t.Fatalf("should not have received event for .md file, got: %v", event.Files)
 	case <-time.After(500 * time.Millisecond):
-		// Expected: no event
 	}
 }
 
@@ -161,7 +155,6 @@ func TestFileWatcher_DebouncesBatchedChanges(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Rapid-fire edits to two files
 	os.WriteFile(filepath.Join(libDir, "a.dart"), []byte("a updated"), 0644)
 	time.Sleep(50 * time.Millisecond)
 	os.WriteFile(filepath.Join(libDir, "b.dart"), []byte("b updated"), 0644)
