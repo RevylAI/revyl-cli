@@ -22,12 +22,10 @@ import (
 // checkout, matching the backend's limit.
 const CheckoutScriptMaxBytes = 64 * 1024
 
-// ErrNoProjectID is a start that asked for a profile from a checkout whose
-// .revyl/config.yaml has no project.id to read it from.
+// ErrNoProjectID means explicitly requested profile handling could not resolve
+// a valid project.id from the checkout's .revyl/config.yaml.
 var ErrNoProjectID = errors.New("a session profile needs project.id in this checkout's .revyl/config.yaml; run it from your app's checkout")
 
-// defaultProfileNeedsProjectIDError is a start that would run the checkout's
-// session.default_profile from a .revyl/config.yaml without project.id.
 type defaultProfileNeedsProjectIDError struct{ name string }
 
 func (e *defaultProfileNeedsProjectIDError) Error() string {
@@ -36,8 +34,8 @@ func (e *defaultProfileNeedsProjectIDError) Error() string {
 
 func (e *defaultProfileNeedsProjectIDError) Is(target error) bool { return target == ErrNoProjectID }
 
-// Start is the session profile part of one start request. Instruction is nil
-// when the start sends no session_profile.
+// Start holds the session_profile instruction and its optional source and files.
+// A nil Instruction omits session_profile; it does not send "none".
 type Start struct {
 	Pick        PickSource
 	Instruction *api.SessionProfileRequest
@@ -45,18 +43,15 @@ type Start struct {
 	Files       *api.SessionProfileCheckoutFiles
 }
 
-// Runs reports whether the start asks Revyl to run a profile.
+// Runs reports whether Revyl must run the profile, excluding applied outputs.
 func (s Start) Runs() bool {
 	return s.Instruction != nil && (s.Instruction.Instruction == api.SessionProfileInstructionKindNamed || s.Instruction.Instruction == api.SessionProfileInstructionKindDefault)
 }
 
-// SendsScript reports whether the start sends a script file from the
-// checkout, rather than only a definition whose script Revyl reads.
 func (s Start) SendsScript() bool {
 	return s.Files != nil && s.Files.ScriptFile != nil
 }
 
-// Name is the profile a named or applied start sends, or "".
 func (s Start) Name() string {
 	if s.Instruction == nil {
 		return ""
@@ -64,31 +59,25 @@ func (s Start) Name() string {
 	return s.Instruction.Name
 }
 
-// StartOptions describes how one start picks its session profile.
 type StartOptions struct {
 	Session     config.AuthoredSession
 	ProjectRoot string
 	ConfigPath  string
 	// Pick is the explicit pick: "" when not given, "none" for no profile.
 	Pick string
-	// FromCheckout sends the profile's definition and script as this checkout
-	// has them; false lets Revyl read them, and the project's default, from Git.
+	// FromCheckout sends the local definition and any local script file.
+	// Otherwise Revyl uses the project's stored configuration.
 	FromCheckout bool
-	// GitBranchName is the branch the profile reads from Git; "" uses the
-	// checkout's.
+	// GitBranchName overrides branch detection from the checkout and CI.
 	GitBranchName string
-	// Asked is true when the caller asked for a profile itself rather than
-	// running the checkout's session.default_profile.
+	// Asked selects the explicit-request error when project.id cannot be read.
 	Asked bool
 }
 
-// ResolveStart resolves what a start sends for its session profile, the way a
-// test run takes its checkout files. From the checkout it is the explicit
-// pick, else the checkout's session.default_profile, sent as a named profile
-// with its definition and script, uncommitted changes included. "none" sends
-// a none instruction, and no pick and no default sends nothing. Only a start
-// that reads profiles from Git sends a default instruction. A profile names
-// the project in .revyl/config.yaml and the Git branch it reads.
+// ResolveStart sends a checkout's explicit pick or local default by name,
+// including uncommitted files, and omits the instruction when neither is set.
+// An explicit "none" suppresses even a backend default. A start using stored
+// configuration can delegate the default pick to Revyl.
 func ResolveStart(ctx context.Context, options StartOptions) (Start, error) {
 	pick := strings.TrimSpace(options.Pick)
 	if pick == config.NoSessionProfile {
@@ -140,9 +129,8 @@ func ResolveStart(ctx context.Context, options StartOptions) (Start, error) {
 	return start, nil
 }
 
-// BackendCapabilityHostedSessionProfiles is the backend capability that runs a
-// named or default session profile on Revyl's hosted runner for device, web
-// and computer starts, from Git or from the checkout's files.
+// BackendCapabilityHostedSessionProfiles advertises support for running named
+// or default profiles on the hosted runner.
 const BackendCapabilityHostedSessionProfiles = "hosted_session_profiles"
 
 // RequireHostedRun fails a start that runs a session profile when the backend
@@ -178,9 +166,8 @@ func checkoutProjectID(configPath string) (uuid.UUID, error) {
 	return uuid.Parse(authored.Project.ID)
 }
 
-// checkoutFiles is profileName's definition and script file as this checkout
-// has them, uncommitted changes included. A script name with no .revyl/scripts
-// file is a Library Script, which Revyl reads itself.
+// A bare script name without a matching checkout file is resolved by Revyl
+// from the Script Library.
 func checkoutFiles(session config.AuthoredSession, projectRoot, configPath, profileName string) (api.SessionProfileCheckoutFiles, error) {
 	profile := session.Profiles[profileName]
 	files := api.SessionProfileCheckoutFiles{Script: profile.Script}

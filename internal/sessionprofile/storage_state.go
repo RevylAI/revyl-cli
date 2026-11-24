@@ -17,12 +17,9 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// The storage state rules mirror BrowserStorageState in
-// cognisim_schemas/cognisim_schemas/schemas/session_profile.py in pydantic's
-// lax mode, rule for rule, so a --cookies-file fails here the way Revyl would
-// refuse it.
+// Cookie-file validation follows the BrowserStorageState model in
+// cognisim_schemas/cognisim_schemas/schemas/session_profile.py.
 
-// outputFile names the file a storage state error is about.
 type outputFile struct {
 	envName string
 }
@@ -200,9 +197,8 @@ func decodeOrderedJSON(decoder *json.Decoder) (any, error) {
 	return object, err
 }
 
-// parseBrowserStorageState validates a Playwright storage state document the
-// way BrowserStorageState does in pydantic's lax mode and returns its
-// canonical form. Errors name file and never echo a value.
+// parseBrowserStorageState returns canonical state and reports failures without
+// echoing cookie or localStorage values.
 func parseBrowserStorageState(file outputFile, text string) (json.RawMessage, error) {
 	data := []byte(text)
 	var raw json.RawMessage
@@ -292,8 +288,7 @@ func unpairedSurrogateEscapeLine(data []byte) (int, bool) {
 	return 0, false
 }
 
-// storageStateIssue is the first error pydantic reports for a storage state
-// document: a location, or the reason a model validator gave.
+// storageStateIssue records the first local validation failure by field or reason.
 type storageStateIssue struct {
 	location []any
 	reason   string

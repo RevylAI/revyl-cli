@@ -14,8 +14,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// CookiesFileProfileName names the applied session profile a --cookies-file
-// start sends when no project profile applies.
+// CookiesFileProfileName identifies applied --cookies-file state on the wire.
 const CookiesFileProfileName = "cookies-file"
 
 // BackendCapabilitySessionProfiles is the backend capability that accepts an
@@ -62,8 +61,6 @@ func ReadCookiesFile(path string) (json.RawMessage, error) {
 	return state, nil
 }
 
-// CookiesFileProfile is the applied cookies-file profile that carries a
-// --cookies-file's storage state.
 func CookiesFileProfile(state json.RawMessage) *api.SessionProfileRequest {
 	return &api.SessionProfileRequest{
 		Instruction: api.SessionProfileInstructionKindApplied,
@@ -72,9 +69,8 @@ func CookiesFileProfile(state json.RawMessage) *api.SessionProfileRequest {
 	}
 }
 
-// WithCookiesFile makes start apply a --cookies-file's storage state. A start
-// that runs a profile can't also apply the file: Revyl runs that profile on
-// its hosted runner and applies its outputs there.
+// WithCookiesFile sends local storage state instead of running a named or
+// default profile. The two cannot be combined in one start.
 func WithCookiesFile(start Start, state json.RawMessage) (Start, error) {
 	if start.Runs() {
 		return start, fmt.Errorf("--cookies-file can't combine with session profile %s, which Revyl runs on its hosted runner; pass --session-profile none to start with the file's cookies alone", start.Name())
@@ -82,14 +78,12 @@ func WithCookiesFile(start Start, state json.RawMessage) (Start, error) {
 	return Start{Pick: start.Pick, Instruction: CookiesFileProfile(state)}, nil
 }
 
-// CapabilityLister lists the optional behaviors a Revyl backend supports.
 type CapabilityLister interface {
 	GetBackendCapabilities(ctx context.Context) ([]string, error)
 }
 
-// RequireBackendCapability fails unless the backend lists capability, so a
-// request never sends a field an older backend would silently ignore. feature
-// names what needs it in the error.
+// RequireBackendCapability prevents an older backend from silently ignoring
+// a request field that needs the named capability.
 func RequireBackendCapability(ctx context.Context, backend CapabilityLister, capability, feature string) error {
 	supported, err := backendSupports(ctx, backend, capability)
 	if err != nil {
@@ -101,8 +95,7 @@ func RequireBackendCapability(ctx context.Context, backend CapabilityLister, cap
 	return nil
 }
 
-// backendSupports reports whether the backend lists capability. A backend
-// older than the capabilities route lists none.
+// A 404 from a backend predating the capability route means no capabilities.
 func backendSupports(ctx context.Context, backend CapabilityLister, capability string) (bool, error) {
 	capabilities, err := backend.GetBackendCapabilities(ctx)
 	var apiErr *api.APIError

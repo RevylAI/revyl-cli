@@ -13,7 +13,6 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// writeScript creates an executable script at repoRoot/relPath.
 func writeScript(t *testing.T, repoRoot, relPath, body string) string {
 	t.Helper()
 	full := filepath.Join(repoRoot, relPath)
@@ -26,8 +25,6 @@ func writeScript(t *testing.T, repoRoot, relPath, body string) string {
 	return full
 }
 
-// skipPOSIXShellFixture skips tests that exec a #!/bin/sh fixture on Windows,
-// where bare shell scripts are not host-native executables.
 func skipPOSIXShellFixture(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -35,8 +32,6 @@ func skipPOSIXShellFixture(t *testing.T) {
 	}
 }
 
-// newRepoRoot returns a symlink-resolved temp directory, matching what
-// FindRepoRoot hands the runner on macOS where /var is a symlink.
 func newRepoRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -85,8 +80,6 @@ echo "E2E_USER_ID=user-9"
 	if got := result.Values["E2E_USER_ID"]; got != "user-9" {
 		t.Fatalf("E2E_USER_ID = %q, want user-9", got)
 	}
-	// "Setting FOO=bar in the app" is prose, not a value line: the text left
-	// of the first "=" is not a valid key.
 	if len(result.Values) != 2 {
 		t.Fatalf("Run() parsed %d values, want 2: %v", len(result.Values), result.Values)
 	}
@@ -354,8 +347,6 @@ func TestRun_RejectsTruncatedStdout(t *testing.T) {
 
 	root := newRepoRoot(t)
 	secret := "super-secret-token-value-that-must-not-leak"
-	// Pad past the tiny capture budget mid KEY=VALUE so a naive parse would
-	// accept a corrupted partial value.
 	writeScript(t, root, "setup.sh", "#!/bin/sh\necho \"E2E_AUTH_TOKEN="+secret+strings.Repeat("x", 80)+"\"\n")
 
 	result, err := Run(context.Background(), root, testBeforeScript("./setup.sh", 0))

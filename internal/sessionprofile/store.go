@@ -13,16 +13,13 @@ import (
 	"github.com/revyl/cli/internal/filelock"
 )
 
-// appliedProfilesFileName is the local, mode-0600 record of the profile each
-// device session started with, which reuse and auth refresh read.
+// Reuse and auth refresh read the last recorded profile for the session.
 const appliedProfilesFileName = "applied-session-profiles.json"
 
 // appliedProfilesLockFileName guards the record's read-modify-write across the
 // CLI and MCP processes that start and stop sessions in one project.
 const appliedProfilesLockFileName = "applied-session-profiles.lock"
 
-// appliedProfilesLockTimeout bounds the wait for another process's update,
-// which holds the lock only across one small read-modify-write.
 const appliedProfilesLockTimeout = 5 * time.Second
 
 // AppliedProfile is the profile a device session started with.
@@ -34,7 +31,6 @@ type appliedProfilesFile struct {
 	Sessions map[string]AppliedProfile `json:"sessions"`
 }
 
-// SaveAppliedProfile records the profile a device session started with.
 func SaveAppliedProfile(projectRoot, sessionID string, profile AppliedProfile) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if projectRoot == "" || sessionID == "" {
@@ -57,8 +53,8 @@ func SaveAppliedProfile(projectRoot, sessionID string, profile AppliedProfile) e
 	return writeAppliedProfiles(path, state)
 }
 
-// LoadAppliedProfile returns the profile a device session started with, or nil
-// when it started without one.
+// LoadAppliedProfile returns the locally recorded profile, or nil when no
+// entry exists. A missing record doesn't establish how the session started.
 func LoadAppliedProfile(projectRoot, sessionID string) (*AppliedProfile, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if projectRoot == "" || sessionID == "" {
@@ -129,8 +125,6 @@ func lockAppliedProfiles(path string) (func(), error) {
 	return release, nil
 }
 
-// errAppliedProfilesUnparseable marks a record file that exists but isn't
-// valid JSON of the record's shape.
 var errAppliedProfilesUnparseable = errors.New("parse applied session profiles")
 
 func readAppliedProfiles(path string) (appliedProfilesFile, error) {
@@ -151,9 +145,8 @@ func readAppliedProfiles(path string) (appliedProfilesFile, error) {
 	return state, nil
 }
 
-// writeAppliedProfiles replaces the record through a private temporary file
-// and a rename, so readers never see a partial record and every copy is mode
-// 0600.
+// Use a private temporary file: records from older CLI versions could contain
+// deep links, and replacing the file must not expose a partial record.
 func writeAppliedProfiles(path string, state appliedProfilesFile) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

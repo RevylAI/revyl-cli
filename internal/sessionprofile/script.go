@@ -13,8 +13,6 @@ import (
 	"github.com/revyl/cli/internal/checkoutdefinitions"
 )
 
-// resolveRepositoryPath resolves a profile's repository path script from the
-// project root, refusing one that leaves the repository or can't run.
 func resolveRepositoryPath(projectRoot, ref string) (string, error) {
 	realScript, err := realPathInRepository(projectRoot, filepath.Join(projectRoot, filepath.FromSlash(ref)), ref)
 	if err != nil {
@@ -51,8 +49,6 @@ func realPathInRepository(projectRoot, scriptPath, ref string) (string, error) {
 	return realScript, nil
 }
 
-// repositoryRootOf returns the nearest directory at or above projectRoot that
-// holds .git, or projectRoot itself outside a Git checkout.
 func repositoryRootOf(projectRoot string) string {
 	for current := projectRoot; ; {
 		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
@@ -66,9 +62,8 @@ func repositoryRootOf(projectRoot string) string {
 	}
 }
 
-// findRepositoryScript returns the path of the one .revyl/scripts file named
-// name, found false when there is none. A file that resolves outside the
-// repository holding projectRoot is refused.
+// Named scripts must be regular files in .revyl/scripts; unlike repository
+// path scripts, the lookup does not accept a symlink as the file itself.
 func findRepositoryScript(projectRoot, scriptsDir, name string) (string, bool, error) {
 	var matches []string
 	for _, extension := range slices.Sorted(maps.Keys(checkoutdefinitions.ScriptRuntimeByFileExtension)) {

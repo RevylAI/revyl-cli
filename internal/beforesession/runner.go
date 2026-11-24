@@ -1,11 +1,5 @@
-// Package beforesession runs the repository-local before_session setup script
-// that prepares the app under test before a device session starts.
-//
-// It is deliberately stricter than build.Runner, which executes an arbitrary
-// shell line with no timeout and no path constraint. before_session runs on
-// every session start, including unattended cloud-agent runs, so it takes a
-// path to a repository-local executable rather than a shell line, bounds the
-// run with a timeout, and never echoes script output.
+// Package beforesession runs session.before_script in the local checkout
+// and returns launch values for the CLI start paths that opt into it.
 package beforesession
 
 import (
@@ -24,58 +18,29 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// maxCapturedOutputBytes bounds how much of each output stream is retained.
-// The contract is a short list of KEY=VALUE lines, so anything beyond this is a
-// runaway script rather than useful output. A var so tests can lower the limit.
 var maxCapturedOutputBytes = 1 << 20
-
-// outputDrainGrace bounds how long a killed script's surviving grandchildren
-// may hold the output pipes open before the runner abandons them.
 var outputDrainGrace = 5 * time.Second
 
-// launchEnvKeyPattern is the launch-variable key rule shared with the backend.
 var launchEnvKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
-// Error is a before_session failure whose message is safe to surface in CLI
-// output, MCP responses, and persisted status. Script stdout and stderr are
-// never included, because the script's whole purpose is producing secrets.
+// Error describes a setup failure for CLI output and persisted status.
+// Run's errors omit script output and values; they may name paths and keys.
 type Error struct {
-	// Reason is a stable, secret-free description of the failure.
 	Reason string
 }
 
-// Error implements the error interface.
 func (e *Error) Error() string {
 	return e.Reason
 }
 
-// Result carries the session-scoped values a before_session script produced.
+// Result carries launch values for one session, not organization variables.
 type Result struct {
-	// Values are the KEY=VALUE pairs printed on stdout. They are applied to a
-	// single device session's launch environment and never written to org
-	// launch variables, so concurrent sessions cannot clobber each other.
 	Values map[string]string
 }
 
-// Run executes the configured before_session script to completion and returns
-// the values it printed.
-//
-// Failure is fatal by design, the deliberate opposite of auth_bypass's
-// best-effort semantics: a session that starts against an unprepared app
-// produces a confident wrong result, which is worse than no result.
-//
-// Parameters:
-//   - ctx: Cancellation scope for the run; a timeout is applied on top of it.
-//   - repoRoot: Absolute path to the Revyl project root, used as the script's
-//     working directory. Script containment is the git worktree root when found.
-//   - cfg: The canonical before_script block. Nil or script-less config is a
-//     no-op returning an empty result.
-//
-// Returns:
-//   - Result: Parsed session-scoped values, empty when nothing was printed.
-//   - error: An *Error with a secret-free reason when the script cannot be
-//     resolved, times out, exits non-zero, exceeds the stdout capture budget,
-//     or prints malformed output.
+// Run executes the configured script in the Revyl project directory under the
+// caller's context and a script timeout. A nil or blank script is a no-op.
+// Callers must abort preparation on *Error rather than boot without the values.
 func Run(ctx context.Context, repoRoot string, cfg *config.AuthoredBeforeScript) (Result, error) {
 	script := authoredScriptPath(cfg)
 	if script == "" {
@@ -96,9 +61,7 @@ func Run(ctx context.Context, repoRoot string, cfg *config.AuthoredBeforeScript)
 	cmd.Dir = repoRoot
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = &limitedWriter{buf: &stderr, remaining: maxCapturedOutputBytes}
-	// Killing the script does not close the output pipes if it left a
-	// grandchild running, so without a wait delay the timeout would not
-	// actually bound the run.
+	// A surviving descendant can hold the output pipes open after cancellation.
 	cmd.WaitDelay = outputDrainGrace
 
 	runErr := cmd.Run()
@@ -139,23 +102,6 @@ func authoredScriptTimeout(cfg *config.AuthoredBeforeScript) time.Duration {
 	return time.Duration(timeoutSeconds) * time.Second
 }
 
-// resolveScriptPath resolves a configured script to an executable file inside
-// the git worktree.
-//
-// Relative scripts are joined against the Revyl project root (the directory
-// that owns `.revyl/`). Containment is the git worktree root when one is
-// found by walking up from that project root, otherwise the project root
-// itself. That lets nested projects (e.g. `ios/`) call scripts elsewhere in
-// the same monorepo via `../…` without allowing escapes outside the checkout.
-//
-// Parameters:
-//   - projectRoot: Absolute path to the Revyl project root (cmd.Dir for the run).
-//   - script: The configured path, relative to the project root (or absolute).
-//
-// Returns:
-//   - string: The resolved absolute path to the script.
-//   - error: An *Error when the path escapes the worktree, does not exist,
-//     is not a regular file, or (on Unix) is not executable.
 func resolveScriptPath(projectRoot, script string) (string, error) {
 	trimmed := strings.TrimSpace(script)
 	candidate := trimmed
@@ -233,16 +179,7 @@ func gitWorktreeRoot(projectRoot string) (string, error) {
 	}
 }
 
-// runFailure converts an execution failure into a secret-free *Error.
-//
-// Parameters:
-//   - runCtx: The timeout-bounded context the script ran under.
-//   - parentCtx: The caller's context, used to tell cancellation from timeout.
-//   - script: The configured script path, echoed back for orientation.
-//   - err: The raw failure from exec.
-//
-// Returns:
-//   - error: An *Error describing the failure without script output.
+// runFailure deliberately omits the original process error and captured output.
 func runFailure(runCtx, parentCtx context.Context, script string, err error) error {
 	switch {
 	case parentCtx.Err() != nil:
@@ -260,19 +197,8 @@ func runFailure(runCtx, parentCtx context.Context, script string, err error) err
 	return &Error{Reason: fmt.Sprintf("session.before_script %q could not be run", script)}
 }
 
-// parseValues extracts KEY=VALUE pairs from script stdout.
-//
-// Only well-formed lines are considered, so scripts can log freely on stdout
-// without their prose being mistaken for values.
-//
-// Parameters:
-//   - stdout: The script's captured standard output.
-//   - script: The configured script path, echoed back for orientation.
-//
-// Returns:
-//   - map[string]string: The parsed values, nil when none were printed.
-//   - error: An *Error when a key is printed twice or with an empty value.
-//     Neither the offending value nor any other output appears in the message.
+// parseValues ignores unrecognized lines; errors for recognized assignments
+// name the key but omit its value.
 func parseValues(stdout, script string) (map[string]string, error) {
 	var values map[string]string
 
@@ -313,24 +239,12 @@ func parseValues(stdout, script string) (map[string]string, error) {
 	return values, nil
 }
 
-// limitedWriter buffers output up to a fixed budget and discards the rest, so a
-// runaway script cannot exhaust memory.
 type limitedWriter struct {
 	buf       *bytes.Buffer
 	remaining int
-	// truncated is true once any byte has been discarded past the budget.
 	truncated bool
 }
 
-// Write implements io.Writer, reporting every byte as written so the child
-// process never sees a short write once the budget is exhausted.
-//
-// Parameters:
-//   - p: Bytes from the child process.
-//
-// Returns:
-//   - int: Always len(p), even when some or all bytes were discarded.
-//   - error: Always nil.
 func (w *limitedWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil

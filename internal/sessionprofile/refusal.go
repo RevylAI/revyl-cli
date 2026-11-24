@@ -7,8 +7,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// refusalNextSteps names what to do about each code Revyl refuses a start's
-// session profile with.
 var refusalNextSteps = map[string]string{
 	"session_profile_undefined":           "define it under session.profiles in .revyl/config.yaml, or pick another profile or none",
 	"session_profile_script_unavailable":  "check that the profile's script exists in .revyl/scripts, at its repository path, or in the Library",
@@ -20,8 +18,8 @@ var refusalNextSteps = map[string]string{
 	"repository_unavailable":              "Revyl couldn't read the repository just now; retry in a minute",
 }
 
-// RefusalError is Revyl refusing a start over its session profile. Detail is
-// the backend's own sentence, which never holds a script's output or values.
+// RefusalError carries a backend diagnostic for a profile the start couldn't
+// apply. Refusal details must omit script output and secret values.
 type RefusalError struct {
 	Code   string
 	Detail string
@@ -31,8 +29,6 @@ func (e *RefusalError) Error() string {
 	return fmt.Sprintf("Revyl refused the session profile (%s): %s; %s", e.Code, e.Detail, refusalNextSteps[e.Code])
 }
 
-// AsRefusal returns err as a session profile refusal when Revyl refused the
-// start with one of their codes.
 func AsRefusal(err error) (*RefusalError, bool) {
 	var apiErr *api.APIError
 	if !errors.As(err, &apiErr) {

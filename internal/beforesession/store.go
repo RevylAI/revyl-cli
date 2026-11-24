@@ -8,26 +8,17 @@ import (
 	"strings"
 )
 
-// valuesFileName is the local, mode-0600 cache of before_session values minted
-// for a device session. Auth refresh reuses these so the deep link keeps the
-// same token the app received as launch environment at boot.
+// Auth refresh reuses the script's minted values from this local cache
+// instead of rerunning the script.
 const valuesFileName = "before-session-values.json"
 
-// valuesFile is the on-disk shape of the boot-values cache.
 type valuesFile struct {
 	// Sessions maps device session ID to the KEY=VALUE pairs minted for it.
 	Sessions map[string]map[string]string `json:"sessions"`
 }
 
-// SaveSessionValues persists before_session values for one device session.
-//
-// Parameters:
-//   - workDir: Repository / project root that owns `.revyl/`.
-//   - sessionID: Backend device session ID the values were minted for.
-//   - values: Session-scoped KEY=VALUE pairs. Empty or blank sessionID is a no-op.
-//
-// Returns:
-//   - error: Filesystem or encode failure. Values are never logged.
+// SaveSessionValues stores a copy under the backend device session ID in the
+// project's local cache. Blank paths or IDs and empty values are no-ops.
 func SaveSessionValues(workDir, sessionID string, values map[string]string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if strings.TrimSpace(workDir) == "" || sessionID == "" || len(values) == 0 {
@@ -55,15 +46,8 @@ func SaveSessionValues(workDir, sessionID string, values map[string]string) erro
 	return writeValuesFile(path, state)
 }
 
-// LoadSessionValues returns the before_session values minted for a session.
-//
-// Parameters:
-//   - workDir: Repository / project root that owns `.revyl/`.
-//   - sessionID: Backend device session ID to look up.
-//
-// Returns:
-//   - map[string]string: A copy of the stored values, or nil when absent.
-//   - error: Filesystem or decode failure. Missing file is not an error.
+// LoadSessionValues returns a copy of the session's stored values, or nil
+// without an error when the file or session entry is absent.
 func LoadSessionValues(workDir, sessionID string) (map[string]string, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if strings.TrimSpace(workDir) == "" || sessionID == "" {
@@ -86,14 +70,8 @@ func LoadSessionValues(workDir, sessionID string) (map[string]string, error) {
 	return copied, nil
 }
 
-// ClearSessionValues removes persisted before_session values for a session.
-//
-// Parameters:
-//   - workDir: Repository / project root that owns `.revyl/`.
-//   - sessionID: Backend device session ID to forget.
-//
-// Returns:
-//   - error: Filesystem or encode failure. Missing file is not an error.
+// ClearSessionValues removes only the given session's entry and tolerates
+// an absent file or entry.
 func ClearSessionValues(workDir, sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if strings.TrimSpace(workDir) == "" || sessionID == "" {
@@ -121,12 +99,10 @@ func ClearSessionValues(workDir, sessionID string) error {
 	return writeValuesFile(path, state)
 }
 
-// valuesPath returns the absolute path of the boot-values cache.
 func valuesPath(workDir string) string {
 	return filepath.Join(workDir, ".revyl", valuesFileName)
 }
 
-// readValuesFile loads the cache, treating a missing file as empty state.
 func readValuesFile(path string) (valuesFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -145,7 +121,8 @@ func readValuesFile(path string) (valuesFile, error) {
 	return state, nil
 }
 
-// writeValuesFile atomically replaces the cache with mode 0600.
+// The cache contains secret values: request mode 0600 when creating the
+// temporary file. The rename does not serialize concurrent updates.
 func writeValuesFile(path string, state valuesFile) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
