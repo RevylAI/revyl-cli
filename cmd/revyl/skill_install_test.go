@@ -455,7 +455,7 @@ func TestResolveInstallTargetsDetectsOpenCodeFromItsConfigDirOnly(t *testing.T) 
 		t.Fatal(err)
 	}
 	targets := resolveInstallTargets()
-	if len(targets) != 1 || targets[0].tool != "opencode" || targets[0].path != ".agents/skills" {
+	if len(targets) != 1 || targets[0].tool != "opencode" || targets[0].path != filepath.Join(".agents", "skills") {
 		t.Fatalf("targets=%v, want OpenCode on .agents/skills", targets)
 	}
 }

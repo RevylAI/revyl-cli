@@ -15,37 +15,21 @@ import (
 	"time"
 )
 
-// DiagnosticCheck represents the result of a single diagnostic probe.
 type DiagnosticCheck struct {
-	// Name is a short human-readable label for this check (e.g. "Metro health").
-	Name string
-
-	// Passed indicates whether the check succeeded.
+	Name   string
 	Passed bool
-
-	// Detail provides additional context on success or the error message on failure.
 	Detail string
 }
 
-// DiagnosticResult aggregates the outcomes of all post-startup HMR health checks.
 type DiagnosticResult struct {
-	// Checks contains each individual probe result in execution order.
-	Checks []DiagnosticCheck
-
-	// AllPassed is true only when every check succeeded.
+	Checks    []DiagnosticCheck
 	AllPassed bool
 }
 
-// diagnosticHTTPTimeout is the fast timeout for lightweight HTTP and WebSocket
-// probe connections.
 var diagnosticHTTPTimeout = 5 * time.Second
 
-// expoManifestHTTPTimeout gives Expo's first manifest request room to generate
-// without making lightweight relay health probes wait on Metro work.
 var expoManifestHTTPTimeout = 30 * time.Second
 
-// expoManifestReadyTimeout bounds the total wait for Expo's first platform-aware
-// manifest without weakening fast transport readiness checks.
 var expoManifestReadyTimeout = 90 * time.Second
 
 // expoManifestDeviceHeadTimeout is a short per-attempt cap for the final
@@ -58,13 +42,9 @@ var expoManifestDeviceHeadTimeout = 8 * time.Second
 // the first JS bundle before the device asks for it through the relay.
 const DefaultExpoBundlePrewarmTimeout = 5 * time.Minute
 
-// MaxExpoBundlePrewarmTimeout bounds how long a dev-loop startup can wait for a
-// cold Expo bundle transform. The relay keeps a separate response-start margin
-// above this maximum so accepted values can complete end to end.
+// MaxExpoBundlePrewarmTimeout is the upper bound accepted for Expo bundle prewarm timeouts.
 const MaxExpoBundlePrewarmTimeout = 10 * time.Minute
 
-// expoBundlePrewarmHTTPTimeout remains a variable so focused diagnostics tests
-// can use short budgets without waiting for the production default.
 var expoBundlePrewarmHTTPTimeout = DefaultExpoBundlePrewarmTimeout
 
 // DefaultMetroReadyTimeout bounds how long startup waits for the tunnel to
@@ -73,7 +53,6 @@ var expoBundlePrewarmHTTPTimeout = DefaultExpoBundlePrewarmTimeout
 // Overridable per-run via Manager.SetReadyTimeout or REVYL_READY_TIMEOUT.
 const DefaultMetroReadyTimeout = 60 * time.Second
 
-// metroTunnelReadyPollInterval controls how frequently tunnel readiness is re-checked.
 const metroTunnelReadyPollInterval = 1500 * time.Millisecond
 
 const (
@@ -138,30 +117,9 @@ func expoDeviceLaunchContract(targetPlatform string) []expoDeviceLaunchContractE
 	}
 }
 
-// diagnosticCheckFunc probes a single post-startup hot reload invariant.
 type diagnosticCheckFunc func(localPort int, tunnelURL string) DiagnosticCheck
 
-// RunPostStartupDiagnostics probes the HMR pipeline after the dev loop reports
-// ready and returns structured pass/fail results. Checks run synchronously in
-// order so the first failure can short-circuit if needed.
-//
-// Checks performed:
-//  1. Metro health endpoint (GET http://127.0.0.1:{port}/status)
-//  2. Local HMR WebSocket upgrade (ws://127.0.0.1:{port}/hot)
-//  3. Tunnel HTTP reachability (GET {tunnelURL}/status)
-//  4. Tunnel WebSocket upgrade (wss://{tunnelURL}/hot)
-//  5. Manifest URL correctness — Expo only (no local-port leaks in launchAsset.url, debuggerHost, hostUri)
-//  6. Expo devtools plugin WebSocket — Expo only, advisory (ws://{relay}/expo-dev-plugins/broadcast)
-//
-// Parameters:
-//   - localPort: The local Metro dev server port
-//   - tunnelURL: The public relay URL (e.g. "https://hr-abc.revyl.ai")
-//   - providerName: The hot reload provider (e.g. "expo", "react-native").
-//     The manifest URL check is skipped for non-Expo providers because bare
-//     Metro does not serve a JSON manifest at the root path.
-//
-// Returns:
-//   - *DiagnosticResult: Aggregated results with per-check detail
+// RunPostStartupDiagnostics runs all post-startup HMR checks without an explicit target platform.
 func RunPostStartupDiagnostics(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
 	return RunPostStartupDiagnosticsForPlatform(localPort, tunnelURL, providerName, "")
 }
@@ -188,22 +146,7 @@ func RunPostStartupDiagnosticsForPlatform(localPort int, tunnelURL string, provi
 	return runDiagnosticChecks(localPort, tunnelURL, checks)
 }
 
-// WaitForMetroTunnel waits until the public Metro tunnel is reachable.
-//
-// This is primarily used by bare React Native startup. If the tunnel URL has
-// not propagated yet, the cloud device can launch before the JavaScript bundle
-// is reachable and remain on a blank white screen.
-//
-// Parameters:
-//   - ctx: Context for cancellation while waiting.
-//   - localPort: The local Metro dev server port.
-//   - tunnelURL: The public relay URL.
-//   - timeout: Maximum time to wait for the tunnel to become reachable.
-//   - interval: Delay between retry attempts.
-//
-// Returns:
-//   - *DiagnosticResult: The final probe result.
-//   - error: Any timeout, cancellation, or readiness failure.
+// WaitForMetroTunnel polls tunnel HTTP and WebSocket probes until both pass or timeout elapses.
 func WaitForMetroTunnel(
 	ctx context.Context,
 	localPort int,
@@ -345,13 +288,7 @@ func diagnosticResultForSingleCheck(errorPrefix string, check DiagnosticCheck) (
 	return result, fmt.Errorf("%s: %s", errorPrefix, formatFailedChecks(result.Checks))
 }
 
-// WaitForExpoMetroRelay waits until the public relay can serve the Expo Metro
-// status endpoint and a manifest whose bundle URLs resolve through the relay.
-//
-// Expo dev clients fail with "There was a problem loading the project" if the
-// device opens the dev-client deep link before the relay can reach Metro or
-// before Expo has applied the relay URL rewriting. This check blocks that
-// launch until the externally-visible path is usable.
+// WaitForExpoMetroRelay waits for Expo relay transport and manifest readiness using the default platform.
 func WaitForExpoMetroRelay(
 	ctx context.Context,
 	localPort int,
@@ -431,7 +368,6 @@ func waitForDiagnosticChecks(
 	}
 }
 
-// runDiagnosticChecks executes a list of diagnostic probes and aggregates the results.
 func runDiagnosticChecks(localPort int, tunnelURL string, checks []diagnosticCheckFunc) *DiagnosticResult {
 	result := &DiagnosticResult{AllPassed: true}
 
@@ -446,7 +382,6 @@ func runDiagnosticChecks(localPort int, tunnelURL string, checks []diagnosticChe
 	return result
 }
 
-// formatFailedChecks summarizes the failed probe names and details.
 func formatFailedChecks(checks []DiagnosticCheck) string {
 	failed := make([]string, 0, len(checks))
 	for _, check := range checks {
@@ -461,9 +396,6 @@ func formatFailedChecks(checks []DiagnosticCheck) string {
 	return strings.Join(failed, "; ")
 }
 
-// checkMetroHealth verifies the local Metro server is responding.
-// Uses 127.0.0.1 to match the relay path and avoid false failures on
-// machines where "localhost" resolves to IPv6.
 func checkMetroHealth(localPort int, _ string) DiagnosticCheck {
 	client := &http.Client{Timeout: diagnosticHTTPTimeout}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", localPort))
@@ -478,9 +410,6 @@ func checkMetroHealth(localPort int, _ string) DiagnosticCheck {
 	return DiagnosticCheck{Name: "Metro health", Passed: true, Detail: "OK"}
 }
 
-// checkLocalWebSocket attempts a WebSocket upgrade to the local HMR endpoint.
-// Uses 127.0.0.1 to match the relay path and avoid false failures on
-// machines where "localhost" resolves to IPv6.
 func checkLocalWebSocket(localPort int, _ string) DiagnosticCheck {
 	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
 	err := probeWebSocketUpgrade(addr, false)
@@ -490,7 +419,6 @@ func checkLocalWebSocket(localPort int, _ string) DiagnosticCheck {
 	return DiagnosticCheck{Name: "Local WebSocket (/hot)", Passed: true, Detail: "OK"}
 }
 
-// checkTunnelHTTP verifies the tunnel forwards HTTP to Metro.
 func checkTunnelHTTP(_ int, tunnelURL string) DiagnosticCheck {
 	client := &http.Client{Timeout: diagnosticHTTPTimeout}
 	statusURL := strings.TrimRight(tunnelURL, "/") + "/status"
@@ -508,7 +436,6 @@ func checkTunnelHTTP(_ int, tunnelURL string) DiagnosticCheck {
 	return DiagnosticCheck{Name: "Tunnel HTTP", Passed: true, Detail: fmt.Sprintf("OK duration=%s", duration)}
 }
 
-// checkTunnelWebSocket attempts a WebSocket upgrade through the tunnel.
 func checkTunnelWebSocket(_ int, tunnelURL string) DiagnosticCheck {
 	host := tunnelHost(tunnelURL)
 	err := probeWebSocketUpgrade(host, strings.HasPrefix(tunnelURL, "https://"))
@@ -1242,16 +1169,6 @@ func expoManifestURL(tunnelURL string, platform string) (string, error) {
 	return parsed.String(), nil
 }
 
-// probeWebSocketUpgrade performs a raw TCP WebSocket upgrade handshake and
-// returns nil if the server responds with 101 Switching Protocols.
-//
-// Parameters:
-//   - hostPort: The host:port to connect to. If no port is present and useTLS
-//     is true, ":443" is appended.
-//   - useTLS: Whether to wrap the connection with TLS.
-//
-// Returns:
-//   - error: nil on successful 101 response, otherwise describes the failure.
 func probeWebSocketUpgrade(hostPort string, useTLS bool) error {
 	return probeWebSocketUpgradePath(hostPort, useTLS, "/hot")
 }

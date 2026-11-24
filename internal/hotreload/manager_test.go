@@ -1970,8 +1970,6 @@ func TestRunDiagnosticsUsesAdvisoryFailureLanguage(t *testing.T) {
 	}
 }
 
-// withTimeoutCapturingExpoStubs stubs the Expo readiness waits so Start()
-// succeeds, capturing the timeout passed to the relay transport wait.
 func withTimeoutCapturingExpoStubs(t *testing.T) *time.Duration {
 	t.Helper()
 	var captured time.Duration

@@ -50,7 +50,6 @@ flutter:
 func TestFlutterDetect_NotFlutterProject(t *testing.T) {
 	dir := t.TempDir()
 
-	// pubspec.yaml without flutter SDK
 	pubspec := `name: dart_package
 dependencies:
   http: ^1.0.0

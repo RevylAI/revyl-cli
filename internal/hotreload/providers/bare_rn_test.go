@@ -236,7 +236,6 @@ func TestBareRNDetect_DevDependencies(t *testing.T) {
 	}
 }
 
-// writePackageJSON is a test helper that writes a package.json file to a directory.
 func writePackageJSON(t *testing.T, dir, content string) {
 	t.Helper()
 	err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(content), 0644)

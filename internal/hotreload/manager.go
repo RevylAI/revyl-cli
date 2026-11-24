@@ -14,36 +14,20 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// StartResult contains the result of starting hot reload mode.
 type StartResult struct {
-	// TunnelURL is the public hot reload relay URL.
-	TunnelURL string
-
-	// DeepLinkURL is the deep link URL for launching the dev client.
-	DeepLinkURL string
-
-	// Transport is the public transport backing TunnelURL.
-	Transport string
-
-	// RelayID is populated when Transport=relay.
-	RelayID string
-
-	// DevServerPort is the port the dev server is running on.
+	TunnelURL     string
+	DeepLinkURL   string
+	Transport     string
+	RelayID       string
 	DevServerPort int
 }
 
-// DevServerFactory is a function that creates a DevServer.
-// This is used to avoid import cycles between hotreload and providers packages.
 type DevServerFactory func(workDir, appScheme string, port int, useExpPrefix bool) DevServer
 
-// BareRNDevServerFactory creates a bare React Native DevServer.
-// Simpler signature than DevServerFactory since bare RN has no app scheme or exp prefix.
 type BareRNDevServerFactory func(workDir string, port int) DevServer
 
-// expoDevServerFactory is set by the providers package during init.
 var expoDevServerFactory DevServerFactory
 
-// bareRNDevServerFactory is set by the providers package during init.
 var bareRNDevServerFactory BareRNDevServerFactory
 
 var postStartupDiagnostics = RunPostStartupDiagnosticsForPlatform
@@ -66,9 +50,6 @@ const readyTimeoutEnvVar = "REVYL_READY_TIMEOUT"
 // for automation paths that cannot pass the revyl dev flag.
 const bundlePrewarmTimeoutEnvVar = "REVYL_PREWARM_TIMEOUT"
 
-// readyTimeoutFromEnv resolves REVYL_READY_TIMEOUT as a positive integer
-// number of seconds. Invalid values fall back to the default and return a
-// warning for the caller to surface.
 func readyTimeoutFromEnv() (time.Duration, string) {
 	raw := strings.TrimSpace(os.Getenv(readyTimeoutEnvVar))
 	if raw == "" {
@@ -83,8 +64,6 @@ func readyTimeoutFromEnv() (time.Duration, string) {
 	return time.Duration(secs) * time.Second, ""
 }
 
-// bundlePrewarmTimeoutFromEnv resolves REVYL_PREWARM_TIMEOUT as a positive
-// integer number of seconds within the relay's supported response-start budget.
 func bundlePrewarmTimeoutFromEnv() (time.Duration, string) {
 	raw := strings.TrimSpace(os.Getenv(bundlePrewarmTimeoutEnvVar))
 	if raw == "" {
@@ -100,132 +79,49 @@ func bundlePrewarmTimeoutFromEnv() (time.Duration, string) {
 	return time.Duration(secs) * time.Second, ""
 }
 
-// RegisterExpoDevServerFactory registers the Expo dev server factory.
-// Called by the providers package during init.
 func RegisterExpoDevServerFactory(factory DevServerFactory) {
 	expoDevServerFactory = factory
 }
 
-// RegisterBareRNDevServerFactory registers the bare React Native dev server factory.
-// Called by the providers package during init.
 func RegisterBareRNDevServerFactory(factory BareRNDevServerFactory) {
 	bareRNDevServerFactory = factory
 }
 
-// TunnelBackendFactory creates a TunnelBackend for tests or custom wiring.
 type TunnelBackendFactory func() TunnelBackend
 
-// Manager orchestrates the hot reload flow including dev server and tunnel lifecycle.
 type Manager struct {
-	// providerName is the name of the provider (expo, swift, android).
-	providerName string
-
-	// providerConfig is the configuration for the selected provider.
-	providerConfig *config.ProviderConfig
-
-	// workDir is the working directory for the project.
-	workDir string
-
-	// devServer is the active development server.
-	devServer DevServer
-
-	// tunnel is the active tunnel backend.
-	tunnel TunnelBackend
-
-	// apiClient is used by the relay transport control plane.
-	apiClient *api.Client
-
-	// transportPreference selects the preferred public transport.
-	transportPreference string
-
-	// tunnelFactory overrides the default TunnelBackend construction.
-	tunnelFactory TunnelBackendFactory
-
-	// onLog is called with log messages for the UI.
-	onLog func(message string)
-
-	// onDevServerOutput is called for streamed dev server process output.
-	onDevServerOutput DevServerOutputCallback
-
-	// debugMode enables provider-specific debug startup behavior.
-	debugMode bool
-
-	// targetPlatform is the device platform used for Expo manifest requests.
-	targetPlatform string
-
-	// forceHotReload lets callers launch even when Expo relay readiness cannot
-	// prove the manifest is ready yet. It does not bypass earlier startup errors.
-	forceHotReload bool
-
-	packagerHostLaunch bool
-
-	// readyTimeout bounds relay-readiness waits (transport probe at startup and
-	// after relay recovery). Resolved from REVYL_READY_TIMEOUT at construction;
-	// SetReadyTimeout overrides.
-	readyTimeout time.Duration
-
-	// readyTimeoutWarning holds a deferred warning about an invalid
-	// REVYL_READY_TIMEOUT value, logged once at Start.
-	readyTimeoutWarning string
-
-	// bundlePrewarmTimeout bounds the first cold Expo bundle transform through
-	// the public relay. Resolved from REVYL_PREWARM_TIMEOUT at construction;
-	// SetBundlePrewarmTimeout overrides.
-	bundlePrewarmTimeout time.Duration
-
-	// bundlePrewarmTimeoutWarning holds a deferred warning about an invalid
-	// REVYL_PREWARM_TIMEOUT value, logged once at Start.
+	providerName                string
+	providerConfig              *config.ProviderConfig
+	workDir                     string
+	devServer                   DevServer
+	tunnel                      TunnelBackend
+	apiClient                   *api.Client
+	transportPreference         string
+	tunnelFactory               TunnelBackendFactory
+	onLog                       func(message string)
+	onDevServerOutput           DevServerOutputCallback
+	debugMode                   bool
+	targetPlatform              string
+	forceHotReload              bool
+	packagerHostLaunch          bool
+	readyTimeout                time.Duration
+	readyTimeoutWarning         string
+	bundlePrewarmTimeout        time.Duration
 	bundlePrewarmTimeoutWarning string
-
-	// externalTunnelURL, when set, bypasses the relay tunnel and dev server entirely.
-	// The manager returns this URL directly as the tunnel URL. If externalDeepLinkURL
-	// is unset, the Expo deep link is constructed from provider config.
-	externalTunnelURL string
-
-	// externalDeepLinkURL, when set, is used directly for Expo dev-client launch.
-	// This lets callers pass the full deep link Expo printed without requiring app_scheme.
-	externalDeepLinkURL string
-
-	// failures receives deduplicated runtime failures from providers and tunnels.
-	failures chan RuntimeFailure
-
-	// failureLast tracks the last emission time for a dedupe key.
-	failureLast map[string]time.Time
-
-	// recoveryMu serializes recovery paths that stop/start the local dev server.
-	recoveryMu sync.Mutex
-
-	// localRecoveryAttempted caps automatic local dev-server restart to once.
-	localRecoveryAttempted bool
-
-	// relayRecoveryMu serializes relay re-acquire attempts.
-	relayRecoveryMu sync.Mutex
-
-	// relayRecoveryAttempted caps automatic relay re-acquire to once.
-	relayRecoveryAttempted bool
-
-	// mu protects concurrent access.
-	mu sync.Mutex
-
-	// ctx is canceled when this manager stops, including advisory diagnostics.
-	ctx context.Context
-
-	// cancel stops manager-owned background work.
-	cancel context.CancelFunc
-
-	// running indicates whether hot reload is active.
-	running bool
+	externalTunnelURL           string
+	externalDeepLinkURL         string
+	failures                    chan RuntimeFailure
+	failureLast                 map[string]time.Time
+	recoveryMu                  sync.Mutex
+	localRecoveryAttempted      bool
+	relayRecoveryMu             sync.Mutex
+	relayRecoveryAttempted      bool
+	mu                          sync.Mutex
+	ctx                         context.Context
+	cancel                      context.CancelFunc
+	running                     bool
 }
 
-// NewManager creates a new hot reload manager.
-//
-// Parameters:
-//   - providerName: The provider name (expo, swift, android)
-//   - providerConfig: Configuration for the selected provider
-//   - workDir: Working directory for the project
-//
-// Returns:
-//   - *Manager: A new manager instance
 func NewManager(providerName string, providerConfig *config.ProviderConfig, workDir string) *Manager {
 	readyTimeout, readyTimeoutWarning := readyTimeoutFromEnv()
 	bundlePrewarmTimeout, bundlePrewarmTimeoutWarning := bundlePrewarmTimeoutFromEnv()
@@ -244,49 +140,34 @@ func NewManager(providerName string, providerConfig *config.ProviderConfig, work
 	}
 }
 
-// SetLogCallback sets the callback for log messages.
-//
-// Parameters:
-//   - callback: Function to call with log messages
 func (m *Manager) SetLogCallback(callback func(message string)) {
 	m.onLog = callback
 }
 
-// SetDevServerOutputCallback sets a callback for dev-server process output lines.
-//
-// Parameters:
-//   - callback: Function to call with stdout/stderr output lines
 func (m *Manager) SetDevServerOutputCallback(callback DevServerOutputCallback) {
 	m.onDevServerOutput = callback
 }
 
-// SetDebugMode configures provider-specific debug startup behavior.
 func (m *Manager) SetDebugMode(enabled bool) {
 	m.debugMode = enabled
 }
 
-// SetTargetPlatform configures the device platform used for Expo manifest
-// readiness checks. Blank or unknown values default to iOS.
+// SetTargetPlatform configures the device platform for Expo manifest checks (defaults to iOS).
 func (m *Manager) SetTargetPlatform(platform string) {
 	m.targetPlatform = normalizeExpoPlatform(platform)
 }
 
-// SetForceHotReload allows startup to continue if the Expo relay readiness
-// proof fails after the dev server and tunnel have started.
+// SetForceHotReload skips the Expo manifest, bundle prewarm, and HEAD checks after transport readiness.
 func (m *Manager) SetForceHotReload(enabled bool) {
 	m.forceHotReload = enabled
 }
 
-// SetPackagerHostLaunch marks an Expo app without expo-dev-client: the app
-// loads Metro from the packager host passed at launch, so no dev-client
-// deep link, and therefore no app scheme, is needed.
+// SetPackagerHostLaunch allows Expo startup without an app_scheme when the app loads Metro directly.
 func (m *Manager) SetPackagerHostLaunch(enabled bool) {
 	m.packagerHostLaunch = enabled
 }
 
-// SetReadyTimeout overrides how long startup and relay recovery wait for the
-// relay transport to become reachable. Non-positive values are ignored,
-// keeping the env-resolved or default timeout.
+// SetReadyTimeout overrides the relay-readiness timeout; non-positive values are ignored.
 func (m *Manager) SetReadyTimeout(timeout time.Duration) {
 	if timeout > 0 {
 		m.readyTimeout = timeout
@@ -294,9 +175,7 @@ func (m *Manager) SetReadyTimeout(timeout time.Duration) {
 	}
 }
 
-// SetBundlePrewarmTimeout overrides how long startup waits for the first cold
-// Expo bundle transform through the relay. Values outside the supported relay
-// budget are ignored, keeping the env-resolved or default timeout.
+// SetBundlePrewarmTimeout overrides the cold Expo bundle prewarm timeout; values outside (0, MaxExpoBundlePrewarmTimeout] are ignored.
 func (m *Manager) SetBundlePrewarmTimeout(timeout time.Duration) {
 	if timeout > 0 && timeout <= MaxExpoBundlePrewarmTimeout {
 		m.bundlePrewarmTimeout = timeout
@@ -304,12 +183,10 @@ func (m *Manager) SetBundlePrewarmTimeout(timeout time.Duration) {
 	}
 }
 
-// SetAPIClient provides the authenticated backend client used by the relay transport.
 func (m *Manager) SetAPIClient(client *api.Client) {
 	m.apiClient = client
 }
 
-// SetTransportPreference sets the preferred public transport.
 func (m *Manager) SetTransportPreference(transport string) {
 	trimmed := strings.ToLower(strings.TrimSpace(transport))
 	if trimmed == "" {
@@ -318,7 +195,6 @@ func (m *Manager) SetTransportPreference(transport string) {
 	m.transportPreference = trimmed
 }
 
-// ConfigureFromHotReloadConfig applies transport settings from project config.
 func (m *Manager) ConfigureFromHotReloadConfig(hr *config.HotReloadConfig, client *api.Client) {
 	m.apiClient = client
 	if hr == nil {
@@ -327,32 +203,21 @@ func (m *Manager) ConfigureFromHotReloadConfig(hr *config.HotReloadConfig, clien
 	m.transportPreference = hr.GetTransport()
 }
 
-// SetTunnelBackendFactory overrides the default relay tunnel backend.
-// Must be called before Start.
-//
-// Params:
-//   - factory: function that creates a TunnelBackend
+// SetTunnelBackendFactory overrides the default tunnel backend; must be called before Start.
 func (m *Manager) SetTunnelBackendFactory(factory TunnelBackendFactory) {
 	m.tunnelFactory = factory
 }
 
-// SetExternalTunnelURL configures the manager to use a user-provided tunnel URL
-// instead of provisioning a relay. When set, Start() skips the dev server and
-// relay entirely, returning the external URL and a deep link built from provider config.
-//
-// Parameters:
-//   - tunnelURL: The public tunnel URL (e.g. from npx expo start --tunnel)
+// SetExternalTunnelURL bypasses owned dev-server and relay startup and returns tunnelURL directly.
 func (m *Manager) SetExternalTunnelURL(tunnelURL string) {
 	m.externalTunnelURL = strings.TrimSpace(tunnelURL)
 }
 
-// SetExternalDeepLinkURL configures the manager to use a user-provided Expo
-// dev-client deep link instead of deriving one from provider config.
+// SetExternalDeepLinkURL overrides Expo deep-link derivation in external-tunnel mode.
 func (m *Manager) SetExternalDeepLinkURL(deepLinkURL string) {
 	m.externalDeepLinkURL = strings.TrimSpace(deepLinkURL)
 }
 
-// log sends a message to the log callback if set.
 func (m *Manager) log(format string, args ...interface{}) {
 	if m.onLog != nil {
 		m.onLog(fmt.Sprintf(format, args...))
@@ -365,21 +230,7 @@ func (m *Manager) debugLog(format string, args ...interface{}) {
 	}
 }
 
-// Start initializes the dev server and tunnel for hot reload mode.
-//
-// This method:
-//  1. Creates the dev server instance (but doesn't start it yet)
-//  2. Starts the relay first to get the URL
-//  3. Sets the proxy URL on the dev server for bundle URL rewriting
-//  4. Starts the dev server with the proxy URL configured
-//  5. Returns the URLs needed for test execution
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//
-// Returns:
-//   - *StartResult: URLs and information for test execution
-//   - error: Any error that occurred
+// Start brings up the tunnel and dev server (or short-circuits in external-tunnel mode) and verifies readiness.
 func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -411,7 +262,6 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 		return m.startExternal(m.ctx)
 	}
 
-	// 1. Create dev server instance (but don't start yet - we need tunnel URL first)
 	m.log("Preparing %s dev server...", m.providerName)
 	devServer, err := m.createDevServer()
 	if err != nil {
@@ -420,8 +270,6 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 	m.attachDevServerOutputCallback(devServer)
 	m.attachDevServerDebugMode(devServer)
 
-	// 2. Start tunnel FIRST to get the URL
-	// This must happen before starting the dev server so we can set EXPO_PACKAGER_PROXY_URL
 	backend, tunnelURL, err := m.createTunnelBackend(m.ctx, devServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tunnel: %w", err)
@@ -429,12 +277,9 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 	m.tunnel = backend
 	m.debugLog("Tunnel ready: %s", tunnelURL)
 
-	// 3. Set proxy URL on dev server for bundle URL rewriting
-	// This makes Metro return bundle URLs using the tunnel URL instead of localhost
 	devServer.SetProxyURL(tunnelURL)
 	m.debugLog("Configured proxy URL for bundle rewriting")
 
-	// 4. Now start the dev server with proxy URL configured
 	m.log("Starting %s dev server...", m.providerName)
 	if err := devServer.Start(m.ctx); err != nil {
 		return nil, fmt.Errorf("failed to start dev server: %w", err)
@@ -443,7 +288,6 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 	m.log("%s dev server ready", devServer.Name())
 	m.debugLog("%s dev server port: %d", devServer.Name(), devServer.GetPort())
 
-	// 5. Start health monitor for automatic tunnel reconnection
 	backend.StartHealthMonitor(m.ctx)
 
 	via := "relay"
@@ -551,15 +395,11 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 		m.log("Metro tunnel is reachable")
 	}
 
-	// 6. Construct deep link URL
 	deepLinkURL := devServer.GetDeepLinkURL(tunnelURL)
 
 	m.running = true
 	m.watchRuntimeFailures(m.ctx, devServer, backend)
 
-	// 7. Run advisory HMR diagnostics only in debug mode. These checks are
-	// intentionally non-blocking and can race Metro/Expo startup, so default
-	// dev-loop UX should rely on the device session as source of truth.
 	if m.debugMode {
 		go m.runDiagnostics(devServer.GetPort(), tunnelURL)
 	}
@@ -649,10 +489,6 @@ func (m *Manager) attachTunnelLogCallback(backend TunnelBackend) {
 	}
 }
 
-// Stop cleans up all hot reload resources.
-//
-// This method stops the tunnel and dev server in order.
-// It is safe to call multiple times.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -669,7 +505,6 @@ func (m *Manager) cleanupLocked(logStopped bool) {
 		m.ctx = nil
 	}
 
-	// Stop tunnel first
 	if m.tunnel != nil {
 		m.tunnel.Stop()
 		m.tunnel = nil
@@ -678,7 +513,6 @@ func (m *Manager) cleanupLocked(logStopped bool) {
 		}
 	}
 
-	// Stop dev server
 	if m.devServer != nil {
 		m.devServer.Stop()
 		m.devServer = nil
@@ -710,8 +544,6 @@ func (m *Manager) resetRuntimeFailuresLocked() {
 	}
 }
 
-// startExternal handles the short-circuit path when an external tunnel URL is
-// configured. No dev server or relay is started; the provided URL is used directly.
 func (m *Manager) startExternal(ctx context.Context) (*StartResult, error) {
 	tunnelURL := m.externalTunnelURL
 	backend := NewExternalTunnelBackend(tunnelURL)
@@ -735,8 +567,6 @@ func (m *Manager) startExternal(ctx context.Context) (*StartResult, error) {
 	}, nil
 }
 
-// buildExpoDeepLink constructs an Expo dev client deep link from provider config
-// and a tunnel URL. Kept in-package to avoid importing providers (cycle).
 func (m *Manager) buildExpoDeepLink(tunnelURL string) string {
 	if m.providerConfig == nil || m.providerConfig.AppScheme == "" {
 		return ""
@@ -748,20 +578,12 @@ func (m *Manager) buildExpoDeepLink(tunnelURL string) string {
 	return fmt.Sprintf("%s://expo-development-client/?url=%s", m.providerConfig.AppScheme, encodedURL)
 }
 
-// IsRunning returns whether hot reload is currently active.
-//
-// Returns:
-//   - bool: True if hot reload is running
 func (m *Manager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.running
 }
 
-// GetTunnelURL returns the current tunnel URL if running.
-//
-// Returns:
-//   - string: The tunnel URL, or empty string if not running
 func (m *Manager) GetTunnelURL() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -772,10 +594,6 @@ func (m *Manager) GetTunnelURL() string {
 	return ""
 }
 
-// GetDevServerPort returns the dev server port if running.
-//
-// Returns:
-//   - int: The port number, or 0 if not running
 func (m *Manager) GetDevServerPort() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -964,8 +782,7 @@ func (m *Manager) tryRecoverLocalDevServer(ctx context.Context, failure RuntimeF
 	return true, failure
 }
 
-// RecoverRelay replaces an expired relay session in place and restarts the
-// owned local dev server so Metro advertises the replacement public host.
+// RecoverRelay replaces an expired relay session at most once and restarts the local dev server.
 func (m *Manager) RecoverRelay(ctx context.Context) (*StartResult, error) {
 	m.recoveryMu.Lock()
 	defer m.recoveryMu.Unlock()
@@ -1139,9 +956,6 @@ func runtimeFailureDedupeKey(f RuntimeFailure) string {
 	return fmt.Sprintf("%s|%t|%s|%d|%s", f.Kind, f.Fatal, f.Provider, f.Port, f.RelayID)
 }
 
-// runDiagnostics probes every layer of the HMR pipeline and logs per-check
-// results. Intended to run in a goroutine immediately after Start() so results
-// appear shortly after "Dev loop ready".
 func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
 	result := postStartupDiagnostics(localPort, tunnelURL, m.providerName, m.targetPlatform)
 	for _, c := range result.Checks {
@@ -1224,7 +1038,6 @@ func runtimeFailureFromDiagnostic(check DiagnosticCheck, localPort int) (Runtime
 	}
 }
 
-// attachDevServerOutputCallback wires process output callbacks when supported.
 func (m *Manager) attachDevServerOutputCallback(devServer DevServer) {
 	if m.onDevServerOutput == nil {
 		return
@@ -1236,7 +1049,6 @@ func (m *Manager) attachDevServerOutputCallback(devServer DevServer) {
 	emitter.SetOutputCallback(m.onDevServerOutput)
 }
 
-// attachDevServerDebugMode wires debug-mode startup behavior when supported.
 func (m *Manager) attachDevServerDebugMode(devServer DevServer) {
 	debugConfigurable, ok := devServer.(DevServerDebugConfigurable)
 	if !ok {
@@ -1245,7 +1057,6 @@ func (m *Manager) attachDevServerDebugMode(devServer DevServer) {
 	debugConfigurable.SetDebugMode(m.debugMode)
 }
 
-// createDevServer creates the appropriate dev server based on the provider.
 func (m *Manager) createDevServer() (DevServer, error) {
 	switch m.providerName {
 	case "expo":
@@ -1282,18 +1093,10 @@ func (m *Manager) createDevServer() (DevServer, error) {
 	}
 }
 
-// GetProviderName returns the provider name.
-//
-// Returns:
-//   - string: The provider name
 func (m *Manager) GetProviderName() string {
 	return m.providerName
 }
 
-// GetProviderConfig returns the provider configuration.
-//
-// Returns:
-//   - *config.ProviderConfig: The provider configuration
 func (m *Manager) GetProviderConfig() *config.ProviderConfig {
 	return m.providerConfig
 }

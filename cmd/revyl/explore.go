@@ -212,13 +212,21 @@ func runExploreRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(cmd.ErrOrStderr(), notice)
 	}
 	if !quiet && exploreConcurrencyWasTrimmed(output) {
-		fmt.Fprintf(
-			cmd.ErrOrStderr(),
-			"Warning: available concurrency trimmed explorers from %d to %d.\n",
-			output.ExplorersRequested,
-			output.ExplorersLaunched,
-		)
-		fmt.Fprintln(cmd.ErrOrStderr(), api.ConcurrencyUpgradeHint)
+		if exploreRunIsFree(launch.Run) {
+			fmt.Fprintf(
+				cmd.ErrOrStderr(),
+				"Your free first exploration runs %d explorers.\n",
+				output.ExplorersLaunched,
+			)
+		} else {
+			fmt.Fprintf(
+				cmd.ErrOrStderr(),
+				"Warning: available concurrency trimmed explorers from %d to %d.\n",
+				output.ExplorersRequested,
+				output.ExplorersLaunched,
+			)
+			fmt.Fprintln(cmd.ErrOrStderr(), api.ConcurrencyUpgradeHint)
+		}
 	}
 
 	if exploreOpen && strings.TrimSpace(launch.ReportUrl) != "" {
@@ -779,6 +787,15 @@ func exploreOutcome(run api.ExplorationRunResponse) (string, bool) {
 
 func exploreConcurrencyWasTrimmed(output exploreOutput) bool {
 	return output.ExplorersLaunched > 0 && output.ExplorersLaunched < output.ExplorersRequested
+}
+
+// A free exploration's explorer count is capped by the backend, not by concurrency.
+func exploreRunIsFree(run api.ExplorationRunResponse) bool {
+	if run.Config == nil {
+		return false
+	}
+	reason, _ := (*run.Config)["free_reason"].(string)
+	return reason != ""
 }
 
 func hasBlockedSetupFinding(run api.ExplorationRunResponse) bool {

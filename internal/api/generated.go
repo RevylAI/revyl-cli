@@ -5061,22 +5061,25 @@ type ActiveDeviceSessionItem struct {
 	LaneIndex                 *int                                       `json:"lane_index,omitempty"`
 	LaneRole                  *string                                    `json:"lane_role,omitempty"`
 	LastActivityAt            *string                                    `json:"last_activity_at,omitempty"`
-	OrgId                     string                                     `json:"org_id"`
-	OsVersion                 *string                                    `json:"os_version,omitempty"`
-	Platform                  string                                     `json:"platform"`
-	ScreenHeight              *int                                       `json:"screen_height,omitempty"`
-	ScreenWidth               *int                                       `json:"screen_width,omitempty"`
-	Source                    string                                     `json:"source"`
-	SourceMetadata            *map[string]interface{}                    `json:"source_metadata,omitempty"`
-	StartedAt                 *time.Time                                 `json:"started_at,omitempty"`
-	Status                    string                                     `json:"status"`
-	TestId                    *string                                    `json:"test_id,omitempty"`
-	TestName                  *string                                    `json:"test_name,omitempty"`
-	TraceId                   *string                                    `json:"trace_id,omitempty"`
-	UserEmail                 *string                                    `json:"user_email,omitempty"`
-	UserId                    *string                                    `json:"user_id,omitempty"`
-	WhepUrl                   *string                                    `json:"whep_url,omitempty"`
-	WorkflowRunId             *string                                    `json:"workflow_run_id,omitempty"`
+
+	// OrgConcurrencyExempt The session is a lane of one of the organization's free explorations, which Hatchet runs outside the organization's device and Web concurrency, so it neither holds nor waits for one of its slots
+	OrgConcurrencyExempt *bool                   `json:"org_concurrency_exempt,omitempty"`
+	OrgId                string                  `json:"org_id"`
+	OsVersion            *string                 `json:"os_version,omitempty"`
+	Platform             string                  `json:"platform"`
+	ScreenHeight         *int                    `json:"screen_height,omitempty"`
+	ScreenWidth          *int                    `json:"screen_width,omitempty"`
+	Source               string                  `json:"source"`
+	SourceMetadata       *map[string]interface{} `json:"source_metadata,omitempty"`
+	StartedAt            *time.Time              `json:"started_at,omitempty"`
+	Status               string                  `json:"status"`
+	TestId               *string                 `json:"test_id,omitempty"`
+	TestName             *string                 `json:"test_name,omitempty"`
+	TraceId              *string                 `json:"trace_id,omitempty"`
+	UserEmail            *string                 `json:"user_email,omitempty"`
+	UserId               *string                 `json:"user_id,omitempty"`
+	WhepUrl              *string                 `json:"whep_url,omitempty"`
+	WorkflowRunId        *string                 `json:"workflow_run_id,omitempty"`
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.

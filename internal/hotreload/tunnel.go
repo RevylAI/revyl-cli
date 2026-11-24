@@ -13,135 +13,89 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// TunnelBackendInfo describes transport metadata exposed by a tunnel backend.
 type TunnelBackendInfo struct {
 	Transport string
 	RelayID   string
 }
 
-// TunnelBackend abstracts the network transport that exposes a local port to
-// cloud devices.
+// TunnelBackend exposes a local dev server port to a target device.
 type TunnelBackend interface {
-	// Start creates the tunnel/relay and returns the public URL that devices can reach.
 	Start(ctx context.Context, localPort int) (publicURL string, err error)
-
-	// StartHealthMonitor spawns background liveness checks and automatic reconnection.
 	StartHealthMonitor(ctx context.Context)
-
-	// Stop tears down the tunnel/relay.
 	Stop() error
-
-	// PublicURL returns the current public URL, or "" if not running.
 	PublicURL() string
 }
 
-// TunnelBackendInfoProvider is implemented by backends that expose transport metadata.
 type TunnelBackendInfoProvider interface {
 	Metadata() TunnelBackendInfo
 }
 
-// RelayReacquireResult describes a replacement relay session created in place.
 type RelayReacquireResult struct {
 	TunnelURL string
 	RelayID   string
 	Transport string
 }
 
-// TunnelBackendReacquirer is implemented by tunnel backends that can replace
-// their public relay session without recreating the whole hot-reload manager.
 type TunnelBackendReacquirer interface {
 	Reacquire(ctx context.Context) (*RelayReacquireResult, error)
 }
 
-// TunnelFailureReporter is implemented by tunnel backends that can report
-// asynchronous transport/runtime failures.
 type TunnelFailureReporter interface {
 	Failures() <-chan RuntimeFailure
 }
 
-// ExternalTunnelBackend wraps a user-provided tunnel URL (e.g. from
-// npx expo start --tunnel). It implements TunnelBackend as a no-op passthrough
-// since the customer manages the tunnel lifecycle externally.
+// ExternalTunnelBackend wraps a caller-managed tunnel URL as a no-op TunnelBackend.
 type ExternalTunnelBackend struct {
 	publicURL string
 }
 
-// NewExternalTunnelBackend creates a backend that wraps an externally-managed tunnel URL.
-//
-// Parameters:
-//   - publicURL: The tunnel URL provided by the user (e.g. https://xxxx.exp.direct)
-//
-// Returns:
-//   - *ExternalTunnelBackend: A new backend wrapping the provided URL
 func NewExternalTunnelBackend(publicURL string) *ExternalTunnelBackend {
 	return &ExternalTunnelBackend{publicURL: publicURL}
 }
 
-// Start returns the pre-configured public URL. No tunnel is created.
 func (e *ExternalTunnelBackend) Start(_ context.Context, _ int) (string, error) {
 	return e.publicURL, nil
 }
 
-// StartHealthMonitor is a no-op; the external tunnel is managed by the user.
 func (e *ExternalTunnelBackend) StartHealthMonitor(_ context.Context) {}
 
-// Stop is a no-op; the external tunnel is managed by the user.
 func (e *ExternalTunnelBackend) Stop() error { return nil }
 
-// PublicURL returns the user-provided tunnel URL.
 func (e *ExternalTunnelBackend) PublicURL() string { return e.publicURL }
 
-// Metadata returns transport info identifying this as an external tunnel.
 func (e *ExternalTunnelBackend) Metadata() TunnelBackendInfo {
 	return TunnelBackendInfo{Transport: "external"}
 }
 
-// TransportLocal serves the dev server at its loopback address, for a device
-// that runs on the same machine as the dev server and shares its network.
+// TransportLocal serves the dev server at 127.0.0.1 for a device sharing loopback.
 const TransportLocal = "local"
 
-// LocalTunnelBackend exposes no tunnel: the device reaches the dev server
-// over the shared loopback interface.
 type LocalTunnelBackend struct {
 	url string
 }
 
-// Start returns the dev server's loopback URL.
 func (l *LocalTunnelBackend) Start(_ context.Context, localPort int) (string, error) {
 	l.url = fmt.Sprintf("http://127.0.0.1:%d", localPort)
 	return l.url, nil
 }
 
-// StartHealthMonitor is a no-op; the local dev server health monitor covers it.
 func (l *LocalTunnelBackend) StartHealthMonitor(_ context.Context) {}
 
-// Stop is a no-op; there is no tunnel to tear down.
 func (l *LocalTunnelBackend) Stop() error { return nil }
 
-// PublicURL returns the loopback URL.
 func (l *LocalTunnelBackend) PublicURL() string { return l.url }
 
-// Metadata identifies this as the local transport.
 func (l *LocalTunnelBackend) Metadata() TunnelBackendInfo {
 	return TunnelBackendInfo{Transport: TransportLocal}
 }
 
-// ConnectivityCheckResult contains the result of network connectivity checks.
 type ConnectivityCheckResult struct {
-	// CanReachRevylAPI indicates if the Revyl backend is reachable.
 	CanReachRevylAPI bool
-
-	// CanResolveDNS indicates if DNS resolution is working.
-	CanResolveDNS bool
-
-	// BlockedBy describes what is blocking connectivity ("dns", "firewall", "proxy", "unknown").
-	BlockedBy string
-
-	// Suggestion contains a helpful message for the user.
-	Suggestion string
+	CanResolveDNS    bool
+	BlockedBy        string
+	Suggestion       string
 }
 
-// CheckConnectivity performs pre-flight checks before attempting hot reload startup.
 func CheckConnectivity(ctx context.Context) (*ConnectivityCheckResult, error) {
 	result := &ConnectivityCheckResult{}
 
@@ -180,7 +134,6 @@ func CheckConnectivity(ctx context.Context) (*ConnectivityCheckResult, error) {
 	return result, nil
 }
 
-// DiagnoseAndSuggest provides user-friendly error messages for network issues.
 func DiagnoseAndSuggest(result *ConnectivityCheckResult) string {
 	if result == nil {
 		return ""

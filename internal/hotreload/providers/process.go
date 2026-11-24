@@ -58,10 +58,8 @@ func unexpectedProcessExitFailure(provider string, port int, prefix string, err 
 	}
 }
 
-// processStderr is a child process's stderr writer. It hands each complete
-// line to onLine and keeps the last lines so an unexpected exit can report
-// what the process printed before it died. Assigning it to exec.Cmd.Stderr
-// makes Wait drain the pipe before returning, so the final lines are kept.
+// Assigning processStderr to exec.Cmd.Stderr makes Wait drain the pipe before
+// returning, preserving the final stderr lines on unexpected process exit.
 type processStderr struct {
 	onLine  func(string)
 	mu      sync.Mutex
@@ -110,7 +108,6 @@ func (s *processStderr) recordLocked(line string) {
 	}
 }
 
-// Tail returns the last stderr lines, including an unterminated final line.
 func (s *processStderr) Tail() []string {
 	if s == nil {
 		return nil
