@@ -269,14 +269,6 @@ func TestSanitizeDevStructuredResultRemovesPresentationFields(t *testing.T) {
 	}
 }
 
-// requireHybridTextAndImage verifies fallback JSON precedes one native image.
-//
-// Parameters:
-//   - t: Active test.
-//   - result: Hybrid MCP result to inspect.
-//
-// Returns:
-//   - string: JSON text fallback.
 func requireHybridTextAndImage(t *testing.T, result *mcpsdk.CallToolResult) string {
 	t.Helper()
 	if result == nil || len(result.Content) != 2 {

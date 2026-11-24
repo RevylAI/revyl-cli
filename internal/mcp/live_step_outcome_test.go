@@ -74,7 +74,6 @@ func TestEvaluateLiveStepOutcomePreservesWorkerFailureReason(t *testing.T) {
 	}
 }
 
-// requireLiveStepOutcomeCode verifies an error has the expected semantic code.
 func requireLiveStepOutcomeCode(t *testing.T, err error, code string) {
 	t.Helper()
 	if err == nil {

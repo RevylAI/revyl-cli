@@ -13,24 +13,9 @@ const (
 	// loudly beats hanging a device command forever.
 	sessionStoreLockTimeout = 5 * time.Second
 
-	// sessionStoreLockPollInterval spaces non-blocking acquisition attempts.
 	sessionStoreLockPollInterval = 20 * time.Millisecond
 )
 
-// lockSessionStore takes an exclusive cross-process lock guarding
-// device-sessions.json, waiting up to sessionStoreLockTimeout.
-//
-// The lock must live on a sidecar path rather than on the data file itself:
-// the data file is replaced by rename, which swaps the inode out from under any
-// lock held on it, so two writers could each hold a "lock" on different inodes.
-//
-// Parameters:
-//   - lockPath: Sidecar lock file path, created if absent.
-//
-// Returns:
-//   - func(): Releases the lock and closes the file. Safe to call once.
-//   - error: If the lock file cannot be opened, or the timeout elapses while a
-//     peer holds the lock.
 func lockSessionStore(lockPath string) (func(), error) {
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

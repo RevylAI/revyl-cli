@@ -7,8 +7,6 @@ import (
 	"github.com/revyl/cli/internal/sessionprofile"
 )
 
-// sessionProfileStart resolves the session profile a start_device_session
-// call sends from the project's checkout, the way revyl device start does.
 func (s *Server) sessionProfileStart(ctx context.Context, explicitPick string) (sessionprofile.Start, error) {
 	options := sessionprofile.StartOptions{
 		Pick:         explicitPick,

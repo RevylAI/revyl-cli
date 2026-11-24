@@ -9,8 +9,6 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// collectCheckoutUpload returns what a run from runProject's checkout sends
-// for testIDs.
 func collectCheckoutUpload(ctx context.Context, runProject *config.ProjectContext, testIDs []string) (*checkoutdefinitions.Upload, error) {
 	upload, err := checkoutdefinitions.CollectUpload(ctx, runProject, testIDs, "call again with from_checkout=false")
 	if err != nil {
@@ -19,8 +17,6 @@ func collectCheckoutUpload(ctx context.Context, runProject *config.ProjectContex
 	return upload, nil
 }
 
-// testCountsByName turns a run's per-source or per-reason test counts into
-// plain string keys for tool output.
 func testCountsByName[Key ~string](countByKey map[Key]int) map[string]int {
 	if len(countByKey) == 0 {
 		return nil

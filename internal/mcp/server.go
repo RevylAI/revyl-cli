@@ -1,7 +1,4 @@
-// Package mcp provides the MCP (Model Context Protocol) server implementation.
-//
-// This package implements an MCP server that exposes Revyl CLI functionality
-// as tools that can be called by AI agents via the MCP protocol.
+// Package mcp provides the Revyl MCP server implementation.
 package mcp
 
 import (
@@ -38,7 +35,6 @@ import (
 	"github.com/revyl/cli/internal/workflowref"
 )
 
-// Server wraps the MCP server with Revyl-specific functionality.
 type Server struct {
 	mcpServer          *mcp.Server
 	apiClient          *api.Client
@@ -53,70 +49,48 @@ type Server struct {
 	rootCmd            *cobra.Command
 	sessionMgr         *DeviceSessionManager
 
-	// Hot reload session state (persists across tool calls)
 	hotReloadManager *hotreload.Manager
 	hotReloadMu      sync.Mutex
-	hotReloadTestID  string                 // Test ID the session was started for
-	hotReloadResult  *hotreload.StartResult // Cached URLs
+	hotReloadTestID  string
+	hotReloadResult  *hotreload.StartResult
 
-	// Canonical delegated dev-loop state.
 	devLoopRunner       devloop.Runner
 	delegatedDevWorkDir string
 	delegatedDevContext string
 
-	// Composite tool profile (empty = legacy flat tools)
 	profile               Profile
 	experimentalWorkspace bool
 	experimentalComputer  bool
 	workspaceOrigin       string
 	chatGPTPluginID       string
 
-	// Live browser approval offered to a caller with no usable credential.
 	pendingAuth pendingAuthorization
 
-	// Most explicit session-targeting mode any device tool call has used,
-	// recorded once per escalation on the serve command's terminal event.
 	sessionTargetMu   sync.Mutex
 	sessionTargetRank int
 }
 
-// ServerOption is a functional option for NewServer.
 type ServerOption func(*Server)
 
-// WithProfile sets the composite tool profile for the MCP server.
-// Use ProfileDev for the focused eleven-tool experience, ProfileCore for the
-// broad development/test surface, or ProfileFull for all functionality.
+// WithProfile selects the MCP tool profile (ProfileDev, ProfileCore, or ProfileFull).
 func WithProfile(p Profile) ServerOption {
 	return func(s *Server) {
 		s.profile = p
 	}
 }
 
-// WithDevLoopRunner injects the canonical dev-loop adapter for tests or alternate runtimes.
 func WithDevLoopRunner(runner devloop.Runner) ServerOption {
 	return func(s *Server) {
 		s.devLoopRunner = runner
 	}
 }
 
-// NewServer creates a new Revyl MCP server.
-//
-// Parameters:
-//   - version: The CLI version string
-//   - devMode: If true, use local development server URLs
-//   - opts: Optional functional options (WithProfile)
-//
-// Returns:
-//   - *Server: A new server instance
-//   - error: Any error that occurred during initialization
 func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, error) {
 	s := &Server{}
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	// Resolve authentication through the same active-token contract used by the
-	// rest of the CLI so browser access tokens and persistent API keys both work.
 	credentialManager := auth.NewManager()
 	authentication := resolveMCPAuthentication(credentialManager)
 	if authentication.LoadError != nil && s.profile != ProfileDev {
@@ -177,7 +151,6 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 		}
 	}
 
-	// Initialize device session manager
 	s.sessionMgr = NewDeviceSessionManager(s.apiClient, workDir)
 	s.sessionMgr.SetDevMode(devMode)
 
@@ -185,7 +158,6 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 	// the real CLI build version (e.g. "revyl-cli/1.2.3") instead of "revyl-cli/dev".
 	s.apiClient.SetVersion(version)
 
-	// Create MCP server with instructions
 	s.mcpServer = mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "revyl",
@@ -199,7 +171,6 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 	s.registerScreenshotAppResource()
 	s.registerAuthAppResource()
 
-	// Register tools
 	if s.profile != "" {
 		s.registerCompositeTools(s.profile)
 	} else {
@@ -244,35 +215,21 @@ func (s *Server) resolveCanonicalProject(projectDirectory string) (*config.Proje
 	return project, nil
 }
 
-// SetRootCmd sets the root Cobra command for schema generation.
-//
-// Parameters:
-//   - cmd: The root Cobra command
 func (s *Server) SetRootCmd(cmd *cobra.Command) {
 	s.rootCmd = cmd
 }
 
-// Run starts the MCP server over stdio.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//
-// Returns:
-//   - error: Any error that occurred during execution
 func (s *Server) Run(ctx context.Context) error {
 	defer s.Shutdown()
 	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
 
-// registerTools registers all Revyl tools with the MCP server.
 func (s *Server) registerTools() {
-	// --- Device interaction tools ---
 	s.registerDeviceTools()
 	s.registerDevLoopTools()
 	s.registerRunInspectTools()
 	s.registerInvestigateTool()
 
-	// run_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_test",
 		Description: "Run a Revyl test by name or ID. Returns test results including pass/fail status and report URL. A run that waited for a free device also returns queue_notice.",
@@ -282,7 +239,6 @@ func (s *Server) registerTools() {
 		},
 	}, s.handleRunTest)
 
-	// run_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_workflow",
 		Description: "Run a Revyl workflow (collection of tests) by name or ID and wait for results. Returns pass/fail counts and per-child tests with resolved app and branch identity; branch_source says where each child's branch came from (git_branch, default_branch, or explicit_branch). auto_git_branch_enabled=false means automatic Git branch detection was disabled; default_branch with a git_branch_name means that Git branch had no usable build. Queued launches have no resolved branch yet.",
@@ -292,7 +248,6 @@ func (s *Server) registerTools() {
 		},
 	}, s.handleRunWorkflow)
 
-	// list_tests tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_tests",
 		Description: "List the project's synced tests from .revyl/tests/ and the organization's workflows.",
@@ -302,7 +257,6 @@ func (s *Server) registerTools() {
 		},
 	}, s.handleListTests)
 
-	// get_test_status tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_test_status",
 		Description: "Get the current status of a running or completed test execution.",
@@ -312,7 +266,6 @@ func (s *Server) registerTools() {
 		},
 	}, s.handleGetTestStatus)
 
-	// NEW: create_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name: "create_test",
 		Description: `Create a new runnable test from YAML content and optional module imports.
@@ -323,7 +276,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCreateTest)
 
-	// NEW: create_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_workflow",
 		Description: "Create a new workflow (collection of tests).",
@@ -332,7 +284,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCreateWorkflow)
 
-	// NEW: get_schema tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_schema",
 		Description: "Get the complete CLI command schema and YAML test schema for LLM reference.",
@@ -342,7 +293,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleGetSchema)
 
-	// NEW: list_builds tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_builds",
 		Description: "List build versions across all branches of an app, or narrow by an explicit branch selector. Without app_id, list app summaries in the organization.",
@@ -352,7 +302,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListBuilds)
 
-	// NEW: open_workflow_editor tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "open_workflow_editor",
 		Description: "Get the URL to open a workflow in the browser editor.",
@@ -362,7 +311,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleOpenWorkflowEditor)
 
-	// cancel_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "cancel_test",
 		Description: "Cancel a running test execution by task ID.",
@@ -372,7 +320,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCancelTest)
 
-	// cancel_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "cancel_workflow",
 		Description: "Cancel a running workflow execution by task ID.",
@@ -382,7 +329,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCancelWorkflow)
 
-	// delete_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_test",
 		Description: "Delete a test by name (a .revyl/tests/ file name or a Revyl test name) or UUID.",
@@ -392,7 +338,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteTest)
 
-	// delete_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_workflow",
 		Description: "Delete a workflow by name or UUID.",
@@ -402,7 +347,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteWorkflow)
 
-	// list_remote_tests tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_remote_tests",
 		Description: "List all tests in the organization from the remote API (not just local config).",
@@ -412,7 +356,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListRemoteTests)
 
-	// list_workflows tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_workflows",
 		Description: "List all workflows in the organization from the remote API.",
@@ -422,7 +365,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListWorkflows)
 
-	// auth_status tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "auth_status",
 		Description: "Check current authentication status and return user info.",
@@ -433,7 +375,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	}, s.handleAuthStatus)
 	s.registerBillingStatusTool()
 
-	// create_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_app",
 		Description: "Create an iOS or Android app for uploads, or a Web app for URL builds.",
@@ -442,7 +383,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCreateApp)
 
-	// delete_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_app",
 		Description: "Delete an app and all its build versions by app ID.",
@@ -452,9 +392,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteApp)
 
-	// --- Module tools ---
-
-	// list_modules tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_modules",
 		Description: "List all reusable test modules in the organization. Modules are groups of test blocks that can be imported into any test via module_import blocks.",
@@ -464,7 +401,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListModules)
 
-	// get_module tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_module",
 		Description: "Get details of a specific module by ID, including its blocks.",
@@ -474,7 +410,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleGetModule)
 
-	// create_module tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_module",
 		Description: "Create a new reusable test module from a list of blocks.",
@@ -483,7 +418,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCreateModule)
 
-	// delete_module tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_module",
 		Description: "Delete a module by ID. Returns 409 if the module is in use by tests.",
@@ -493,7 +427,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteModule)
 
-	// insert_module_block tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "insert_module_block",
 		Description: "Given a module name or ID, returns a module_import block YAML snippet ready to insert into a test. Use this to compose tests with reusable modules.",
@@ -503,9 +436,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleInsertModuleBlock)
 
-	// --- Tag tools ---
-
-	// list_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_tags",
 		Description: "List all tags in the organization with test counts. Tags are used to categorize and filter tests.",
@@ -515,7 +445,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListTags)
 
-	// create_tag tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_tag",
 		Description: "Create a new tag. If a tag with the same name already exists, the existing tag is returned (upsert behavior).",
@@ -524,7 +453,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleCreateTag)
 
-	// delete_tag tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_tag",
 		Description: "Delete a tag by name or ID. This removes it from all tests.",
@@ -534,7 +462,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteTag)
 
-	// get_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_test_tags",
 		Description: "Get all tags assigned to a specific test.",
@@ -544,7 +471,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleGetTestTags)
 
-	// set_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_test_tags",
 		Description: "Replace all tags on a test with the given tag names. Tags are auto-created if they don't exist.",
@@ -553,9 +479,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleSetTestTags)
 
-	// --- File management tools ---
-
-	// list_files tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_files",
 		Description: "List all files uploaded to the organization. Files can be certificates, configs, images, or media used in tests via revyl-file:// references.",
@@ -565,7 +488,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListFiles)
 
-	// upload_file tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "upload_file",
 		Description: "Upload a local file to the organization. Supports certs (.pem, .cer, .crt, .key, .p12, .pfx, .der), configs (.json, .xml, .yaml, .yml, .toml, .csv, .txt, .conf, .cfg, .ini, .properties), images (.png, .jpg, .jpeg, .gif, .pdf), and media (.mp4, .mp3).",
@@ -575,7 +497,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleUploadFile)
 
-	// download_file tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "download_file",
 		Description: "Download an organization file to a local path.",
@@ -585,7 +506,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDownloadFile)
 
-	// get_file_download_url tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_file_download_url",
 		Description: "Get a presigned download URL for an organization file. Useful when the agent cannot write to disk directly.",
@@ -595,7 +515,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleGetFileDownloadURL)
 
-	// edit_file tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "edit_file",
 		Description: "Edit file metadata (filename, description) and/or replace file content. The file ID is preserved when replacing content, so revyl-file:// references remain valid.",
@@ -605,7 +524,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleEditFile)
 
-	// delete_file tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_file",
 		Description: "Delete an organization file. Warning: tests referencing this file via revyl-file:// will fail.",
@@ -615,9 +533,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteFile)
 
-	// --- Custom variable tools ({{variable-name}} in step descriptions) ---
-
-	// list_variables tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_variables",
 		Description: "List all test variables for a test. Test variables use {{name}} syntax in step descriptions and are substituted at runtime.",
@@ -627,7 +542,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleListVariables)
 
-	// set_variable tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_variable",
 		Description: "Add or update a test variable. Test variables use {{name}} syntax in step descriptions. If the variable name already exists, its value is updated. Variable names must use letters, numbers, hyphens, or underscores (no spaces).",
@@ -636,7 +550,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleSetVariable)
 
-	// delete_variable tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_variable",
 		Description: "Delete a test variable by name.",
@@ -645,7 +558,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteVariable)
 
-	// delete_all_variables tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_all_variables",
 		Description: "Delete ALL test variables for a test.",
@@ -655,9 +567,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteAllVariables)
 
-	// --- Workflow settings tools ---
-
-	// get_workflow_settings tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_workflow_settings",
 		Description: "Get workflow settings including location override and app override configuration.",
@@ -667,7 +576,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleGetWorkflowSettings)
 
-	// set_workflow_location tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_workflow_location",
 		Description: "Set a stored GPS location override for all tests in a workflow.",
@@ -676,7 +584,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleSetWorkflowLocation)
 
-	// clear_workflow_location tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "clear_workflow_location",
 		Description: "Remove the stored GPS location override from a workflow.",
@@ -686,7 +593,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleClearWorkflowLocation)
 
-	// set_workflow_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_workflow_app",
 		Description: "Set stored app overrides (per platform) for all tests in a workflow. App IDs are validated.",
@@ -695,7 +601,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleSetWorkflowApp)
 
-	// clear_workflow_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "clear_workflow_app",
 		Description: "Remove stored app overrides from a workflow.",
@@ -705,9 +610,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleClearWorkflowApp)
 
-	// --- Workflow test management tools ---
-
-	// add_tests_to_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "add_tests_to_workflow",
 		Description: "Add one or more tests to an existing workflow. Tests are appended (duplicates are ignored). Accepts test names (.revyl/tests/ file names or Revyl test names) or UUIDs.",
@@ -716,7 +618,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleAddTestsToWorkflow)
 
-	// remove_tests_from_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "remove_tests_from_workflow",
 		Description: "Remove one or more tests from an existing workflow. Accepts test names (.revyl/tests/ file names or Revyl test names) or UUIDs.",
@@ -725,7 +626,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleRemoveTestsFromWorkflow)
 
-	// add_remove_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "add_remove_test_tags",
 		Description: "Add and/or remove tags on a test without replacing all existing tags.",
@@ -734,9 +634,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleAddRemoveTestTags)
 
-	// --- Build tools ---
-
-	// upload_build tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "upload_build",
 		Description: "Upload a local build file (.apk, .ipa, or .zip) to an existing app. Returns the new version ID.",
@@ -746,9 +643,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleUploadBuild)
 
-	// --- Test update tools ---
-
-	// update_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name: "update_test",
 		Description: `Update an existing test's YAML content (blocks). Pushes new blocks to the remote test.
@@ -759,9 +653,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleUpdateTest)
 
-	// --- Script tools ---
-
-	// list_scripts tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_scripts",
 		Description: "List all code execution scripts in the organization. Scripts contain reusable code that runs in sandboxed environments during test execution.",
@@ -771,7 +662,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleListScripts)
 
-	// get_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_script",
 		Description: "Get details of a specific script by ID, including its source code.",
@@ -781,7 +671,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleGetScript)
 
-	// create_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_script",
 		Description: "Create a new code execution script. Scripts can be referenced in tests via code_execution blocks.",
@@ -790,7 +679,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleCreateScript)
 
-	// update_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_script",
 		Description: "Update an existing script's name, code, runtime, or description.",
@@ -799,7 +687,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleUpdateScript)
 
-	// delete_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_script",
 		Description: "Delete a script by ID.",
@@ -809,7 +696,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleDeleteScript)
 
-	// insert_script_block tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "insert_script_block",
 		Description: "Given a script name or ID, returns a code_execution block YAML snippet ready to insert into a test.",
@@ -819,9 +705,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleInsertScriptBlock)
 
-	// --- Live editor tools ---
-
-	// open_test_editor tool (with optional hot reload)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "open_test_editor",
 		Description: "Open a test in the browser editor, optionally with hot reload. Starts dev server and tunnel if hot reload is configured. Opens the browser by default.",
@@ -831,7 +714,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleOpenTestEditor)
 
-	// stop_hot_reload tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "stop_hot_reload",
 		Description: "Stop the hot reload session (dev server and tunnel). Call this when done with live editing.",
@@ -840,7 +722,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 		},
 	}, s.handleStopHotReload)
 
-	// hot_reload_status tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "hot_reload_status",
 		Description: "Check if a hot reload session is active and get current URLs.",
@@ -851,7 +732,6 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 	}, s.handleHotReloadStatus)
 }
 
-// RunTestInput defines the input parameters for the run_test tool.
 type RunTestInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	TestName                   string   `json:"test_name" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
@@ -871,28 +751,25 @@ type RunTestInput struct {
 	FromCheckout               *bool    `json:"from_checkout,omitempty" jsonschema:"Run the project checkout's test, module and script files, uncommitted changes included, instead of the files in Git or the saved copies. Omitted, it follows run_test_definitions_from_git in the project's .revyl/config.yaml, as revyl test run does; false runs without the checkout's files"`
 }
 
-// RunTestOutput defines the output for the run_test tool.
 type RunTestOutput struct {
-	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty"`
-	Success              bool             `json:"success"`
-	TaskID               string           `json:"task_id"`
-	TestID               string           `json:"test_id"`
-	TestName             string           `json:"test_name"`
-	Status               string           `json:"status"`
-	Duration             string           `json:"duration"`
-	ReportURL            string           `json:"report_url"`
-	ViewerURL            string           `json:"viewer_url,omitempty"`
-	CompletedSteps       int              `json:"completed_steps,omitempty"`
-	TotalSteps           int              `json:"total_steps,omitempty"`
-	LastStep             string           `json:"last_step,omitempty"`
-	ErrorMessage         string           `json:"error_message,omitempty"`
-	BuildID              string           `json:"build_id,omitempty"`
-	BuildVersion         string           `json:"build_version,omitempty"`
-	BranchName           string           `json:"branch_name,omitempty"`
-	BranchSource         api.BranchSource `json:"branch_source,omitempty"`
-	GitBranchName        string           `json:"git_branch_name,omitempty"`
-	// TestDefinitionSource and the fields after it say which definition the
-	// run executed, for a project that runs tests from Git.
+	AutoGitBranchEnabled               *bool                            `json:"auto_git_branch_enabled,omitempty"`
+	Success                            bool                             `json:"success"`
+	TaskID                             string                           `json:"task_id"`
+	TestID                             string                           `json:"test_id"`
+	TestName                           string                           `json:"test_name"`
+	Status                             string                           `json:"status"`
+	Duration                           string                           `json:"duration"`
+	ReportURL                          string                           `json:"report_url"`
+	ViewerURL                          string                           `json:"viewer_url,omitempty"`
+	CompletedSteps                     int                              `json:"completed_steps,omitempty"`
+	TotalSteps                         int                              `json:"total_steps,omitempty"`
+	LastStep                           string                           `json:"last_step,omitempty"`
+	ErrorMessage                       string                           `json:"error_message,omitempty"`
+	BuildID                            string                           `json:"build_id,omitempty"`
+	BuildVersion                       string                           `json:"build_version,omitempty"`
+	BranchName                         string                           `json:"branch_name,omitempty"`
+	BranchSource                       api.BranchSource                 `json:"branch_source,omitempty"`
+	GitBranchName                      string                           `json:"git_branch_name,omitempty"`
 	TestDefinitionSource               api.TestDefinitionSource         `json:"test_definition_source,omitempty"`
 	TestDefinitionFallbackReason       api.TestDefinitionFallbackReason `json:"test_definition_fallback_reason,omitempty"`
 	TestDefinitionGitBranchName        string                           `json:"test_definition_git_branch_name,omitempty"`
@@ -910,9 +787,7 @@ type RunTestOutput struct {
 	QueueNotice     *billingstatus.QueueNotice `json:"queue_notice,omitempty" jsonschema:"Every device this organization runs at once was busy, so this start waited for one. Follow next_step; message has the price and link of what adds devices."`
 }
 
-// handleRunTest handles the run_test tool call.
 func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, input RunTestInput) (*mcp.CallToolResult, RunTestOutput, error) {
-	// Validate input
 	if input.TestName == "" {
 		return nil, RunTestOutput{
 			Success:      false,
@@ -924,12 +799,8 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, RunTestOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
 
-	// Track last progress for enriching final output
 	var lastStatus *sse.TestStatus
 
-	// Build progress callback: sends MCP progress notifications if the client
-	// provided a progressToken, and always captures the latest status for the
-	// enriched final output.
 	var onProgress func(status *sse.TestStatus)
 	progressToken := req.Params.GetProgressToken()
 	onProgress = func(status *sse.TestStatus) {
@@ -952,7 +823,6 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		}
 	}
 
-	// Parse location if provided
 	params := execution.RunTestParams{
 		TestNameOrID:               input.TestName,
 		Retries:                    1,
@@ -1062,7 +932,6 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		out.LastStep = lastStatus.CurrentStep
 	}
 
-	// Populate next steps based on outcome to guide the agent.
 	switch {
 	case result.Success:
 		out.NextSteps = []NextStep{
@@ -1074,7 +943,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 			{Tool: "run_test", Params: fmt.Sprintf("test_name=%s", input.TestName), Reason: "Retry the test"},
 			{Tool: "get_test_status", Params: fmt.Sprintf("task_id=%s", result.TaskID), Reason: "Check what happened before cancellation"},
 		}
-	default: // failed
+	default:
 		out.NextSteps = []NextStep{
 			{Tool: "get_test_status", Params: fmt.Sprintf("task_id=%s", result.TaskID), Reason: "Get step-by-step failure details"},
 			{Tool: "run_test", Params: fmt.Sprintf("test_name=%s", input.TestName), Reason: "Retry the test after fixing the issue"},
@@ -1088,7 +957,6 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	return nil, out, nil
 }
 
-// RunWorkflowInput defines the input parameters for the run_workflow tool.
 type RunWorkflowInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	WorkflowName               string   `json:"workflow_name" jsonschema:"Workflow name or UUID"`
@@ -1107,33 +975,29 @@ type RunWorkflowInput struct {
 	FromCheckout               *bool    `json:"from_checkout,omitempty" jsonschema:"Run the project checkout's test, module and script files, uncommitted changes included, instead of the files in Git or the saved copies. Omitted, it follows run_test_definitions_from_git in the project's .revyl/config.yaml, as revyl test run does; false runs without the checkout's files"`
 }
 
-// RunWorkflowOutput defines the output for the run_workflow tool.
 type RunWorkflowOutput struct {
-	Success        bool                           `json:"success"`
-	TaskID         string                         `json:"task_id"`
-	WorkflowID     string                         `json:"workflow_id"`
-	Status         string                         `json:"status"`
-	TotalTests     int                            `json:"total_tests"`
-	PassedTests    int                            `json:"passed_tests"`
-	FailedTests    int                            `json:"failed_tests"`
-	Duration       string                         `json:"duration"`
-	ReportURL      string                         `json:"report_url"`
-	ViewerURL      string                         `json:"viewer_url,omitempty"`
-	CompletedTests int                            `json:"completed_tests,omitempty"`
-	CurrentTest    string                         `json:"current_test,omitempty"`
-	ErrorMessage   string                         `json:"error_message,omitempty"`
-	Tests          []execution.WorkflowTestResult `json:"tests,omitempty"`
-	// TestCountByDefinitionSource and the fields after it say which
-	// definitions the workflow's tests executed, for a project that runs
-	// tests from Git.
-	TestCountByDefinitionSource         map[string]int `json:"test_count_by_definition_source,omitempty"`
-	TestCountByDefinitionFallbackReason map[string]int `json:"test_count_by_definition_fallback_reason,omitempty"`
-	TestDefinitionGitBranchName         string         `json:"test_definition_git_branch_name,omitempty"`
-	TestDefinitionGitCommitSHA          string         `json:"test_definition_git_commit_sha,omitempty"`
-	TestDefinitionMissingGitBranchName  string         `json:"test_definition_missing_git_branch_name,omitempty"`
-	TestDefinitionSummary               string         `json:"test_definition_summary,omitempty"`
-	TestDefinitionWarnings              []string       `json:"test_definition_warnings,omitempty"`
-	NextSteps                           []NextStep     `json:"next_steps,omitempty"`
+	Success                             bool                           `json:"success"`
+	TaskID                              string                         `json:"task_id"`
+	WorkflowID                          string                         `json:"workflow_id"`
+	Status                              string                         `json:"status"`
+	TotalTests                          int                            `json:"total_tests"`
+	PassedTests                         int                            `json:"passed_tests"`
+	FailedTests                         int                            `json:"failed_tests"`
+	Duration                            string                         `json:"duration"`
+	ReportURL                           string                         `json:"report_url"`
+	ViewerURL                           string                         `json:"viewer_url,omitempty"`
+	CompletedTests                      int                            `json:"completed_tests,omitempty"`
+	CurrentTest                         string                         `json:"current_test,omitempty"`
+	ErrorMessage                        string                         `json:"error_message,omitempty"`
+	Tests                               []execution.WorkflowTestResult `json:"tests,omitempty"`
+	TestCountByDefinitionSource         map[string]int                 `json:"test_count_by_definition_source,omitempty"`
+	TestCountByDefinitionFallbackReason map[string]int                 `json:"test_count_by_definition_fallback_reason,omitempty"`
+	TestDefinitionGitBranchName         string                         `json:"test_definition_git_branch_name,omitempty"`
+	TestDefinitionGitCommitSHA          string                         `json:"test_definition_git_commit_sha,omitempty"`
+	TestDefinitionMissingGitBranchName  string                         `json:"test_definition_missing_git_branch_name,omitempty"`
+	TestDefinitionSummary               string                         `json:"test_definition_summary,omitempty"`
+	TestDefinitionWarnings              []string                       `json:"test_definition_warnings,omitempty"`
+	NextSteps                           []NextStep                     `json:"next_steps,omitempty"`
 
 	BillingURL      string               `json:"billing_url,omitempty" jsonschema:"Billing link for a refused start. Stop and show the person the error and this link; when billing_action is add_card, recommend upgrading to Pro. Never retry in a loop or add a card yourself."`
 	BillingAction   api.BillingAction    `json:"billing_action,omitempty" jsonschema:"What the refusal needs: add_card, top_up, update_card, raise_limit, request_access, or contact_sales"`
@@ -1142,9 +1006,7 @@ type RunWorkflowOutput struct {
 	BillingNextStep string               `json:"billing_next_step,omitempty" jsonschema:"The line to follow when billing_url or billing_notice is set."`
 }
 
-// handleRunWorkflow handles the run_workflow tool call.
 func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest, input RunWorkflowInput) (*mcp.CallToolResult, RunWorkflowOutput, error) {
-	// Validate input
 	if input.WorkflowName == "" {
 		return nil, RunWorkflowOutput{
 			Success:      false,
@@ -1156,11 +1018,8 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
 
-	// Track last progress for enriching final output
 	var lastStatus *sse.WorkflowStatus
 
-	// Build progress callback: sends MCP progress notifications if the client
-	// provided a progressToken, and always captures the latest status.
 	var onProgress func(status *sse.WorkflowStatus)
 	progressToken := req.Params.GetProgressToken()
 	fallbackNotices := &ui.BranchFallbackNotices{}
@@ -1195,7 +1054,6 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		}, nil
 	}
 
-	// Build params with optional overrides
 	wfParams := execution.RunWorkflowParams{
 		WorkflowNameOrID:           workflowID,
 		Retries:                    1,
@@ -1260,7 +1118,6 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
 
-	// Build viewer URL for watching execution live in the browser
 	viewerURL := fmt.Sprintf(
 		"%s/workflows/report?taskId=%s",
 		config.GetAppURL(s.devMode),
@@ -1302,7 +1159,6 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		out.CurrentTest = lastStatus.WorkflowName
 	}
 
-	// Populate next steps based on outcome to guide the agent.
 	switch {
 	case result.Success:
 		out.NextSteps = []NextStep{
@@ -1312,7 +1168,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		out.NextSteps = []NextStep{
 			{Tool: "run_workflow", Params: fmt.Sprintf("workflow_name=%s", input.WorkflowName), Reason: "Retry the workflow"},
 		}
-	default: // failed or partial failures
+	default:
 		out.NextSteps = []NextStep{
 			{Tool: "run_workflow", Params: fmt.Sprintf("workflow_name=%s", input.WorkflowName), Reason: "Retry the workflow after investigating failures"},
 		}
@@ -1330,31 +1186,26 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	return nil, out, nil
 }
 
-// ListTestsInput defines the input parameters for the list_tests tool.
 type ListTestsInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Path to project directory (defaults to current directory)"`
 }
 
-// TestInfo contains information about a test.
 type TestInfo struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
 }
 
-// WorkflowInfo contains information about a workflow.
 type WorkflowInfo struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
 }
 
-// ListTestsOutput defines the output for the list_tests tool.
 type ListTestsOutput struct {
 	Tests     []TestInfo     `json:"tests"`
 	Workflows []WorkflowInfo `json:"workflows"`
 	ConfigDir string         `json:"config_dir"`
 }
 
-// handleListTests handles the list_tests tool call.
 func (s *Server) handleListTests(ctx context.Context, req *mcp.CallToolRequest, input ListTestsInput) (*mcp.CallToolResult, ListTestsOutput, error) {
 	project, err := s.resolveCanonicalProject(input.ProjectDir)
 	if err != nil {
@@ -1393,12 +1244,10 @@ func (s *Server) handleListTests(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// GetTestStatusInput defines the input parameters for the get_test_status tool.
 type GetTestStatusInput struct {
 	TaskID string `json:"task_id" jsonschema:"The task ID of the test execution"`
 }
 
-// GetTestStatusOutput defines the output for the get_test_status tool.
 type GetTestStatusOutput struct {
 	Status         string `json:"status"`
 	Progress       int    `json:"progress"`
@@ -1409,9 +1258,7 @@ type GetTestStatusOutput struct {
 	ErrorMessage   string `json:"error_message,omitempty"`
 }
 
-// handleGetTestStatus handles the get_test_status tool call.
 func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolRequest, input GetTestStatusInput) (*mcp.CallToolResult, GetTestStatusOutput, error) {
-	// Validate input
 	if input.TaskID == "" {
 		return nil, GetTestStatusOutput{
 			Status:       "error",
@@ -1419,7 +1266,6 @@ func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolReque
 		}, nil
 	}
 
-	// Call the API to get test status
 	status, err := s.apiClient.GetTestStatus(ctx, input.TaskID)
 	if err != nil {
 		return nil, GetTestStatusOutput{
@@ -1428,7 +1274,6 @@ func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolReque
 		}, nil
 	}
 
-	// Calculate duration if we have timing info
 	var duration string
 	if status.ExecutionTimeSeconds > 0 {
 		duration = fmt.Sprintf("%.1fs", status.ExecutionTimeSeconds)
@@ -1445,7 +1290,6 @@ func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolReque
 	}, nil
 }
 
-// CreateTestInput defines input for create_test tool.
 type CreateTestInput struct {
 	Name             string   `json:"name" jsonschema:"Test name"`
 	Platform         string   `json:"platform" jsonschema:"Target platform (ios, android, or web)"`
@@ -1459,7 +1303,6 @@ type CreateTestInput struct {
 	Tags             []string `json:"tags,omitempty" jsonschema:"Optional tag names to assign to the test after creation"`
 }
 
-// CreateTestOutput defines output for create_test tool.
 type CreateTestOutput struct {
 	Success  bool   `json:"success"`
 	TestID   string `json:"test_id,omitempty"`
@@ -1468,9 +1311,7 @@ type CreateTestOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleCreateTest handles the create_test tool call.
 func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest, input CreateTestInput) (*mcp.CallToolResult, CreateTestOutput, error) {
-	// Validate required fields
 	if input.Name == "" {
 		return nil, CreateTestOutput{
 			Success: false,
@@ -1485,7 +1326,6 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil
 	}
 
-	// Validate platform value
 	platform := strings.ToLower(input.Platform)
 	if platform != "ios" && platform != "android" && platform != "web" {
 		return nil, CreateTestOutput{
@@ -1587,13 +1427,11 @@ func canonicalAppIDForPlatform(project *config.ProjectContext, platform string) 
 	return "", nil
 }
 
-// CreateWorkflowInput defines input for create_workflow tool.
 type CreateWorkflowInput struct {
 	Name    string   `json:"name" jsonschema:"Workflow name"`
 	TestIDs []string `json:"test_ids,omitempty" jsonschema:"Optional test IDs to include in workflow"`
 }
 
-// CreateWorkflowOutput defines output for create_workflow tool.
 type CreateWorkflowOutput struct {
 	Success      bool   `json:"success"`
 	WorkflowID   string `json:"workflow_id,omitempty"`
@@ -1602,9 +1440,7 @@ type CreateWorkflowOutput struct {
 	Error        string `json:"error,omitempty"`
 }
 
-// handleCreateWorkflow handles the create_workflow tool call.
 func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequest, input CreateWorkflowInput) (*mcp.CallToolResult, CreateWorkflowOutput, error) {
-	// Validate required fields
 	if input.Name == "" {
 		return nil, CreateWorkflowOutput{
 			Success: false,
@@ -1615,7 +1451,6 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequ
 		return nil, CreateWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Get user ID from API key validation
 	userInfo, err := s.apiClient.ValidateAPIKey(ctx)
 	if err != nil {
 		return nil, CreateWorkflowOutput{Success: false, Error: "Failed to validate API key: " + err.Error()}, nil
@@ -1639,12 +1474,10 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequ
 	}, nil
 }
 
-// GetSchemaInput defines input for get_schema tool.
 type GetSchemaInput struct {
 	Format string `json:"format,omitempty" jsonschema:"Output format: json (default), markdown, or llm"`
 }
 
-// GetSchemaOutput defines output for get_schema tool.
 type GetSchemaOutput struct {
 	CLISchema      map[string]any `json:"cli_schema,omitempty"`
 	YAMLTestSchema map[string]any `json:"yaml_test_schema,omitempty"`
@@ -1652,14 +1485,12 @@ type GetSchemaOutput struct {
 	LLMFormat      string         `json:"llm_format,omitempty"`
 }
 
-// handleGetSchema handles the get_schema tool call.
 func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, input GetSchemaInput) (*mcp.CallToolResult, GetSchemaOutput, error) {
 	format := input.Format
 	if format == "" {
 		format = "json"
 	}
 
-	// Generate CLI schema if we have the root command
 	var cliSchema *schema.CLISchema
 	if s.rootCmd != nil {
 		cliSchema = schema.GetCLISchema(s.rootCmd, s.version)
@@ -1708,7 +1539,6 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 }
 
-// ListBuildsInput defines input for list_builds tool.
 type ListBuildsInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory; retained for compatibility and does not narrow build browsing"`
 	Platform   string `json:"platform,omitempty" jsonschema:"Filter app summaries by platform (ios, android, or web)"`
@@ -1730,7 +1560,6 @@ type ListedBuildVersion struct {
 	PackageID   string `json:"package_id,omitempty"`
 }
 
-// BuildInfo contains information about an app.
 type BuildInfo struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -1739,7 +1568,6 @@ type BuildInfo struct {
 	VersionsCount  int    `json:"versions_count"`
 }
 
-// ListBuildsOutput defines output for list_builds tool.
 type ListBuildsOutput struct {
 	Builds       []BuildInfo          `json:"builds"`
 	Total        int                  `json:"total"`
@@ -1753,7 +1581,6 @@ type ListBuildsOutput struct {
 	HasMore      bool                 `json:"has_more,omitempty"`
 }
 
-// handleListBuilds handles the list_builds tool call.
 func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest, input ListBuildsInput) (*mcp.CallToolResult, ListBuildsOutput, error) {
 	limit := input.Limit
 	if limit == 0 {
@@ -1839,12 +1666,10 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// OpenWorkflowEditorInput defines input for open_workflow_editor tool.
 type OpenWorkflowEditorInput struct {
 	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 }
 
-// OpenWorkflowEditorOutput defines output for open_workflow_editor tool.
 type OpenWorkflowEditorOutput struct {
 	Success     bool   `json:"success"`
 	WorkflowID  string `json:"workflow_id"`
@@ -1852,9 +1677,7 @@ type OpenWorkflowEditorOutput struct {
 	Error       string `json:"error,omitempty"`
 }
 
-// handleOpenWorkflowEditor handles the open_workflow_editor tool call.
 func (s *Server) handleOpenWorkflowEditor(ctx context.Context, req *mcp.CallToolRequest, input OpenWorkflowEditorInput) (*mcp.CallToolResult, OpenWorkflowEditorOutput, error) {
-	// Validate input
 	if input.WorkflowNameOrID == "" {
 		return nil, OpenWorkflowEditorOutput{
 			Success: false,
@@ -1874,21 +1697,16 @@ func (s *Server) handleOpenWorkflowEditor(ctx context.Context, req *mcp.CallTool
 	}, nil
 }
 
-// --- Cancel tools ---
-
-// CancelTestInput defines input for cancel_test tool.
 type CancelTestInput struct {
 	TaskID string `json:"task_id" jsonschema:"The task ID of the running test execution to cancel"`
 }
 
-// CancelTestOutput defines output for cancel_test tool.
 type CancelTestOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleCancelTest handles the cancel_test tool call.
 func (s *Server) handleCancelTest(ctx context.Context, req *mcp.CallToolRequest, input CancelTestInput) (*mcp.CallToolResult, CancelTestOutput, error) {
 	if input.TaskID == "" {
 		return nil, CancelTestOutput{Success: false, Error: "task_id is required"}, nil
@@ -1908,19 +1726,16 @@ func (s *Server) handleCancelTest(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// CancelWorkflowInput defines input for cancel_workflow tool.
 type CancelWorkflowInput struct {
 	TaskID string `json:"task_id" jsonschema:"The task ID of the running workflow execution to cancel"`
 }
 
-// CancelWorkflowOutput defines output for cancel_workflow tool.
 type CancelWorkflowOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleCancelWorkflow handles the cancel_workflow tool call.
 func (s *Server) handleCancelWorkflow(ctx context.Context, req *mcp.CallToolRequest, input CancelWorkflowInput) (*mcp.CallToolResult, CancelWorkflowOutput, error) {
 	if input.TaskID == "" {
 		return nil, CancelWorkflowOutput{Success: false, Error: "task_id is required"}, nil
@@ -1940,21 +1755,16 @@ func (s *Server) handleCancelWorkflow(ctx context.Context, req *mcp.CallToolRequ
 	}, nil
 }
 
-// --- Delete tools ---
-
-// DeleteTestInput defines input for delete_test tool.
 type DeleteTestInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 }
 
-// DeleteTestOutput defines output for delete_test tool.
 type DeleteTestOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteTest handles the delete_test tool call.
 func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest, input DeleteTestInput) (*mcp.CallToolResult, DeleteTestOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, DeleteTestOutput{Success: false, Error: "test_name_or_id is required"}, nil
@@ -1963,7 +1773,6 @@ func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, DeleteTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve name to ID from local YAML
 	testID := input.TestNameOrID
 	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
 	if resolutionErr != nil {
@@ -1987,19 +1796,16 @@ func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// DeleteWorkflowInput defines input for delete_workflow tool.
 type DeleteWorkflowInput struct {
 	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 }
 
-// DeleteWorkflowOutput defines output for delete_workflow tool.
 type DeleteWorkflowOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteWorkflow handles the delete_workflow tool call.
 func (s *Server) handleDeleteWorkflow(ctx context.Context, req *mcp.CallToolRequest, input DeleteWorkflowInput) (*mcp.CallToolResult, DeleteWorkflowOutput, error) {
 	if input.WorkflowNameOrID == "" {
 		return nil, DeleteWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
@@ -2024,15 +1830,11 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, req *mcp.CallToolRequ
 	}, nil
 }
 
-// --- List tools ---
-
-// ListRemoteTestsInput defines input for list_remote_tests tool.
 type ListRemoteTestsInput struct {
 	Limit  int `json:"limit,omitempty" jsonschema:"Maximum number of tests to return (default 50)"`
 	Offset int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
 }
 
-// RemoteTestInfo contains information about a remote test.
 type RemoteTestInfo struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -2040,16 +1842,12 @@ type RemoteTestInfo struct {
 	Status   string `json:"status,omitempty"`
 }
 
-// ListRemoteTestsOutput defines output for list_remote_tests tool.
 type ListRemoteTestsOutput struct {
 	Tests []RemoteTestInfo `json:"tests"`
 	Total int              `json:"total"`
-	// Retained for output-schema compatibility. A failed listing is now a
-	// failed tool call, so this is no longer populated.
-	Error string `json:"error,omitempty"`
+	Error string           `json:"error,omitempty"`
 }
 
-// handleListRemoteTests handles the list_remote_tests tool call.
 func (s *Server) handleListRemoteTests(ctx context.Context, req *mcp.CallToolRequest, input ListRemoteTestsInput) (*mcp.CallToolResult, ListRemoteTestsOutput, error) {
 	limit := input.Limit
 	if limit == 0 {
@@ -2058,9 +1856,6 @@ func (s *Server) handleListRemoteTests(ctx context.Context, req *mcp.CallToolReq
 
 	resp, err := s.apiClient.ListOrgTests(ctx, limit, input.Offset)
 	if err != nil {
-		// Reporting this as an empty list would be indistinguishable from an
-		// organization that genuinely has no tests, so the caller must see a
-		// failed tool call instead.
 		return nil, ListRemoteTestsOutput{}, fmt.Errorf("list remote tests: %w", err)
 	}
 
@@ -2079,17 +1874,14 @@ func (s *Server) handleListRemoteTests(ctx context.Context, req *mcp.CallToolReq
 	}, nil
 }
 
-// ListWorkflowsInput defines input for list_workflows tool.
 type ListWorkflowsInput struct{}
 
-// ListWorkflowsOutput defines output for list_workflows tool.
 type ListWorkflowsOutput struct {
 	Workflows []WorkflowInfo `json:"workflows"`
 	Total     int            `json:"total"`
 	Error     string         `json:"error,omitempty"`
 }
 
-// handleListWorkflows handles the list_workflows tool call.
 func (s *Server) handleListWorkflows(ctx context.Context, req *mcp.CallToolRequest, input ListWorkflowsInput) (*mcp.CallToolResult, ListWorkflowsOutput, error) {
 	resp, err := s.apiClient.ListWorkflows(ctx)
 	if err != nil {
@@ -2113,12 +1905,8 @@ func (s *Server) handleListWorkflows(ctx context.Context, req *mcp.CallToolReque
 	}, nil
 }
 
-// --- Auth tool ---
-
-// AuthStatusInput defines input for auth_status tool.
 type AuthStatusInput struct{}
 
-// AuthStatusOutput defines output for auth_status tool.
 type AuthStatusOutput struct {
 	Authenticated bool   `json:"authenticated"`
 	Email         string `json:"email,omitempty"`
@@ -2128,7 +1916,6 @@ type AuthStatusOutput struct {
 	AuthMethod    string `json:"auth_method,omitempty"`
 }
 
-// handleAuthStatus handles the auth_status tool call.
 func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest, input AuthStatusInput) (*mcp.CallToolResult, AuthStatusOutput, error) {
 	mgr := auth.NewManager()
 	creds, err := mgr.GetCredentials()
@@ -2175,7 +1962,6 @@ func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// GetBillingStatusInput defines input for get_billing_status.
 type GetBillingStatusInput struct{}
 
 func (s *Server) registerBillingStatusTool() {
@@ -2189,8 +1975,6 @@ func (s *Server) registerBillingStatusTool() {
 	}, s.handleGetBillingStatus)
 }
 
-// billingNextStep is the line an agent follows after a refused start or a
-// usage notice, or "" when the result carries neither.
 func billingNextStep(billingURL string, action api.BillingAction, benefits *api.UpgradeBenefits, notice *api.UsageNotice) string {
 	switch {
 	case billingURL != "":
@@ -2210,15 +1994,11 @@ func (s *Server) handleGetBillingStatus(ctx context.Context, req *mcp.CallToolRe
 	return nil, status, nil
 }
 
-// --- App tools ---
-
-// CreateAppInput defines input for create_app tool.
 type CreateAppInput struct {
 	Name     string `json:"name" jsonschema:"App name"`
 	Platform string `json:"platform" jsonschema:"Target platform (ios, android, or web)"`
 }
 
-// CreateAppOutput defines output for create_app tool.
 type CreateAppOutput struct {
 	Success bool   `json:"success"`
 	AppID   string `json:"app_id,omitempty"`
@@ -2226,7 +2006,6 @@ type CreateAppOutput struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// handleCreateApp handles the create_app tool call.
 func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, input CreateAppInput) (*mcp.CallToolResult, CreateAppOutput, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -2349,19 +2128,16 @@ func isAppAlreadyExistsError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "already exists")
 }
 
-// DeleteAppInput defines input for delete_app tool.
 type DeleteAppInput struct {
 	AppID string `json:"app_id" jsonschema:"The UUID of the app to delete"`
 }
 
-// DeleteAppOutput defines output for delete_app tool.
 type DeleteAppOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteApp handles the delete_app tool call.
 func (s *Server) handleDeleteApp(ctx context.Context, req *mcp.CallToolRequest, input DeleteAppInput) (*mcp.CallToolResult, DeleteAppOutput, error) {
 	if input.AppID == "" {
 		return nil, DeleteAppOutput{Success: false, Error: "app_id is required"}, nil
@@ -2378,14 +2154,10 @@ func (s *Server) handleDeleteApp(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// --- Module tools ---
-
-// ListModulesInput defines input for list_modules tool.
 type ListModulesInput struct {
 	NameFilter string `json:"name_filter,omitempty" jsonschema:"Optional filter to search modules by name"`
 }
 
-// ModuleInfo contains information about a module.
 type ModuleInfo struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -2393,14 +2165,12 @@ type ModuleInfo struct {
 	BlockCount  int    `json:"block_count"`
 }
 
-// ListModulesOutput defines output for list_modules tool.
 type ListModulesOutput struct {
 	Modules []ModuleInfo `json:"modules"`
 	Total   int          `json:"total"`
 	Error   string       `json:"error,omitempty"`
 }
 
-// handleListModules handles the list_modules tool call.
 func (s *Server) handleListModules(ctx context.Context, req *mcp.CallToolRequest, input ListModulesInput) (*mcp.CallToolResult, ListModulesOutput, error) {
 	resp, err := s.apiClient.ListModules(ctx)
 	if err != nil {
@@ -2412,7 +2182,6 @@ func (s *Server) handleListModules(ctx context.Context, req *mcp.CallToolRequest
 
 	var modules []ModuleInfo
 	for _, m := range resp.Result {
-		// Apply name filter if specified
 		if input.NameFilter != "" {
 			nameLower := strings.ToLower(m.Name)
 			filterLower := strings.ToLower(input.NameFilter)
@@ -2438,12 +2207,10 @@ func (s *Server) handleListModules(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// GetModuleInput defines input for get_module tool.
 type GetModuleInput struct {
 	ModuleID string `json:"module_id" jsonschema:"The UUID of the module to retrieve"`
 }
 
-// GetModuleOutput defines output for get_module tool.
 type GetModuleOutput struct {
 	Success     bool          `json:"success"`
 	ID          string        `json:"id,omitempty"`
@@ -2453,7 +2220,6 @@ type GetModuleOutput struct {
 	Error       string        `json:"error,omitempty"`
 }
 
-// handleGetModule handles the get_module tool call.
 func (s *Server) handleGetModule(ctx context.Context, req *mcp.CallToolRequest, input GetModuleInput) (*mcp.CallToolResult, GetModuleOutput, error) {
 	if input.ModuleID == "" {
 		return nil, GetModuleOutput{Success: false, Error: "module_id is required"}, nil
@@ -2473,14 +2239,12 @@ func (s *Server) handleGetModule(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// CreateModuleInput defines input for create_module tool.
 type CreateModuleInput struct {
 	Name        string        `json:"name" jsonschema:"Module name"`
 	Description string        `json:"description,omitempty" jsonschema:"Optional module description"`
 	Blocks      []interface{} `json:"blocks" jsonschema:"Array of test block objects"`
 }
 
-// CreateModuleOutput defines output for create_module tool.
 type CreateModuleOutput struct {
 	Success  bool   `json:"success"`
 	ModuleID string `json:"module_id,omitempty"`
@@ -2488,7 +2252,6 @@ type CreateModuleOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleCreateModule handles the create_module tool call.
 func (s *Server) handleCreateModule(ctx context.Context, req *mcp.CallToolRequest, input CreateModuleInput) (*mcp.CallToolResult, CreateModuleOutput, error) {
 	if input.Name == "" {
 		return nil, CreateModuleOutput{Success: false, Error: "name is required"}, nil
@@ -2514,19 +2277,16 @@ func (s *Server) handleCreateModule(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// DeleteModuleInput defines input for delete_module tool.
 type DeleteModuleInput struct {
 	ModuleID string `json:"module_id" jsonschema:"The UUID of the module to delete"`
 }
 
-// DeleteModuleOutput defines output for delete_module tool.
 type DeleteModuleOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteModule handles the delete_module tool call.
 func (s *Server) handleDeleteModule(ctx context.Context, req *mcp.CallToolRequest, input DeleteModuleInput) (*mcp.CallToolResult, DeleteModuleOutput, error) {
 	if input.ModuleID == "" {
 		return nil, DeleteModuleOutput{Success: false, Error: "module_id is required"}, nil
@@ -2543,12 +2303,10 @@ func (s *Server) handleDeleteModule(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// InsertModuleBlockInput defines input for insert_module_block tool.
 type InsertModuleBlockInput struct {
 	ModuleNameOrID string `json:"module_name_or_id" jsonschema:"Module name or UUID to generate the import block for"`
 }
 
-// InsertModuleBlockOutput defines output for insert_module_block tool.
 type InsertModuleBlockOutput struct {
 	Success         bool   `json:"success"`
 	YAMLSnippet     string `json:"yaml_snippet,omitempty"`
@@ -2559,16 +2317,13 @@ type InsertModuleBlockOutput struct {
 	Error           string `json:"error,omitempty"`
 }
 
-// handleInsertModuleBlock handles the insert_module_block tool call.
 func (s *Server) handleInsertModuleBlock(ctx context.Context, req *mcp.CallToolRequest, input InsertModuleBlockInput) (*mcp.CallToolResult, InsertModuleBlockOutput, error) {
 	if input.ModuleNameOrID == "" {
 		return nil, InsertModuleBlockOutput{Success: false, Error: "module_name_or_id is required"}, nil
 	}
 
-	// Resolve module name or ID
 	var moduleID, moduleName string
 
-	// Try as UUID first
 	if len(input.ModuleNameOrID) == 36 {
 		resp, err := s.apiClient.GetModule(ctx, input.ModuleNameOrID)
 		if err == nil {
@@ -2577,7 +2332,6 @@ func (s *Server) handleInsertModuleBlock(ctx context.Context, req *mcp.CallToolR
 		}
 	}
 
-	// If not found by ID, search by name
 	if moduleID == "" {
 		listResp, err := s.apiClient.ListModules(ctx)
 		if err != nil {
@@ -2609,14 +2363,10 @@ func (s *Server) handleInsertModuleBlock(ctx context.Context, req *mcp.CallToolR
 	}, nil
 }
 
-// --- Tag tools ---
-
-// ListTagsInput defines input for list_tags tool.
 type ListTagsInput struct {
 	NameFilter string `json:"name_filter,omitempty" jsonschema:"Optional filter to search tags by name"`
 }
 
-// TagInfo contains information about a tag.
 type TagInfo struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -2625,14 +2375,12 @@ type TagInfo struct {
 	TestCount   int    `json:"test_count"`
 }
 
-// ListTagsOutput defines output for list_tags tool.
 type ListTagsOutput struct {
 	Tags  []TagInfo `json:"tags"`
 	Total int       `json:"total"`
 	Error string    `json:"error,omitempty"`
 }
 
-// handleListTags handles the list_tags tool call.
 func (s *Server) handleListTags(ctx context.Context, req *mcp.CallToolRequest, input ListTagsInput) (*mcp.CallToolResult, ListTagsOutput, error) {
 	resp, err := s.apiClient.ListTags(ctx)
 	if err != nil {
@@ -2644,7 +2392,6 @@ func (s *Server) handleListTags(ctx context.Context, req *mcp.CallToolRequest, i
 
 	var tags []TagInfo
 	for _, t := range resp.Tags {
-		// Apply name filter if specified
 		if input.NameFilter != "" {
 			if !strings.Contains(strings.ToLower(t.Name), strings.ToLower(input.NameFilter)) {
 				continue
@@ -2669,13 +2416,11 @@ func (s *Server) handleListTags(ctx context.Context, req *mcp.CallToolRequest, i
 	}, nil
 }
 
-// CreateTagInput defines input for create_tag tool.
 type CreateTagInput struct {
 	Name  string `json:"name" jsonschema:"Tag name"`
 	Color string `json:"color,omitempty" jsonschema:"Tag color as hex string (e.g. #22C55E)"`
 }
 
-// CreateTagOutput defines output for create_tag tool.
 type CreateTagOutput struct {
 	Success bool   `json:"success"`
 	TagID   string `json:"tag_id,omitempty"`
@@ -2684,7 +2429,6 @@ type CreateTagOutput struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// handleCreateTag handles the create_tag tool call.
 func (s *Server) handleCreateTag(ctx context.Context, req *mcp.CallToolRequest, input CreateTagInput) (*mcp.CallToolResult, CreateTagOutput, error) {
 	if input.Name == "" {
 		return nil, CreateTagOutput{Success: false, Error: "name is required"}, nil
@@ -2706,25 +2450,21 @@ func (s *Server) handleCreateTag(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// DeleteTagInput defines input for delete_tag tool.
 type DeleteTagInput struct {
 	TagNameOrID string `json:"tag_name_or_id" jsonschema:"Tag name or UUID to delete"`
 }
 
-// DeleteTagOutput defines output for delete_tag tool.
 type DeleteTagOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteTag handles the delete_tag tool call.
 func (s *Server) handleDeleteTag(ctx context.Context, req *mcp.CallToolRequest, input DeleteTagInput) (*mcp.CallToolResult, DeleteTagOutput, error) {
 	if input.TagNameOrID == "" {
 		return nil, DeleteTagOutput{Success: false, Error: "tag_name_or_id is required"}, nil
 	}
 
-	// Resolve tag name to ID
 	tagID := input.TagNameOrID
 	listResp, err := s.apiClient.ListTags(ctx)
 	if err != nil {
@@ -2755,12 +2495,10 @@ func (s *Server) handleDeleteTag(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// GetTestTagsInput defines input for get_test_tags tool.
 type GetTestTagsInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 }
 
-// GetTestTagsOutput defines output for get_test_tags tool.
 type GetTestTagsOutput struct {
 	Success  bool      `json:"success"`
 	TestID   string    `json:"test_id,omitempty"`
@@ -2769,13 +2507,11 @@ type GetTestTagsOutput struct {
 	Error    string    `json:"error,omitempty"`
 }
 
-// handleGetTestTags handles the get_test_tags tool call.
 func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest, input GetTestTagsInput) (*mcp.CallToolResult, GetTestTagsOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, GetTestTagsOutput{Success: false, Error: "test_name_or_id is required"}, nil
 	}
 
-	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
 	testName := input.TestNameOrID
 	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
@@ -2789,7 +2525,6 @@ func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest
 		testID = id
 	}
 
-	// If not a UUID, try to find by name in remote tests
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
 		if err != nil {
@@ -2833,13 +2568,11 @@ func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// SetTestTagsInput defines input for set_test_tags tool.
 type SetTestTagsInput struct {
 	TestNameOrID string   `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 	TagNames     []string `json:"tag_names" jsonschema:"Tag names to set on the test (replaces all existing tags)"`
 }
 
-// SetTestTagsOutput defines output for set_test_tags tool.
 type SetTestTagsOutput struct {
 	Success bool      `json:"success"`
 	TestID  string    `json:"test_id,omitempty"`
@@ -2847,7 +2580,6 @@ type SetTestTagsOutput struct {
 	Error   string    `json:"error,omitempty"`
 }
 
-// handleSetTestTags handles the set_test_tags tool call.
 func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest, input SetTestTagsInput) (*mcp.CallToolResult, SetTestTagsOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, SetTestTagsOutput{Success: false, Error: "test_name_or_id is required"}, nil
@@ -2860,7 +2592,6 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 		return nil, SetTestTagsOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
 	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
 	if resolutionErr != nil {
@@ -2873,7 +2604,6 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 		testID = id
 	}
 
-	// If not a UUID, try to find by name
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
 		if err != nil {
@@ -2916,14 +2646,12 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// AddRemoveTestTagsInput defines input for add_remove_test_tags tool.
 type AddRemoveTestTagsInput struct {
 	TestNameOrID string   `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 	TagsToAdd    []string `json:"tags_to_add,omitempty" jsonschema:"Tag names to add to the test"`
 	TagsToRemove []string `json:"tags_to_remove,omitempty" jsonschema:"Tag names to remove from the test"`
 }
 
-// AddRemoveTestTagsOutput defines output for add_remove_test_tags tool.
 type AddRemoveTestTagsOutput struct {
 	Success bool   `json:"success"`
 	TestID  string `json:"test_id,omitempty"`
@@ -2931,7 +2659,6 @@ type AddRemoveTestTagsOutput struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// handleAddRemoveTestTags handles the add_remove_test_tags tool call.
 func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolRequest, input AddRemoveTestTagsInput) (*mcp.CallToolResult, AddRemoveTestTagsOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, AddRemoveTestTagsOutput{Success: false, Error: "test_name_or_id is required"}, nil
@@ -2944,7 +2671,6 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 		return nil, AddRemoveTestTagsOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
 	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
 	if resolutionErr != nil {
@@ -2957,7 +2683,6 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 		testID = id
 	}
 
-	// If not a UUID, try to find by name
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
 		if err != nil {
@@ -3009,15 +2734,11 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 	}, nil
 }
 
-// --- File management tool handlers ---
-
-// ListFilesInput defines input for list_files tool.
 type ListFilesInput struct {
 	Limit  int `json:"limit,omitempty" jsonschema:"Max results (1-1000, default 100)"`
 	Offset int `json:"offset,omitempty" jsonschema:"Pagination offset (default 0)"`
 }
 
-// MCPFileInfo contains file information for MCP responses.
 type MCPFileInfo struct {
 	ID          string `json:"id"`
 	Filename    string `json:"filename"`
@@ -3027,14 +2748,12 @@ type MCPFileInfo struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-// ListFilesOutput defines output for list_files tool.
 type ListFilesOutput struct {
 	Files []MCPFileInfo `json:"files"`
 	Count int           `json:"count"`
 	Error string        `json:"error,omitempty"`
 }
 
-// handleListFiles handles the list_files tool call.
 func (s *Server) handleListFiles(ctx context.Context, req *mcp.CallToolRequest, input ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
 	limit := input.Limit
 	if limit <= 0 {
@@ -3061,14 +2780,12 @@ func (s *Server) handleListFiles(ctx context.Context, req *mcp.CallToolRequest, 
 	return nil, ListFilesOutput{Files: files, Count: resp.Count}, nil
 }
 
-// UploadFileInput defines input for upload_file tool.
 type UploadFileInput struct {
 	FilePath    string `json:"file_path" jsonschema:"Absolute path to the local file to upload"`
 	DisplayName string `json:"display_name,omitempty" jsonschema:"Display name (defaults to filename)"`
 	Description string `json:"description,omitempty" jsonschema:"Optional file description"`
 }
 
-// UploadFileOutput defines output for upload_file tool.
 type UploadFileOutput struct {
 	Success  bool   `json:"success"`
 	FileID   string `json:"file_id,omitempty"`
@@ -3077,7 +2794,6 @@ type UploadFileOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleUploadFile handles the upload_file tool call.
 func (s *Server) handleUploadFile(ctx context.Context, req *mcp.CallToolRequest, input UploadFileInput) (*mcp.CallToolResult, UploadFileOutput, error) {
 	if input.FilePath == "" {
 		return nil, UploadFileOutput{Success: false, Error: "file_path is required"}, nil
@@ -3104,13 +2820,11 @@ func (s *Server) handleUploadFile(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// DownloadFileInput defines input for download_file tool.
 type DownloadFileInput struct {
 	FileID   string `json:"file_id" jsonschema:"File ID to download"`
 	DestPath string `json:"dest_path,omitempty" jsonschema:"Local path to save the file (defaults to current directory + original filename)"`
 }
 
-// DownloadFileOutput defines output for download_file tool.
 type DownloadFileOutput struct {
 	Success  bool   `json:"success"`
 	FilePath string `json:"file_path,omitempty"`
@@ -3118,7 +2832,6 @@ type DownloadFileOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleDownloadFile handles the download_file tool call.
 func (s *Server) handleDownloadFile(ctx context.Context, req *mcp.CallToolRequest, input DownloadFileInput) (*mcp.CallToolResult, DownloadFileOutput, error) {
 	if input.FileID == "" {
 		return nil, DownloadFileOutput{Success: false, Error: "file_id is required"}, nil
@@ -3150,12 +2863,10 @@ func (s *Server) handleDownloadFile(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// GetFileDownloadURLInput defines input for get_file_download_url tool.
 type GetFileDownloadURLInput struct {
 	FileID string `json:"file_id" jsonschema:"File ID"`
 }
 
-// GetFileDownloadURLOutput defines output for get_file_download_url tool.
 type GetFileDownloadURLOutput struct {
 	Success   bool   `json:"success"`
 	URL       string `json:"url,omitempty"`
@@ -3164,7 +2875,6 @@ type GetFileDownloadURLOutput struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// handleGetFileDownloadURL handles the get_file_download_url tool call.
 func (s *Server) handleGetFileDownloadURL(ctx context.Context, req *mcp.CallToolRequest, input GetFileDownloadURLInput) (*mcp.CallToolResult, GetFileDownloadURLOutput, error) {
 	if input.FileID == "" {
 		return nil, GetFileDownloadURLOutput{Success: false, Error: "file_id is required"}, nil
@@ -3183,7 +2893,6 @@ func (s *Server) handleGetFileDownloadURL(ctx context.Context, req *mcp.CallTool
 	}, nil
 }
 
-// EditFileInput defines input for edit_file tool.
 type EditFileInput struct {
 	FileID      string  `json:"file_id" jsonschema:"File ID to edit"`
 	Filename    string  `json:"filename,omitempty" jsonschema:"New filename"`
@@ -3191,7 +2900,6 @@ type EditFileInput struct {
 	FilePath    string  `json:"file_path,omitempty" jsonschema:"Path to replacement file (replaces content, preserves ID)"`
 }
 
-// EditFileOutput defines output for edit_file tool.
 type EditFileOutput struct {
 	Success  bool   `json:"success"`
 	FileID   string `json:"file_id,omitempty"`
@@ -3200,7 +2908,6 @@ type EditFileOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleEditFile handles the edit_file tool call.
 func (s *Server) handleEditFile(ctx context.Context, req *mcp.CallToolRequest, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {
 	if input.FileID == "" {
 		return nil, EditFileOutput{Success: false, Error: "file_id is required"}, nil
@@ -3213,7 +2920,6 @@ func (s *Server) handleEditFile(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, EditFileOutput{Success: false, Error: "specify at least filename, description, or file_path"}, nil
 	}
 
-	// Content replacement.
 	if hasFile {
 		info, err := os.Stat(input.FilePath)
 		if err != nil {
@@ -3240,7 +2946,6 @@ func (s *Server) handleEditFile(ctx context.Context, req *mcp.CallToolRequest, i
 		}, nil
 	}
 
-	// Metadata-only update.
 	updateReq := &api.CLIOrgFileUpdateRequest{}
 	if input.Filename != "" {
 		updateReq.Filename = &input.Filename
@@ -3262,18 +2967,15 @@ func (s *Server) handleEditFile(ctx context.Context, req *mcp.CallToolRequest, i
 	}, nil
 }
 
-// DeleteFileInput defines input for delete_file tool.
 type DeleteFileInput struct {
 	FileID string `json:"file_id" jsonschema:"File ID to delete"`
 }
 
-// DeleteFileOutput defines output for delete_file tool.
 type DeleteFileOutput struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteFile handles the delete_file tool call.
 func (s *Server) handleDeleteFile(ctx context.Context, req *mcp.CallToolRequest, input DeleteFileInput) (*mcp.CallToolResult, DeleteFileOutput, error) {
 	if input.FileID == "" {
 		return nil, DeleteFileOutput{Success: false, Error: "file_id is required"}, nil
@@ -3301,9 +3003,6 @@ func (s *Server) orgMismatchMessageForProject(ctx context.Context, projectDirect
 	return result.Mismatch.UserMessage()
 }
 
-// --- Helper: parse location string ---
-
-// parseLocationString parses a "lat,lng" string into coordinates.
 func parseLocationString(s string) (float64, float64, error) {
 	parts := strings.SplitN(s, ",", 2)
 	if len(parts) != 2 {
@@ -3326,7 +3025,6 @@ func parseLocationString(s string) (float64, float64, error) {
 	return lat, lng, nil
 }
 
-// resolveTestID resolves a test name or ID to a UUID using local YAML files and API search.
 func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, error) {
 	testID := nameOrID
 	id, resolutionErr := s.localTestRemoteID(nameOrID)
@@ -3407,7 +3105,6 @@ func (s *Server) compositeProjectSetupError(err error) error {
 	return nil
 }
 
-// resolveWorkflowID resolves a workflow name or ID to a UUID using shared workflow resolution.
 func (s *Server) resolveWorkflowID(ctx context.Context, nameOrID string) (string, error) {
 	resolved, err := workflowref.Resolve(ctx, s.apiClient, nameOrID)
 	if err != nil {
@@ -3416,23 +3113,16 @@ func (s *Server) resolveWorkflowID(ctx context.Context, nameOrID string) (string
 	return resolved.ID, nil
 }
 
-// --- Env var tool handlers ---
-
-// --- Custom variable tool handlers ---
-
-// ListVariablesInput defines input for list_variables tool.
 type ListVariablesInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 }
 
-// VariableInfo contains information about a test variable for MCP output.
 type VariableInfo struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-// ListVariablesOutput defines output for list_variables tool.
 type ListVariablesOutput struct {
 	Success   bool           `json:"success"`
 	TestID    string         `json:"test_id,omitempty"`
@@ -3440,7 +3130,6 @@ type ListVariablesOutput struct {
 	Error     string         `json:"error,omitempty"`
 }
 
-// handleListVariables handles the list_variables tool call.
 func (s *Server) handleListVariables(ctx context.Context, req *mcp.CallToolRequest, input ListVariablesInput) (*mcp.CallToolResult, ListVariablesOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, ListVariablesOutput{Success: false, Error: "test_name_or_id is required"}, nil
@@ -3474,22 +3163,19 @@ func (s *Server) handleListVariables(ctx context.Context, req *mcp.CallToolReque
 	return nil, ListVariablesOutput{Success: true, TestID: testID, Variables: variables}, nil
 }
 
-// SetVariableInput defines input for set_variable tool.
 type SetVariableInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 	Name         string `json:"name" jsonschema:"Variable name (letters, numbers, hyphens, or underscores; no spaces)"`
 	Value        string `json:"value,omitempty" jsonschema:"Variable value (optional, defaults to empty string)"`
 }
 
-// SetVariableOutput defines output for set_variable tool.
 type SetVariableOutput struct {
 	Success bool   `json:"success"`
-	Action  string `json:"action,omitempty"` // "added" or "updated"
+	Action  string `json:"action,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleSetVariable handles the set_variable tool call (upsert).
 func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest, input SetVariableInput) (*mcp.CallToolResult, SetVariableOutput, error) {
 	if input.TestNameOrID == "" || input.Name == "" {
 		return nil, SetVariableOutput{Success: false, Error: "test_name_or_id and name are required"}, nil
@@ -3498,7 +3184,6 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 		return nil, SetVariableOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Enforce the shared variable naming rule used by the YAML validator.
 	if !isValidVariableName(input.Name) {
 		return nil, SetVariableOutput{
 			Success: false,
@@ -3514,7 +3199,6 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 		return nil, SetVariableOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Check if variable already exists (upsert pattern)
 	existing, err := s.apiClient.ListCustomVariables(ctx, testID)
 	if err != nil {
 		return nil, SetVariableOutput{Success: false, Error: fmt.Sprintf("failed to check existing variables: %v", err)}, nil
@@ -3522,7 +3206,6 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 
 	for _, v := range existing.Result {
 		if v.VariableName == input.Name {
-			// Variable exists -- update its value
 			err = s.apiClient.UpdateCustomVariableValue(ctx, testID, v.ID, input.Value)
 			if err != nil {
 				return nil, SetVariableOutput{Success: false, Error: fmt.Sprintf("failed to update variable: %v", err)}, nil
@@ -3531,7 +3214,6 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 		}
 	}
 
-	// Variable doesn't exist -- create it
 	_, err = s.apiClient.AddCustomVariable(ctx, testID, input.Name, input.Value)
 	if err != nil {
 		return nil, SetVariableOutput{Success: false, Error: fmt.Sprintf("failed to add variable: %v", err)}, nil
@@ -3539,19 +3221,16 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 	return nil, SetVariableOutput{Success: true, Action: "added", Name: input.Name}, nil
 }
 
-// DeleteVariableInput defines input for delete_variable tool.
 type DeleteVariableInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 	Name         string `json:"name" jsonschema:"Variable name to delete"`
 }
 
-// DeleteVariableOutput defines output for delete_variable tool.
 type DeleteVariableOutput struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteVariable handles the delete_variable tool call.
 func (s *Server) handleDeleteVariable(ctx context.Context, req *mcp.CallToolRequest, input DeleteVariableInput) (*mcp.CallToolResult, DeleteVariableOutput, error) {
 	if input.TestNameOrID == "" || input.Name == "" {
 		return nil, DeleteVariableOutput{Success: false, Error: "test_name_or_id and name are required"}, nil
@@ -3576,18 +3255,15 @@ func (s *Server) handleDeleteVariable(ctx context.Context, req *mcp.CallToolRequ
 	return nil, DeleteVariableOutput{Success: true}, nil
 }
 
-// DeleteAllVariablesInput defines input for delete_all_variables tool.
 type DeleteAllVariablesInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 }
 
-// DeleteAllVariablesOutput defines output for delete_all_variables tool.
 type DeleteAllVariablesOutput struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteAllVariables handles the delete_all_variables tool call.
 func (s *Server) handleDeleteAllVariables(ctx context.Context, req *mcp.CallToolRequest, input DeleteAllVariablesInput) (*mcp.CallToolResult, DeleteAllVariablesOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, DeleteAllVariablesOutput{Success: false, Error: "test_name_or_id is required"}, nil
@@ -3612,8 +3288,6 @@ func (s *Server) handleDeleteAllVariables(ctx context.Context, req *mcp.CallTool
 	return nil, DeleteAllVariablesOutput{Success: true}, nil
 }
 
-// isValidVariableName checks if a variable name uses letters, numbers,
-// hyphens, or underscores without spaces.
 func isValidVariableName(name string) bool {
 	if name == "" {
 		return false
@@ -3632,14 +3306,10 @@ func isValidVariableName(name string) bool {
 	return true
 }
 
-// --- Workflow settings tool handlers ---
-
-// GetWorkflowSettingsInput defines input for get_workflow_settings tool.
 type GetWorkflowSettingsInput struct {
 	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 }
 
-// WorkflowSettingsOutput defines output for get_workflow_settings tool.
 type WorkflowSettingsOutput struct {
 	Success             bool                   `json:"success"`
 	WorkflowID          string                 `json:"workflow_id,omitempty"`
@@ -3675,14 +3345,12 @@ func (s *Server) handleGetWorkflowSettings(ctx context.Context, req *mcp.CallToo
 	}, nil
 }
 
-// SetWorkflowLocationInput defines input for set_workflow_location tool.
 type SetWorkflowLocationInput struct {
 	WorkflowNameOrID string  `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 	Latitude         float64 `json:"latitude" jsonschema:"Latitude (-90 to 90)"`
 	Longitude        float64 `json:"longitude" jsonschema:"Longitude (-180 to 180)"`
 }
 
-// SimpleSuccessOutput is a generic success/error output.
 type SimpleSuccessOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
@@ -3723,7 +3391,6 @@ func (s *Server) handleSetWorkflowLocation(ctx context.Context, req *mcp.CallToo
 	}, nil
 }
 
-// ClearWorkflowLocationInput defines input for clear_workflow_location tool.
 type ClearWorkflowLocationInput struct {
 	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 }
@@ -3749,7 +3416,6 @@ func (s *Server) handleClearWorkflowLocation(ctx context.Context, req *mcp.CallT
 	return nil, SimpleSuccessOutput{Success: true, Message: "Location override cleared"}, nil
 }
 
-// SetWorkflowAppInput defines input for set_workflow_app tool.
 type SetWorkflowAppInput struct {
 	WorkflowNameOrID      string `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 	IOSAppID              string `json:"ios_app_id,omitempty" jsonschema:"iOS app ID to override"`
@@ -3836,7 +3502,6 @@ func (s *Server) handleSetWorkflowApp(ctx context.Context, req *mcp.CallToolRequ
 	return nil, SimpleSuccessOutput{Success: true, Message: "App config set with override enabled"}, nil
 }
 
-// ClearWorkflowAppInput defines input for clear_workflow_app tool.
 type ClearWorkflowAppInput struct {
 	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 }
@@ -3862,15 +3527,11 @@ func (s *Server) handleClearWorkflowApp(ctx context.Context, req *mcp.CallToolRe
 	return nil, SimpleSuccessOutput{Success: true, Message: "App override cleared"}, nil
 }
 
-// --- Workflow test management tool handlers ---
-
-// AddTestsToWorkflowInput defines input for add_tests_to_workflow tool.
 type AddTestsToWorkflowInput struct {
 	WorkflowNameOrID string   `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 	TestNamesOrIDs   []string `json:"test_names_or_ids" jsonschema:"Test names (.revyl/tests/ file names or Revyl test names) or UUIDs to add"`
 }
 
-// AddTestsToWorkflowOutput defines output for add_tests_to_workflow tool.
 type AddTestsToWorkflowOutput struct {
 	Success    bool     `json:"success"`
 	WorkflowID string   `json:"workflow_id,omitempty"`
@@ -3879,7 +3540,6 @@ type AddTestsToWorkflowOutput struct {
 	Error      string   `json:"error,omitempty"`
 }
 
-// handleAddTestsToWorkflow handles the add_tests_to_workflow tool call.
 func (s *Server) handleAddTestsToWorkflow(ctx context.Context, req *mcp.CallToolRequest, input AddTestsToWorkflowInput) (*mcp.CallToolResult, AddTestsToWorkflowOutput, error) {
 	if input.WorkflowNameOrID == "" {
 		return nil, AddTestsToWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
@@ -3896,19 +3556,16 @@ func (s *Server) handleAddTestsToWorkflow(ctx context.Context, req *mcp.CallTool
 		return nil, AddTestsToWorkflowOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Fetch current workflow to get existing test list
 	workflow, err := s.apiClient.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return nil, AddTestsToWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to get workflow: %v", err)}, nil
 	}
 
-	// Build set of existing test IDs for dedup
 	existingSet := make(map[string]bool, len(workflow.Tests))
 	for _, id := range workflow.Tests {
 		existingSet[id] = true
 	}
 
-	// Resolve input test names/IDs and append new ones
 	var added, skipped []string
 	newTestIDs := make([]string, len(workflow.Tests))
 	copy(newTestIDs, workflow.Tests)
@@ -3951,13 +3608,11 @@ func (s *Server) handleAddTestsToWorkflow(ctx context.Context, req *mcp.CallTool
 	}, nil
 }
 
-// RemoveTestsFromWorkflowInput defines input for remove_tests_from_workflow tool.
 type RemoveTestsFromWorkflowInput struct {
 	WorkflowNameOrID string   `json:"workflow_name_or_id" jsonschema:"Workflow name or UUID"`
 	TestNamesOrIDs   []string `json:"test_names_or_ids" jsonschema:"Test names (.revyl/tests/ file names or Revyl test names) or UUIDs to remove"`
 }
 
-// RemoveTestsFromWorkflowOutput defines output for remove_tests_from_workflow tool.
 type RemoveTestsFromWorkflowOutput struct {
 	Success    bool     `json:"success"`
 	WorkflowID string   `json:"workflow_id,omitempty"`
@@ -3966,7 +3621,6 @@ type RemoveTestsFromWorkflowOutput struct {
 	Error      string   `json:"error,omitempty"`
 }
 
-// handleRemoveTestsFromWorkflow handles the remove_tests_from_workflow tool call.
 func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.CallToolRequest, input RemoveTestsFromWorkflowInput) (*mcp.CallToolResult, RemoveTestsFromWorkflowOutput, error) {
 	if input.WorkflowNameOrID == "" {
 		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
@@ -3983,13 +3637,11 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Fetch current workflow to get existing test list
 	workflow, err := s.apiClient.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to get workflow: %v", err)}, nil
 	}
 
-	// Resolve input test names/IDs to UUIDs
 	removeSet := make(map[string]bool)
 	var removed, notFound []string
 	for _, nameOrID := range input.TestNamesOrIDs {
@@ -4003,7 +3655,6 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 		removeSet[testID] = true
 	}
 
-	// Build new test list excluding removed ones
 	var newTestIDs []string
 	removedSet := make(map[string]bool)
 	for _, id := range workflow.Tests {
@@ -4014,7 +3665,6 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 		newTestIDs = append(newTestIDs, id)
 	}
 
-	// Track which inputs were actually found/removed
 	for _, nameOrID := range input.TestNamesOrIDs {
 		testID, _ := s.resolveTestID(ctx, nameOrID)
 		if removedSet[testID] {
@@ -4041,9 +3691,6 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 	}, nil
 }
 
-// --- Build upload tool handler ---
-
-// UploadBuildInput defines input for upload_build tool.
 type UploadBuildInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	FilePath   string `json:"file_path" jsonschema:"Absolute path to the build file (.apk, .ipa, or .zip)"`
@@ -4053,7 +3700,6 @@ type UploadBuildInput struct {
 	BranchName string `json:"branch_name,omitempty" jsonschema:"Exact Revyl destination branch name; creates it if needed and freezes it for this upload"`
 }
 
-// UploadBuildOutput defines output for upload_build tool.
 type UploadBuildOutput struct {
 	Success    bool   `json:"success"`
 	VersionID  string `json:"version_id,omitempty"`
@@ -4067,7 +3713,6 @@ type UploadBuildOutput struct {
 	BillingNextStep string           `json:"billing_next_step,omitempty" jsonschema:"The line to follow when billing_notice is set."`
 }
 
-// handleUploadBuild handles the upload_build tool call.
 func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest, input UploadBuildInput) (*mcp.CallToolResult, UploadBuildOutput, error) {
 	if input.FilePath == "" {
 		return nil, UploadBuildOutput{Success: false, Error: "file_path is required"}, nil
@@ -4076,7 +3721,6 @@ func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest
 		return nil, UploadBuildOutput{Success: false, Error: "app_id is required"}, nil
 	}
 
-	// Validate file exists
 	info, err := os.Stat(input.FilePath)
 	if err != nil {
 		return nil, UploadBuildOutput{Success: false, Error: fmt.Sprintf("file not found: %v", err)}, nil
@@ -4085,14 +3729,12 @@ func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest
 		return nil, UploadBuildOutput{Success: false, Error: "file_path must be a file, not a directory"}, nil
 	}
 
-	// Validate file extension
 	ext := strings.ToLower(filepath.Ext(input.FilePath))
 	validExts := map[string]bool{".apk": true, ".ipa": true, ".zip": true, ".app": true}
 	if !validExts[ext] {
 		return nil, UploadBuildOutput{Success: false, Error: fmt.Sprintf("invalid file type '%s': must be .apk, .ipa, .zip, or .app", ext)}, nil
 	}
 
-	// Auto-generate version if not provided
 	version := input.Version
 	if version == "" {
 		version = fmt.Sprintf("mcp-%d", time.Now().Unix())
@@ -4131,9 +3773,6 @@ func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// --- Test update tool handler ---
-
-// UpdateTestInput defines input for update_test tool.
 type UpdateTestInput struct {
 	TestNameOrID   string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 	YAMLContent    string `json:"yaml_content" jsonschema:"Full YAML test definition with updated blocks"`
@@ -4145,19 +3784,15 @@ type UpdateTestInput struct {
 	Force          bool   `json:"force,omitempty" jsonschema:"Force update even if remote has a newer version"`
 }
 
-// UpdateTestOutput defines output for update_test tool.
 type UpdateTestOutput struct {
 	Success    bool   `json:"success"`
 	TestID     string `json:"test_id,omitempty"`
 	NewVersion int    `json:"new_version,omitempty"`
 	EditorURL  string `json:"editor_url,omitempty"`
 	Error      string `json:"error,omitempty"`
-	// Notice says that runs ignore the saved copy this updated, in a project
-	// that runs tests from Git.
-	Notice string `json:"notice,omitempty"`
+	Notice     string `json:"notice,omitempty"`
 }
 
-// handleUpdateTest handles the update_test tool call.
 func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest, input UpdateTestInput) (*mcp.CallToolResult, UpdateTestOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, UpdateTestOutput{Success: false, Error: "test_name_or_id is required"}, nil
@@ -4169,7 +3804,6 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, UpdateTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve test name to ID
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
 		if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
@@ -4178,7 +3812,6 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, UpdateTestOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Parse YAML to extract blocks
 	var testDef config.LocalTest
 	if parseErr := yamlPkg.Unmarshal([]byte(input.YAMLContent), &testDef); parseErr != nil {
 		return nil, UpdateTestOutput{
@@ -4187,7 +3820,6 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil
 	}
 
-	// Build update request
 	updateReq := &api.UpdateTestRequest{
 		TestID: testID,
 		Tasks:  testDef.Test.Blocks,
@@ -4238,15 +3870,11 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 	return nil, out, nil
 }
 
-// --- Script tool handlers ---
-
-// ListScriptsInput defines input for list_scripts tool.
 type ListScriptsInput struct {
 	NameFilter    string `json:"name_filter,omitempty" jsonschema:"Optional filter to search scripts by name"`
 	RuntimeFilter string `json:"runtime_filter,omitempty" jsonschema:"Optional filter by runtime (python, javascript, typescript, bash)"`
 }
 
-// ScriptInfo contains information about a script for MCP output.
 type ScriptInfo struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -4254,14 +3882,12 @@ type ScriptInfo struct {
 	Description *string `json:"description,omitempty"`
 }
 
-// ListScriptsOutput defines output for list_scripts tool.
 type ListScriptsOutput struct {
 	Scripts []ScriptInfo `json:"scripts"`
 	Total   int          `json:"total"`
 	Error   string       `json:"error,omitempty"`
 }
 
-// handleListScripts handles the list_scripts tool call.
 func (s *Server) handleListScripts(ctx context.Context, req *mcp.CallToolRequest, input ListScriptsInput) (*mcp.CallToolResult, ListScriptsOutput, error) {
 	resp, err := s.apiClient.ListScripts(ctx, input.RuntimeFilter, 100, 0)
 	if err != nil {
@@ -4273,7 +3899,6 @@ func (s *Server) handleListScripts(ctx context.Context, req *mcp.CallToolRequest
 
 	var scripts []ScriptInfo
 	for _, sc := range resp.Scripts {
-		// Apply name filter if specified
 		if input.NameFilter != "" {
 			if !strings.Contains(strings.ToLower(sc.Name), strings.ToLower(input.NameFilter)) {
 				continue
@@ -4297,12 +3922,10 @@ func (s *Server) handleListScripts(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// GetScriptInput defines input for get_script tool.
 type GetScriptInput struct {
 	ScriptID string `json:"script_id" jsonschema:"The UUID of the script to retrieve"`
 }
 
-// GetScriptOutput defines output for get_script tool.
 type GetScriptOutput struct {
 	Success     bool    `json:"success"`
 	ID          string  `json:"id,omitempty"`
@@ -4313,7 +3936,6 @@ type GetScriptOutput struct {
 	Error       string  `json:"error,omitempty"`
 }
 
-// handleGetScript handles the get_script tool call.
 func (s *Server) handleGetScript(ctx context.Context, req *mcp.CallToolRequest, input GetScriptInput) (*mcp.CallToolResult, GetScriptOutput, error) {
 	if input.ScriptID == "" {
 		return nil, GetScriptOutput{Success: false, Error: "script_id is required"}, nil
@@ -4334,7 +3956,6 @@ func (s *Server) handleGetScript(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// CreateScriptInput defines input for create_script tool.
 type CreateScriptInput struct {
 	Name        string `json:"name" jsonschema:"Script name"`
 	Code        string `json:"code" jsonschema:"Script source code"`
@@ -4342,7 +3963,6 @@ type CreateScriptInput struct {
 	Description string `json:"description,omitempty" jsonschema:"Optional script description"`
 }
 
-// CreateScriptOutput defines output for create_script tool.
 type CreateScriptOutput struct {
 	Success  bool   `json:"success"`
 	ScriptID string `json:"script_id,omitempty"`
@@ -4350,7 +3970,6 @@ type CreateScriptOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleCreateScript handles the create_script tool call.
 func (s *Server) handleCreateScript(ctx context.Context, req *mcp.CallToolRequest, input CreateScriptInput) (*mcp.CallToolResult, CreateScriptOutput, error) {
 	if input.Name == "" {
 		return nil, CreateScriptOutput{Success: false, Error: "name is required"}, nil
@@ -4362,7 +3981,6 @@ func (s *Server) handleCreateScript(ctx context.Context, req *mcp.CallToolReques
 		return nil, CreateScriptOutput{Success: false, Error: "runtime is required"}, nil
 	}
 
-	// Validate runtime
 	validRuntimes := map[string]bool{"python": true, "javascript": true, "typescript": true, "bash": true}
 	if !validRuntimes[input.Runtime] {
 		return nil, CreateScriptOutput{
@@ -4392,7 +4010,6 @@ func (s *Server) handleCreateScript(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// UpdateScriptInput defines input for update_script tool.
 type UpdateScriptInput struct {
 	ScriptID    string `json:"script_id" jsonschema:"The UUID of the script to update"`
 	Name        string `json:"name,omitempty" jsonschema:"New script name"`
@@ -4401,7 +4018,6 @@ type UpdateScriptInput struct {
 	Description string `json:"description,omitempty" jsonschema:"New script description"`
 }
 
-// UpdateScriptOutput defines output for update_script tool.
 type UpdateScriptOutput struct {
 	Success  bool   `json:"success"`
 	ScriptID string `json:"script_id,omitempty"`
@@ -4409,7 +4025,6 @@ type UpdateScriptOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// handleUpdateScript handles the update_script tool call.
 func (s *Server) handleUpdateScript(ctx context.Context, req *mcp.CallToolRequest, input UpdateScriptInput) (*mcp.CallToolResult, UpdateScriptOutput, error) {
 	if input.ScriptID == "" {
 		return nil, UpdateScriptOutput{Success: false, Error: "script_id is required"}, nil
@@ -4419,7 +4034,6 @@ func (s *Server) handleUpdateScript(ctx context.Context, req *mcp.CallToolReques
 		return nil, UpdateScriptOutput{Success: false, Error: "at least one field to update is required"}, nil
 	}
 
-	// Validate runtime if provided
 	if input.Runtime != "" {
 		validRuntimes := map[string]bool{"python": true, "javascript": true, "typescript": true, "bash": true}
 		if !validRuntimes[input.Runtime] {
@@ -4456,19 +4070,16 @@ func (s *Server) handleUpdateScript(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// DeleteScriptInput defines input for delete_script tool.
 type DeleteScriptInput struct {
 	ScriptID string `json:"script_id" jsonschema:"The UUID of the script to delete"`
 }
 
-// DeleteScriptOutput defines output for delete_script tool.
 type DeleteScriptOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleDeleteScript handles the delete_script tool call.
 func (s *Server) handleDeleteScript(ctx context.Context, req *mcp.CallToolRequest, input DeleteScriptInput) (*mcp.CallToolResult, DeleteScriptOutput, error) {
 	if input.ScriptID == "" {
 		return nil, DeleteScriptOutput{Success: false, Error: "script_id is required"}, nil
@@ -4485,13 +4096,11 @@ func (s *Server) handleDeleteScript(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// InsertScriptBlockInput defines input for insert_script_block tool.
 type InsertScriptBlockInput struct {
 	ScriptNameOrID string `json:"script_name_or_id" jsonschema:"Script name or UUID to look up; generated YAML uses canonical script: <name>"`
 	VariableName   string `json:"variable_name,omitempty" jsonschema:"Optional variable name to store the script output"`
 }
 
-// InsertScriptBlockOutput defines output for insert_script_block tool.
 type InsertScriptBlockOutput struct {
 	Success         bool   `json:"success"`
 	YAMLSnippet     string `json:"yaml_snippet,omitempty"`
@@ -4502,16 +4111,13 @@ type InsertScriptBlockOutput struct {
 	Error           string `json:"error,omitempty"`
 }
 
-// handleInsertScriptBlock handles the insert_script_block tool call.
 func (s *Server) handleInsertScriptBlock(ctx context.Context, req *mcp.CallToolRequest, input InsertScriptBlockInput) (*mcp.CallToolResult, InsertScriptBlockOutput, error) {
 	if input.ScriptNameOrID == "" {
 		return nil, InsertScriptBlockOutput{Success: false, Error: "script_name_or_id is required"}, nil
 	}
 
-	// Resolve script name or ID
 	var scriptID, scriptName string
 
-	// Try as UUID first
 	if len(input.ScriptNameOrID) == 36 {
 		resp, err := s.apiClient.GetScript(ctx, input.ScriptNameOrID)
 		if err == nil {
@@ -4520,7 +4126,6 @@ func (s *Server) handleInsertScriptBlock(ctx context.Context, req *mcp.CallToolR
 		}
 	}
 
-	// If not found by ID, search by name
 	if scriptID == "" {
 		listResp, err := s.apiClient.ListScripts(ctx, "", 100, 0)
 		if err != nil {
@@ -4541,7 +4146,6 @@ func (s *Server) handleInsertScriptBlock(ctx context.Context, req *mcp.CallToolR
 		return nil, InsertScriptBlockOutput{Success: false, Error: fmt.Sprintf("script %q not found; use an exact script name or UUID", input.ScriptNameOrID)}, nil
 	}
 
-	// Generate YAML snippet
 	var yamlSnippet string
 	if input.VariableName != "" {
 		yamlSnippet = fmt.Sprintf("- type: code_execution\n  script: \"%s\"\n  variable_name: \"%s\"", scriptName, input.VariableName)
@@ -4558,9 +4162,6 @@ func (s *Server) handleInsertScriptBlock(ctx context.Context, req *mcp.CallToolR
 	}, nil
 }
 
-// --- Live editor tools ---
-
-// OpenTestEditorInput defines input for the open_test_editor tool.
 type OpenTestEditorInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (a .revyl/tests/ file name or a Revyl test name) or UUID"`
 	NoOpen       bool   `json:"no_open,omitempty" jsonschema:"Skip opening the browser (just return URLs)"`
@@ -4568,7 +4169,6 @@ type OpenTestEditorInput struct {
 	Port         int    `json:"port,omitempty" jsonschema:"Dev server port (default: from config or 8081)"`
 }
 
-// OpenTestEditorOutput defines output for the open_test_editor tool.
 type OpenTestEditorOutput struct {
 	Success       bool   `json:"success"`
 	TestID        string `json:"test_id"`
@@ -4580,7 +4180,6 @@ type OpenTestEditorOutput struct {
 	Error         string `json:"error,omitempty"`
 }
 
-// handleOpenTestEditor handles the open_test_editor tool call.
 func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequest, input OpenTestEditorInput) (*mcp.CallToolResult, OpenTestEditorOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, OpenTestEditorOutput{
@@ -4589,9 +4188,6 @@ func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequ
 		}, nil
 	}
 
-	// Canonical config does not persist hot-reload provider state. Resolve the
-	// provider directly from the project when this compatibility editor surface
-	// is used; do not synthesize or persist a legacy config adapter.
 	testsDir := ""
 	project := s.project
 	var projectErr error
@@ -4673,17 +4269,14 @@ func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequ
 	}, nil
 }
 
-// StopHotReloadInput defines input for the stop_hot_reload tool.
 type StopHotReloadInput struct{}
 
-// StopHotReloadOutput defines output for the stop_hot_reload tool.
 type StopHotReloadOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Error   string `json:"error,omitempty"`
 }
 
-// handleStopHotReload handles the stop_hot_reload tool call.
 func (s *Server) handleStopHotReload(ctx context.Context, req *mcp.CallToolRequest, input StopHotReloadInput) (*mcp.CallToolResult, StopHotReloadOutput, error) {
 	s.hotReloadMu.Lock()
 	defer s.hotReloadMu.Unlock()
@@ -4706,10 +4299,8 @@ func (s *Server) handleStopHotReload(ctx context.Context, req *mcp.CallToolReque
 	}, nil
 }
 
-// HotReloadStatusInput defines input for the hot_reload_status tool.
 type HotReloadStatusInput struct{}
 
-// HotReloadStatusOutput defines output for the hot_reload_status tool.
 type HotReloadStatusOutput struct {
 	Active        bool   `json:"active"`
 	TestID        string `json:"test_id,omitempty"`
@@ -4719,7 +4310,6 @@ type HotReloadStatusOutput struct {
 	DevServerPort int    `json:"dev_server_port,omitempty"`
 }
 
-// handleHotReloadStatus handles the hot_reload_status tool call.
 func (s *Server) handleHotReloadStatus(ctx context.Context, req *mcp.CallToolRequest, input HotReloadStatusInput) (*mcp.CallToolResult, HotReloadStatusOutput, error) {
 	s.hotReloadMu.Lock()
 	defer s.hotReloadMu.Unlock()
@@ -4728,7 +4318,6 @@ func (s *Server) handleHotReloadStatus(ctx context.Context, req *mcp.CallToolReq
 		return nil, HotReloadStatusOutput{Active: false}, nil
 	}
 
-	// Reconstruct editor URL from cached test ID
 	editorURL := fmt.Sprintf(
 		"%s/tests/execute?testUid=%s",
 		config.GetAppURL(false),
@@ -4745,9 +4334,6 @@ func (s *Server) handleHotReloadStatus(ctx context.Context, req *mcp.CallToolReq
 	}, nil
 }
 
-// Shutdown cleans up process-owned raw sessions and hot reload state.
-// Detached CLI dev loops outlive individual MCP stdio clients and stop only
-// through stop_dev_loop or server-side idle expiry.
 func (s *Server) Shutdown() {
 	s.hotReloadMu.Lock()
 	manager := s.hotReloadManager

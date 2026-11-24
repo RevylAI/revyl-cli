@@ -22,17 +22,14 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// NextStep suggests a follow-up action to the agent.
 type NextStep struct {
 	Tool   string `json:"tool"`
 	Params string `json:"params,omitempty"`
 	Reason string `json:"reason"`
 }
 
-// boolPtr returns a pointer to a bool value. Used for ToolAnnotations fields.
 func boolPtr(b bool) *bool { return &b }
 
-// syncSessionsBestEffort refreshes in-memory sessions from backend.
 func (s *Server) syncSessionsBestEffort(ctx context.Context) {
 	if s == nil || s.sessionMgr == nil {
 		return
@@ -42,8 +39,6 @@ func (s *Server) syncSessionsBestEffort(ctx context.Context) {
 	}
 }
 
-// shouldRetryResolveAfterSync returns true for resolve errors that can be
-// recovered by refreshing session state from backend/cache.
 func shouldRetryResolveAfterSync(err error) bool {
 	if err == nil {
 		return false
@@ -53,8 +48,6 @@ func shouldRetryResolveAfterSync(err error) bool {
 		strings.Contains(msg, "no session at index")
 }
 
-// resolveSessionWithHydration resolves a session, retrying once after a
-// best-effort sync when the initial lookup indicates stale/empty local state.
 func (s *Server) resolveSessionWithHydration(ctx context.Context, index int) (*DeviceSession, error) {
 	session, err := s.sessionMgr.ResolveSession(index)
 	if err == nil || !shouldRetryResolveAfterSync(err) {
@@ -64,15 +57,6 @@ func (s *Server) resolveSessionWithHydration(ctx context.Context, index int) (*D
 	return s.sessionMgr.ResolveSession(index)
 }
 
-// resolveToolSession resolves the session a session-scoped tool acts on.
-//
-// session_id wins and never falls back to the active session, so parallel
-// agents sharing this server each keep their own device. A session this server
-// already tracks is used as-is, keeping its screenshot anchors and idle timer;
-// any other ID goes through ResolveSessionByID, the stateless path behind the
-// CLI's --session-id. A session_index that names a different session is an
-// error rather than a silent override. Without session_id, session_index and
-// the active-session fallback resolve exactly as before.
 func (s *Server) resolveToolSession(ctx context.Context, sessionIndex *int, sessionID string, actions ...string) (*DeviceSession, error) {
 	session, err := s.resolveToolSessionUnchecked(ctx, sessionIndex, sessionID)
 	if err != nil {
@@ -146,11 +130,6 @@ func explainSessionIDResolveError(err error) error {
 	return err
 }
 
-// pinnedSessionTarget returns the session_index and session_id inputs that
-// select exactly this session again, for tools that call other tools. It pins
-// by server-issued ID whenever the session has one: a local index can be
-// reused by a different device if the session is stopped and another starts
-// mid-call, and an ID that no longer names a live session fails instead.
 func pinnedSessionTarget(session *DeviceSession) (*int, string) {
 	if session.SessionID != "" {
 		return nil, session.SessionID
@@ -161,16 +140,10 @@ func pinnedSessionTarget(session *DeviceSession) (*int, string) {
 
 type pinnedSessionContextKey struct{}
 
-// withPinnedSession marks tool calls a tool makes on its own behalf, so they
-// do not count as the caller choosing session_id targeting.
 func withPinnedSession(ctx context.Context) context.Context {
 	return context.WithValue(ctx, pinnedSessionContextKey{}, true)
 }
 
-// recordSessionTargetMode records how the caller chose the device session on
-// the serve command's terminal analytics event: session_id, session_index, or
-// active when it named none. Only the most explicit mode used during this
-// server's lifetime is kept, and no session identifier is recorded.
 func (s *Server) recordSessionTargetMode(ctx context.Context, sessionIndex *int, sessionID string) {
 	if pinned, _ := ctx.Value(pinnedSessionContextKey{}).(bool); pinned {
 		return
@@ -191,7 +164,6 @@ func (s *Server) recordSessionTargetMode(ctx context.Context, sessionIndex *int,
 	analytics.SetCommandCompletion(ctx, analytics.CommandCompletion{Domain: "mcp_session_target", DomainStatus: mode})
 }
 
-// registerScreenshotTool registers the standalone native screenshot tool.
 func (s *Server) registerScreenshotTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Meta:        screenshotAppToolMeta(),
@@ -204,7 +176,6 @@ func (s *Server) registerScreenshotTool() {
 	}, s.handleScreenshot)
 }
 
-// registerDeviceNavigateTool registers URL and deep-link navigation.
 func (s *Server) registerDeviceNavigateTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_navigate",
@@ -217,12 +188,10 @@ func (s *Server) registerDeviceNavigateTool() {
 	}, s.handleDeviceNavigate)
 }
 
-// registerDeviceTools registers all device interaction MCP tools.
 func (s *Server) registerDeviceTools() {
 	if s.experimentalComputer {
 		s.registerComputerTool()
 	}
-	// Session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "start_device_session",
 		Meta:        s.workspaceToolMeta(),
@@ -244,7 +213,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleStopDeviceSession)
 
-	// Device actions (grounded by default)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_tap",
 		Description: "Tap an element by description (grounded) or coordinates (raw). Provide target OR x+y.",
@@ -381,7 +349,6 @@ func (s *Server) registerDeviceTools() {
 
 	s.registerScreenshotTool()
 
-	// App management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "install_app",
 		Description: "Install an app on the device. Provide either app_url (direct URL to .apk/.ipa) or build_version_id (from a previous upload_build). Returns the detected bundle_id for use with launch_app.",
@@ -412,7 +379,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleDeviceSetPermissions)
 
-	// Device utility actions
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_go_home",
 		Description: "Return to the device home screen.",
@@ -506,7 +472,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleDeviceCodeExecution)
 
-	// Info
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_session_info",
 		Description: "Get current device session status, platform, viewer URL, and time remaining.",
@@ -525,7 +490,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleGetSessionReport)
 
-	// Diagnostics
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_doctor",
 		Description: "Run diagnostics on auth, session health, worker reachability, and device connection, and report environment info. First aid for any issue.",
@@ -535,7 +499,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleDeviceDoctor)
 
-	// Multi-session management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_device_sessions",
 		Description: "List your active device sessions and sessions started or explicitly selected here, with their session_id, index, platform, status, and uptime. Pass a session_id to other device tools to target any authorized session.",
@@ -556,7 +519,6 @@ func (s *Server) registerDeviceTools() {
 
 	s.registerRebuildTool()
 
-	// Live performance polling
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "poll_performance_metrics",
 		Description: "Poll live CPU, memory, and FPS metrics from an active device session. Returns incremental samples since the last cursor. Use with cursor=\"0\" for the first call, then pass next_cursor from the response for subsequent calls.",
@@ -566,7 +528,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handlePollPerformanceMetrics)
 
-	// Device-state inspection (iOS sim only — Android handlers no-op).
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_state_list",
 		Description: "List all UserDefaults plist files and SQLite databases in the app's data container, with table schemas and row counts. Use this first to discover what's available before calling device_state_query.",
@@ -617,9 +578,6 @@ func (s *Server) registerDeviceTools() {
 	}, s.handlePollNetworkRequests)
 }
 
-// --- Session Management ---
-
-// StartDeviceSessionInput defines input for start_device_session.
 type StartDeviceSessionInput struct {
 	ProjectDir                 string                 `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	BranchName                 string                 `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
@@ -643,7 +601,6 @@ type StartDeviceSessionInput struct {
 	NoOpen                     bool                   `json:"no_open,omitempty" jsonschema:"Skip opening the local browser (default: false). The experimental workspace always skips local browser opening."`
 }
 
-// StartDeviceSessionOutput defines output for start_device_session.
 type StartDeviceSessionOutput struct {
 	AutoGitBranchEnabled *bool            `json:"auto_git_branch_enabled,omitempty" jsonschema:"Whether automatic Git branch detection was enabled for this app when the build was selected"`
 	GitBranchName        string           `json:"git_branch_name,omitempty" jsonschema:"The project's Git branch the request sent, present only when it was consulted: branch_source is git_branch, or default_branch because that Git branch had no usable build"`
@@ -833,14 +790,12 @@ func sessionIDParam(sessionID string) string {
 	return fmt.Sprintf("session_id=%q", sessionID)
 }
 
-// StopDeviceSessionInput defines input for stop_device_session.
 type StopDeviceSessionInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to stop. Omit to stop the active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 	All          bool   `json:"all,omitempty" jsonschema:"Stop your sessions and sessions started or explicitly selected here."`
 }
 
-// StopDeviceSessionOutput defines output for stop_device_session.
 type StopDeviceSessionOutput struct {
 	Success         bool                      `json:"success"`
 	Error           string                    `json:"error,omitempty"`
@@ -872,9 +827,6 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 	var session *DeviceSession
 	if id := strings.TrimSpace(input.SessionID); id != "" && input.SessionIndex == nil {
 		s.recordSessionTargetMode(ctx, nil, id)
-		// Like the CLI's stop --session-id, an ID this server does not track
-		// is stopped by ID without resolving it first, so a session that is
-		// still provisioning can be stopped too.
 		session = s.trackedSessionByID(id)
 		if session == nil {
 			session = &DeviceSession{Index: UnattachedSessionIndex, SessionID: id}
@@ -910,11 +862,6 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 	}, nil
 }
 
-// --- Dual-param validation helper ---
-
-// resolveCoordsResult holds the output of resolveCoords, including the concrete
-// session so callers can reuse it for the subsequent worker request without
-// re-resolving (which would be a TOCTOU race if the active session changed).
 type resolveCoordsResult struct {
 	X           int
 	Y           int
@@ -929,20 +876,6 @@ func (rc *resolveCoordsResult) workerBody(body map[string]interface{}) map[strin
 	return body
 }
 
-// resolveCoords resolves target OR x/y to concrete coordinates for a given session.
-// Returns the resolved coordinates AND the concrete session that was used.
-// Callers must use result.Session for any follow-up WorkerRequestOnSession
-// call to guarantee grounding and action target the same device.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - target: Natural language element description (mutually exclusive with x+y).
-//   - x, y: Raw device coordinates (mutually exclusive with target).
-//   - sessionIndex, sessionID: The tool's session targeting inputs (see resolveToolSession).
-//
-// Returns:
-//   - *resolveCoordsResult: Resolved coordinates and the concrete session.
-//   - error: Validation or resolution error.
 func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, sessionIndex *int, sessionID string, actions ...string) (*resolveCoordsResult, error) {
 	return s.resolveCoordsWithAnchor(ctx, target, x, y, "", sessionIndex, sessionID, actions...)
 }
@@ -993,17 +926,6 @@ func (s *Server) resolveCoordsWithAnchor(ctx context.Context, target string, x, 
 	}, nil
 }
 
-// resolveCoordsFromAnchor grounds a target against one captured screenshot.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - target: Natural-language element description.
-//   - screenToken: Token for the screenshot that must be used for grounding.
-//   - sessionIndex, sessionID: The tool's session targeting inputs (see resolveToolSession).
-//
-// Returns:
-//   - *resolveCoordsResult: Grounded coordinates and the concrete session.
-//   - error: Validation, session, anchor, or grounding failure.
 func (s *Server) resolveCoordsFromAnchor(
 	ctx context.Context,
 	target string,
@@ -1051,7 +973,6 @@ func (s *Server) resolveCoordsFromAnchor(
 	}, nil
 }
 
-// errorNextSteps returns recovery-oriented NextSteps based on the error type.
 func errorNextSteps(err error) []NextStep {
 	var workerErr *WorkerHTTPError
 	if errors.As(err, &workerErr) && workerErr.Code == "step_output_not_available" {
@@ -1095,13 +1016,10 @@ func stringValue(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
-// normalizeOptionalToolInput trims whitespace from a tool input field.
 func normalizeOptionalToolInput(value string) string {
 	return strings.TrimSpace(value)
 }
 
-// normalizeRequiredToolInput trims a required tool input and errors when the
-// resulting value is empty.
 func normalizeRequiredToolInput(value, field string) (string, error) {
 	normalized := normalizeOptionalToolInput(value)
 	if normalized == "" {
@@ -1113,14 +1031,6 @@ func normalizeRequiredToolInput(value, field string) (string, error) {
 // validateExternalURL checks that a URL uses http(s) and does not point at
 // internal/metadata addresses (RFC 1918, link-local, cloud metadata).
 // Returns the cleaned URL string or an error describing why it was rejected.
-//
-// Parameters:
-//   - rawURL: The user-provided URL string.
-//
-// Returns:
-//   - string: The validated URL (unchanged if valid).
-//   - error: Non-nil when the URL scheme is not http/https, the host cannot
-//     be resolved, or the resolved IP is in a blocked range.
 func validateExternalURL(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -1157,8 +1067,6 @@ func validateExternalURL(rawURL string) (string, error) {
 	return rawURL, nil
 }
 
-// normalizeStartArtifactInputs trims start-session artifact selectors and
-// ensures the caller does not provide more than one source.
 func normalizeStartArtifactInputs(appID, buildVersionID, appURL string) (string, string, string, error) {
 	normalizedAppID := normalizeOptionalToolInput(appID)
 	normalizedBuildVersionID := normalizeOptionalToolInput(buildVersionID)
@@ -1390,9 +1298,6 @@ func (s *Server) handleDeviceCodeExecution(ctx context.Context, req *mcp.CallToo
 	return nil, *output, nil
 }
 
-// --- Device Tap ---
-
-// DeviceTapInput defines input for device_tap.
 type DeviceTapInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
 	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
@@ -1402,7 +1307,6 @@ type DeviceTapInput struct {
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
-// DeviceTapOutput defines output for device_tap.
 type DeviceTapOutput struct {
 	Success   bool       `json:"success"`
 	X         int        `json:"x"`
@@ -1498,8 +1402,6 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// --- Device Double Tap ---
-
 type DeviceDoubleTapInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to double-tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
 	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
@@ -1529,8 +1431,6 @@ func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolReq
 		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 	}, nil
 }
-
-// --- Device Long Press ---
 
 type DeviceLongPressInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to long-press. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
@@ -1566,8 +1466,6 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 	}, nil
 }
-
-// --- Device Type ---
 
 type DeviceTypeInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to type into (e.g. 'email input field')"`
@@ -1626,7 +1524,6 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, DeviceTypeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
-	// ClearFirst defaults to true (clear the field before typing).
 	clearFirst := true
 	if req != nil && req.Params != nil {
 		var raw map[string]json.RawMessage
@@ -1656,8 +1553,6 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 	}, nil
 }
-
-// --- Device Swipe ---
 
 type DeviceSwipeInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to swipe from. Use visible text ('product list') or visual traits ('main content area'). Auto-resolves via AI grounding."`
@@ -1710,8 +1605,6 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// --- Device Drag (raw only) ---
-
 type DeviceDragInput struct {
 	StartX       int    `json:"start_x" jsonschema:"Starting X coordinate"`
 	StartY       int    `json:"start_y" jsonschema:"Starting Y coordinate"`
@@ -1755,8 +1648,6 @@ func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// --- Device Pinch ---
-
 type DevicePinchInput struct {
 	Target       string  `json:"target,omitempty" jsonschema:"Element to pinch/zoom (grounded)"`
 	X            *int    `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
@@ -1797,8 +1688,6 @@ func (s *Server) handleDevicePinch(ctx context.Context, req *mcp.CallToolRequest
 	}, nil
 }
 
-// --- Device Clear Text ---
-
 type DeviceClearTextInput struct {
 	Target       string `json:"target,omitempty" jsonschema:"Element to clear (grounded)"`
 	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate in device units (iOS points, Android and Web pixels); bypasses grounding"`
@@ -1828,8 +1717,6 @@ func (s *Server) handleDeviceClearText(ctx context.Context, req *mcp.CallToolReq
 		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 	}, nil
 }
-
-// --- Device Wait ---
 
 type DeviceWaitInput struct {
 	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Wait duration in milliseconds (default 1000)"`
@@ -1878,8 +1765,6 @@ func (s *Server) handleDeviceWait(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// --- Device Back ---
-
 type DeviceBackInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -1914,8 +1799,6 @@ func (s *Server) handleDeviceBack(ctx context.Context, req *mcp.CallToolRequest,
 		},
 	}, nil
 }
-
-// --- Device Key ---
 
 type DeviceKeyInput struct {
 	Key          string `json:"key" jsonschema:"Named key or Ctrl/Alt/Meta/Shift chord (for example Meta+K or Alt+ArrowLeft). Physical iPhones: ENTER/BACKSPACE only."`
@@ -1964,8 +1847,6 @@ func (s *Server) handleDeviceKey(ctx context.Context, req *mcp.CallToolRequest, 
 	}, nil
 }
 
-// --- Device Shake ---
-
 type DeviceShakeInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -2000,8 +1881,6 @@ func (s *Server) handleDeviceShake(ctx context.Context, req *mcp.CallToolRequest
 		},
 	}, nil
 }
-
-// --- Screenshot ---
 
 type ScreenshotInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to screenshot. Omit for active session."`
@@ -2054,7 +1933,6 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 	}, nil
 }
 
-// nativeImageResult returns one image-only MCP chat result.
 func nativeImageResult(imageBytes []byte) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -2062,8 +1940,6 @@ func nativeImageResult(imageBytes []byte) *mcp.CallToolResult {
 		},
 	}
 }
-
-// --- Install App ---
 
 type InstallAppInput struct {
 	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
@@ -2175,7 +2051,6 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil
 	}
 
-	// Resolve bundle ID from response, input, or build metadata (in priority order)
 	detectedBundleID := resp.BundleID
 	if detectedBundleID == "" {
 		detectedBundleID = resp.PackageName
@@ -2203,8 +2078,6 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	return nil, output, nil
 }
 
-// --- Launch App ---
-
 type LaunchAppInput struct {
 	BundleID     string `json:"bundle_id,omitempty" jsonschema:"App bundle ID to launch. Omit to launch the app this session installed — prefer omitting it over guessing an ID."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
@@ -2217,13 +2090,6 @@ type LaunchAppOutput struct {
 	NextSteps []NextStep `json:"next_steps,omitempty"`
 }
 
-// handleLaunchApp launches an app on the session's device.
-//
-// bundle_id is optional on purpose. A caller attached to an existing session
-// has no reliable way to know which bundle that session installed, so
-// requiring one only produces invented IDs that fail against a healthy
-// device. Omitted, the worker launches the app it installed; supplied, the
-// worker rejects it immediately when the device says it is not installed.
 func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, input LaunchAppInput) (*mcp.CallToolResult, LaunchAppOutput, error) {
 	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
 	if err != nil {
@@ -2239,10 +2105,6 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
-	// The worker reports a failed launch as HTTP 200 with success=false, so the
-	// transport error alone is not enough: without this an agent that supplied a
-	// bundle id the device does not have is told the launch succeeded and never
-	// sees the installed-apps rejection.
 	if err := EnsureWorkerActionSucceeded(respBody, "launch"); err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2254,8 +2116,6 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 		},
 	}, nil
 }
-
-// --- Get Session Info ---
 
 type GetSessionInfoInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
@@ -2273,8 +2133,7 @@ type GetSessionInfoOutput struct {
 	WhepURL       string  `json:"whep_url,omitempty"`
 	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
 	IdleSeconds   float64 `json:"idle_seconds,omitempty"`
-	// IdleTimeoutSeconds is the auto-stop threshold; the session ends when
-	// IdleSeconds reaches it. Any tool call resets the idle timer.
+	// IdleTimeoutSeconds is the auto-stop threshold; tracked device activity resets the idle timer.
 	IdleTimeoutSeconds float64    `json:"idle_timeout_seconds,omitempty"`
 	LastActivityAt     string     `json:"last_activity_at,omitempty"`
 	TotalSessions      int        `json:"total_sessions"`
@@ -2317,8 +2176,6 @@ func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequ
 	}, nil
 }
 
-// --- Device Doctor ---
-
 type DeviceDoctorInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to diagnose. Omit to diagnose the active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID to diagnose. Wins over session_index; omit both to diagnose the active session."`
@@ -2343,7 +2200,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 	var checks []DiagnosticCheck
 	allPassed := true
 
-	// Check 1: Auth
 	_, err := s.apiClient.ValidateAPIKey(ctx)
 	if err != nil {
 		checks = append(checks, DiagnosticCheck{Name: "auth", Status: "fail", Detail: err.Error(), Fix: "Set REVYL_API_KEY or run 'revyl auth login'"})
@@ -2352,7 +2208,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		checks = append(checks, DiagnosticCheck{Name: "auth", Status: "pass"})
 	}
 
-	// Check 2: The requested session, or the active one
 	session := s.sessionMgr.GetActive()
 	var sessionErr error
 	if input.SessionIndex != nil || strings.TrimSpace(input.SessionID) != "" {
@@ -2367,7 +2222,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 	default:
 		checks = append(checks, DiagnosticCheck{Name: "session", Status: "pass", Detail: fmt.Sprintf("platform=%s, uptime=%.0fs", session.Platform, time.Since(session.StartedAt).Seconds())})
 
-		// Check 3: Worker reachability (only if session exists)
 		respBytes, werr := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/health", nil)
 		if werr != nil {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "fail", Detail: werr.Error(), Fix: "stop_device_session() and start a new one"})
@@ -2388,7 +2242,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		}
 	}
 
-	// Check 4: CLI version
 	checks = append(checks, DiagnosticCheck{Name: "cli_version", Status: "info", Detail: s.version})
 	checks = append(checks, DiagnosticCheck{Name: "mcp_dev_mode", Status: "info", Detail: fmt.Sprintf("%t", s.devMode)})
 	checks = append(checks, DiagnosticCheck{Name: "mcp_backend_url", Status: "info", Detail: config.GetBackendURL(s.devMode)})
@@ -2399,7 +2252,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		checks = append(checks, DiagnosticCheck{Name: "mcp_binary", Status: "info", Detail: exePath})
 	}
 
-	// Check 5: Session persistence
 	persistPath := ""
 	if s.sessionMgr.WorkDir() != "" {
 		persistPath = s.sessionMgr.WorkDir() + "/.revyl/device-sessions.json"
@@ -2410,12 +2262,10 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		}
 	}
 
-	// Check 7: Environment
 	apiKeyMasked := maskEnv("REVYL_API_KEY")
 	checks = append(checks, DiagnosticCheck{Name: "env_api_key", Status: "info", Detail: apiKeyMasked})
 	checks = append(checks, DiagnosticCheck{Name: "env_local", Status: "info", Detail: envOrDefault("LOCAL", "false")})
 
-	// Troubleshooting tips
 	tips := []string{
 		"If worker is unreachable, stop and start a new session.",
 		"If grounding fails, try a more specific target description.",
@@ -2441,7 +2291,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 	return nil, output, nil
 }
 
-// maskEnv returns a masked version of an environment variable value.
 func maskEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
@@ -2450,7 +2299,6 @@ func maskEnv(key string) string {
 	return "(set)"
 }
 
-// envOrDefault returns an environment variable value or the provided default.
 func envOrDefault(key, def string) string {
 	val := os.Getenv(key)
 	if val == "" {
@@ -2459,12 +2307,8 @@ func envOrDefault(key, def string) string {
 	return val
 }
 
-// --- List Device Sessions ---
-
-// ListDeviceSessionsInput defines input for list_device_sessions.
 type ListDeviceSessionsInput struct{}
 
-// ListDeviceSessionsSessionItem represents a single session in the list output.
 type ListDeviceSessionsSessionItem struct {
 	SessionID          string  `json:"session_id"`
 	Index              int     `json:"index"`
@@ -2477,7 +2321,6 @@ type ListDeviceSessionsSessionItem struct {
 	WhepURL            string  `json:"whep_url,omitempty"`
 }
 
-// ListDeviceSessionsOutput defines output for list_device_sessions.
 type ListDeviceSessionsOutput struct {
 	Sessions    []ListDeviceSessionsSessionItem `json:"sessions"`
 	ActiveIndex int                             `json:"active_index"`
@@ -2540,14 +2383,10 @@ func (s *Server) handleListDeviceSessions(ctx context.Context, req *mcp.CallTool
 	return nil, output, nil
 }
 
-// --- Switch Device Session ---
-
-// SwitchDeviceSessionInput defines input for switch_device_session.
 type SwitchDeviceSessionInput struct {
 	Index int `json:"index" jsonschema:"Session index to switch to (REQUIRED)"`
 }
 
-// SwitchDeviceSessionOutput defines output for switch_device_session.
 type SwitchDeviceSessionOutput struct {
 	Success   bool       `json:"success"`
 	Index     int        `json:"index"`
@@ -2577,8 +2416,6 @@ func (s *Server) handleSwitchDeviceSession(ctx context.Context, req *mcp.CallToo
 		},
 	}, nil
 }
-
-// --- Device Go Home ---
 
 type DeviceGoHomeInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
@@ -2611,8 +2448,6 @@ func (s *Server) handleDeviceGoHome(ctx context.Context, req *mcp.CallToolReques
 	}, nil
 }
 
-// --- Device Kill App ---
-
 type DeviceKillAppInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -2644,8 +2479,6 @@ func (s *Server) handleDeviceKillApp(ctx context.Context, req *mcp.CallToolReque
 	}, nil
 }
 
-// --- Device Open App ---
-
 type DeviceOpenAppInput struct {
 	App          string `json:"app" jsonschema:"System app name (e.g. 'settings', 'safari', 'chrome') or raw bundle ID (REQUIRED)"`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
@@ -2676,8 +2509,6 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 	if err != nil {
 		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
-	// Same /launch route, same success=false-on-HTTP-200 envelope: an alias that
-	// resolves to a bundle the device lacks must not report success.
 	if err := EnsureWorkerActionSucceeded(respBody, "launch"); err != nil {
 		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2691,8 +2522,6 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 		},
 	}, nil
 }
-
-// --- Device Navigate ---
 
 type DeviceNavigateInput struct {
 	URL          string `json:"url" jsonschema:"URL or deep link to open on the device (REQUIRED)"`
@@ -2746,8 +2575,6 @@ func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequ
 	}, nil
 }
 
-// --- Device Set Location ---
-
 type DeviceSetLocationInput struct {
 	Latitude     float64 `json:"latitude" jsonschema:"Latitude (-90 to 90, REQUIRED)"`
 	Longitude    float64 `json:"longitude" jsonschema:"Longitude (-180 to 180, REQUIRED)"`
@@ -2791,8 +2618,6 @@ func (s *Server) handleDeviceSetLocation(ctx context.Context, req *mcp.CallToolR
 		},
 	}, nil
 }
-
-// --- Device Download File ---
 
 type DeviceDownloadFileInput struct {
 	URL          string `json:"url" jsonschema:"URL to download file from (REQUIRED)"`
@@ -2849,10 +2674,6 @@ func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallTool
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
-// get_session_report
-// ---------------------------------------------------------------------------
-
 type GetSessionReportInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index (omit for active session)"`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -2875,9 +2696,6 @@ type GetSessionReportOutput struct {
 }
 
 func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRequest, input GetSessionReportInput) (*mcp.CallToolResult, GetSessionReportOutput, error) {
-	// A report is a backend read, so a session_id alone skips session
-	// resolution, as the CLI's device report --session-id does, and also
-	// works for sessions that have already ended.
 	sessionID := strings.TrimSpace(input.SessionID)
 	if sessionID != "" && input.SessionIndex == nil {
 		s.recordSessionTargetMode(ctx, nil, sessionID)
@@ -2935,11 +2753,6 @@ func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRe
 	return nil, out, nil
 }
 
-// ---------------------------------------------------------------------------
-// poll_performance_metrics tool
-// ---------------------------------------------------------------------------
-
-// PollPerformanceMetricsInput defines parameters for the poll_performance_metrics MCP tool.
 type PollPerformanceMetricsInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -2947,7 +2760,6 @@ type PollPerformanceMetricsInput struct {
 	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum number of samples to return. Default 100."`
 }
 
-// PollPerformanceMetricsOutput wraps the PerfPollResponse for MCP consumers.
 type PollPerformanceMetricsOutput struct {
 	PerfPollResponse
 	NextSteps []NextStep `json:"next_steps,omitempty"`
@@ -2995,23 +2807,17 @@ func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.Call
 	return nil, output, nil
 }
 
-// --- Device State Inspector (Phase 6) ---
-//
 // These types are shared between the MCP handlers below and the
 // `revyl device state ...` CLI subcommands in cmd/revyl/device_state.go,
 // so adding a field once threads through both surfaces.
 
-// DeviceStateSessionInput is the bare session selector. All device-state
-// tools support an optional session_index.
 type DeviceStateSessionInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
-// DeviceStateListInput defines input for device_state_list.
 type DeviceStateListInput = DeviceStateSessionInput
 
-// DeviceStateListOutput mirrors the worker's DeviceStateListResponse.
 type DeviceStateListOutput struct {
 	Success      bool                     `json:"success"`
 	Platform     string                   `json:"platform,omitempty"`
@@ -3037,10 +2843,8 @@ func (s *Server) handleDeviceStateList(ctx context.Context, req *mcp.CallToolReq
 	return nil, out, nil
 }
 
-// DeviceStateSnapshotInput defines input for device_state_snapshot.
 type DeviceStateSnapshotInput = DeviceStateSessionInput
 
-// DeviceStateSnapshotOutput mirrors the worker's DeviceStateSnapshotResponse.
 type DeviceStateSnapshotOutput struct {
 	Success    bool                   `json:"success"`
 	Platform   string                 `json:"platform,omitempty"`
@@ -3065,14 +2869,12 @@ func (s *Server) handleDeviceStateSnapshot(ctx context.Context, req *mcp.CallToo
 	return nil, out, nil
 }
 
-// DeviceStateDiffInput defines input for device_state_diff.
 type DeviceStateDiffInput struct {
 	SnapshotID   string `json:"snapshot_id" jsonschema:"Snapshot id returned by device_state_snapshot (REQUIRED)."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
-// DeviceStateDiffOutput mirrors the worker's DeviceStateDiffResponse.
 type DeviceStateDiffOutput struct {
 	Success        bool                              `json:"success"`
 	Platform       string                            `json:"platform,omitempty"`
@@ -3102,9 +2904,6 @@ func (s *Server) handleDeviceStateDiff(ctx context.Context, req *mcp.CallToolReq
 	return nil, out, nil
 }
 
-// DeviceStateQueryInput is a tagged union: target='userdefaults' OR 'sqlite'.
-// Go has no built-in unions, so we declare all the fields optional and rely
-// on the handler to enforce the right combination.
 type DeviceStateQueryInput struct {
 	Target       string        `json:"target" jsonschema:"Either 'userdefaults' or 'sqlite' (REQUIRED)."`
 	PlistPath    string        `json:"plist_path,omitempty" jsonschema:"For userdefaults target — container-relative plist path (e.g. 'Library/Preferences/com.x.plist')."`
@@ -3116,17 +2915,12 @@ type DeviceStateQueryInput struct {
 	SessionID    string        `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
-// DeviceStateQueryOutput covers both targets — only the relevant subset
-// will be populated.
 type DeviceStateQueryOutput struct {
-	Success bool `json:"success"`
-	// Common
-	Platform string `json:"platform,omitempty"`
-	Error    string `json:"error,omitempty"`
-	// userdefaults
-	Value json.RawMessage `json:"value,omitempty"`
-	Found *bool           `json:"found,omitempty"`
-	// sqlite
+	Success   bool            `json:"success"`
+	Platform  string          `json:"platform,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Value     json.RawMessage `json:"value,omitempty"`
+	Found     *bool           `json:"found,omitempty"`
 	Cols      []string        `json:"cols,omitempty"`
 	Rows      [][]interface{} `json:"rows,omitempty"`
 	Truncated bool            `json:"truncated,omitempty"`
@@ -3182,11 +2976,6 @@ func (s *Server) handleDeviceStateQuery(ctx context.Context, req *mcp.CallToolRe
 	}
 }
 
-// ---------------------------------------------------------------------------
-// poll_network_requests tool
-// ---------------------------------------------------------------------------
-
-// PollNetworkRequestsInput defines parameters for the poll_network_requests MCP tool.
 type PollNetworkRequestsInput struct {
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
@@ -3195,7 +2984,6 @@ type PollNetworkRequestsInput struct {
 	MaxBytes     int    `json:"max_bytes,omitempty" jsonschema:"Maximum encoded payload bytes to return. Default 262144."`
 }
 
-// PollNetworkRequestsOutput wraps the NetworkPollResponse for MCP consumers.
 type PollNetworkRequestsOutput struct {
 	NetworkPollResponse
 	NextSteps []NextStep `json:"next_steps,omitempty"`

@@ -26,10 +26,6 @@ import (
 	"github.com/revyl/cli/internal/testutil"
 )
 
-// ---------------------------------------------------------------------------
-// TestWsURLToHTTP: Table-driven test for WebSocket-to-HTTP URL conversion.
-// ---------------------------------------------------------------------------
-
 func TestStartSessionRejectsInvalidLaunchArgumentsBeforeAPIWork(t *testing.T) {
 	manager := NewDeviceSessionManager(nil, t.TempDir())
 	index, session, err := manager.StartSession(context.Background(), StartSessionOptions{
@@ -235,21 +231,6 @@ func TestWritePNGArtifactReplacesExistingFilePrivately(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_GetActive_NoSession: GetActive returns nil when
-// no session is active.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_ResetIdleTimer_NoSession: ResetIdleTimer is a
-// no-op when there's no active session (should not panic).
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_StopSession_NoSession: StopSession returns an
-// error when the specified index doesn't exist.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_StopSessionRetainsSessionWhenBackendCancelFails(t *testing.T) {
 	workDir := t.TempDir()
 	now := time.Now()
@@ -372,11 +353,6 @@ func TestDeviceSessionManager_StartSessionRejectsLaunchVarsForTestBackedStart(t 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_IdleTimeout: Verify that a session auto-clears
-// after the idle timeout expires.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_IdleTimeout(t *testing.T) {
 	mgr := &DeviceSessionManager{
 		sessions:      make(map[int]*DeviceSession),
@@ -386,7 +362,6 @@ func TestDeviceSessionManager_IdleTimeout(t *testing.T) {
 		nextIndex:     1,
 	}
 
-	// Manually inject a session with a very short timeout
 	now := time.Now()
 	mgr.sessions[0] = &DeviceSession{
 		Index:        0,
@@ -397,20 +372,16 @@ func TestDeviceSessionManager_IdleTimeout(t *testing.T) {
 		IdleTimeout:  80 * time.Millisecond,
 	}
 
-	// Start the idle timer (use background context)
 	mgr.mu.Lock()
 	mgr.resetIdleTimerForSessionLocked(0, context.Background())
 	mgr.mu.Unlock()
 
-	// Verify session is initially active
 	if mgr.GetActive() == nil {
 		t.Fatal("session should be active initially")
 	}
 
-	// Wait for idle timeout to fire
 	time.Sleep(200 * time.Millisecond)
 
-	// Session should be auto-cleared
 	if mgr.GetActive() != nil {
 		t.Fatal("session should have been auto-cleared after idle timeout")
 	}
@@ -463,11 +434,6 @@ func TestDeviceSessionManager_StopIdleTimerPreventsRearming(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_StopMiddleSession_IndicesStable: Verify that
-// stopping a session does not renumber the remaining sessions.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_StopMiddleSession_IndicesStable(t *testing.T) {
 	mgr := &DeviceSessionManager{
 		sessions:      make(map[int]*DeviceSession),
@@ -498,13 +464,11 @@ func TestDeviceSessionManager_StopMiddleSession_IndicesStable(t *testing.T) {
 		t.Fatalf("expected 3 sessions, got %d", mgr.SessionCount())
 	}
 
-	// Stop the middle session (index 1).
 	err := mgr.StopSession(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("StopSession(1) returned error: %v", err)
 	}
 
-	// Verify session 0 and 2 still exist at their original indices.
 	if mgr.GetSession(0) == nil {
 		t.Fatal("session 0 should still exist")
 	}
@@ -515,7 +479,6 @@ func TestDeviceSessionManager_StopMiddleSession_IndicesStable(t *testing.T) {
 		t.Fatal("session 2 should still exist at index 2 (not renumbered)")
 	}
 
-	// nextIndex should not have been reset.
 	mgr.mu.RLock()
 	ni := mgr.nextIndex
 	mgr.mu.RUnlock()
@@ -523,12 +486,10 @@ func TestDeviceSessionManager_StopMiddleSession_IndicesStable(t *testing.T) {
 		t.Errorf("expected nextIndex=3, got %d", ni)
 	}
 
-	// Active should remain at 0 (unchanged since we stopped 1, not 0).
 	if mgr.ActiveIndex() != 0 {
 		t.Errorf("expected active=0, got %d", mgr.ActiveIndex())
 	}
 
-	// Stop session 0 -- active should switch to the lowest remaining (2).
 	err = mgr.StopSession(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("StopSession(0) returned error: %v", err)
@@ -540,11 +501,6 @@ func TestDeviceSessionManager_StopMiddleSession_IndicesStable(t *testing.T) {
 		t.Fatal("session 2 should still exist at index 2")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_StopAllSessions_ResetsNextIndex: Verify that
-// StopAllSessions resets nextIndex to 0 for a clean slate.
-// ---------------------------------------------------------------------------
 
 func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
 	mgr := &DeviceSessionManager{
@@ -580,21 +536,6 @@ func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer: Verify
-// that worker actions count as activity and extend idle timeout.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_MultiSession: Verify multi-session add, resolve,
-// and active switching.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_Persistence: Verify multi-session persistence
-// to disk and restoration from disk.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -621,13 +562,11 @@ func TestDeviceSessionManager_Persistence(t *testing.T) {
 
 	mgr.persistAllSessionsForBootstrap()
 
-	// Verify the file exists
 	sessionPath := filepath.Join(tmpDir, ".revyl", "device-sessions.json")
 	if _, err := os.Stat(sessionPath); os.IsNotExist(err) {
 		t.Fatal("device-sessions.json should exist after bootstrap persistence")
 	}
 
-	// Read and validate the contents
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		t.Fatalf("failed to read persisted sessions: %v", err)
@@ -651,7 +590,6 @@ func TestDeviceSessionManager_Persistence(t *testing.T) {
 		t.Errorf("expected SessionID 'persist-test-1', got %q", persisted.Sessions[0].SessionID)
 	}
 
-	// Load into a new manager and verify
 	mgr2 := &DeviceSessionManager{
 		workDir:     tmpDir,
 		sessions:    make(map[int]*DeviceSession),
@@ -904,20 +842,9 @@ func TestDeviceSessionManager_RegisterStartedSessionAllocatesUniqueConcurrentInd
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_Persistence_NoWorkDir: Persistence is a no-op
-// when workDir is empty.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_Migration: Verify migration from old
-// device-session.json (singular) to new device-sessions.json (plural).
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_Migration(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Write old-format file
 	oldSession := DeviceSession{
 		SessionID:     "old-session",
 		WorkflowRunID: "old-wf",
@@ -940,7 +867,6 @@ func TestDeviceSessionManager_Migration(t *testing.T) {
 	}
 	mgr.loadLocalCache()
 
-	// Should have migrated
 	if len(mgr.sessions) != 1 {
 		t.Fatalf("expected 1 session after migration, got %d", len(mgr.sessions))
 	}
@@ -954,26 +880,14 @@ func TestDeviceSessionManager_Migration(t *testing.T) {
 		t.Errorf("expected nextIndex=1, got %d", mgr.nextIndex)
 	}
 
-	// Old file should be removed
 	if _, err := os.Stat(filepath.Join(revylDir, "device-session.json")); !os.IsNotExist(err) {
 		t.Fatal("old device-session.json should have been removed after migration")
 	}
 
-	// New file should exist
 	if _, err := os.Stat(filepath.Join(revylDir, "device-sessions.json")); os.IsNotExist(err) {
 		t.Fatal("new device-sessions.json should exist after migration")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_LoadPersistedSession_NoFile: Returns nil when
-// no persisted session file exists.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_EnsureOrgInfoLocked_UsesValidatedIdentity: Cached
-// org/user should be replaced by the currently authenticated identity.
-// ---------------------------------------------------------------------------
 
 func TestDeviceSessionManager_EnsureOrgInfoLocked_UsesValidatedIdentity(t *testing.T) {
 	t.Parallel()
@@ -1017,11 +931,6 @@ func TestDeviceSessionManager_EnsureOrgInfoLocked_UsesValidatedIdentity(t *testi
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_EnsureOrgInfoLocked_FallbackToCachedIdentity: If
-// validation fails, cached org/user should still be usable.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_EnsureOrgInfoLocked_FallbackToCachedIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -1060,11 +969,6 @@ func TestDeviceSessionManager_EnsureOrgInfoLocked_FallbackToCachedIdentity(t *te
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_EnsureOrgInfoLocked_NoCacheAndValidationFailure:
-// Validation failure without cached org/user should be surfaced as an error.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_EnsureOrgInfoLocked_NoCacheAndValidationFailure(t *testing.T) {
 	t.Parallel()
 
@@ -1094,17 +998,11 @@ func TestDeviceSessionManager_EnsureOrgInfoLocked_NoCacheAndValidationFailure(t 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDeviceSessionManager_ResolveSession_SingleFallback: When only one
-// session exists and activeIndex is -1, ResolveSession(-1) should still
-// return it.
-// ---------------------------------------------------------------------------
-
 func TestDeviceSessionManager_ResolveSession_SingleFallback(t *testing.T) {
 	mgr := &DeviceSessionManager{
 		sessions:    make(map[int]*DeviceSession),
 		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1, // no active set
+		activeIndex: -1,
 	}
 	mgr.sessions[5] = &DeviceSession{Index: 5, SessionID: "only-one", Platform: "android"}
 
@@ -1116,11 +1014,6 @@ func TestDeviceSessionManager_ResolveSession_SingleFallback(t *testing.T) {
 		t.Errorf("expected index 5, got %d", s.Index)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestReconcileSessionIDsByWorkflow: local sessions seeded with workflowRunID
-// should be rewritten to backend session IDs before prune logic runs.
-// ---------------------------------------------------------------------------
 
 func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t *testing.T) {
 	t.Parallel()
@@ -1611,13 +1504,6 @@ func TestDeviceSessionManager_DownloadFileForSession_ReturnsTypedResponse(t *tes
 	}
 }
 
-// newInstallTestSessionManager creates a manager with one session backed by apiURL.
-//
-// Parameters:
-//   - apiURL: Base URL for the fake backend device proxy.
-//
-// Returns:
-//   - *DeviceSessionManager: Manager targeting workflow wf-install.
 func newInstallTestSessionManager(apiURL string) *DeviceSessionManager {
 	return &DeviceSessionManager{
 		apiClient: api.NewClientWithBaseURL("test-api-key", apiURL),
@@ -1704,7 +1590,6 @@ func TestDeviceSessionManager_InstallAppForSessionWithProgress_ReportsStatus(t *
 		case "/api/v1/execution/device-proxy/wf-install/install_status/install-1":
 			statusCalls++
 			if statusCalls == 1 {
-				// First poll is still installing; the callback should see it.
 				_, _ = w.Write([]byte(`{"install_id":"install-1","status":"running"}`))
 				return
 			}
@@ -2122,14 +2007,6 @@ func TestDeviceSessionManager_ResolveTargetForSession_RejectsMissingCoordinates(
 	}
 }
 
-// TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone
-// verifies that when the caller cancels the context while pollStepUntilDone
-// is waiting for a step, the manager:
-//
-//  1. Returns context.Canceled to the caller.
-//  2. Sends exactly one POST /step_cancel/{step_id} to the worker proxy.
-//  3. Polls /step_status/{step_id} after the cancel until it sees a
-//     terminal status (so _live_step_executing is reliably cleared).
 func TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone(t *testing.T) {
 	t.Parallel()
 
@@ -2164,21 +2041,17 @@ func TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone(t *t
 				t.Fatalf("expected GET to step_status, got %s", r.Method)
 			}
 			if cancelCalls == 0 {
-				// Pre-cancel poll: return running, then trigger cancel.
 				statusPollsBefore++
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
 				if !cancelOnce {
 					cancelOnce = true
-					// Cancel the caller's context after first poll lands.
 					if ctxCancelFn != nil {
 						ctxCancelFn()
 					}
 				}
 				return
 			}
-			// Post-cancel poll: report terminal so cancelStepBestEffort returns
-			// quickly without waiting out the full budget.
 			statusPollsAfter++
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelled","result":{"success":false,"step_type":"instruction","step_id":"` + stepID + `","workflow_run_id":"wf-cancel","step_output":{"metadata":{"cancelled":true}}}}`))
@@ -2264,8 +2137,6 @@ func TestStopOwnedSessionsPreservesAttachedSessions(t *testing.T) {
 	}
 }
 
-// TestSyncSessions_PruneClearsBeforeSessionValues ensures backend reconcile
-// prune drops boot tokens for sessions that vanished without StopSession.
 func TestSyncSessions_PruneClearsBeforeSessionValues(t *testing.T) {
 	workDir := t.TempDir()
 	const (
@@ -2638,14 +2509,11 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 		t.Fatalf("WorkerRequestForSession returned error: %v", err)
 	}
 
-	// This point is beyond the original timeout window, so without idle reset
-	// the session would have been auto-cleared.
 	time.Sleep(200 * time.Millisecond)
 	if mgr.GetSession(0) == nil {
 		t.Fatal("session should still be active after worker action reset the idle timer")
 	}
 
-	// After the refreshed timeout window, the session should expire.
 	deadline := time.Now().Add(2 * time.Second)
 	for mgr.GetSession(0) != nil {
 		if time.Now().After(deadline) {
@@ -2814,9 +2682,6 @@ func stepPollJSON(status int, header http.Header, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}
 }
 
-// newScriptedStepPollManager serves the replies in order and then repeats the
-// last one. The session is a web session, whose proxy requests are not retried
-// by the API client, so every scripted reply is one poll.
 func newScriptedStepPollManager(stepID string, replies []stepPollReply, polledAt *[]time.Duration) *DeviceSessionManager {
 	start := time.Now()
 	client := api.NewClientWithBaseURL("test-api-key", "https://api.example.test")

@@ -10,7 +10,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Profile controls which composite tools are registered.
 type Profile string
 
 const (
@@ -19,15 +18,11 @@ const (
 	ProfileFull Profile = "full"
 )
 
-// CompositeInput is the generic input envelope for all composite tools.
-// The Action field selects the operation; ActionParams carries the
-// action-specific JSON payload that gets decoded by the dispatcher.
 type CompositeInput struct {
 	Action       string          `json:"action" jsonschema:"required,The operation to perform — see tool description for allowed values"`
 	ActionParams json.RawMessage `json:"params,omitempty" jsonschema:"Action-specific parameters (varies by action)"`
 }
 
-// CompositeOutput is a thin wrapper returned by all composite dispatchers.
 type CompositeOutput struct {
 	Action string         `json:"action"`
 	Result map[string]any `json:"result"`
@@ -44,16 +39,12 @@ func addCompositeTool(server *mcp.Server, tool *mcp.Tool, handler mcp.ToolHandle
 	mcp.AddTool(server, tool, handler)
 }
 
-// registerCompositeTools registers the focused dev surface or broader
-// compatibility profiles. Full adds workflow, module, script, tag, file, and
-// variable management to the core development/test surface.
 func (s *Server) registerCompositeTools(profile Profile) {
 	if profile == ProfileDev {
 		s.registerDevProfileTools()
 		return
 	}
 
-	// --- Always registered (core + full) ---
 	s.registerDeviceTools()
 	s.registerDevLoopTools()
 
@@ -62,7 +53,6 @@ func (s *Server) registerCompositeTools(profile Profile) {
 	s.registerUtilityTools()
 	s.registerInvestigateTool()
 
-	// --- Full profile only ---
 	if profile == ProfileFull {
 		s.registerManageWorkflowsTool()
 		s.registerManageModulesTool()
@@ -74,8 +64,6 @@ func (s *Server) registerCompositeTools(profile Profile) {
 	}
 }
 
-// dispatchComposite decodes ActionParams into the typed input and calls the
-// underlying handler. It returns the result wrapped in CompositeOutput.
 func dispatchComposite[I any, O any](
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -120,10 +108,6 @@ func dispatchComposite[I any, O any](
 	}
 	return toolResult, CompositeOutput{Action: input.Action, Result: result}, nil
 }
-
-// ---------------------------------------------------------------------------
-// manage_tests
-// ---------------------------------------------------------------------------
 
 func (s *Server) registerManageTestsTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
@@ -170,10 +154,6 @@ func (s *Server) handleManageTests(ctx context.Context, req *mcp.CallToolRequest
 	}
 }
 
-// ---------------------------------------------------------------------------
-// manage_builds
-// ---------------------------------------------------------------------------
-
 func (s *Server) registerManageBuildsTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_builds",
@@ -206,10 +186,6 @@ func (s *Server) handleManageBuilds(ctx context.Context, req *mcp.CallToolReques
 			fmt.Errorf("unknown action %q for manage_builds; valid: list, upload, create_app, delete_app", input.Action)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// manage_workflows (full profile only)
-// ---------------------------------------------------------------------------
 
 func (s *Server) registerManageWorkflowsTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
@@ -265,10 +241,6 @@ func (s *Server) handleManageWorkflows(ctx context.Context, req *mcp.CallToolReq
 	}
 }
 
-// ---------------------------------------------------------------------------
-// manage_modules (full profile only)
-// ---------------------------------------------------------------------------
-
 func (s *Server) registerManageModulesTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_modules",
@@ -303,10 +275,6 @@ func (s *Server) handleManageModules(ctx context.Context, req *mcp.CallToolReque
 			fmt.Errorf("unknown action %q for manage_modules; valid: list, get, create, delete, insert", input.Action)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// manage_scripts (full profile only)
-// ---------------------------------------------------------------------------
 
 func (s *Server) registerManageScriptsTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
@@ -346,10 +314,6 @@ func (s *Server) handleManageScripts(ctx context.Context, req *mcp.CallToolReque
 	}
 }
 
-// ---------------------------------------------------------------------------
-// manage_tags (full profile only)
-// ---------------------------------------------------------------------------
-
 func (s *Server) registerManageTagsTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_tags",
@@ -387,10 +351,6 @@ func (s *Server) handleManageTags(ctx context.Context, req *mcp.CallToolRequest,
 			fmt.Errorf("unknown action %q for manage_tags; valid: list, create, delete, get_test_tags, set_test_tags, add_remove", input.Action)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// manage_files (full profile only)
-// ---------------------------------------------------------------------------
 
 func (s *Server) registerManageFilesTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
@@ -431,10 +391,6 @@ func (s *Server) handleManageFiles(ctx context.Context, req *mcp.CallToolRequest
 	}
 }
 
-// ---------------------------------------------------------------------------
-// manage_variables (full profile only)
-// ---------------------------------------------------------------------------
-
 func (s *Server) registerManageVariablesTool() {
 	addCompositeTool(s.mcpServer, &mcp.Tool{
 		Name: "manage_variables",
@@ -469,10 +425,6 @@ func (s *Server) handleManageVariables(ctx context.Context, req *mcp.CallToolReq
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Utility tools (auth_status, get_billing_status, get_schema) — registered as standalone
-// ---------------------------------------------------------------------------
-
 func (s *Server) registerUtilityTools() {
 	s.registerSetupStatusTool()
 
@@ -495,10 +447,6 @@ func (s *Server) registerUtilityTools() {
 		},
 	}, s.handleGetSchema)
 }
-
-// ---------------------------------------------------------------------------
-// Live editor tools (full profile only)
-// ---------------------------------------------------------------------------
 
 func (s *Server) registerLiveEditorTools() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{

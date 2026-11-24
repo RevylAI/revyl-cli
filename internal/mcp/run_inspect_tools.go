@@ -1,10 +1,3 @@
-// Package mcp: MCP tools for inspecting finished test runs.
-//
-// Mirrors the `revyl run {summary,identity,state}` CLI surface so
-// agents can call the same orientation primitives without shelling
-// out. Input/output structs are shared with the CLI via the
-// runinspect package — adding a field threads through both surfaces.
-
 package mcp
 
 import (
@@ -16,8 +9,6 @@ import (
 	"github.com/revyl/cli/internal/runinspect"
 )
 
-// registerRunInspectTools wires the run-inspection tools into the
-// MCP server. Called from registerTools at startup.
 func (s *Server) registerRunInspectTools() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_run_summary",
@@ -60,16 +51,10 @@ func (s *Server) registerRunInspectTools() {
 	}, s.handleGetRunTraces)
 }
 
-// --- get_run_summary ------------------------------------------------------
-
-// GetRunSummaryInput is the input to get_run_summary.
 type GetRunSummaryInput struct {
 	TaskID string `json:"task_id" jsonschema:"Execution ID returned when the run started (REQUIRED)."`
 }
 
-// GetRunSummaryOutput wraps the shared runinspect.Summary with the
-// MCP-call envelope (Success / Error). The summary fields are
-// embedded so the wire format stays flat for the agent.
 type GetRunSummaryOutput struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
@@ -91,15 +76,11 @@ func (s *Server) handleGetRunSummary(
 	return nil, GetRunSummaryOutput{Success: true, Summary: &summary}, nil
 }
 
-// --- get_run_identity -----------------------------------------------------
-
-// GetRunIdentityInput is the input to get_run_identity.
 type GetRunIdentityInput struct {
 	TaskID string `json:"task_id" jsonschema:"Execution ID returned when the run started (REQUIRED)."`
 	AtStep int    `json:"at_step,omitempty" jsonschema:"Only show identity visible as of this 1-indexed step. Default 0 = all steps."`
 }
 
-// GetRunIdentityOutput is the get_run_identity result shape.
 type GetRunIdentityOutput struct {
 	Success  bool                       `json:"success"`
 	Error    string                     `json:"error,omitempty"`
@@ -129,16 +110,12 @@ func (s *Server) handleGetRunIdentity(
 	}, nil
 }
 
-// --- get_run_state --------------------------------------------------------
-
-// GetRunStateInput is the input to get_run_state.
 type GetRunStateInput struct {
 	TaskID string `json:"task_id" jsonschema:"Execution ID returned when the run started (REQUIRED)."`
 	Path   string `json:"path,omitempty" jsonschema:"Container-relative path of a captured plist or sqlite file. Omit to list all paths."`
 	AtStep int    `json:"at_step,omitempty" jsonschema:"Show state as of this 1-indexed step. Default 0 = latest."`
 }
 
-// GetRunStateOutput is the get_run_state result shape.
 type GetRunStateOutput struct {
 	Success  bool                      `json:"success"`
 	Error    string                    `json:"error,omitempty"`
@@ -184,16 +161,12 @@ func (s *Server) handleGetRunState(
 	}, nil
 }
 
-// --- get_run_traces ------------------------------------------------------
-
-// GetRunTracesInput is the input to get_run_traces.
 type GetRunTracesInput struct {
 	TaskID  string   `json:"task_id" jsonschema:"Execution ID returned when the run started (REQUIRED)."`
 	AtStep  int      `json:"at_step,omitempty" jsonschema:"Only show traces visible as of this 1-indexed step. Default 0 = all steps."`
 	Vendors []string `json:"vendors,omitempty" jsonschema:"Restrict to vendors (currently only 'sentry' is implemented)."`
 }
 
-// GetRunTracesOutput is the get_run_traces result shape.
 type GetRunTracesOutput struct {
 	Success bool                     `json:"success"`
 	Error   string                   `json:"error,omitempty"`

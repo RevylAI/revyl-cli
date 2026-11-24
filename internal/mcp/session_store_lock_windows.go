@@ -9,19 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// lockSessionStoreByteRange is the single-byte range locked on the sidecar file.
-// The range only has to be consistent across processes, not cover real content.
 const lockSessionStoreByteRange = 1
 
-// tryLockSessionStoreFile attempts a non-blocking exclusive LockFileEx.
-//
-// Parameters:
-//   - file: The open lock file.
-//
-// Returns:
-//   - bool: True when the lock was acquired.
-//   - error: Only for failures other than "already held by a peer", which is
-//     reported as a false acquisition so the caller can retry.
 func tryLockSessionStoreFile(file *os.File) (bool, error) {
 	overlapped := new(windows.Overlapped)
 	err := windows.LockFileEx(
@@ -42,7 +31,6 @@ func tryLockSessionStoreFile(file *os.File) (bool, error) {
 	}
 }
 
-// unlockSessionStoreFile releases the byte-range lock held on file.
 func unlockSessionStoreFile(file *os.File) error {
 	overlapped := new(windows.Overlapped)
 	return windows.UnlockFileEx(

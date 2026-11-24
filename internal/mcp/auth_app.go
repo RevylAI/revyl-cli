@@ -213,10 +213,6 @@ type pendingAuthorization struct {
 	expiresAt     time.Time
 }
 
-// current returns a cached authorization that still has time to be approved.
-//
-// Returns:
-//   - *auth.DeviceAuthorization: The live request, or nil when none is usable.
 func (p *pendingAuthorization) current() *auth.DeviceAuthorization {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -226,10 +222,6 @@ func (p *pendingAuthorization) current() *auth.DeviceAuthorization {
 	return p.authorization
 }
 
-// store caches a freshly created authorization.
-//
-// Parameters:
-//   - authorization: The request to reuse until it nears expiry.
 func (p *pendingAuthorization) store(authorization *auth.DeviceAuthorization) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -237,17 +229,6 @@ func (p *pendingAuthorization) store(authorization *auth.DeviceAuthorization) {
 	p.expiresAt = auth.PollDeadline(authorization, time.Now())
 }
 
-// authorizationForGate returns an approval request to offer the user.
-//
-// Reuses a live request when one exists, and treats failure to create one as
-// absence rather than an error: the gate must still report the original
-// authentication problem when the backend cannot be reached.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//
-// Returns:
-//   - *auth.DeviceAuthorization: A request to approve, or nil when unavailable.
 func (s *Server) authorizationForGate(ctx context.Context) *auth.DeviceAuthorization {
 	if existing := s.pendingAuth.current(); existing != nil {
 		return existing
@@ -286,13 +267,6 @@ func (s *Server) authorizationForGate(ctx context.Context) *auth.DeviceAuthoriza
 // tool-level association ignore this and show nothing, which is why the same
 // URL and code also travel in the outcome envelope and the failure message:
 // the agent can then surface a link without any app support at all.
-//
-// Parameters:
-//   - failure: The authentication failure the gate produced.
-//
-// Returns:
-//   - *mcp.CallToolResult: An error result, carrying the inline authorization
-//     card when there is a request the user can actually approve.
 func authenticationGateResult(failure *devAuthenticationFailure) *mcp.CallToolResult {
 	result := &mcp.CallToolResult{IsError: true}
 	if failure == nil || failure.Authorization == nil {
@@ -306,13 +280,6 @@ func authenticationGateResult(failure *devAuthenticationFailure) *mcp.CallToolRe
 	return result
 }
 
-// authorizationInstruction names the approval a person can complete right now.
-//
-// Parameters:
-//   - authorization: The pending request, or nil when none could be created.
-//
-// Returns:
-//   - string: A sentence naming the URL and code, or empty when there is none.
 func authorizationInstruction(authorization *auth.DeviceAuthorization) string {
 	if authorization == nil {
 		return ""
@@ -324,7 +291,6 @@ func authorizationInstruction(authorization *auth.DeviceAuthorization) string {
 	)
 }
 
-// registerAuthAppResource serves the static inline authorization card.
 func (s *Server) registerAuthAppResource() {
 	s.mcpServer.AddResource(&mcp.Resource{
 		URI:         authAppURI,
@@ -335,7 +301,6 @@ func (s *Server) registerAuthAppResource() {
 	}, s.handleAuthAppResource)
 }
 
-// handleAuthAppResource returns the static MCP App HTML document.
 func (s *Server) handleAuthAppResource(
 	ctx context.Context,
 	request *mcp.ReadResourceRequest,

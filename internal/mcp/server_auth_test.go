@@ -17,7 +17,6 @@ import (
 	"github.com/revyl/cli/internal/auth"
 )
 
-// TestNewServerAcceptsAccessTokenCredentials verifies browser login credentials start MCP successfully.
 func TestNewServerAcceptsAccessTokenCredentials(t *testing.T) {
 	prepareServerAuthTest(t)
 	expiresAt := time.Now().Add(time.Hour)
@@ -62,7 +61,6 @@ func TestLaunchArgumentInputsAreExposedOnMCPLaunchTools(t *testing.T) {
 	)
 }
 
-// TestNewServerAcceptsAPIKeyCredentials verifies persistent API-key login starts MCP successfully.
 func TestNewServerAcceptsAPIKeyCredentials(t *testing.T) {
 	prepareServerAuthTest(t)
 	saveServerCredentials(t, &auth.Credentials{
@@ -75,7 +73,6 @@ func TestNewServerAcceptsAPIKeyCredentials(t *testing.T) {
 	}
 }
 
-// TestNewServerAcceptsEnvironmentAPIKey verifies environment credentials remain the highest-priority startup path.
 func TestNewServerAcceptsEnvironmentAPIKey(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")
@@ -85,7 +82,6 @@ func TestNewServerAcceptsEnvironmentAPIKey(t *testing.T) {
 	}
 }
 
-// TestNewServerHonorsLocalAuthOverride verifies MCP uses the shared CLI credential precedence.
 func TestNewServerHonorsLocalAuthOverride(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")
@@ -104,7 +100,6 @@ func TestNewServerHonorsLocalAuthOverride(t *testing.T) {
 	}
 }
 
-// TestNewServerRejectsExpiredAccessToken verifies non-dev profiles continue failing closed.
 func TestNewServerRejectsExpiredAccessToken(t *testing.T) {
 	profiles := []struct {
 		name    string
@@ -131,7 +126,6 @@ func TestNewServerRejectsExpiredAccessToken(t *testing.T) {
 	}
 }
 
-// TestNewServerRejectsMissingCredentials verifies non-dev profiles continue failing closed.
 func TestNewServerRejectsMissingCredentials(t *testing.T) {
 	profiles := []struct {
 		name    string
@@ -151,7 +145,6 @@ func TestNewServerRejectsMissingCredentials(t *testing.T) {
 	}
 }
 
-// TestCoreProfileToolSchemasAreConcrete rejects untyped output properties that Cursor cannot load.
 func TestCoreProfileToolSchemasAreConcrete(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")
@@ -167,7 +160,6 @@ func TestCoreProfileToolSchemasAreConcrete(t *testing.T) {
 	requireRemediationSchema(t, setupTool)
 }
 
-// TestDevProfileToolListAndSchemas locks the focused Cursor development surface.
 func TestDevProfileToolListAndSchemas(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")
@@ -260,7 +252,6 @@ func TestDevProfileToolListAndSchemas(t *testing.T) {
 	}
 }
 
-// TestDevProfileInstructionsEnforceStartBoundary locks the one-remediation retry contract.
 func TestDevProfileInstructionsEnforceStartBoundary(t *testing.T) {
 	instructions := instructionsForProfile(ProfileDev)
 	required := []string{
@@ -413,7 +404,6 @@ func TestScreenshotAppResourceAndToolMetadata(t *testing.T) {
 	t.Fatal("interact tool not found")
 }
 
-// prepareServerAuthTest isolates credential and project paths for one MCP startup test.
 func prepareServerAuthTest(t *testing.T) {
 	t.Helper()
 	homeDir := t.TempDir()
@@ -435,7 +425,6 @@ func prepareServerAuthTest(t *testing.T) {
 	t.Setenv("CURSOR_AGENT", "")
 }
 
-// saveServerCredentials persists a structured credential fixture in the isolated test home.
 func saveServerCredentials(t *testing.T, credentials *auth.Credentials) {
 	t.Helper()
 	if err := auth.NewManager().SaveCredentials(credentials); err != nil {
@@ -443,7 +432,6 @@ func saveServerCredentials(t *testing.T, credentials *auth.Credentials) {
 	}
 }
 
-// requireServerTool verifies a fully initialized MCP server advertises a normal Revyl tool.
 func requireServerTool(t *testing.T, server *Server, toolName string) {
 	t.Helper()
 	for _, tool := range listServerTools(t, server) {
@@ -454,7 +442,6 @@ func requireServerTool(t *testing.T, server *Server, toolName string) {
 	t.Fatalf("MCP tool %q was not registered", toolName)
 }
 
-// listServerTools returns the tools advertised by an initialized server.
 func listServerTools(t *testing.T, server *Server) []*mcpsdk.Tool {
 	t.Helper()
 	ctx := context.Background()
@@ -480,7 +467,6 @@ func listServerTools(t *testing.T, server *Server) []*mcpsdk.Tool {
 	return result.Tools
 }
 
-// serverToolByName returns one advertised tool by exact name.
 func serverToolByName(t *testing.T, tools []*mcpsdk.Tool, name string) *mcpsdk.Tool {
 	t.Helper()
 	for _, tool := range tools {
@@ -492,7 +478,6 @@ func serverToolByName(t *testing.T, tools []*mcpsdk.Tool, name string) *mcpsdk.T
 	return nil
 }
 
-// toolOutputProperties returns the top-level property schemas for one tool.
 func toolOutputProperties(t *testing.T, tool *mcpsdk.Tool) map[string]json.RawMessage {
 	t.Helper()
 	content, err := json.Marshal(tool.OutputSchema)
@@ -508,7 +493,6 @@ func toolOutputProperties(t *testing.T, tool *mcpsdk.Tool) map[string]json.RawMe
 	return schema.Properties
 }
 
-// requireSchemaProperties verifies required compatibility keys are advertised.
 func requireSchemaProperties(t *testing.T, properties map[string]json.RawMessage, names ...string) {
 	t.Helper()
 	for _, name := range names {
@@ -518,7 +502,6 @@ func requireSchemaProperties(t *testing.T, properties map[string]json.RawMessage
 	}
 }
 
-// requireSchemaPropertyType verifies every named property has the expected JSON Schema type value.
 func requireSchemaPropertyType(t *testing.T, schemaValue any, propertyName string, expectedType any) {
 	t.Helper()
 	content, err := json.Marshal(schemaValue)
@@ -563,7 +546,6 @@ func requireSchemaPropertyType(t *testing.T, schemaValue any, propertyName strin
 	}
 }
 
-// requireMissingSchemaProperties verifies incompatible profile keys are absent.
 func requireMissingSchemaProperties(t *testing.T, properties map[string]json.RawMessage, names ...string) {
 	t.Helper()
 	for _, name := range names {
@@ -573,7 +555,6 @@ func requireMissingSchemaProperties(t *testing.T, properties map[string]json.Raw
 	}
 }
 
-// requireConcreteToolSchema verifies Cursor can validate one tool's output schema.
 func requireConcreteToolSchema(t *testing.T, tool *mcpsdk.Tool) {
 	t.Helper()
 	content, err := json.Marshal(tool.OutputSchema)
@@ -589,11 +570,6 @@ func requireConcreteToolSchema(t *testing.T, tool *mcpsdk.Tool) {
 	}
 }
 
-// requireRemediationSchema verifies one tool publishes the complete shared remediation contract.
-//
-// Parameters:
-//   - t: Active test.
-//   - tool: Tool whose concrete output schema is inspected.
 func requireRemediationSchema(t *testing.T, tool *mcpsdk.Tool) {
 	t.Helper()
 	content, err := json.Marshal(tool.OutputSchema)
@@ -622,7 +598,6 @@ func requireRemediationSchema(t *testing.T, tool *mcpsdk.Tool) {
 	}
 }
 
-// firstUntypedProperty returns the first property path whose schema is empty.
 func firstUntypedProperty(schema map[string]any, path string) string {
 	properties, _ := schema["properties"].(map[string]any)
 	for name, rawProperty := range properties {

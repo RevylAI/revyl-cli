@@ -11,7 +11,6 @@ import (
 	"github.com/revyl/cli/internal/outcome"
 )
 
-// InteractInput selects one visual interaction strategy through a concrete schema.
 type InteractInput struct {
 	Task            string  `json:"task" jsonschema:"required,Natural-language interaction intent."`
 	Strategy        string  `json:"strategy,omitempty" jsonschema:"Interaction strategy: auto semantic instruction. Default auto."`
@@ -30,7 +29,6 @@ type InteractInput struct {
 	Key             string  `json:"key,omitempty" jsonschema:"Key interaction value: ENTER or BACKSPACE."`
 }
 
-// ResolvedInteractionCoordinates records coordinates selected from the pre-action screenshot.
 type ResolvedInteractionCoordinates struct {
 	X      *int `json:"x,omitempty"`
 	Y      *int `json:"y,omitempty"`
@@ -40,13 +38,11 @@ type ResolvedInteractionCoordinates struct {
 	EndY   *int `json:"end_y,omitempty"`
 }
 
-// DevScreenshotEvidence records an internally captured native image.
 type DevScreenshotEvidence struct {
 	Captured  bool    `json:"captured"`
 	LatencyMs float64 `json:"latency_ms,omitempty"`
 }
 
-// DevValidationOutput is the focused semantic validation contract without workflow hints.
 type DevValidationOutput struct {
 	Success    bool                   `json:"success"`
 	Outcome    outcome.Envelope       `json:"outcome"`
@@ -57,7 +53,6 @@ type DevValidationOutput struct {
 	Error      string                 `json:"error,omitempty"`
 }
 
-// DevProfileActionOutput wraps one selected action with its structured result.
 type DevProfileActionOutput struct {
 	Action              string                          `json:"action"`
 	StrategyUsed        string                          `json:"strategy_used,omitempty"`
@@ -69,7 +64,6 @@ type DevProfileActionOutput struct {
 	PostScreenshot      *DevScreenshotEvidence          `json:"post_screenshot,omitempty"`
 }
 
-// DeviceSessionInput selects one device-session lifecycle operation.
 type DeviceSessionInput struct {
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Customer project directory supplying Git context when no branch is chosen; automatic Git branch detection in each app's Build branches settings decides whether to use it or the app default branch. Omission uses REVYL_PROJECT_DIR when bound, never the MCP server's own checkout"`
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
@@ -90,7 +84,6 @@ type DeviceSessionInput struct {
 	All                        bool     `json:"all,omitempty" jsonschema:"Stop your sessions and sessions started or explicitly selected here."`
 }
 
-// registerDevProfileTools registers the focused development and device surface.
 func (s *Server) registerDevProfileTools() {
 	s.registerSetupStatusTool()
 	s.registerScreenshotTool()
@@ -105,7 +98,6 @@ func (s *Server) registerDevProfileTools() {
 	s.registerDevValidationTool()
 }
 
-// registerInteractTool registers the single typed gesture-dispatch tool.
 func (s *Server) registerInteractTool() {
 	addDevHybridTool(s.mcpServer, &mcp.Tool{
 		Meta:        screenshotAppToolMeta(),
@@ -119,7 +111,6 @@ func (s *Server) registerInteractTool() {
 	}, s.handleInteract)
 }
 
-// registerDeviceSessionTool registers the compact session lifecycle tool.
 func (s *Server) registerDeviceSessionTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_session",
@@ -131,7 +122,6 @@ func (s *Server) registerDeviceSessionTool() {
 	}, s.handleDeviceSession)
 }
 
-// registerDevValidationTool registers the focused semantic validation contract.
 func (s *Server) registerDevValidationTool() {
 	addDevHybridTool(s.mcpServer, &mcp.Tool{
 		Meta:        screenshotAppToolMeta(),
@@ -145,12 +135,6 @@ func (s *Server) registerDevValidationTool() {
 	}, s.handleDevValidation)
 }
 
-// addDevHybridTool registers a typed tool with image-plus-JSON compatibility content.
-//
-// Parameters:
-//   - server: MCP server that owns the tool.
-//   - tool: Tool definition and schemas.
-//   - handler: Typed handler that may return native image content.
 func addDevHybridTool[In, Out any](
 	server *mcp.Server,
 	tool *mcp.Tool,
@@ -159,13 +143,6 @@ func addDevHybridTool[In, Out any](
 	mcp.AddTool(server, tool, withDevHybridContent(handler))
 }
 
-// withDevHybridContent mirrors typed output into text when native image content is present.
-//
-// Parameters:
-//   - handler: Typed MCP handler to adapt.
-//
-// Returns:
-//   - mcp.ToolHandlerFor[In, Out]: Handler that preserves images and structured output.
 func withDevHybridContent[In, Out any](
 	handler mcp.ToolHandlerFor[In, Out],
 ) mcp.ToolHandlerFor[In, Out] {
@@ -190,13 +167,6 @@ func withDevHybridContent[In, Out any](
 	}
 }
 
-// containsImageContent reports whether an MCP result contains native visual evidence.
-//
-// Parameters:
-//   - content: MCP content blocks to inspect.
-//
-// Returns:
-//   - bool: True when at least one block is an image.
 func containsImageContent(content []mcp.Content) bool {
 	for _, item := range content {
 		if _, ok := item.(*mcp.ImageContent); ok {
@@ -206,7 +176,6 @@ func containsImageContent(content []mcp.Content) bool {
 	return false
 }
 
-// handleDevValidation adapts the shared evaluator without success-path next steps.
 func (s *Server) handleDevValidation(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -254,7 +223,6 @@ func (s *Server) handleDevValidation(
 	return toolResult, output, nil
 }
 
-// handleInteract owns pre/post screenshots and dispatches the selected strategy.
 func (s *Server) handleInteract(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -325,7 +293,6 @@ func (s *Server) handleInteract(
 	return screenshotResult, output, nil
 }
 
-// dispatchInteract validates and dispatches one interaction to existing handlers.
 func (s *Server) dispatchInteract(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -395,7 +362,6 @@ func (s *Server) dispatchInteract(
 	}
 }
 
-// selectInteractionStrategy resolves the requested or automatic execution strategy.
 func selectInteractionStrategy(input InteractInput) (string, error) {
 	strategy := strings.ToLower(strings.TrimSpace(input.Strategy))
 	if strategy == "" || strategy == "auto" {
@@ -412,7 +378,6 @@ func selectInteractionStrategy(input InteractInput) (string, error) {
 	}
 }
 
-// firstNonEmptyInteractionTarget returns the explicit target or task text.
 func firstNonEmptyInteractionTarget(input InteractInput) string {
 	if strings.TrimSpace(input.Target) != "" {
 		return strings.TrimSpace(input.Target)
@@ -420,7 +385,6 @@ func firstNonEmptyInteractionTarget(input InteractInput) string {
 	return strings.TrimSpace(input.Task)
 }
 
-// dispatchGroundedDrag grounds both visible endpoints against the pre-action screen.
 func (s *Server) dispatchGroundedDrag(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -457,7 +421,6 @@ func (s *Server) dispatchGroundedDrag(
 	return toolResult, output, handlerErr
 }
 
-// resolvedCoordinatesFromResult extracts coordinates returned by existing handlers.
 func resolvedCoordinatesFromResult(result map[string]any) *ResolvedInteractionCoordinates {
 	if len(result) == 0 {
 		return nil
@@ -478,7 +441,6 @@ func resolvedCoordinatesFromResult(result map[string]any) *ResolvedInteractionCo
 	return coordinates
 }
 
-// numericResultPointer converts a JSON-normalized number to an integer pointer.
 func numericResultPointer(value any) *int {
 	switch number := value.(type) {
 	case float64:
@@ -492,7 +454,6 @@ func numericResultPointer(value any) *int {
 	}
 }
 
-// handleDeviceSession validates and dispatches a session lifecycle action.
 func (s *Server) handleDeviceSession(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -539,7 +500,6 @@ func (s *Server) handleDeviceSession(
 	}
 }
 
-// dispatchDevProfileAction invokes an existing typed handler and wraps its output.
 func dispatchDevProfileAction[I any, O any](
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -551,7 +511,6 @@ func dispatchDevProfileAction[I any, O any](
 	return wrapDevProfileAction(action, toolResult, output, err)
 }
 
-// wrapDevProfileAction converts an existing typed handler result to the dev-profile envelope.
 func wrapDevProfileAction[O any](
 	action string,
 	toolResult *mcp.CallToolResult,
@@ -579,7 +538,6 @@ func wrapDevProfileAction[O any](
 	return toolResult, DevProfileActionOutput{Action: action, Result: result, Outcome: envelope}, nil
 }
 
-// sanitizeDevStructuredResult removes presentation-only fields from dev output.
 func sanitizeDevStructuredResult(result map[string]any) {
 	delete(result, "next_steps")
 	delete(result, "image")
@@ -589,16 +547,8 @@ func sanitizeDevStructuredResult(result map[string]any) {
 	}
 }
 
-// devProfileVisualRefreshFailure synchronizes a failed visual refresh across MCP result contracts.
-//
-// Parameters:
-//   - output: Interaction output to mark as failed.
-//   - reason: Screenshot failure reason exposed to the client.
-//   - retryable: Whether replaying the interaction is safe.
-//
-// Returns:
-//   - *mcp.CallToolResult: MCP error metadata.
-//   - DevProfileActionOutput: Structured interaction failure.
+// devProfileVisualRefreshFailure marks an interaction output failed after a visual refresh error.
+// retryable records whether replaying the interaction is safe.
 func devProfileVisualRefreshFailure(
 	output DevProfileActionOutput,
 	reason string,
@@ -613,7 +563,6 @@ func devProfileVisualRefreshFailure(
 	return &mcp.CallToolResult{IsError: true}, output
 }
 
-// devProfileInputError returns one structured input-validation failure.
 func devProfileInputError(action, message string) DevProfileActionOutput {
 	return DevProfileActionOutput{Action: action, Result: map[string]any{
 		"success": false,
@@ -621,16 +570,8 @@ func devProfileInputError(action, message string) DevProfileActionOutput {
 	}, Outcome: outcome.Failed("invalid_input", message, false)}
 }
 
-// devProfileAuthenticationError returns one structured authentication failure for composite dev tools.
-//
-// Parameters:
-//   - action: Requested dev-profile action.
-//   - failure: Authentication failure returned by the central credential gate.
-//
-// Returns:
-//   - *mcp.CallToolResult: MCP error metadata.
-//   - DevProfileActionOutput: Structured authentication failure.
-//   - error: Always nil because authentication failures are tool results.
+// devProfileAuthenticationError returns a structured authentication failure for composite dev tools.
+// The returned Go error is always nil because authentication failures travel as MCP tool results.
 func devProfileAuthenticationError(
 	action string,
 	failure *devAuthenticationFailure,

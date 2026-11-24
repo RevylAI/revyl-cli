@@ -14,7 +14,6 @@ import (
 	"github.com/revyl/cli/internal/outcome"
 )
 
-// RemediationActionKind identifies one secret-free setup recovery plan.
 type RemediationActionKind string
 
 const (
@@ -27,7 +26,6 @@ const (
 	remediationActionRestartSession      RemediationActionKind = "restart_session"
 )
 
-// Remediation describes at most one exact, secret-free setup recovery action.
 type Remediation struct {
 	ActionKind         RemediationActionKind `json:"action_kind"`
 	Command            string                `json:"command,omitempty"`
@@ -41,7 +39,6 @@ type Remediation struct {
 	RestartRequired    bool                  `json:"restart_required"`
 }
 
-// setupProjectStatus contains one typed project state and its bounded recovery action.
 type setupProjectStatus struct {
 	State            SetupProjectState
 	ProjectDirectory string
@@ -50,15 +47,10 @@ type setupProjectStatus struct {
 	Message          string
 }
 
-// projectSetupError preserves a classified setup failure across adapter boundaries.
 type projectSetupError struct {
 	status setupProjectStatus
 }
 
-// Error returns the underlying project setup failure message.
-//
-// Returns:
-//   - string: Actionable project setup failure message.
 func (e *projectSetupError) Error() string {
 	if e.status.Message != "" {
 		return e.status.Message
@@ -69,26 +61,10 @@ func (e *projectSetupError) Error() string {
 	return fmt.Sprintf("Revyl project setup is %s", e.status.State)
 }
 
-// Unwrap returns the lower-level project resolution or configuration failure.
-//
-// Returns:
-//   - error: Underlying setup failure, when available.
 func (e *projectSetupError) Unwrap() error {
 	return e.status.Failure
 }
 
-// authenticationRemediation returns the exact supported action for one auth state.
-//
-// The action never depends on guessing whether the runtime has a browser.
-// Login is offered everywhere, and the accompanying message names the
-// unattended alternative, because misclassifying a runtime withdraws a recovery
-// that would have worked.
-//
-// Parameters:
-//   - state: Structured authentication state to remediate.
-//
-// Returns:
-//   - *Remediation: Command or environment-variable action, or nil when authenticated.
 func authenticationRemediation(state SetupAuthState) *Remediation {
 	switch state {
 	case authenticationStateRequired, authenticationStateExpired, authenticationStateInvalid:
@@ -110,13 +86,6 @@ func authenticationRemediation(state SetupAuthState) *Remediation {
 	}
 }
 
-// cloudSecretRemediation returns the runnable hosted-agent credential bridge.
-//
-// Credentials re-resolve on every tool call, so bridging the secret mid-session
-// takes effect on the next call and needs no restart.
-//
-// Returns:
-//   - *Remediation: Command action that bridges the injected Runtime Secret.
 func cloudSecretRemediation() *Remediation {
 	return &Remediation{
 		ActionKind:      remediationActionCommand,
@@ -183,13 +152,6 @@ func quoteRemediationExecutable(executable string) string {
 	return "'" + strings.ReplaceAll(executable, "'", `'"'"'`) + "'"
 }
 
-// resolveSetupProjectState classifies the nearest or nested Revyl project without mutating it.
-//
-// Parameters:
-//   - workDir: Base working directory to inspect.
-//
-// Returns:
-//   - setupProjectStatus: Stable project state, failure, and one bounded remediation.
 func resolveSetupProjectState(workDir string) setupProjectStatus {
 	return resolveSetupProjectStateForMode(workDir, false)
 }
@@ -206,13 +168,6 @@ func resolveSetupProjectStateForMode(workDir string, devMode bool) setupProjectS
 	return inspected
 }
 
-// resolveProjectRootState finds an initialized project marker without parsing its config.
-//
-// Parameters:
-//   - workDir: Base working directory to inspect.
-//
-// Returns:
-//   - setupProjectStatus: Root-resolution state and remediation for missing or ambiguous projects.
 func resolveProjectRootState(workDir string) setupProjectStatus {
 	return resolveProjectRootStateForMode(workDir, false)
 }
@@ -383,13 +338,6 @@ func nearestProjectConfigLocation(workDir, worktreeRoot string) (string, string)
 	}
 }
 
-// inspectProjectConfigState validates the config for an already-resolved project root.
-//
-// Parameters:
-//   - projectDirectory: Project root containing the existing .revyl/config.yaml path.
-//
-// Returns:
-//   - setupProjectStatus: Initialized or invalid state with exact repair metadata.
 func inspectProjectConfigState(projectDirectory string) setupProjectStatus {
 	return inspectProjectConfigStateForMode(projectDirectory, false)
 }
@@ -450,14 +398,6 @@ func invalidProjectStatus(projectDirectory, configPath string, failure error, de
 	}
 }
 
-// projectResolutionFailure maps a project setup error to its stable outcome and remediation.
-//
-// Parameters:
-//   - resolutionErr: Error returned while resolving an initialized Revyl project.
-//
-// Returns:
-//   - outcome.Envelope: Stable semantic failure classification.
-//   - *Remediation: Actionable recovery data, or nil for an unrelated error.
 func projectResolutionFailure(resolutionErr error) (outcome.Envelope, *Remediation) {
 	var setupErr *projectSetupError
 	if !errors.As(resolutionErr, &setupErr) {
@@ -482,14 +422,6 @@ func projectResolutionFailure(resolutionErr error) (outcome.Envelope, *Remediati
 	return outcome.Failed(outcomeCode, resolutionErr.Error(), false), setupErr.status.Remediation
 }
 
-// resolveDevProjectDir resolves an explicit path or one unambiguous nested project without parsing config.
-//
-// Parameters:
-//   - requested: Optional absolute or server-relative project directory.
-//
-// Returns:
-//   - string: Resolved project directory with an existing config path.
-//   - error: Classified setup failure when the project is missing or ambiguous.
 func (s *Server) resolveDevProjectDir(requested string) (string, error) {
 	base := s.workDir
 	if strings.TrimSpace(requested) != "" {
@@ -506,14 +438,6 @@ func (s *Server) resolveDevProjectDir(requested string) (string, error) {
 	return status.ProjectDirectory, nil
 }
 
-// resolveValidatedDevProjectDir resolves a project root and validates its config for setup-sensitive work.
-//
-// Parameters:
-//   - requested: Optional absolute or server-relative project directory.
-//
-// Returns:
-//   - string: Resolved project directory with a parse-valid config.
-//   - error: Classified setup failure when the project is unavailable or invalid.
 func (s *Server) resolveValidatedDevProjectDir(requested string) (string, error) {
 	projectDirectory, err := s.resolveDevProjectDir(requested)
 	if err != nil {
@@ -525,13 +449,6 @@ func (s *Server) resolveValidatedDevProjectDir(requested string) (string, error)
 	return projectDirectory, nil
 }
 
-// validateDevProjectConfig validates config for an already-resolved project root.
-//
-// Parameters:
-//   - projectDirectory: Project root containing .revyl/config.yaml.
-//
-// Returns:
-//   - error: Classified project_invalid failure, or nil when the config parses.
 func validateDevProjectConfig(projectDirectory string) error {
 	return validateDevProjectConfigForMode(projectDirectory, false)
 }

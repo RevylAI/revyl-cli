@@ -38,15 +38,7 @@ var iosAlertOnlyPermissions = map[string]string{
 	"userTracking":  "App Tracking Transparency (userTracking)",
 }
 
-// ParseDevicePermissionAssignments parses name=value arguments such as
-// "location=allow" into the map the worker's /set_permissions accepts.
-//
-// Parameters:
-//   - assignments: One name=value string per permission.
-//
-// Returns:
-//   - map[string]string: Permission names mapped to allow, deny, or unset.
-//   - error: A malformed, unknown, or repeated permission.
+// ParseDevicePermissionAssignments parses name=value arguments into a permission map.
 func ParseDevicePermissionAssignments(assignments []string) (map[string]string, error) {
 	if len(assignments) == 0 {
 		return nil, fmt.Errorf("name at least one permission, for example location=allow")
@@ -72,15 +64,7 @@ func ParseDevicePermissionAssignments(assignments []string) (map[string]string, 
 	return permissions, nil
 }
 
-// ValidateDevicePermissionsForPlatform rejects permissions the session's
-// platform cannot set, before anything reaches the device.
-//
-// Parameters:
-//   - platform: The session platform ("ios", "android", or "web").
-//   - permissions: Parsed permission names and values.
-//
-// Returns:
-//   - error: Why the platform cannot apply these permissions.
+// ValidateDevicePermissionsForPlatform rejects permissions unsupported on platform.
 func ValidateDevicePermissionsForPlatform(platform string, permissions map[string]string) error {
 	if platform != "ios" && platform != "android" {
 		return fmt.Errorf("app permissions can be set only on iOS and Android sessions, not %s", platform)
@@ -116,17 +100,7 @@ func ValidateDevicePermissionsForPlatform(platform string, permissions map[strin
 	return nil
 }
 
-// SetAppPermissions applies permissions to one app through the worker's
-// /set_permissions action and fails unless the worker confirms success.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - bundleID: The app whose permissions change.
-//   - permissions: Parsed permission names and values.
-//
-// Returns:
-//   - error: Validation, transport, or worker failure.
+// SetAppPermissions applies permissions via the worker /set_permissions action.
 func (m *DeviceSessionManager) SetAppPermissions(ctx context.Context, session *DeviceSession, bundleID string, permissions map[string]string) error {
 	bundleID = strings.TrimSpace(bundleID)
 	if bundleID == "" {

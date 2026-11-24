@@ -25,8 +25,6 @@ const (
 	endedSessionID      = "cccccccc-3333-4333-8333-333333333333"
 )
 
-// sessionIDToolBackend records which workflow run each device action reached
-// and which sessions were stopped, resolved by ID, or reported on.
 type sessionIDToolBackend struct {
 	mu            sync.Mutex
 	proxied       []string
@@ -35,8 +33,6 @@ type sessionIDToolBackend struct {
 	resolvedByID  int
 	reportedByIDs []string
 
-	// onProxy runs before a device action is answered, so a test can change
-	// the server's sessions mid-call.
 	onProxy func(run, action string)
 }
 
@@ -58,9 +54,6 @@ func (b *sessionIDToolBackend) snapshot() sessionIDToolBackend {
 	}
 }
 
-// newSessionIDToolServer builds a server tracking two live sessions, with the
-// first one active, backed by a fake API that also knows targetSessionID, a
-// running session this server does not track.
 func newSessionIDToolServer(t *testing.T) (*Server, *sessionIDToolBackend) {
 	t.Helper()
 	backend := &sessionIDToolBackend{}
@@ -528,8 +521,6 @@ func TestServeAnalyticsRecordTheMostExplicitSessionTargetMode(t *testing.T) {
 	}
 }
 
-// The serve command's analytics run rides on the context passed to Run, so a
-// tool call through the SDK must still see it.
 func TestSessionTargetModeReachesTheServeEventThroughTheSDK(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")

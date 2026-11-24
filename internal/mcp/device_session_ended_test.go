@@ -109,8 +109,6 @@ func TestMergeEndedSessionsKeepsRecentBoundedHistory(t *testing.T) {
 	}
 }
 
-// newPruneTestServer serves an empty active-session list and a terminal,
-// released detail record for the local session sync is about to prune.
 func newPruneTestServer(t *testing.T, sessionID string, endedAt time.Time) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

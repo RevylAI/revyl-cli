@@ -54,8 +54,6 @@ var publishedProfiles = []publishedProfile{
 	{name: "dev", options: []ServerOption{WithProfile(ProfileDev)}},
 }
 
-// connectToProfile returns what an MCP client of the profile sees: the
-// server instructions and the listed tools.
 func connectToProfile(t *testing.T, profile publishedProfile) (string, []*mcpsdk.Tool) {
 	t.Helper()
 	server, err := NewServer("test", false, profile.options...)
@@ -110,8 +108,6 @@ func TestPublishedInstructionsNameOnlyToolsTheProfileRegisters(t *testing.T) {
 	}
 }
 
-// Test and workflow names no longer come from aliases in .revyl/config.yaml:
-// a test name is its file name under .revyl/tests/ or its Revyl name.
 func TestPublishedToolsDoNotDescribeNamesAsConfigAliases(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")
@@ -142,8 +138,6 @@ var (
 	instructionRecipeKey = regexp.MustCompile(`([a-z][a-z0-9_]*):`)
 )
 
-// documentedParams returns the argument keys an action line of a composite
-// tool description lists after "Params:", or none when it lists none.
 func documentedParams(t *testing.T, tool, action, line string) []string {
 	t.Helper()
 	_, params, found := strings.Cut(line, "Params: ")
@@ -232,9 +226,6 @@ var (
 	fixedIdleLimit     = regexp.MustCompile(`(?i)after \d+ minutes of inactivity`)
 )
 
-// The tools the instructions call grounded must take a natural-language
-// target, and the idle limit must come from the session, since it differs by
-// platform and project.
 func TestPublishedInstructionsDescribeGroundingAndIdleLimitsAsRegistered(t *testing.T) {
 	prepareServerAuthTest(t)
 	t.Setenv("REVYL_API_KEY", "test-environment-api-key")

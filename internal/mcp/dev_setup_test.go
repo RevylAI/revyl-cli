@@ -15,7 +15,6 @@ import (
 	"github.com/revyl/cli/internal/auth"
 )
 
-// TestDevProfileStartsWithoutCredentials verifies deferred local authentication and structured errors.
 func TestDevProfileStartsWithoutCredentials(t *testing.T) {
 	prepareServerAuthTest(t)
 	runner := &fakeDevLoopRunner{}
@@ -75,7 +74,6 @@ func TestDevProfileStartsWithoutCredentials(t *testing.T) {
 	}
 }
 
-// TestDevProfileReportsExpiredCredentials verifies stale browser auth remains distinguishable.
 func TestDevProfileReportsExpiredCredentials(t *testing.T) {
 	prepareServerAuthTest(t)
 	expiresAt := time.Now().Add(-time.Hour)
@@ -131,7 +129,6 @@ func TestDevProfileReportsExpiredCredentials(t *testing.T) {
 	}
 }
 
-// TestDevProfileReportsCloudSecretRequirement verifies Cloud remediation never suggests browser login.
 func TestDevProfileReportsCloudSecretRequirement(t *testing.T) {
 	prepareServerAuthTest(t)
 	if err := auth.NewManager().SaveCloudRuntimeContext("", false); err != nil {
@@ -155,8 +152,6 @@ func TestDevProfileReportsCloudSecretRequirement(t *testing.T) {
 	if status.AuthState != authenticationStateCloudSecretRequired || status.Environment != setupEnvironmentCloud {
 		t.Fatalf("cloud setup status = %+v", status)
 	}
-	// The bridge re-resolves on the next tool call, so the agent must get a
-	// command it can run now rather than an environment change plus a restart.
 	if status.Remediation == nil ||
 		status.Remediation.ActionKind != remediationActionCommand ||
 		status.Remediation.Command != "revyl auth persist-cloud-env" ||
@@ -184,7 +179,6 @@ func TestDevProfileReportsCloudSecretRequirement(t *testing.T) {
 	}
 }
 
-// TestDevProfileAcceptsPersistedCloudAPIKey verifies the bootstrap bridge works without MCP env propagation.
 func TestDevProfileAcceptsPersistedCloudAPIKey(t *testing.T) {
 	prepareServerAuthTest(t)
 	projectDir := os.Getenv("REVYL_PROJECT_DIR")
@@ -215,7 +209,6 @@ func TestDevProfileAcceptsPersistedCloudAPIKey(t *testing.T) {
 	requireSetupStatusSecretFree(t, status, apiKey)
 }
 
-// TestDevProfileReportsPersistedCloudSecretRequirement verifies missing-secret guidance survives host filtering.
 func TestDevProfileReportsPersistedCloudSecretRequirement(t *testing.T) {
 	prepareServerAuthTest(t)
 	if err := auth.NewManager().SaveCloudRuntimeContext("", false); err != nil {
@@ -240,7 +233,6 @@ func TestDevProfileReportsPersistedCloudSecretRequirement(t *testing.T) {
 	}
 }
 
-// TestDevProfileReportsInvalidCloudContext verifies corrupted bootstrap state has exact restart guidance.
 func TestDevProfileReportsInvalidCloudContext(t *testing.T) {
 	prepareServerAuthTest(t)
 	contextDirectory := filepath.Join(os.Getenv("HOME"), ".revyl")
@@ -402,7 +394,6 @@ func TestDevProfileInvalidCredentialsRecoverAfterLogin(t *testing.T) {
 	requireRunnerStartCalls(t, runner, 1)
 }
 
-// TestDevProfileKeepsNormalFileCredentialsLocal verifies ordinary CLI login does not imply Cloud execution.
 func TestDevProfileKeepsNormalFileCredentialsLocal(t *testing.T) {
 	prepareServerAuthTest(t)
 	projectDir := os.Getenv("REVYL_PROJECT_DIR")
@@ -425,7 +416,6 @@ func TestDevProfileKeepsNormalFileCredentialsLocal(t *testing.T) {
 	}
 }
 
-// TestSetupStatusReportsProjectInitializationAction verifies authenticated projects receive one exact command.
 func TestSetupStatusReportsProjectInitializationAction(t *testing.T) {
 	prepareServerAuthTest(t)
 	initializeMCPGitFixture(t, os.Getenv("REVYL_PROJECT_DIR"))
@@ -470,7 +460,6 @@ func TestSetupStatusReportsProjectInitializationAction(t *testing.T) {
 	requireRunnerStartCalls(t, runner, 0)
 }
 
-// TestPluginRuntimeRemediationsUsePinnedExecutable verifies one-install recovery avoids PATH.
 func TestPluginRuntimeRemediationsUsePinnedExecutable(t *testing.T) {
 	prepareServerAuthTest(t)
 	initializeMCPGitFixture(t, os.Getenv("REVYL_PROJECT_DIR"))
@@ -492,13 +481,6 @@ func TestPluginRuntimeRemediationsUsePinnedExecutable(t *testing.T) {
 	}
 }
 
-// TestEveryRecoveryStateNamesBothRecoveries is the REV-608 regression.
-//
-// The earlier fix picked one recovery from an environment guess, which
-// withdrew browser login from every Linux desktop user. No credential-recovery
-// state may depend on that guess: each must offer a runnable login and name the
-// unattended bridge, and none may demand a session restart, because credentials
-// re-resolve on the next tool call.
 func TestEveryRecoveryStateNamesBothRecoveries(t *testing.T) {
 	prepareServerAuthTest(t)
 
@@ -520,8 +502,6 @@ func TestEveryRecoveryStateNamesBothRecoveries(t *testing.T) {
 			if remediation.RestartRequired {
 				t.Fatalf("state %q required a restart no recovery needs", state)
 			}
-			// Offering a browser approval must add a recovery, never replace
-			// one: the approval needs a human, and the bridge does not.
 			pending := &auth.DeviceAuthorization{
 				UserCode:                "ABCD-2345",
 				VerificationUriComplete: "https://app.revyl.ai/cli/device?code=ABCD-2345",
@@ -538,10 +518,6 @@ func TestEveryRecoveryStateNamesBothRecoveries(t *testing.T) {
 	}
 }
 
-// TestRecoveryIsIdenticalOnHostedAndDesktopEnvironments pins the absence of detection.
-//
-// Markers a hosted runtime sets must not change which recovery is offered, so
-// that no future environment can be misread into losing one.
 func TestRecoveryIsIdenticalOnHostedAndDesktopEnvironments(t *testing.T) {
 	prepareServerAuthTest(t)
 
@@ -561,7 +537,6 @@ func TestRecoveryIsIdenticalOnHostedAndDesktopEnvironments(t *testing.T) {
 	}
 }
 
-// TestSetupStatusReportsEnvironmentAPIKeyWithoutLeakingIt verifies self-diagnosing output.
 func TestSetupStatusReportsEnvironmentAPIKeyWithoutLeakingIt(t *testing.T) {
 	prepareServerAuthTest(t)
 	const apiKey = "signals-secret-sentinel"
@@ -609,8 +584,6 @@ func TestSetupStatusReportsUnresolvedAPIKeyEnvironment(t *testing.T) {
 	}
 }
 
-// TestSetupStatusUsesNearestProjectConfig verifies canonical lookup ignores descendant configs
-// and selects the nearest ancestor config for an explicit nested working directory.
 func TestSetupStatusUsesNearestProjectConfig(t *testing.T) {
 	prepareServerAuthTest(t)
 	workDir := os.Getenv("REVYL_PROJECT_DIR")
@@ -670,7 +643,6 @@ func TestSetupStatusUsesNearestProjectConfig(t *testing.T) {
 	}
 }
 
-// TestSetupStatusReportsInvalidProjectRemediation verifies malformed config repair guidance.
 func TestSetupStatusReportsInvalidProjectRemediation(t *testing.T) {
 	prepareServerAuthTest(t)
 	workDir := os.Getenv("REVYL_PROJECT_DIR")
@@ -755,7 +727,6 @@ func TestSetupStatusReportsInvalidProjectRemediation(t *testing.T) {
 	}
 }
 
-// TestDevProfileAcceptsEnvironmentAPIKey verifies env credentials can make setup ready.
 func TestDevProfileAcceptsEnvironmentAPIKey(t *testing.T) {
 	prepareServerAuthTest(t)
 	projectDir := os.Getenv("REVYL_PROJECT_DIR")
@@ -782,7 +753,6 @@ func TestDevProfileAcceptsEnvironmentAPIKey(t *testing.T) {
 	requireSetupStatusSecretFree(t, status, "environment-api-key")
 }
 
-// TestDevProfileRefreshesCredentialsWithoutResettingSessions verifies post-startup login is applied in place.
 func TestDevProfileRefreshesCredentialsWithoutResettingSessions(t *testing.T) {
 	prepareServerAuthTest(t)
 	projectDir := os.Getenv("REVYL_PROJECT_DIR")
@@ -835,16 +805,6 @@ func TestDevProfileRefreshesCredentialsWithoutResettingSessions(t *testing.T) {
 	}
 }
 
-// callServerTool invokes one tool against an initialized in-memory MCP server.
-//
-// Parameters:
-//   - t: Active test.
-//   - server: MCP server under test.
-//   - name: Exact tool name.
-//   - arguments: Structured tool arguments.
-//
-// Returns:
-//   - *mcpsdk.CallToolResult: Client-visible tool result.
 func callServerTool(
 	t *testing.T,
 	server *Server,
@@ -877,14 +837,6 @@ func callServerTool(
 	return result
 }
 
-// decodeStructuredToolResult converts an MCP structured result into its typed contract.
-//
-// Parameters:
-//   - t: Active test.
-//   - result: MCP call result to decode.
-//
-// Returns:
-//   - T: Decoded structured result.
 func decodeStructuredToolResult[T any](t *testing.T, result *mcpsdk.CallToolResult) T {
 	t.Helper()
 	var output T
@@ -898,23 +850,11 @@ func decodeStructuredToolResult[T any](t *testing.T, result *mcpsdk.CallToolResu
 	return output
 }
 
-// requireSetupStatusSecretFree verifies setup output does not contain credential values.
-//
-// Parameters:
-//   - t: Active test.
-//   - status: Typed setup status to inspect.
-//   - secretValues: Credential fixtures that must never be returned.
 func requireSetupStatusSecretFree(t *testing.T, status SetupStatusOutput, secretValues ...string) {
 	t.Helper()
 	requireJSONSecretFree(t, status, secretValues...)
 }
 
-// requireJSONSecretFree verifies a structured output does not contain credential fixtures.
-//
-// Parameters:
-//   - t: Active test.
-//   - value: Structured output to inspect.
-//   - secretValues: Credential fixtures that must never be returned.
 func requireJSONSecretFree(t *testing.T, value any, secretValues ...string) {
 	t.Helper()
 	encodedValue, err := json.Marshal(value)
@@ -928,12 +868,6 @@ func requireJSONSecretFree(t *testing.T, value any, secretValues ...string) {
 	}
 }
 
-// requireRemediationParity verifies two outputs expose the same recovery action.
-//
-// Parameters:
-//   - t: Active test.
-//   - actual: Remediation returned by the operation under test.
-//   - expected: Canonical remediation returned by setup_status.
 func requireRemediationParity(t *testing.T, actual, expected *Remediation) {
 	t.Helper()
 	if actual == nil || expected == nil {
@@ -956,12 +890,6 @@ func requireRemediationParity(t *testing.T, actual, expected *Remediation) {
 	}
 }
 
-// requireRunnerStartCalls verifies setup failures do not cross the runner boundary.
-//
-// Parameters:
-//   - t: Active test.
-//   - runner: Fake runner whose call count is inspected.
-//   - expected: Required number of Start calls.
 func requireRunnerStartCalls(t *testing.T, runner *fakeDevLoopRunner, expected int) {
 	t.Helper()
 	runner.mu.Lock()

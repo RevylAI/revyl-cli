@@ -9,7 +9,6 @@ import (
 	"github.com/revyl/cli/internal/auth"
 )
 
-// pendingFixture is a live approval a gate could offer.
 func pendingFixture() *auth.DeviceAuthorization {
 	return &auth.DeviceAuthorization{
 		DeviceCode:              "device-secret-never-displayed",
@@ -19,8 +18,6 @@ func pendingFixture() *auth.DeviceAuthorization {
 	}
 }
 
-// TestGateOffersTheCardOnlyWhenThereIsSomethingToApprove keeps the card from
-// appearing on failures a user cannot resolve by authorizing.
 func TestGateOffersTheCardOnlyWhenThereIsSomethingToApprove(t *testing.T) {
 	withCard := authenticationGateResult(&devAuthenticationFailure{
 		Code:          authenticationStateRequired,
@@ -65,8 +62,6 @@ func TestGateNeverPublishesTheDeviceCode(t *testing.T) {
 	}
 }
 
-// TestGateEnvelopeCarriesTheApproval keeps the approval reachable on hosts that
-// render no inline app, where the agent surfaces the URL from the envelope.
 func TestGateEnvelopeCarriesTheApproval(t *testing.T) {
 	authorization := pendingFixture()
 	envelope := failedAuthenticationOutcome(&devAuthenticationFailure{
@@ -81,8 +76,6 @@ func TestGateEnvelopeCarriesTheApproval(t *testing.T) {
 	}
 }
 
-// TestPendingAuthorizationIsReusedUntilItNearsExpiry stops every blocked tool
-// call from registering a new approval with a different code.
 func TestPendingAuthorizationIsReusedUntilItNearsExpiry(t *testing.T) {
 	pending := &pendingAuthorization{}
 	if pending.current() != nil {
@@ -95,8 +88,6 @@ func TestPendingAuthorizationIsReusedUntilItNearsExpiry(t *testing.T) {
 		t.Fatal("a live authorization was not reused")
 	}
 
-	// One about to expire is worse than none: the user would be sent to approve
-	// something that dies before they finish.
 	pending.expiresAt = time.Now().Add(authorizationReuseMargin / 2)
 	if pending.current() != nil {
 		t.Fatal("an authorization too short-lived to approve was reused")

@@ -11,8 +11,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// startTargetingSession registers a session as started by this manager's
-// directory, the way a successful device start does.
 func startTargetingSession(t *testing.T, mgr *DeviceSessionManager, name string, startedAt time.Time) *DeviceSession {
 	t.Helper()
 	session := &DeviceSession{
@@ -27,8 +25,6 @@ func startTargetingSession(t *testing.T, mgr *DeviceSessionManager, name string,
 	return session
 }
 
-// addAccountSession adds a live session the way sync discovers one that
-// another directory started.
 func addAccountSession(mgr *DeviceSessionManager, name string, startedAt time.Time) *DeviceSession {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()

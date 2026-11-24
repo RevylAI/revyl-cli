@@ -17,7 +17,6 @@ const (
 	devLoopBaselinePollInterval = 500 * time.Millisecond
 )
 
-// DevLoopStartOutput wraps the canonical detach handshake.
 type DevLoopStartOutput struct {
 	Success     bool                `json:"success"`
 	Outcome     outcome.Envelope    `json:"outcome"`
@@ -28,13 +27,11 @@ type DevLoopStartOutput struct {
 	Warnings    []string            `json:"warnings,omitempty"`
 }
 
-// GetDevStatusInput selects an optional named context.
 type GetDevStatusInput struct {
 	Context    string `json:"context,omitempty" jsonschema:"Optional named dev context."`
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project or monorepo root."`
 }
 
-// GetDevStatusOutput wraps the canonical dev status contract.
 type GetDevStatusOutput struct {
 	Success     bool                 `json:"success"`
 	Outcome     outcome.Envelope     `json:"outcome"`
@@ -43,13 +40,11 @@ type GetDevStatusOutput struct {
 	Error       string               `json:"error,omitempty"`
 }
 
-// CanonicalStopDevLoopInput selects an optional named context.
 type CanonicalStopDevLoopInput struct {
 	Context    string `json:"context,omitempty" jsonschema:"Optional named dev context."`
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project or monorepo root."`
 }
 
-// CanonicalStopDevLoopOutput wraps canonical dev-loop cleanup.
 type CanonicalStopDevLoopOutput struct {
 	Success     bool               `json:"success"`
 	Outcome     outcome.Envelope   `json:"outcome"`
@@ -58,13 +53,11 @@ type CanonicalStopDevLoopOutput struct {
 	Error       string             `json:"error,omitempty"`
 }
 
-// RebuildInput selects one asynchronous rebuild trigger.
 type RebuildInput struct {
 	Context    string `json:"context,omitempty" jsonschema:"Optional named dev context."`
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project or monorepo root."`
 }
 
-// TriggerRebuildOutput contains the handle for one requested rebuild.
 type TriggerRebuildOutput struct {
 	Success     bool                  `json:"success"`
 	Outcome     outcome.Envelope      `json:"outcome"`
@@ -73,13 +66,11 @@ type TriggerRebuildOutput struct {
 	Error       string                `json:"error,omitempty"`
 }
 
-// WaitForRebuildInput selects one asynchronous rebuild handle to wait for.
 type WaitForRebuildInput struct {
 	Handle  devloop.RebuildHandle `json:"handle" jsonschema:"required,Handle returned by rebuild."`
 	Timeout int                   `json:"timeout,omitempty" jsonschema:"Maximum seconds to wait for completion."`
 }
 
-// RebuildOutput contains the canonical terminal result returned by wait_for_rebuild.
 type RebuildOutput struct {
 	Success     bool                  `json:"success"`
 	Outcome     outcome.Envelope      `json:"outcome"`
@@ -88,14 +79,12 @@ type RebuildOutput struct {
 	Error       string                `json:"error,omitempty"`
 }
 
-// rebuildProgressNotifier sends ordered MCP progress messages for one rebuild request.
 type rebuildProgressNotifier struct {
 	request  *mcp.CallToolRequest
 	token    any
 	progress float64
 }
 
-// handleStartDevLoopCommand delegates startup to the canonical CLI detach flow.
 func (s *Server) handleStartDevLoopCommand(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -244,19 +233,6 @@ func (s *Server) handleStartDevLoopCommand(
 	return nil, output, nil
 }
 
-// waitForDevAppReady waits until a seeded or fresh remote app is installed.
-//
-// Parameters:
-//   - ctx: Parent cancellation context.
-//   - runner: Canonical dev-loop status provider.
-//   - workDir: Revyl project directory.
-//   - contextName: Named dev context to inspect.
-//   - timeout: Maximum readiness wait.
-//   - pollInterval: Delay between status reads.
-//
-// Returns:
-//   - devloop.StatusResult: Latest readable status.
-//   - bool: Whether an app is ready for baseline capture.
 func waitForDevAppReady(
 	ctx context.Context,
 	runner devloop.Runner,
@@ -298,7 +274,6 @@ func waitForDevAppReady(
 	}
 }
 
-// handleGetDevStatusCommand delegates status reads to the canonical CLI contract.
 func (s *Server) handleGetDevStatusCommand(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -335,7 +310,6 @@ func (s *Server) handleGetDevStatusCommand(
 	return nil, GetDevStatusOutput{Success: true, Outcome: statusOutcome, Result: result}, nil
 }
 
-// handleStopDevLoopCommand delegates cleanup to the canonical CLI contract.
 func (s *Server) handleStopDevLoopCommand(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -369,7 +343,6 @@ func (s *Server) handleStopDevLoopCommand(
 	return nil, CanonicalStopDevLoopOutput{Success: true, Outcome: outcome.Completed(), Result: result}, nil
 }
 
-// registerRebuildTool registers the canonical rebuild-only MCP operation.
 func (s *Server) registerRebuildTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "rebuild",
@@ -390,17 +363,6 @@ func (s *Server) registerRebuildTool() {
 	}, s.handleWaitForRebuildCommand)
 }
 
-// handleRebuildCommand triggers one rebuild and returns its correlation handle.
-//
-// Parameters:
-//   - ctx: Cancellation and timeout context for the tool call.
-//   - req: MCP request metadata.
-//   - input: Project and context selection.
-//
-// Returns:
-//   - *mcp.CallToolResult: Error metadata when the rebuild fails.
-//   - TriggerRebuildOutput: Structured asynchronous rebuild handle.
-//   - error: Transport-level handler failure.
 func (s *Server) handleRebuildCommand(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -442,17 +404,6 @@ func (s *Server) handleRebuildCommand(
 	}, nil
 }
 
-// handleWaitForRebuildCommand waits for one handle and returns its terminal result.
-//
-// Parameters:
-//   - ctx: Cancellation and timeout context for the tool call.
-//   - req: MCP request carrying the optional progress token.
-//   - input: Rebuild handle and wait timeout.
-//
-// Returns:
-//   - *mcp.CallToolResult: Error metadata when the wait or rebuild fails.
-//   - RebuildOutput: Structured terminal rebuild result.
-//   - error: Transport-level handler failure.
 func (s *Server) handleWaitForRebuildCommand(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -506,13 +457,6 @@ func (s *Server) handleWaitForRebuildCommand(
 	return nil, output, nil
 }
 
-// newRebuildProgressNotifier returns a notifier when the client supplied a progress token.
-//
-// Parameters:
-//   - req: MCP request to inspect.
-//
-// Returns:
-//   - *rebuildProgressNotifier: Configured notifier, or nil when progress is unsupported.
 func newRebuildProgressNotifier(req *mcp.CallToolRequest) *rebuildProgressNotifier {
 	if req == nil || req.Params == nil || req.Session == nil {
 		return nil
@@ -524,11 +468,6 @@ func newRebuildProgressNotifier(req *mcp.CallToolRequest) *rebuildProgressNotifi
 	return &rebuildProgressNotifier{request: req, token: token}
 }
 
-// notify emits one monotonically increasing MCP progress notification.
-//
-// Parameters:
-//   - ctx: Notification context.
-//   - message: User-visible progress message.
 func (n *rebuildProgressNotifier) notify(ctx context.Context, message string) {
 	if n == nil || n.request == nil || n.request.Session == nil || n.token == nil || strings.TrimSpace(message) == "" {
 		return
@@ -541,13 +480,6 @@ func (n *rebuildProgressNotifier) notify(ctx context.Context, message string) {
 	})
 }
 
-// rebuildProgressEventMessage formats one child-process progress event for MCP.
-//
-// Parameters:
-//   - event: Structured CLI rebuild progress event.
-//
-// Returns:
-//   - string: Concise user-visible progress message.
 func rebuildProgressEventMessage(event devloop.RebuildProgressEvent) string {
 	if message := strings.TrimSpace(event.Message); message != "" {
 		return message
@@ -566,13 +498,6 @@ func rebuildProgressEventMessage(event devloop.RebuildProgressEvent) string {
 	}
 }
 
-// successfulRebuildStatus reports whether a terminal CLI status is successful.
-//
-// Parameters:
-//   - status: Terminal rebuild status.
-//
-// Returns:
-//   - bool: Whether the status represents a successful rebuild.
 func successfulRebuildStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "success", "completed", "skipped":
@@ -582,14 +507,6 @@ func successfulRebuildStatus(status string) bool {
 	}
 }
 
-// rebuildProgressMessage formats the terminal rebuild notification.
-//
-// Parameters:
-//   - rebuild: Terminal rebuild result.
-//   - failure: Optional failure message.
-//
-// Returns:
-//   - string: User-visible terminal progress message.
 func rebuildProgressMessage(rebuild devloop.RebuildResult, failure string) string {
 	if strings.TrimSpace(failure) != "" {
 		return "Rebuild failed: " + strings.TrimSpace(failure)
@@ -600,7 +517,6 @@ func rebuildProgressMessage(rebuild devloop.RebuildResult, failure string) strin
 	return "Rebuild " + strings.TrimSpace(rebuild.Status)
 }
 
-// rememberDelegatedDevLoop records the canonical context owned by this MCP process.
 func (s *Server) rememberDelegatedDevLoop(workDir, contextName string) {
 	s.hotReloadMu.Lock()
 	defer s.hotReloadMu.Unlock()
@@ -608,15 +524,6 @@ func (s *Server) rememberDelegatedDevLoop(workDir, contextName string) {
 	s.delegatedDevContext = contextName
 }
 
-// clearDelegatedDevLoopIfMatches clears state only when it still identifies the stopped target.
-//
-// Parameters:
-//   - workDir: Canonical project directory passed to the successful stop.
-//   - contextName: Explicit context passed to the successful stop. Empty context
-//     matches any remembered context for the same project.
-//
-// Edge cases:
-//   - A concurrent start or a stop for another target leaves the newer remembered state intact.
 func (s *Server) clearDelegatedDevLoopIfMatches(workDir, contextName string) {
 	s.hotReloadMu.Lock()
 	defer s.hotReloadMu.Unlock()
@@ -631,7 +538,6 @@ func (s *Server) clearDelegatedDevLoopIfMatches(workDir, contextName string) {
 	s.delegatedDevContext = ""
 }
 
-// delegatedDevTarget resolves explicit inputs, then remembered context, then project detection.
 func (s *Server) delegatedDevTarget(projectDir, contextName string) (string, string, error) {
 	if strings.TrimSpace(projectDir) != "" {
 		workDir, err := s.resolveDevProjectDir(projectDir)

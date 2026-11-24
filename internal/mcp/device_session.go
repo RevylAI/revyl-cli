@@ -1,8 +1,3 @@
-// Package mcp provides the device session management for MCP server.
-//
-// DeviceSessionManager handles the lifecycle of cloud-hosted device sessions,
-// including provisioning, idle timeout, worker HTTP proxying, and grounding
-// model integration.
 package mcp
 
 import (
@@ -52,22 +47,16 @@ import (
 
 var screenTokenPattern = regexp.MustCompile(`^screen--?[0-9]+-[0-9]+$`)
 
-// pngDimensions extracts width and height from a PNG file's IHDR chunk.
-// Returns (width, height, ok). Falls back to (0, 0, false) if the data
-// is not a valid PNG or too short.
 func pngDimensions(data []byte) (int, int, bool) {
-	// PNG signature (8 bytes) + IHDR length (4) + "IHDR" (4) + width (4) + height (4) = 24 bytes minimum
 	if len(data) < 24 {
 		return 0, 0, false
 	}
-	// Verify PNG signature
 	pngSig := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 	for i, b := range pngSig {
 		if data[i] != b {
 			return 0, 0, false
 		}
 	}
-	// Width at offset 16, height at offset 20 (big-endian uint32)
 	width := int(binary.BigEndian.Uint32(data[16:20]))
 	height := int(binary.BigEndian.Uint32(data[20:24]))
 	if width <= 0 || height <= 0 {
@@ -99,9 +88,6 @@ func (s *DeviceSession) DeviceConnectionConfirmed() bool {
 	return s != nil && s.DeviceReady != nil && *s.DeviceReady
 }
 
-// DeviceSession represents an active device session with its connection info.
-
-// resolveIdleTimeout applies the default idle timeout when none is set.
 func resolveIdleTimeout(d time.Duration) time.Duration {
 	if d == 0 {
 		return defaultSessionIdleTimeout
@@ -119,29 +105,20 @@ type DeviceSession struct {
 	CommitSHA            string           `json:"commit_sha,omitempty"`
 	BranchID             string           `json:"branch_id,omitempty"`
 	BranchName           string           `json:"branch_name,omitempty"`
-	// Index is the local session index (tmux-style numbering, 0-based).
-	Index int `json:"index"`
+	Index                int              `json:"index"`
 
-	// SessionID is the unique identifier for this session.
 	SessionID string `json:"session_id"`
 
-	// WorkflowRunID is the Hatchet workflow run powering this session.
 	WorkflowRunID string `json:"workflow_run_id"`
 
-	// TraceID is the OpenTelemetry trace ID used to correlate this device session.
 	TraceID string `json:"trace_id,omitempty"`
 
-	// WorkerBaseURL is the HTTP base URL for the device worker
-	// (e.g. "https://worker-xxx.revyl.ai").
 	WorkerBaseURL string `json:"worker_base_url"`
 
-	// ViewerURL is a browser URL where the device screen can be watched live.
 	ViewerURL string `json:"viewer_url"`
 
-	// WhepURL is the raw WebRTC playback URL for the active device stream.
 	WhepURL *string `json:"whep_url,omitempty"`
 
-	// Platform is "ios", "android", or "web".
 	Platform string `json:"platform"`
 
 	// ScreenWidth is the device screen width in device units: points on iOS,
@@ -154,26 +131,17 @@ type DeviceSession struct {
 	// DeviceReady is nil when the start never evaluated connected health; nil is not connected.
 	DeviceReady *bool `json:"device_ready,omitempty"`
 
-	// StartedAt is when the session was created.
 	StartedAt time.Time `json:"started_at"`
 
-	// LastActivity is the timestamp of the most recent tool call.
 	LastActivity time.Time `json:"last_activity"`
 
-	// IdleTimeout is how long the session can be idle before auto-stop.
 	IdleTimeout time.Duration `json:"idle_timeout"`
 
-	// BackendStatus is the backend lifecycle status of a live session the last
-	// SyncSessions could not attach yet, such as "queued" or "starting".
-	// Attached sessions leave it empty; it is never persisted.
 	BackendStatus string `json:"-"`
 
-	// UsageNotice is the usage notice the backend attached to this start;
-	// it is never persisted.
 	UsageNotice *api.UsageNotice `json:"-"`
 }
 
-// persistedState is the on-disk format for device-sessions.json.
 type persistedState struct {
 	Active    int              `json:"active"`
 	NextIdx   int              `json:"next_index"`
@@ -212,12 +180,7 @@ type screenAnchorState struct {
 	SessionID          string
 }
 
-// DeviceSessionManager manages multiple concurrent device sessions.
-//
-// Sessions are identified by integer indices (tmux-style). One session
-// is marked as "active" and is used by default when no explicit index
-// is provided. The manager syncs with the backend to discover sessions
-// started from other clients (browser, MCP, CLI in another directory).
+// DeviceSessionManager manages local and backend-synced device sessions.
 type DeviceSessionManager struct {
 	sessions          map[int]*DeviceSession
 	ownedSessions     map[int]bool
@@ -232,70 +195,39 @@ type DeviceSessionManager struct {
 	orgID             string
 	userEmail         string
 
-	// httpClient is used for worker HTTP requests.
-	// Has a 30-second timeout to prevent hanging on unresponsive services.
 	httpClient *http.Client
 
-	// devMode mirrors the --dev CLI flag for URL construction.
 	devMode bool
 
-	// persistenceDisabled suppresses writes to device-sessions.json. Commands
-	// targeted by a durable session ID run concurrently against a shared
-	// worktree, where a read-modify-write of that file would corrupt the
-	// session list of sibling processes.
 	persistenceDisabled bool
 
-	// inventoryConfirmed records that SyncSessions read the backend's
-	// active-session list, so an empty local map means no session is running.
 	inventoryConfirmed bool
 
-	// unreachableSessions lists live backend sessions the last SyncSessions
-	// could not add because they have no worker yet or failed a health check.
 	unreachableSessions []DeviceSession
 
 	errorSurface ErrorSurface
 
-	// endedSessions remembers recently pruned sessions, newest first.
 	endedSessions []*EndedSession
 
-	// startedHere, selected, and lastUntargeted tie sessions to this
-	// directory: sessions it started, the session last started or selected
-	// here, and the session the previous untargeted command used.
 	startedHere    []sessionCacheIdentity
 	selected       *sessionCacheIdentity
 	lastUntargeted *sessionCacheIdentity
 }
 
-// UnattachedSessionIndex marks a session resolved by durable ID that was never
-// added to the local index map. Index-keyed bookkeeping is a no-op for it.
+// UnattachedSessionIndex marks a session resolved by durable ID that is not in the local index map.
 const UnattachedSessionIndex = -1
 
-// SetDevMode configures whether the manager generates localhost URLs (true)
-// or production URLs (false) for viewer and report links.
 func (m *DeviceSessionManager) SetDevMode(devMode bool) {
 	m.devMode = devMode
 }
 
-// DisablePersistence stops the manager from writing device-sessions.json.
-//
-// Call this when the caller targets a session by durable ID, so concurrent CLI
-// processes sharing a worktree cannot clobber each other's session list. The
-// manager stays fully usable for issuing device commands; only the local cache
-// write is suppressed.
+// DisablePersistence suppresses writes to device-sessions.json while keeping the manager usable for device commands.
 func (m *DeviceSessionManager) DisablePersistence() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.persistenceDisabled = true
 }
 
-// NewDeviceSessionManager creates a new session manager.
-//
-// Parameters:
-//   - apiClient: The API client for backend communication.
-//   - workDir: The working directory for persisting session state.
-//
-// Returns:
-//   - *DeviceSessionManager: A new session manager instance.
 func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessionManager {
 	return &DeviceSessionManager{
 		apiClient:         apiClient,
@@ -310,17 +242,6 @@ func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessi
 	}
 }
 
-// ResolveBuildVersionURL resolves a build version ID to its download URL and
-// package name via the backend API.
-//
-// Parameters:
-//   - ctx: Context for the API call.
-//   - buildVersionID: The build version UUID to resolve.
-//
-// Returns:
-//   - appURL: The resolved download URL.
-//   - packageName: The detected package/bundle ID (may be empty).
-//   - error: If the build version cannot be resolved.
 func (m *DeviceSessionManager) ResolveBuildVersionURL(ctx context.Context, buildVersionID string) (appURL string, packageName string, err error) {
 	detail, err := m.apiClient.GetBuildVersionDownloadURL(ctx, buildVersionID)
 	if err != nil {
@@ -332,7 +253,6 @@ func (m *DeviceSessionManager) ResolveBuildVersionURL(ctx context.Context, build
 	return strings.TrimSpace(detail.DownloadURL), strings.TrimSpace(detail.PackageName), nil
 }
 
-// shortPrefix returns a stable short identifier for logs.
 func shortPrefix(s string, max int) string {
 	if max <= 0 || s == "" {
 		return ""
@@ -343,8 +263,6 @@ func shortPrefix(s string, max int) string {
 	return s[:max]
 }
 
-// reconcileSessionIDsByWorkflow updates local SessionID values from backend
-// IDs using WorkflowRunID matches.
 func reconcileSessionIDsByWorkflow(sessions map[int]*DeviceSession, backendIDsByWorkflow map[string]string) {
 	for _, s := range sessions {
 		if s == nil || s.WorkflowRunID == "" || s.Platform == "web" {
@@ -367,9 +285,6 @@ func (m *DeviceSessionManager) ensureOrgInfoLocked(ctx context.Context) error {
 	}
 	validateResp, err := m.apiClient.ValidateAPIKey(ctx)
 	if err != nil {
-		// Keep operating with cached org/user only when validation is unavailable.
-		// This preserves offline/cache-first behavior while preventing stale cache
-		// from overriding a valid API key when validation succeeds.
 		if m.orgID != "" {
 			ui.PrintDebug("failed to validate API key, using cached org info: %v", err)
 			return nil
@@ -381,42 +296,28 @@ func (m *DeviceSessionManager) ensureOrgInfoLocked(ctx context.Context) error {
 	return nil
 }
 
-// StartSession provisions a new cloud device and adds it to the session map.
-// The new session is auto-set as active if it is the first session.
-//
-// StartSessionOptions configures device provisioning behavior.
+// StartSessionOptions configures device provisioning.
 type StartSessionOptions struct {
-	Platform     string
-	Web          *api.DeviceWebOptions
-	WebURL       string
-	WebCommitSHA string
-	// ResolvedWebArtifact skips Web artifact resolution when the caller has
-	// already resolved it with PrepareWebStartArtifact.
+	Platform            string
+	Web                 *api.DeviceWebOptions
+	WebURL              string
+	WebCommitSHA        string
 	ResolvedWebArtifact *startdevice.ResolvedStartArtifact
 	OnPhase             func(string)
 
-	// Optional app selection inputs.
-	// Priority for app installation is:
-	//   1. AppURL
-	//   2. BuildVersionID (resolved to download URL)
-	//   3. AppID (selected branch policy resolved to download URL)
-	AppID          string
-	BranchID       string
-	BranchName     string
-	GitBranchName  string
-	BuildSelection string
-	BuildVersionID string
-	AppURL         string
-	// BuildVersionDetail is BuildVersionID's already-fetched detail, if any.
+	AppID              string
+	BranchID           string
+	BranchName         string
+	GitBranchName      string
+	BuildSelection     string
+	BuildVersionID     string
+	AppURL             string
 	BuildVersionDetail *api.BuildVersionDetail
 
-	// Optional app launch link and package hints.
-	AppLink       string
-	AppPackage    string
-	LaunchVars    []string
-	LaunchArgSets []string
-	// DisableInheritedLaunchVars omits launch variables inherited from the
-	// current process environment.
+	AppLink                    string
+	AppPackage                 string
+	LaunchVars                 []string
+	LaunchArgSets              []string
 	DisableInheritedLaunchVars bool
 
 	// LaunchEnv holds inline launch environment variables (KEY=VALUE) applied to
@@ -437,7 +338,6 @@ type StartSessionOptions struct {
 	// OnWarning, when set, receives the start's warnings instead of stderr.
 	OnWarning func(string)
 
-	// Optional test/session metadata.
 	TestID string
 
 	// SkipAppInstall asks the backend boot path to attach a clean device without
@@ -446,35 +346,26 @@ type StartSessionOptions struct {
 	// connected.
 	SkipAppInstall bool
 
-	// Optional runtime state applied before the app launch.
 	InitialOrientation string
 	InitialLocale      string
 
-	// Optional idle timeout (defaults to 15 minutes).
+	// IdleTimeout overrides the platform default idle timeout when non-zero.
 	IdleTimeout time.Duration
 
-	// DeviceModel overrides the target device model (e.g. "iPhone 16").
-	DeviceModel string
-	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5").
-	OsVersion string
-	// DeviceRunnerID pins the session to a specific worker DEVICE_ID label.
+	DeviceModel    string
+	OsVersion      string
 	DeviceRunnerID string
 
-	// ComputerSessionID runs the session inside this running computer, which
-	// chooses its own device.
 	ComputerSessionID        string
 	DefaultComputerSessionID string
 	// Inference "local" runs an iOS or Web session's steps inside its computer
 	// on the computer's own model first.
 	Inference string
 
-	// OnStartAccepted, when set, is called once the backend has accepted the
-	// start and named its session, before StartSession waits for the device.
+	// OnStartAccepted, when set, runs once the backend accepts the start
+	// (sessionID may be empty on legacy responses), before readiness polling.
 	OnStartAccepted func(sessionID string)
 
-	// OnQueued, when set, is called after OnStartAccepted when every device
-	// the organization may run at once is busy, before StartSession waits for
-	// one.
 	OnQueued func(notice *billingstatus.QueueNotice)
 }
 
@@ -482,8 +373,6 @@ type StartSessionOptions struct {
 // accepts inference "local" on a session start inside a computer.
 const BackendCapabilityDeviceLocalInference = "device_local_inference"
 
-// ValidateComputerSessionStart rejects start options that a session inside the
-// computer computerSessionID cannot use. An empty computerSessionID passes.
 func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSessionID string) error {
 	if opts.Inference != "" && (opts.Inference != "local" || (platform != "ios" && platform != "web") || computerSessionID == "") {
 		return fmt.Errorf("--inference local runs only for iOS and Web sessions inside a computer; pass --platform ios or web and --computer <computer-id>")
@@ -512,13 +401,7 @@ func ValidateComputerSessionStart(opts StartSessionOptions, platform, computerSe
 	return nil
 }
 
-// StartSession provisions a new cloud device and adds it to the session map.
-// The new session is auto-set as active if it is the first session.
-//
-// Returns:
-//   - int: The assigned session index.
-//   - *DeviceSession: The newly created session.
-//   - error: Any error during provisioning.
+// StartSession provisions a cloud device session and registers it in the local map.
 func (m *DeviceSessionManager) StartSession(
 	ctx context.Context,
 	opts StartSessionOptions,
@@ -637,7 +520,6 @@ func (m *DeviceSessionManager) StartSession(
 		}
 	}
 
-	// Build the start device request
 	req := &api.StartDeviceRequest{
 		Platform:     platform,
 		IsSimulation: platform != "web" && strings.TrimSpace(opts.TestID) == "",
@@ -824,9 +706,6 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, startErr
 	}
 
-	// Wait for the device to actually be connected (up to deviceHealthWaitTimeout).
-	// The worker URL can exist before the device is fully provisioned,
-	// so we poll /health until device_connected is true.
 	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 	deviceReady := false
 	var lastHealth workerHealthResponse
@@ -988,7 +867,6 @@ func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (i
 	m.ownedSessions[idx] = true
 	delete(m.idleTimerDisabled, idx)
 
-	// Auto-set as active if this is the first session
 	if m.activeIndex < 0 || len(m.sessions) == 1 {
 		m.activeIndex = idx
 	}
@@ -1010,8 +888,6 @@ func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (i
 	}
 
 	idx = session.Index
-	// Use context.Background() for the idle timer so it's not tied to the
-	// caller's request context, which may be cancelled before the timer fires.
 	m.resetIdleTimerForSessionLocked(idx, context.Background())
 
 	return idx, nil
@@ -1090,8 +966,6 @@ func (m *DeviceSessionManager) readRuntimeReadyLocked(ctx context.Context, sessi
 	return frame, screenToken, nil
 }
 
-// readinessPollInterval polls quickly while a warm start is expected to become
-// usable, then slows down for a start that is waiting in a queue.
 func readinessPollInterval(elapsed time.Duration) time.Duration {
 	if elapsed < time.Minute {
 		return 500 * time.Millisecond
@@ -1126,14 +1000,6 @@ func (m *DeviceSessionManager) waitForRuntimeReadyLocked(ctx context.Context, se
 	}
 }
 
-// StopSession stops a specific session by index and releases the device.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: The session index to stop.
-//
-// Returns:
-//   - error: Any error during teardown.
 func (m *DeviceSessionManager) StopSession(ctx context.Context, index int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1155,17 +1021,9 @@ func (m *DeviceSessionManager) StopSession(ctx context.Context, index int) error
 }
 
 // StopResolvedSession stops an already-resolved session and releases the device.
-//
 // Sessions resolved by durable ID carry UnattachedSessionIndex and have no entry
 // in the local index map, so they are torn down through the backend directly
 // without disturbing local session state.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved session to stop.
-//
-// Returns:
-//   - error: Any error during teardown.
 func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session *DeviceSession) error {
 	if session == nil {
 		return fmt.Errorf("no session resolved to stop")
@@ -1325,7 +1183,6 @@ func (m *DeviceSessionManager) requestSessionStopsLocked(ctx context.Context, in
 	return stopErrsByPosition, stopRequestedByPosition
 }
 
-// StopOwnedSessions stops only sessions provisioned by this manager process.
 func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1365,10 +1222,6 @@ func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 	return firstErr
 }
 
-// GetActive returns the active session, or nil if none exists.
-//
-// Returns:
-//   - *DeviceSession: The current active session, or nil.
 func (m *DeviceSessionManager) GetActive() *DeviceSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1378,26 +1231,12 @@ func (m *DeviceSessionManager) GetActive() *DeviceSession {
 	return m.sessions[m.activeIndex]
 }
 
-// GetSession returns the session at the given index, or nil if not found.
-//
-// Parameters:
-//   - index: The session index.
-//
-// Returns:
-//   - *DeviceSession: The session, or nil.
 func (m *DeviceSessionManager) GetSession(index int) *DeviceSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.sessions[index]
 }
 
-// SetActive switches the active session pointer.
-//
-// Parameters:
-//   - index: The session index to set as active.
-//
-// Returns:
-//   - error: If the index does not exist.
 func (m *DeviceSessionManager) SetActive(index int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1414,16 +1253,11 @@ func (m *DeviceSessionManager) SetActive(index int) error {
 	return nil
 }
 
-// ListSessions returns all active sessions sorted by index.
-//
-// Returns:
-//   - []*DeviceSession: All live sessions.
 func (m *DeviceSessionManager) ListSessions() []*DeviceSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	result := make([]*DeviceSession, 0, len(m.sessions))
-	// Collect and sort by index
 	indices := make([]int, 0, len(m.sessions))
 	for idx := range m.sessions {
 		indices = append(indices, idx)
@@ -1450,35 +1284,18 @@ func SessionDisplayLabel(session *DeviceSession) string {
 	return label
 }
 
-// ActiveIndex returns the current active session index (-1 if none).
 func (m *DeviceSessionManager) ActiveIndex() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.activeIndex
 }
 
-// SessionCount returns the number of active sessions.
 func (m *DeviceSessionManager) SessionCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.sessions)
 }
 
-// ResolveSession resolves a session by index with fallback logic.
-// Pass -1 to use the active session (with single-session fallback).
-//
-// Resolution priority:
-//  1. Explicit index (>= 0) -> use that session, error if not found
-//  2. Active index -> use active session
-//  3. Single session -> use it implicitly
-//  4. Error with guidance
-//
-// Parameters:
-//   - index: The session index, or -1 for active/auto.
-//
-// Returns:
-//   - *DeviceSession: The resolved session.
-//   - error: If resolution fails.
 func (m *DeviceSessionManager) ResolveSession(index int) (*DeviceSession, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1505,14 +1322,12 @@ func (m *DeviceSessionManager) resolveSessionLocked(index int) (*DeviceSession, 
 		return s, nil
 	}
 
-	// Try active
 	if m.activeIndex >= 0 {
 		if s, ok := m.sessions[m.activeIndex]; ok {
 			return s, nil
 		}
 	}
 
-	// Single-session fallback
 	if len(m.sessions) == 1 {
 		for _, s := range m.sessions {
 			return s, nil
@@ -1538,7 +1353,6 @@ func (m *DeviceSessionManager) resolveSessionLocked(index int) (*DeviceSession, 
 	}
 }
 
-// SessionLookupReason classifies why ResolveSession found no usable session.
 type SessionLookupReason int
 
 const (
@@ -1561,17 +1375,14 @@ func (e *SessionLookupError) Error() string {
 	return e.message
 }
 
-// InventoryConfirmed reports whether the last SyncSessions read the backend's
-// active-session list. Without it, an empty local session map proves nothing.
+// InventoryConfirmed reports whether SyncSessions has successfully read the backend active-session list.
 func (m *DeviceSessionManager) InventoryConfirmed() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.inventoryConfirmed
 }
 
-// UnreachableSessionIDs returns live backend sessions the last SyncSessions
-// listed but could not add locally, because they have no worker yet or their
-// worker failed its health check. They are still running and stoppable by ID.
+// UnreachableSessionIDs returns session IDs from the last SyncSessions that had no ready worker or failed health checks.
 func (m *DeviceSessionManager) UnreachableSessionIDs() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1582,8 +1393,6 @@ func (m *DeviceSessionManager) UnreachableSessionIDs() []string {
 	return ids
 }
 
-// UnreachableSessions returns the same sessions as UnreachableSessionIDs with
-// the platform and start time the backend reported, and no local index.
 func (m *DeviceSessionManager) UnreachableSessions() []DeviceSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1606,11 +1415,7 @@ func unreachableSessionFrom(bs api.ActiveDeviceSessionItem) DeviceSession {
 	return session
 }
 
-// ResetIdleTimer resets the idle timeout for a specific session.
-// Called on every tool invocation.
-//
-// Parameters:
-//   - index: The session index to reset the timer for.
+// ResetIdleTimer resets the local idle timer for a tracked session index.
 func (m *DeviceSessionManager) ResetIdleTimer(index int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1630,9 +1435,6 @@ func (m *DeviceSessionManager) ResetIdleTimer(index int) {
 // StopIdleTimer disables manager-owned idle enforcement without stopping the
 // session. Used by `revyl dev` to delegate idle timeout enforcement to the
 // worker process, which has accurate cross-source activity tracking.
-//
-// Parameters:
-//   - index: The session index whose timer should be cancelled.
 func (m *DeviceSessionManager) StopIdleTimer(index int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1649,14 +1451,10 @@ func (m *DeviceSessionManager) StopIdleTimer(index int) {
 	}
 }
 
-// MarkScreenshotAnchor records that a fresh screenshot was captured for a
-// session and returns a token representing that anchor point.
 func (m *DeviceSessionManager) MarkScreenshotAnchor(index int) string {
 	return m.MarkScreenshotAnchorWithImage(index, nil)
 }
 
-// MarkScreenshotAnchorWithImage records a screenshot anchor and optionally
-// stores the exact screenshot bytes for later analyzer replay.
 func (m *DeviceSessionManager) MarkScreenshotAnchorWithImage(index int, imageBytes []byte) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1686,15 +1484,12 @@ func (m *DeviceSessionManager) MarkScreenshotAnchorWithImage(index int, imageByt
 	return token
 }
 
-// ClearScreenshotAnchor removes stale visual state after navigation or session replacement.
 func (m *DeviceSessionManager) ClearScreenshotAnchor(index int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.screenAnchors, index)
 }
 
-// PersistAnchorImage writes the anchored screenshot to disk and associates it
-// with the given screen token.
 func (m *DeviceSessionManager) PersistAnchorImage(index int, screenToken string, imageBytes []byte) (string, error) {
 	if len(imageBytes) == 0 {
 		return "", fmt.Errorf("cannot persist empty anchor image")
@@ -1775,8 +1570,6 @@ func (m *DeviceSessionManager) RuntimeScreenTokenForAnchor(session *DeviceSessio
 	return stored.ScreenToken, nil
 }
 
-// LoadAnchorImage returns the anchored screenshot bytes and persisted path.
-// It first uses in-memory bytes, then falls back to disk when available.
 func (m *DeviceSessionManager) LoadAnchorImage(index int, screenToken string) ([]byte, string, error) {
 	token := strings.TrimSpace(screenToken)
 	if token == "" {
@@ -1875,8 +1668,6 @@ func (m *DeviceSessionManager) checkSessionStoppable(session *DeviceSession) err
 	return nil
 }
 
-// requestSessionStop asks the backend to stop session. It reads no manager
-// state beyond the API client, so callers may run it without holding m.mu.
 func (m *DeviceSessionManager) requestSessionStop(ctx context.Context, session *DeviceSession) error {
 	if m.apiClient == nil || session == nil {
 		return nil
@@ -1900,8 +1691,6 @@ func (m *DeviceSessionManager) requestSessionStop(ctx context.Context, session *
 // Caller must hold m.mu.
 func (m *DeviceSessionManager) applySessionStopLocked(index int, session *DeviceSession, cancelErr error) error {
 	if cancelErr != nil {
-		// Keep the session addressable so callers can retry cleanup. Restoring
-		// the idle timer also preserves the manager's eventual-cleanup safety net.
 		m.resetIdleTimerForSessionLocked(index, context.Background())
 		return cancelErr
 	}
@@ -1986,7 +1775,6 @@ func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRun
 		resp, err := m.apiClient.GetWorkerWSURL(ctx, workflowRunID)
 		if err == nil {
 			if resp.WorkerWsUrl != nil && *resp.WorkerWsUrl != "" {
-				// Convert WS URL to HTTP base URL
 				return wsURLToHTTP(*resp.WorkerWsUrl), nil
 			}
 			status := strings.ToLower(strings.TrimSpace(string(resp.Status)))
@@ -2028,13 +1816,10 @@ func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRun
 	return "", fmt.Errorf("timed out waiting for worker URL after %v", timeout)
 }
 
-// wsURLToHTTP converts a WebSocket URL to its HTTP equivalent.
-// e.g. "wss://worker-xxx.revyl.ai/ws/stream?token=abc" -> "https://worker-xxx.revyl.ai"
 func wsURLToHTTP(wsURL string) string {
 	httpURL := strings.Replace(wsURL, "wss://", "https://", 1)
 	httpURL = strings.Replace(httpURL, "ws://", "http://", 1)
 
-	// Strip the path component
 	if idx := strings.Index(httpURL, "/ws/"); idx != -1 {
 		httpURL = httpURL[:idx]
 	}
@@ -2428,7 +2213,6 @@ func (m *DeviceSessionManager) loadLocalCache() {
 		return
 	}
 
-	// Try new format first
 	path := filepath.Join(m.workDir, ".revyl", "device-sessions.json")
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -2451,7 +2235,6 @@ func (m *DeviceSessionManager) loadLocalCache() {
 		}
 	}
 
-	// Migration: try old singular device-session.json
 	oldPath := filepath.Join(m.workDir, ".revyl", "device-session.json")
 	oldData, oldErr := os.ReadFile(oldPath)
 	if oldErr != nil {
@@ -2463,23 +2246,18 @@ func (m *DeviceSessionManager) loadLocalCache() {
 		return
 	}
 
-	// Migrate to new format
 	oldSession.Index = 0
 	m.sessions[0] = &oldSession
 	m.activeIndex = 0
 	m.nextIndex = 1
 	m.persistAllSessionsForBootstrap()
 
-	// Clean up old file
 	_ = os.Remove(oldPath)
 }
 
 // LoadPersistedSession loads sessions from the local cache file.
 // This is used by CLI commands that use cache-first strategy.
 // Deprecated: use loadLocalCache() directly within the manager.
-//
-// Returns:
-//   - *DeviceSession: The active session, or nil if none exists.
 func (m *DeviceSessionManager) LoadPersistedSession() *DeviceSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -2498,15 +2276,6 @@ func (m *DeviceSessionManager) LoadPersistedSession() *DeviceSession {
 	return nil
 }
 
-// checkSessionStatusOnFailure queries the backend for the session's actual status
-// when the worker is unreachable. This turns vague network errors into clear messages
-// like "session was stopped externally".
-//
-// Parameters:
-//   - session: The session to check status for.
-//
-// Returns a human-readable reason, or "" if the status can't be determined, and
-// whether that reason means the session has ended.
 func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSession) (reason string, ended bool) {
 	if session == nil || m.apiClient == nil {
 		return "", false
@@ -2519,7 +2288,7 @@ func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSessio
 	}
 	resp, err := m.apiClient.GetWorkerWSURL(ctx, session.WorkflowRunID)
 	if err != nil {
-		return "", false // can't reach backend either
+		return "", false
 	}
 	switch resp.Status {
 	case api.WorkerConnectionResponseStatusStopped:
@@ -2535,9 +2304,6 @@ func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSessio
 	}
 }
 
-// sessionStateGuidance explains a failed worker action from the backend's view
-// of the session: why it ended and how to start another, or that it is still
-// starting. It returns "" when the backend cannot say.
 func (m *DeviceSessionManager) sessionStateGuidance(session *DeviceSession) string {
 	reason, ended := m.checkSessionStatusOnFailure(session)
 	if ended {
@@ -2549,14 +2315,7 @@ func (m *DeviceSessionManager) sessionStateGuidance(session *DeviceSession) stri
 // CheckSessionAlive queries the backend to determine whether a device session
 // is still running. Used by the dev loop poll to detect worker-side idle
 // timeout, cancellation, or failure without maintaining a local timer.
-//
-// Parameters:
-//   - ctx: Context for the backend request (should have a short timeout).
-//   - session: The session to check.
-//
-// Returns:
-//   - alive: true if the session is still running or status is indeterminate.
-//   - reason: Human-readable explanation when alive is false.
+// Returns alive=true when running or status is indeterminate, and reason when false.
 func (m *DeviceSessionManager) CheckSessionAlive(ctx context.Context, session *DeviceSession) (alive bool, reason string) {
 	if session == nil || m.apiClient == nil {
 		return true, ""
@@ -2607,7 +2366,6 @@ func workerConnectionStoppedReason(resp *api.WorkerConnectionResponse) string {
 	return "session was stopped externally (from browser or another client)"
 }
 
-// workerHealthResponse represents the JSON body returned by the worker /health endpoint.
 type workerHealthResponse struct {
 	Status          string `json:"status"`
 	DeviceConnected bool   `json:"device_connected"`
@@ -2617,15 +2375,6 @@ type workerHealthResponse struct {
 	SupportsHardwareKeys bool `json:"supports_hardware_keys"`
 }
 
-// healthCheckSession pings the worker /health endpoint to verify the session is live
-// and the device is connected.
-//
-// Parameters:
-//   - session: The session to health check.
-//
-// Returns:
-//   - workerHealthResponse with parsed fields (dimensions, status) on success.
-//   - error describing the failure (unreachable, device not connected, etc.).
 func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (workerHealthResponse, error) {
 	if session == nil {
 		return workerHealthResponse{}, fmt.Errorf("no session")
@@ -2694,16 +2443,7 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (worke
 // Android. The size recorded for the session decides when it contains the
 // point; otherwise the worker's current size decides, which covers a rotation
 // and a session resolved without a recorded size.
-//
-// Parameters:
-//   - ctx: Context for the worker size request.
-//   - session: The session the coordinate targets.
-//   - x, y: The raw coordinate.
-//
-// Returns:
-//   - unchecked: true when a native point could not be checked because neither
-//     the session nor the worker reports a screen size.
-//   - error naming the screen size and unit when the point is off screen; nil otherwise.
+// Returns unchecked=true when neither the session nor the worker reports a screen size.
 func (m *DeviceSessionManager) RequireCoordsOnScreen(ctx context.Context, session *DeviceSession, x, y int) (bool, error) {
 	if session == nil || session.Platform == "web" {
 		return false, nil
@@ -2735,16 +2475,6 @@ func (m *DeviceSessionManager) RequireCoordsOnScreen(ctx context.Context, sessio
 // check. A mobile worker reports device_connected; a Web session's runtime
 // reports whether its browser is ready, with a fresh frame, for this session,
 // and whether it has shown its first frame at all.
-//
-// Parameters:
-//   - platform: The session's platform.
-//   - body: The /health response body.
-//
-// Returns:
-//   - status: "pass" when the device or browser can take input, "fail" when
-//     it reports it cannot, and "unknown" when the body omits the field the
-//     platform reports.
-//   - detail: why the check did not pass, in the platform's terms; empty on pass.
 func DoctorDeviceHealth(platform string, body []byte) (status string, detail string) {
 	if platform == "web" {
 		var health struct {
@@ -2774,11 +2504,6 @@ func DoctorDeviceHealth(platform string, body []byte) (status string, detail str
 	return "pass", ""
 }
 
-// parseWorkerHealth unmarshals the /health JSON body and validates device connectivity.
-//
-// Returns:
-//   - workerHealthResponse with all parsed fields (including ScreenWidth/ScreenHeight).
-//   - error if the body is not valid JSON or the device is not connected; nil otherwise.
 func parseWorkerHealth(body []byte) (workerHealthResponse, error) {
 	var health workerHealthResponse
 	if jsonErr := json.Unmarshal(body, &health); jsonErr != nil {
@@ -2790,14 +2515,6 @@ func parseWorkerHealth(body []byte) (workerHealthResponse, error) {
 	return health, nil
 }
 
-// applyBackendScreenDimensions copies backend-reported screen dimensions into a
-// local DeviceSession. Grounded taps scale against these, so a session without
-// them silently falls back to unscaled coordinates.
-//
-// Parameters:
-//   - session: The session to update.
-//   - width: Backend screen width in device units. Nil or non-positive is ignored.
-//   - height: Backend screen height in device units. Nil or non-positive is ignored.
 func applyBackendScreenDimensions(session *DeviceSession, width, height *int) {
 	if width != nil && *width > 0 {
 		session.ScreenWidth = *width
@@ -2807,8 +2524,6 @@ func applyBackendScreenDimensions(session *DeviceSession, width, height *int) {
 	}
 }
 
-// applyBackendIdleTimeout records the idle timeout the backend enforces, so
-// sessions discovered by sync don't carry a guessed value.
 func applyBackendIdleTimeout(session *DeviceSession, bs api.ActiveDeviceSessionItem) {
 	if bs.IdleTimeoutSeconds != nil && *bs.IdleTimeoutSeconds > 0 {
 		session.IdleTimeout = time.Duration(*bs.IdleTimeoutSeconds) * time.Second
@@ -2825,26 +2540,17 @@ func applyBackendLastActivity(session *DeviceSession, bs api.ActiveDeviceSession
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Worker HTTP Client - proxies requests to the device worker
-// ---------------------------------------------------------------------------
-
-// WorkerHTTPRequest represents a request to be sent to the worker.
 type WorkerHTTPRequest struct {
 	Method string
 	Path   string
 	Body   interface{}
 }
 
-// WorkerHTTPResponse represents a response from the worker.
 type WorkerHTTPResponse struct {
 	StatusCode int
 	Body       []byte
 }
 
-// WorkerHTTPError captures a non-success HTTP response returned by the worker.
-// Callers can inspect StatusCode and Path with errors.As for compatibility
-// fallback handling.
 type WorkerHTTPError struct {
 	StatusCode         int
 	Path               string
@@ -2889,8 +2595,6 @@ func proxyFailureSummary(body []byte) (code, detail string) {
 	return code, detail
 }
 
-// WorkerActionResponse captures the standard worker action envelope used by
-// device actions such as download_file.
 type WorkerActionResponse struct {
 	Success       bool    `json:"success"`
 	Action        string  `json:"action"`
@@ -2910,7 +2614,6 @@ type workerActionResultEnvelope struct {
 	StatusCode   *int   `json:"status_code,omitempty"`
 }
 
-// EnsureWorkerActionSucceeded validates the standard worker action envelope.
 func EnsureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
 	var resp workerActionResultEnvelope
 	if err := json.Unmarshal(respBody, &resp); err != nil {
@@ -2944,14 +2647,10 @@ func EnsureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
 	return nil
 }
 
-// WorkerSessionRequester sends a request to a session's worker through the
-// backend proxy.
 type WorkerSessionRequester interface {
 	WorkerRequestOnSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error)
 }
 
-// openAfterLaunchDeviceWait bounds how long an open after launch waits for a
-// device that a start returned before it connected.
 const openAfterLaunchDeviceWait = 90 * time.Second
 
 // OpenURLAfterLaunch opens a URL on a session's launched app. A value with a
@@ -3016,23 +2715,18 @@ func WorkerNavigationStatusCode(respBody []byte, platform string) *int {
 	return response.StatusCode
 }
 
-// DeviceDownloadFileRequest is the canonical request body for download_file.
 type DeviceDownloadFileRequest struct {
 	URL      string `json:"url"`
 	Filename string `json:"filename,omitempty"`
 }
 
-// DeviceInstallMode identifies the worker strategy used to install an app.
 type DeviceInstallMode string
 
 const (
-	// DeviceInstallModeFast downloads and caches a complete app artifact.
-	DeviceInstallModeFast DeviceInstallMode = "fast"
-	// DeviceInstallModeDelta applies a delta to the worker's cached artifact.
+	DeviceInstallModeFast  DeviceInstallMode = "fast"
 	DeviceInstallModeDelta DeviceInstallMode = "delta"
 )
 
-// DeviceInstallRequest is the canonical request body for asynchronous app installation.
 type DeviceInstallRequest struct {
 	BuildID      string            `json:"build_id,omitempty"`
 	AppURL       string            `json:"app_url,omitempty"`
@@ -3043,13 +2737,11 @@ type DeviceInstallRequest struct {
 	DeletedFiles []string          `json:"deleted_files,omitempty"`
 }
 
-// installAcceptedResponse is returned when the worker accepts an asynchronous install.
 type installAcceptedResponse struct {
 	InstallID string `json:"install_id"`
 	Status    string `json:"status"`
 }
 
-// installStatusResponse reports the current state and optional terminal result of an install.
 type installStatusResponse struct {
 	InstallID string                `json:"install_id"`
 	Status    string                `json:"status"`
@@ -3065,7 +2757,6 @@ const (
 	installPollMaxConsecutiveErrors   = 6
 )
 
-// LiveStepRequest is the canonical worker request body for execute_step.
 type LiveStepRequest struct {
 	StepType        string         `json:"step_type"`
 	StepDescription string         `json:"step_description"`
@@ -3085,7 +2776,6 @@ type LiveStepRequest struct {
 	SourceModuleID  string         `json:"source_module_id,omitempty"`
 }
 
-// LiveStepResponse is the canonical worker response body for execute_step.
 type LiveStepResponse struct {
 	Success       bool            `json:"success"`
 	StepType      string          `json:"step_type"`
@@ -3209,8 +2899,6 @@ func (e *WorkerHTTPError) failedAtGateway() bool {
 		e.StatusCode >= http.StatusBadGateway && e.StatusCode <= http.StatusGatewayTimeout
 }
 
-// DownloadFileForSession executes the worker download_file action and returns
-// the structured worker response, including the resolved on-device path.
 func (m *DeviceSessionManager) DownloadFileForSession(
 	ctx context.Context,
 	index int,
@@ -3223,18 +2911,6 @@ func (m *DeviceSessionManager) DownloadFileForSession(
 	return m.DownloadFileOnSession(ctx, session, req)
 }
 
-// DownloadFileOnSession executes the worker download_file action against a
-// resolved session and returns the structured worker response, including the
-// resolved on-device path.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - req: Typed download request.
-//
-// Returns:
-//   - *WorkerActionResponse: The worker result.
-//   - error: Transport or parse failure.
 func (m *DeviceSessionManager) DownloadFileOnSession(
 	ctx context.Context,
 	session *DeviceSession,
@@ -3252,16 +2928,6 @@ func (m *DeviceSessionManager) DownloadFileOnSession(
 	return &result, nil
 }
 
-// InstallAppForSession starts an asynchronous install and waits for its terminal result.
-//
-// Parameters:
-//   - ctx: Context controlling install submission, waiting, and polling.
-//   - index: Local session index to target.
-//   - req: Typed app source and install strategy.
-//
-// Returns:
-//   - *WorkerActionResponse: Terminal worker result for a completed or failed install.
-//   - error: Session resolution, submission, polling, timeout, cancellation, or protocol failure.
 func (m *DeviceSessionManager) InstallAppForSession(
 	ctx context.Context,
 	index int,
@@ -3270,17 +2936,6 @@ func (m *DeviceSessionManager) InstallAppForSession(
 	return m.InstallAppForSessionWithProgress(ctx, index, req, nil)
 }
 
-// InstallAppOnSession starts an asynchronous install against a resolved session
-// and waits for its terminal result.
-//
-// Parameters:
-//   - ctx: Context controlling install submission, waiting, and polling.
-//   - session: The resolved target session.
-//   - req: Typed app source and install strategy.
-//
-// Returns:
-//   - *WorkerActionResponse: Terminal worker result for a completed or failed install.
-//   - error: Submission, polling, timeout, cancellation, or protocol failure.
 func (m *DeviceSessionManager) InstallAppOnSession(
 	ctx context.Context,
 	session *DeviceSession,
@@ -3289,10 +2944,6 @@ func (m *DeviceSessionManager) InstallAppOnSession(
 	return m.InstallAppOnSessionWithProgress(ctx, session, req, nil)
 }
 
-// InstallAppForSessionWithProgress is InstallAppForSession with an optional
-// onStatus callback invoked whenever the worker's install status changes
-// (e.g. "running", "completed"), so callers can surface install progress
-// instead of a silent wait. onStatus may be nil.
 func (m *DeviceSessionManager) InstallAppForSessionWithProgress(
 	ctx context.Context,
 	index int,
@@ -3306,10 +2957,6 @@ func (m *DeviceSessionManager) InstallAppForSessionWithProgress(
 	return m.InstallAppOnSessionWithProgress(ctx, session, req, onStatus)
 }
 
-// InstallAppOnSessionWithProgress is InstallAppOnSession with an optional
-// onStatus callback invoked whenever the worker's install status changes
-// (e.g. "running", "completed"), so callers can surface install progress
-// instead of a silent wait. onStatus may be nil.
 func (m *DeviceSessionManager) InstallAppOnSessionWithProgress(
 	ctx context.Context,
 	session *DeviceSession,
@@ -3385,16 +3032,6 @@ func (m *DeviceSessionManager) InstallAppOnSessionWithProgress(
 	}
 }
 
-// pollInstallUntilDone polls a worker install operation until it reaches a terminal state.
-//
-// Parameters:
-//   - ctx: Context controlling status polling and cancellation.
-//   - session: Resolved device session that owns the install.
-//   - installID: Worker-generated operation identifier returned by install_async.
-//
-// Returns:
-//   - *WorkerActionResponse: Terminal install result.
-//   - error: Polling, timeout, cancellation, or protocol failure.
 func (m *DeviceSessionManager) pollInstallUntilDone(
 	ctx context.Context,
 	session *DeviceSession,
@@ -3500,18 +3137,15 @@ func (m *DeviceSessionManager) pollInstallUntilDone(
 	}
 }
 
-// stepAcceptedResponse is the 202 body returned when the worker accepts a
-// step for async execution. The caller should poll step_status/{step_id}.
 type stepAcceptedResponse struct {
 	StepID string `json:"step_id"`
-	Status string `json:"status"` // "accepted"
+	Status string `json:"status"`
 }
 
-// stepStatusResponse is the body returned by GET /step_status/{step_id}.
 type stepStatusResponse struct {
 	StepID string          `json:"step_id"`
-	Status string          `json:"status"` // "running", "completed", "failed"
-	Result json.RawMessage `json:"result"` // LiveStepResponse JSON when terminal
+	Status string          `json:"status"`
+	Result json.RawMessage `json:"result"`
 }
 
 const (
@@ -3527,17 +3161,10 @@ const (
 	stepPollFailureTolerance = 15 * time.Second
 )
 
-// nextStepPollDelay doubles the sleep between step_status polls, capped at
-// stepPollMaxDelay. Each poll already costs a backend round trip, so the cap
-// bounds how long a finished step waits to be noticed.
 func nextStepPollDelay(delay time.Duration) time.Duration {
 	return min(delay*2, stepPollMaxDelay)
 }
 
-// classifyStepPollError reports whether a failed step_status request is worth
-// retrying: a network error, a timeout, or a 408, 429, 502, 503, or 504. Every
-// other failure, including other 4xx and 5xx statuses, ends the poll. The
-// returned delay is the server's Retry-After on a 429 or 503.
 func classifyStepPollError(err error) (retryAfter time.Duration, transient bool) {
 	var workerErr *WorkerHTTPError
 	if errors.As(err, &workerErr) && workerErr.StatusCode == 0 {
@@ -3566,7 +3193,6 @@ func classifyStepPollError(err error) (retryAfter time.Duration, transient bool)
 // ExecuteLiveStepForSession executes one high-level step through the worker's
 // canonical execute_step route and returns the shared JSON contract used by
 // CLI, MCP, and SDK consumers.
-//
 // The worker returns HTTP 202 and runs the step asynchronously. This method
 // polls GET /step_status/{step_id} until a terminal status is reached, then
 // returns the final LiveStepResponse. For backward compatibility with older
@@ -3583,19 +3209,6 @@ func (m *DeviceSessionManager) ExecuteLiveStepForSession(
 	return m.ExecuteLiveStepOnSession(ctx, session, req)
 }
 
-// ExecuteLiveStepOnSession executes one high-level step against a resolved
-// session, following the same async accept-then-poll contract as
-// ExecuteLiveStepForSession.
-//
-// Parameters:
-//   - ctx: Context controlling submission and polling.
-//   - session: The resolved target session.
-//   - req: The step request; SessionID and WorkflowRunID are filled from the
-//     session when the caller left them empty.
-//
-// Returns:
-//   - *LiveStepResponse: The terminal step result.
-//   - error: Submission, polling, timeout, or protocol failure.
 func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
 	ctx context.Context,
 	session *DeviceSession,
@@ -3617,8 +3230,6 @@ func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
 		return nil, m.explainWorkerSessionState(session, err)
 	}
 
-	// Detect async (202) vs sync (200) response by checking for the
-	// "accepted" status field that only stepAcceptedResponse carries.
 	var accepted stepAcceptedResponse
 	if err := json.Unmarshal(respBody, &accepted); err == nil && accepted.Status == "accepted" && accepted.StepID != "" {
 		result, pollErr := m.pollStepUntilDone(ctx, session, accepted.StepID, stepPollTimeout)
@@ -3636,12 +3247,6 @@ func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
 	return &result, nil
 }
 
-// pollStepUntilDone polls GET /step_status/{step_id} with capped exponential
-// backoff (see nextStepPollDelay) until the step reaches a terminal status or
-// the timeout is exceeded. Transient failures (see classifyStepPollError) are
-// retried on the normal cadence, or after the server's Retry-After when that
-// is longer, until they have lasted stepPollFailureTolerance without a good
-// response in between; any good response resets the clock.
 func (m *DeviceSessionManager) pollStepUntilDone(
 	ctx context.Context,
 	session *DeviceSession,
@@ -3663,10 +3268,6 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 
 		select {
 		case <-ctx.Done():
-			// User cancelled (typically ^C) while we were sleeping
-			// between polls. Tell the worker to stop and briefly wait
-			// for it to clear _live_step_executing, so the next
-			// live-step command won't 409.
 			m.cancelStepBestEffort(session, stepID)
 			return nil, ctx.Err()
 		case <-time.After(pause):
@@ -3707,7 +3308,6 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 			continue
 		}
 
-		// Terminal status -- parse the embedded result.
 		if status.Result == nil {
 			return nil, fmt.Errorf("step %s finished with status %q but no result", stepID, status.Status)
 		}
@@ -3725,13 +3325,6 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 // block the user's terminal indefinitely.
 const stepCancelBudget = 5 * time.Second
 
-// cancelStepBestEffort sends POST /step_cancel/{stepID} and then briefly
-// polls /step_status/{stepID} until the step reaches a terminal status, so
-// that when the user's command exits, the worker's _live_step_executing
-// flag has reliably cleared and subsequent live-step commands won't 409.
-//
-// Bounded total budget (stepCancelBudget). All best-effort: errors are
-// swallowed because the user has already cancelled.
 func (m *DeviceSessionManager) cancelStepBestEffort(session *DeviceSession, stepID string) {
 	cancelCtx, cancelFn := context.WithTimeout(context.Background(), stepCancelBudget)
 	defer cancelFn()
@@ -3769,8 +3362,6 @@ func (m *DeviceSessionManager) cancelStepBestEffort(session *DeviceSession, step
 	}
 }
 
-// isWorkerConnectivityError reports whether the direct worker request failed due to
-// network reachability rather than application-level behavior.
 func isWorkerConnectivityError(err error) bool {
 	if err == nil {
 		return false
@@ -3803,12 +3394,6 @@ func isWorkerConnectivityError(err error) bool {
 	return false
 }
 
-// workerProxyActionFromPath converts worker path formats like "/tap",
-// "/resolve_target?x=1", or "/step_status/{id}" into proxy action strings.
-//
-// Single-segment paths return just the action (e.g. "tap").
-// Multi-segment paths like "/step_status/{uuid}" are allowed when the base
-// segment is in compoundPathActions; the full trimmed path is returned.
 func workerProxyActionFromPath(path string) (string, error) {
 	action := strings.TrimSpace(path)
 	if action == "" {
@@ -3818,8 +3403,6 @@ func workerProxyActionFromPath(path string) (string, error) {
 	if action == "" {
 		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
 	}
-	// Allow compound paths (e.g. "step_status/{uuid}") for actions that
-	// carry a sub-resource identifier.
 	if strings.Contains(action, "/") {
 		base := action[:strings.Index(action, "/")]
 		if compoundPathActions[base] {
@@ -3830,13 +3413,11 @@ func workerProxyActionFromPath(path string) (string, error) {
 	return action, nil
 }
 
-// compoundPathActions lists base action names whose proxy paths include
-// a sub-resource segment (e.g. step_status/{step_id}).
 var compoundPathActions = map[string]bool{
 	"step_status":    true,
 	"step_cancel":    true,
 	"install_status": true,
-	"device_state":   true, // /device_state/list, /snapshot, /diff, /userdefaults, /sqlite/query
+	"device_state":   true,
 }
 
 // proxyWorkerRequestForSession forwards a worker action through the backend
@@ -3960,18 +3541,6 @@ func runtimeInputAction(action string) bool {
 	return false
 }
 
-// WorkerRequest sends a worker action request to the active session.
-// For backward compatibility, uses the active session. Use
-// WorkerRequestForSession to target a specific session by index.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - path: Worker action path (e.g. "/tap", "/health").
-//   - body: Request body to send as JSON (nil for read-only actions).
-//
-// Returns:
-//   - []byte: Response body bytes.
-//   - error: Any error during the request.
 func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, path string, body interface{}) ([]byte, error) {
 	session, err := m.ResolveSession(-1)
 	if err != nil {
@@ -3980,17 +3549,6 @@ func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, path string, b
 	return m.WorkerRequestOnSession(ctx, session, path, body)
 }
 
-// WorkerRequestForSession sends a worker action request to a specific session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: The session index to target.
-//   - path: Worker action path (e.g. "/tap", "/health").
-//   - body: Request body to send as JSON (nil for read-only actions).
-//
-// Returns:
-//   - []byte: Response body bytes.
-//   - error: Any error during the request.
 func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, index int, path string, body interface{}) ([]byte, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
@@ -4000,20 +3558,9 @@ func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, inde
 }
 
 // WorkerRequestOnSession sends a worker action to an already-resolved session.
-//
 // Prefer this over WorkerRequestForSession when the caller holds a session
 // reference, since it works for sessions resolved by durable ID that carry
 // UnattachedSessionIndex and therefore have no local index to look up.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - path: Worker path (e.g. "/tap").
-//   - body: Request payload, or nil.
-//
-// Returns:
-//   - []byte: Raw worker response body.
-//   - error: Transport, worker, or relay failure.
 func (m *DeviceSessionManager) WorkerRequestOnSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
 	if session == nil {
 		return nil, fmt.Errorf("no session resolved for worker request %s", path)
@@ -4101,8 +3648,6 @@ func CheckDeviceActionPlatform(session *DeviceSession, action string) error {
 	return nil
 }
 
-// workerRequestForSession is the internal implementation that sends a worker
-// action request to a given session using the backend relay.
 func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
 	if err := CheckDeviceActionPlatform(session, path); err != nil {
 		return nil, err
@@ -4173,12 +3718,6 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 	return nil, fmt.Errorf("backend device control request failed: %w", err)
 }
 
-// explainWorkerSessionState adds session-state guidance to the worker
-// failures workerRequestForSession returns unexplained: a 404 (the session's
-// worker is gone or never served this action), a 409 (the session is busy),
-// and a 503 on an action that is never retried. It runs once, where a public
-// operation hands its failure back to the caller, so internal polling and
-// fallback loops keep reading the raw status without extra backend lookups.
 func (m *DeviceSessionManager) explainWorkerSessionState(session *DeviceSession, err error) error {
 	if session != nil && session.Platform == "web" {
 		return err
@@ -4204,50 +3743,18 @@ func (m *DeviceSessionManager) explainWorkerSessionState(session *DeviceSession,
 	return err
 }
 
-// Screenshot captures the current device screen.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//
-// Returns:
-//   - []byte: PNG image bytes.
-//   - error: Any error during capture.
 func (m *DeviceSessionManager) Screenshot(ctx context.Context) ([]byte, error) {
 	return m.WorkerRequest(ctx, "/screenshot", nil)
 }
 
-// ScreenshotForSession captures a specific session's device screen.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: The session index to screenshot.
-//
-// Returns:
-//   - []byte: PNG image bytes.
-//   - error: Any error during capture.
 func (m *DeviceSessionManager) ScreenshotForSession(ctx context.Context, index int) ([]byte, error) {
 	return m.WorkerRequestForSession(ctx, index, "/screenshot", nil)
 }
 
-// ScreenshotOnSession captures a screenshot from an already-resolved session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//
-// Returns:
-//   - []byte: PNG image bytes.
-//   - error: Any error during capture.
 func (m *DeviceSessionManager) ScreenshotOnSession(ctx context.Context, session *DeviceSession) ([]byte, error) {
 	return m.WorkerRequestOnSession(ctx, session, "/screenshot", nil)
 }
 
-// ---------------------------------------------------------------------------
-// Device Logs and Performance Metrics Polling
-// ---------------------------------------------------------------------------
-
-// DeviceLogsPollResponse is the JSON contract returned by the worker
-// /device_logs endpoint.
 type DeviceLogsPollResponse struct {
 	Success        bool                    `json:"success"`
 	Platform       string                  `json:"platform"`
@@ -4258,7 +3765,6 @@ type DeviceLogsPollResponse struct {
 	RuntimeSummary *api.RuntimeSummaryPage `json:"runtime_summary,omitempty"`
 }
 
-// PerfSampleItem is a single performance sample from the worker.
 type PerfSampleItem struct {
 	Timestamp    float64                `json:"timestamp"`
 	CPU          map[string]interface{} `json:"cpu,omitempty"`
@@ -4267,7 +3773,6 @@ type PerfSampleItem struct {
 	FPS          *float64               `json:"fps,omitempty"`
 }
 
-// PerfPollSummary is the aggregate summary for a perf window.
 type PerfPollSummary struct {
 	SampleCount   int      `json:"sample_count"`
 	WindowStart   *float64 `json:"window_start,omitempty"`
@@ -4278,8 +3783,6 @@ type PerfPollSummary struct {
 	AvgFPS        *float64 `json:"avg_fps,omitempty"`
 }
 
-// PerfPollResponse is the JSON contract returned by the worker
-// /performance_metrics endpoint.
 type PerfPollResponse struct {
 	Success        bool             `json:"success"`
 	Platform       string           `json:"platform"`
@@ -4290,7 +3793,6 @@ type PerfPollResponse struct {
 	Summary        *PerfPollSummary `json:"summary,omitempty"`
 }
 
-// LiveNetworkTiming is an optional per-request timing breakdown for the waterfall view.
 type LiveNetworkTiming struct {
 	DNSMs      *float64 `json:"dns_ms,omitempty"`
 	ConnectMs  *float64 `json:"connect_ms,omitempty"`
@@ -4300,7 +3802,6 @@ type LiveNetworkTiming struct {
 	Protocol   *string  `json:"protocol,omitempty"`
 }
 
-// LiveNetworkRequestItem is a single live network request row from the worker.
 type LiveNetworkRequestItem struct {
 	URL              string             `json:"url"`
 	Method           string             `json:"method"`
@@ -4316,8 +3817,6 @@ type LiveNetworkRequestItem struct {
 	Timing           *LiveNetworkTiming `json:"timing,omitempty"`
 }
 
-// NetworkPollResponse is the JSON contract returned by the worker
-// /network_requests endpoint.
 type NetworkPollResponse struct {
 	Success        bool                     `json:"success"`
 	Platform       string                   `json:"platform"`
@@ -4328,17 +3827,6 @@ type NetworkPollResponse struct {
 	RuntimeSummary *api.RuntimeSummaryPage  `json:"runtime_summary,omitempty"`
 }
 
-// PollDeviceLogsForSession fetches incremental device logs from a session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: Session index to target.
-//   - cursor: Opaque cursor from a previous response ("0" for start).
-//   - limit: Maximum number of log lines to return.
-//
-// Returns:
-//   - *DeviceLogsPollResponse: Parsed response with new lines and next_cursor.
-//   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollDeviceLogsForSession(ctx context.Context, index int, cursor string, limit int) (*DeviceLogsPollResponse, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
@@ -4347,17 +3835,6 @@ func (m *DeviceSessionManager) PollDeviceLogsForSession(ctx context.Context, ind
 	return m.PollDeviceLogsOnSession(ctx, session, cursor, limit)
 }
 
-// PollDeviceLogsOnSession fetches incremental device logs from a resolved session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - cursor: Opaque cursor from a previous response ("0" for start).
-//   - limit: Maximum number of log lines to return.
-//
-// Returns:
-//   - *DeviceLogsPollResponse: Parsed response with new lines and next_cursor.
-//   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollDeviceLogsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int) (*DeviceLogsPollResponse, error) {
 	if session.Platform == "web" {
 		page, err := m.pollRuntimeSummaries(ctx, session, "logs", cursor, limit)
@@ -4378,17 +3855,6 @@ func (m *DeviceSessionManager) PollDeviceLogsOnSession(ctx context.Context, sess
 	return &result, nil
 }
 
-// PollPerformanceMetricsForSession fetches incremental perf samples from a session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: Session index to target.
-//   - cursor: Opaque cursor from a previous response ("0" for start).
-//   - limit: Maximum number of samples to return.
-//
-// Returns:
-//   - *PerfPollResponse: Parsed response with new samples, summary, and next_cursor.
-//   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollPerformanceMetricsForSession(ctx context.Context, index int, cursor string, limit int) (*PerfPollResponse, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
@@ -4397,17 +3863,6 @@ func (m *DeviceSessionManager) PollPerformanceMetricsForSession(ctx context.Cont
 	return m.PollPerformanceMetricsOnSession(ctx, session, cursor, limit)
 }
 
-// PollPerformanceMetricsOnSession fetches incremental perf samples from a resolved session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - cursor: Opaque cursor from a previous response ("0" for start).
-//   - limit: Maximum number of samples to return.
-//
-// Returns:
-//   - *PerfPollResponse: Parsed response with new samples, summary, and next_cursor.
-//   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollPerformanceMetricsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int) (*PerfPollResponse, error) {
 	path := fmt.Sprintf("/performance_metrics?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
 	respBody, err := m.WorkerRequestOnSession(ctx, session, path, nil)
@@ -4421,18 +3876,6 @@ func (m *DeviceSessionManager) PollPerformanceMetricsOnSession(ctx context.Conte
 	return &result, nil
 }
 
-// PollNetworkRequestsForSession fetches incremental live network requests from a session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: Session index to target.
-//   - cursor: Opaque cursor from a previous response ("0" for start).
-//   - limit: Maximum number of request rows to return.
-//   - maxBytes: Maximum encoded payload size to return.
-//
-// Returns:
-//   - *NetworkPollResponse: Parsed response with new rows and next_cursor.
-//   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollNetworkRequestsForSession(ctx context.Context, index int, cursor string, limit int, maxBytes int) (*NetworkPollResponse, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
@@ -4441,19 +3884,6 @@ func (m *DeviceSessionManager) PollNetworkRequestsForSession(ctx context.Context
 	return m.PollNetworkRequestsOnSession(ctx, session, cursor, limit, maxBytes)
 }
 
-// PollNetworkRequestsOnSession fetches incremental live network requests from a
-// resolved session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - cursor: Opaque cursor from a previous response ("0" for start).
-//   - limit: Maximum number of request rows to return.
-//   - maxBytes: Maximum encoded payload size to return.
-//
-// Returns:
-//   - *NetworkPollResponse: Parsed response with new rows and next_cursor.
-//   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollNetworkRequestsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int, maxBytes int) (*NetworkPollResponse, error) {
 	if session.Platform == "web" {
 		page, err := m.pollRuntimeSummaries(ctx, session, "requests", cursor, limit)
@@ -4495,11 +3925,6 @@ func (m *DeviceSessionManager) pollRuntimeSummaries(ctx context.Context, session
 	return &page, nil
 }
 
-// ---------------------------------------------------------------------------
-// Grounding Client - resolves target descriptions to coordinates
-// ---------------------------------------------------------------------------
-
-// ResolvedTarget holds the result of resolving a target string to coordinates.
 type ResolvedTarget struct {
 	X           int
 	Y           int
@@ -4509,21 +3934,6 @@ type ResolvedTarget struct {
 type workerResolveTargetRequest = api.WorkerResolveTargetRequest
 type workerResolveTargetResponse = api.WorkerResolveTargetResponse
 
-// ResolveTarget takes a natural language target description, captures a screenshot,
-// resolves it via the worker grounding endpoint, and returns device-space pixel
-// coordinates. For older workers that do not implement /resolve_target, this
-// method falls back to backend grounding.
-//
-// This is the core method used by all dual-param device tools when the agent
-// provides a target string instead of x, y coordinates.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - target: Natural language element description (e.g. "Sign In button").
-//
-// Returns:
-//   - *ResolvedTarget: The resolved coordinates.
-//   - error: If grounding fails or element is not found.
 func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string) (*ResolvedTarget, error) {
 	session, err := m.ResolveSession(-1)
 	if err != nil {
@@ -4532,17 +3942,6 @@ func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string)
 	return m.resolveTargetForSession(ctx, session, target)
 }
 
-// ResolveTargetForSession resolves a target description to coordinates using
-// a specific session's device screen and platform.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: The session index to use for grounding.
-//   - target: Natural language element description (e.g. "Sign In button").
-//
-// Returns:
-//   - *ResolvedTarget: The resolved coordinates.
-//   - error: If grounding fails or element is not found.
 func (m *DeviceSessionManager) ResolveTargetForSession(ctx context.Context, index int, target string) (*ResolvedTarget, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
@@ -4551,16 +3950,6 @@ func (m *DeviceSessionManager) ResolveTargetForSession(ctx context.Context, inde
 	return m.resolveTargetForSession(ctx, session, target)
 }
 
-// ResolveTargetOnSession grounds a natural-language target on a resolved session.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - session: The resolved target session.
-//   - target: Natural language element description (e.g. "Sign In button").
-//
-// Returns:
-//   - *ResolvedTarget: The resolved coordinates.
-//   - error: If grounding fails or the element is not found.
 func (m *DeviceSessionManager) ResolveTargetOnSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
 	if session == nil {
 		return nil, fmt.Errorf("no session resolved for grounding target %q", target)
@@ -4568,17 +3957,6 @@ func (m *DeviceSessionManager) ResolveTargetOnSession(ctx context.Context, sessi
 	return m.resolveTargetForSession(ctx, session, target)
 }
 
-// ResolveTargetFromAnchor resolves a target against one previously captured screenshot.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - index: The session index that owns the screenshot anchor.
-//   - screenToken: Token returned by the screenshot used for grounding.
-//   - target: Natural-language element description to locate.
-//
-// Returns:
-//   - *ResolvedTarget: Coordinates grounded against the anchored image.
-//   - error: If the session, anchor, or grounding request is invalid.
 func (m *DeviceSessionManager) ResolveTargetFromAnchor(
 	ctx context.Context,
 	index int,
@@ -4603,9 +3981,7 @@ func (m *DeviceSessionManager) ResolveTargetFromAnchor(
 	return m.resolveTargetFromImageForSession(ctx, session, target, screenshotBytes)
 }
 
-// resolveTargetForSession is the internal implementation of target resolution.
 func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
-	// Prefer worker-native grounding (single hop + device-space coordinates).
 	resolved, workerErr := m.resolveTargetViaWorkerForSession(ctx, session, target)
 	if workerErr == nil {
 		return resolved, nil
@@ -4623,8 +3999,6 @@ func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, sess
 	return resolved, nil
 }
 
-// shouldFallbackToBackendGrounding reports whether worker grounding errors
-// should trigger backend fallback.
 func shouldFallbackToBackendGrounding(err error) bool {
 	if err == nil {
 		return false
@@ -4647,8 +4021,6 @@ func shouldFallbackToBackendGrounding(err error) bool {
 	return strings.Contains(msg, "worker resolve_target returned invalid json")
 }
 
-// resolveTargetViaWorkerForSession resolves coordinates through the worker's
-// /resolve_target endpoint, which returns device-space coordinates.
 func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
 	return m.resolveTargetViaWorkerWithToken(ctx, session, target, "")
 }
@@ -4695,7 +4067,6 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerWithToken(ctx context.Conte
 // resolveTargetViaBackendForSession resolves coordinates through the backend
 // grounding proxy, used as compatibility fallback for older workers.
 func (m *DeviceSessionManager) resolveTargetViaBackendForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
-	// Step 1: Capture screenshot from worker
 	screenshotBytes, err := m.workerRequestForSession(ctx, session, "/screenshot", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture screenshot for grounding: %w", err)
@@ -4703,17 +4074,14 @@ func (m *DeviceSessionManager) resolveTargetViaBackendForSession(ctx context.Con
 	return m.resolveTargetFromImageForSession(ctx, session, target, screenshotBytes)
 }
 
-// resolveTargetFromImageForSession resolves coordinates against the supplied screenshot bytes.
 func (m *DeviceSessionManager) resolveTargetFromImageForSession(
 	ctx context.Context,
 	session *DeviceSession,
 	target string,
 	screenshotBytes []byte,
 ) (*ResolvedTarget, error) {
-	// Step 1: Base64-encode the screenshot
 	imageBase64 := base64.StdEncoding.EncodeToString(screenshotBytes)
 
-	// Step 2: Get image dimensions from PNG header; fall back to standard mobile
 	width, height, ok := pngDimensions(screenshotBytes)
 	if !ok {
 		width = 1080
@@ -4756,7 +4124,6 @@ func (m *DeviceSessionManager) resolveTargetFromImageForSession(
 	}, nil
 }
 
-// scaleGroundedCoordinate converts image-pixel output into device-space coordinates.
 func scaleGroundedCoordinate(imageCoordinate, imageSize, deviceSize int) int {
 	if imageSize <= 0 || deviceSize <= 0 {
 		return imageCoordinate
@@ -4765,17 +4132,7 @@ func scaleGroundedCoordinate(imageCoordinate, imageSize, deviceSize int) int {
 	return max(0, min(scaled, deviceSize-1))
 }
 
-// SyncSessions synchronizes local session state with the backend.
-// Queries the backend for all active sessions belonging to the authenticated user,
-// resolves worker URLs for newly discovered sessions, and prunes sessions that
-// no longer exist on the backend.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//
-// Returns:
-//   - error: Any error during synchronization. Non-fatal errors (e.g. backend
-//     unreachable) are logged but may still return error to the caller.
+// SyncSessions reconciles local session state against the backend active-session list.
 func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -4790,13 +4147,10 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		}
 	}()
 
-	// Load local cache first for orgID/userEmail if not yet populated
 	if len(m.sessions) == 0 {
 		m.loadLocalCache()
 	}
 
-	// The backend scopes the active list by the API key, so with a cached org it
-	// need not wait on org validation; validation errors still take precedence.
 	type activeSessionsResult struct {
 		resp *api.ActiveDeviceSessionsResponse
 		err  error
@@ -4839,7 +4193,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		}
 	}
 
-	// Sort by created_at ASC for deterministic index assignment
 	sort.Slice(backendSessions, func(i, j int) bool {
 		var ci, cj time.Time
 		if backendSessions[i].CreatedAt != nil {
@@ -4854,9 +4207,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		return ci.Before(cj)
 	})
 
-	// Step 4: Build backend lookup maps for pruning/reconciliation.
-	// Use ALL backend sessions (not just email-filtered) for pruning, so
-	// explicitly attached sessions from other users don't get removed.
 	allBackendIDs := make(map[string]bool)
 	for _, s := range activeResp.Sessions {
 		allBackendIDs[s.Id] = true
@@ -4880,9 +4230,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		}
 	}
 
-	// Step 5: Reconcile then prune local sessions not in backend.
-	// Reconcile by workflow run ID to avoid churn when SessionID was seeded
-	// with workflowRunID during StartSession before backend session ID was known.
 	reconcileSessionIDsByWorkflow(m.sessions, backendIDsByWorkflow)
 	for _, ls := range m.sessions {
 		if bs, ok := backendSessionByID[ls.SessionID]; ok {
@@ -4954,8 +4301,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		m.discardSessionLocked(idx)
 	}
 
-	// Step 6: Add backend sessions not in local map
-	// Build reverse lookup: sessionID -> local index
 	localByID := make(map[string]int)
 	for idx, ls := range m.sessions {
 		if ls.SessionID != "" {
@@ -5022,7 +4367,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 			traceID = strings.TrimSpace(*bs.TraceId)
 		}
 
-		// Build viewer URL
 		appURL := config.GetAppURL(m.devMode)
 		viewerURL := fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(bs.Id))
 
@@ -5057,14 +4401,12 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		m.resetIdleTimerForSessionLocked(idx, context.Background())
 	}
 
-	// Step 7: Fix active index if needed
 	if m.activeIndex >= 0 {
 		if _, ok := m.sessions[m.activeIndex]; !ok {
 			m.activeIndex = -1
 		}
 	}
 	if m.activeIndex < 0 && len(m.sessions) > 0 {
-		// Auto-select lowest index
 		lowest := -1
 		for idx := range m.sessions {
 			if lowest < 0 || idx < lowest {
@@ -5074,7 +4416,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) (syncErr error)
 		m.activeIndex = lowest
 	}
 
-	// Step 8: Persist
 	updatedSessions := make([]*DeviceSession, 0, len(m.sessions))
 	for _, session := range m.sessions {
 		updatedSessions = append(updatedSessions, session)
@@ -5135,9 +4476,6 @@ func (m *DeviceSessionManager) readSessionSettlements(
 	return reads
 }
 
-// probeUncachedSessionWorkers resolves and health-checks the worker of every
-// non-web session concurrently, returning results aligned with sessions. A
-// session whose worker URL cannot be resolved has an empty workerBaseURL.
 func (m *DeviceSessionManager) probeUncachedSessionWorkers(
 	ctx context.Context,
 	sessions []api.ActiveDeviceSessionItem,
@@ -5238,23 +4576,7 @@ func (m *DeviceSessionManager) workerStartFailureError(ctx context.Context, sess
 	return fmt.Errorf("device started but worker not ready for session %s: %s. %s", sessionID, reason, m.nextStep(nextStepRetryStart))
 }
 
-// AttachBySessionID connects to an existing session by its ID, bypassing the
-// email-based sync filter. This enables attaching to any session in the same org
-// regardless of who started it.
-//
-// If the session is already in the local map, it is activated directly.
-// Otherwise it is fetched from the backend without holding m.mu, the worker URL
-// is resolved, and it is added to the local session list and set as active,
-// unless another caller attached it while the fetch ran.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - sessionID: The device session UUID.
-//
-// Returns:
-//   - index: The local session index.
-//   - session: The attached DeviceSession.
-//   - error: Any error during attachment.
+// AttachBySessionID attaches an accessible backend session by ID into the local session map and activates it.
 func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID string) (int, *DeviceSession, error) {
 	if m.apiClient == nil {
 		return -1, nil, fmt.Errorf("no API client configured")
@@ -5350,30 +4672,7 @@ func (m *DeviceSessionManager) activateKnownSessionLocked(ctx context.Context, s
 	return -1, nil, false, nil
 }
 
-// ResolveSessionByID resolves a server-issued session ID into a usable session
-// reference without reading or mutating local session state.
-//
-// The returned session carries UnattachedSessionIndex, so it is safe to use for
-// device commands but is not registered in the local index map and is never
-// written to device-sessions.json. This is the parallel-safe targeting path:
-// concurrent CLI processes in one worktree can each drive their own session
-// without racing on the shared cache file.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - sessionID: The durable device session UUID.
-//
-// Resolution costs a single backend call, plus at most api.DefaultMaxRetries
-// re-reads while the backend reports a timed-out Web viewer lookup; those
-// re-reads happen before m.mu is taken. Worker liveness is not probed here:
-// the caller's own action is the probe, and checkSessionStatusOnFailure turns a
-// failed action into a specific reason, so the happy path pays nothing for
-// diagnostics it does not need.
-//
-// Returns:
-//   - *DeviceSession: An unattached session reference ready for worker requests.
-//   - error: If the session is unknown, in a terminal state, or still queued
-//     (no workflow run).
+// ResolveSessionByID resolves a session ID into an unattached DeviceSession without reading or mutating local session state.
 func (m *DeviceSessionManager) ResolveSessionByID(ctx context.Context, sessionID string) (*DeviceSession, error) {
 	if m.apiClient == nil {
 		return nil, fmt.Errorf("no API client configured")
@@ -5388,9 +4687,6 @@ func (m *DeviceSessionManager) ResolveSessionByID(ctx context.Context, sessionID
 	return m.unattachedSessionFromDetailLocked(sessionID, detail)
 }
 
-// readSessionDetailByID fetches a session by durable ID, re-reading it at most
-// api.DefaultMaxRetries times, 500ms apart, while the backend reports a
-// timed-out Web viewer lookup. It takes no lock.
 func (m *DeviceSessionManager) readSessionDetailByID(ctx context.Context, sessionID string) (*api.DeviceSessionDetail, error) {
 	detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
 	for attempt := 0; err == nil && detail.ViewerLookupTimedOut && attempt < api.DefaultMaxRetries; attempt++ {
@@ -5414,7 +4710,6 @@ func (m *DeviceSessionManager) readSessionDetailByID(ctx context.Context, sessio
 func (m *DeviceSessionManager) unattachedSessionFromDetailLocked(sessionID string, detail *api.DeviceSessionDetail) (*DeviceSession, error) {
 	shortID := shortPrefix(sessionID, 8)
 
-	// Verify it's in a usable state.
 	status := strings.ToLower(detail.Status)
 	if status == "completed" || status == "failed" || status == "cancelled" || status == "timeout" {
 		if detail.EndedAt == nil {
@@ -5424,10 +4719,6 @@ func (m *DeviceSessionManager) unattachedSessionFromDetailLocked(sessionID strin
 		return nil, fmt.Errorf("session %s is in terminal state: %s; it %s", shortID, detail.Status, ended.endedPhrase(time.Now()))
 	}
 
-	// Worker actions are relayed by workflow run ID, so that ID is the only
-	// routing information this path needs. WorkerBaseURL stays empty: its sole
-	// consumer is the direct-HTTP fallback, which is unreachable whenever an
-	// API client and a workflow run ID are both present.
 	if detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" {
 		return nil, fmt.Errorf("session %s has no workflow run ID (may still be queued)", shortID)
 	}
@@ -5476,23 +4767,15 @@ func (m *DeviceSessionManager) unattachedSessionFromDetailLocked(sessionID strin
 	return session, nil
 }
 
-// WorkDir returns the working directory used for session persistence.
 func (m *DeviceSessionManager) WorkDir() string {
 	return m.workDir
 }
 
-// APIClient returns the underlying API client for direct backend queries.
-// May be nil if the manager was constructed without one.
 func (m *DeviceSessionManager) APIClient() *api.Client {
 	return m.apiClient
 }
 
-// SetOrgInfo caches the org ID and user email to avoid re-fetching
-// on subsequent SyncSessions calls.
-//
-// Parameters:
-//   - orgID: The organization ID.
-//   - userEmail: The user's email address.
+// SetOrgInfo seeds cached organization ID and user email on the manager.
 func (m *DeviceSessionManager) SetOrgInfo(orgID, userEmail string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -4,7 +4,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// registerDevLoopTools registers the canonical CLI-backed dev-loop surface.
 func (s *Server) registerDevLoopTools() {
 	startTool := &mcp.Tool{
 		Meta:        screenshotAppToolMeta(),
@@ -48,7 +47,6 @@ func (s *Server) registerDevLoopTools() {
 	}
 }
 
-// StartDevLoopInput contains the focused canonical dev-loop inputs.
 type StartDevLoopInput struct {
 	BranchName                 string   `json:"branch_name,omitempty" jsonschema:"Exact Revyl branch name; overrides the project's Git branch and the app default branch"`
 	BuildSelection             string   `json:"build_selection,omitempty" jsonschema:"Build choice: inherit (Automatic: the branch's default build), latest, or pinned with build_version_id."`

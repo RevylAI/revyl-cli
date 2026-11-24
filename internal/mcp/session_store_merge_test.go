@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// newStoreTestManager builds a manager the way a freshly started CLI process
-// sees the world: empty in-memory state rooted at a shared worktree.
 func newStoreTestManager(workDir string) *DeviceSessionManager {
 	return &DeviceSessionManager{
 		workDir:           workDir,
@@ -25,8 +23,6 @@ func newStoreTestManager(workDir string) *DeviceSessionManager {
 	}
 }
 
-// addStoreTestSession registers a session at the optimistic index a process
-// would pick before consulting the shared store.
 func addStoreTestSession(mgr *DeviceSessionManager, index int, sessionID string) *DeviceSession {
 	now := time.Now()
 	session := &DeviceSession{
@@ -84,7 +80,6 @@ func TestPersistSessions_ConcurrentWritersAllSurvive(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			mgr := newStoreTestManager(workDir)
-			// Every fresh process optimistically picks index 0.
 			addStoreTestSession(mgr, 0, "session-"+string(rune('a'+n)))
 			persistStoreTestManager(mgr)
 		}(i)
@@ -111,7 +106,6 @@ func TestPersistSessions_ConcurrentWritersAllSurvive(t *testing.T) {
 	}
 }
 
-// A writer must not delete rows it simply never knew about.
 func TestPersistSessions_KeepsSessionsOwnedByOtherProcesses(t *testing.T) {
 	t.Parallel()
 
@@ -141,8 +135,6 @@ func TestPersistSessions_KeepsSessionsOwnedByOtherProcesses(t *testing.T) {
 	}
 }
 
-// Merging must still honor an explicit stop, or stopped sessions resurrect from
-// whatever a peer last wrote.
 func TestPersistSessions_RemovesOnlyDeliberatelyStoppedSessions(t *testing.T) {
 	t.Parallel()
 
@@ -187,10 +179,6 @@ func TestPersistSessions_RemovesOnlyDeliberatelyStoppedSessions(t *testing.T) {
 	}
 }
 
-// StartSession persists before the backend session row exists, so the first
-// write lands under the workflow key and SyncSessions supplies the session ID
-// afterwards. Matching on the current key alone reads that same device as a
-// second, unknown session and writes a duplicate row for it.
 func TestPersistSessions_BackfilledSessionIDUpdatesExistingRow(t *testing.T) {
 	t.Parallel()
 
@@ -205,7 +193,6 @@ func TestPersistSessions_BackfilledSessionIDUpdatesExistingRow(t *testing.T) {
 		t.Fatalf("sessions after the pre-ID write = %d, want 1", got)
 	}
 
-	// SyncSessions backfills the backend ID onto the same live session.
 	session.SessionID = "session-late"
 	persistStoreTestManager(mgr)
 
@@ -225,8 +212,6 @@ func TestPersistSessions_BackfilledSessionIDUpdatesExistingRow(t *testing.T) {
 	}
 }
 
-// A process that never received the backend ID must not blank SessionID or
-// ViewerURL after a peer already wrote them onto the same workflow-keyed row.
 func TestPersistSessions_PreservesBackfilledSessionIDWhenLocalStillEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -262,8 +247,6 @@ func TestPersistSessions_PreservesBackfilledSessionIDWhenLocalStillEmpty(t *test
 	}
 }
 
-// A stop has to delete the row even when the file wrote it under the workflow
-// key, before this session had a backend ID to be keyed by.
 func TestPersistSessions_StopRemovesRowWrittenBeforeSessionIDArrived(t *testing.T) {
 	t.Parallel()
 
@@ -292,8 +275,6 @@ func TestPersistSessions_StopRemovesRowWrittenBeforeSessionIDArrived(t *testing.
 	}
 }
 
-// Reassigning an index has to carry the per-index bookkeeping with it, or the
-// session keeps its ownership and anchors filed under a stale key.
 func TestPersistSessions_RemapsIndexBookkeepingOnCollision(t *testing.T) {
 	t.Parallel()
 
@@ -337,8 +318,6 @@ func TestPersistSessions_RemapsIndexBookkeepingOnCollision(t *testing.T) {
 	}
 }
 
-// Paths that never resolve org info hold empty identity fields, which must not
-// blank out what a peer already wrote.
 func TestPersistSessions_PreservesStoredOrgIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -363,7 +342,6 @@ func TestPersistSessions_PreservesStoredOrgIdentity(t *testing.T) {
 	}
 }
 
-// The store is replaced by rename, so a reader must never find scratch files.
 func TestPersistSessions_LeavesNoTemporaryFiles(t *testing.T) {
 	t.Parallel()
 

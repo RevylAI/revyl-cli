@@ -9,9 +9,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// EndedSession is the local record SyncSessions keeps when it prunes a session
-// the backend confirmed has ended. It lets the next "no session" error say
-// which session ended, when, and why, instead of only that nothing is running.
 type EndedSession struct {
 	Index              int                `json:"index"`
 	SessionID          string             `json:"session_id"`
@@ -23,7 +20,6 @@ type EndedSession struct {
 	FailureReason      string             `json:"failure_reason,omitempty"`
 }
 
-// EndedSessionReason is the bounded cause recorded for an ended session.
 type EndedSessionReason string
 
 const (
@@ -90,9 +86,6 @@ func endedSessionFromPrune(session *DeviceSession, detail *api.DeviceSessionDeta
 	return ended
 }
 
-// locallyEndedSession records a session this manager stopped itself, so a
-// later stale index can see that its session ended and when. An idle stop
-// reports the manager's own configured timeout, which it enforced.
 func locallyEndedSession(session *DeviceSession, index int, reason EndedSessionReason) *EndedSession {
 	ended := &EndedSession{
 		Index:         index,
@@ -108,14 +101,10 @@ func locallyEndedSession(session *DeviceSession, index int, reason EndedSessionR
 	return ended
 }
 
-// describe renders what ended, how long ago, and why, for example
-// "session 0 (ios 9f3c1a2b) ended 6m ago after 300s without device activity (idle timeout)".
 func (e *EndedSession) describe(now time.Time) string {
 	return fmt.Sprintf("session %d (%s %s) %s", e.Index, e.Platform, shortPrefix(e.identity(), 8), e.endedPhrase(now))
 }
 
-// identity is the session ID, or the workflow run ID for a session that
-// ended before the backend issued its session ID.
 func (e *EndedSession) identity() string {
 	if e.SessionID != "" {
 		return e.SessionID
@@ -123,8 +112,6 @@ func (e *EndedSession) identity() string {
 	return e.WorkflowRunID
 }
 
-// endedPhrase renders when and why the session ended, for example
-// "ended 6m ago after 300s without device activity (idle timeout)".
 func (e *EndedSession) endedPhrase(now time.Time) string {
 	why := ""
 	switch e.Reason {
@@ -148,7 +135,6 @@ func (e *EndedSession) endedPhrase(now time.Time) string {
 	return fmt.Sprintf("ended %s ago%s", FormatAge(now.Sub(e.EndedAt)), why)
 }
 
-// FormatAge renders an elapsed time compactly, for example "45s", "6m", "3h", or "4d".
 func FormatAge(age time.Duration) string {
 	switch {
 	case age < time.Minute:
@@ -162,8 +148,6 @@ func FormatAge(age time.Duration) string {
 	}
 }
 
-// mergeEndedSessions combines persisted and newly pruned records, keeping the
-// newest record per session and only recent, bounded history.
 func mergeEndedSessions(existing, added []*EndedSession, now time.Time) []*EndedSession {
 	byIdentity := make(map[string]*EndedSession, len(existing)+len(added))
 	for _, ended := range append(append([]*EndedSession(nil), existing...), added...) {
@@ -188,8 +172,6 @@ func mergeEndedSessions(existing, added []*EndedSession, now time.Time) []*Ended
 	return merged
 }
 
-// EndedSessionAtIndex returns the most recent ended session that held a local
-// index, if one is still remembered.
 func (m *DeviceSessionManager) EndedSessionAtIndex(index int) (EndedSession, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -209,8 +191,6 @@ func (m *DeviceSessionManager) endedSessionAtIndexLocked(index int) *EndedSessio
 	return nil
 }
 
-// endedSessionGuidance explains the ended session and names how to start a
-// replacement on the same platform.
 func (m *DeviceSessionManager) endedSessionGuidance(ended *EndedSession) string {
 	start := m.nextStep(nextStepStartSession)
 	if ended.Platform == "ios" || ended.Platform == "android" {

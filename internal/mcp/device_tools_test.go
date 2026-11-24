@@ -17,18 +17,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// ---------------------------------------------------------------------------
-// TestResolveCoords_Validation: Table-driven tests for the dual-param
-// validation logic in resolveCoords (target OR x+y).
-// ---------------------------------------------------------------------------
-
 func TestResolveCoords_Validation(t *testing.T) {
-	// Create a minimal server with a session manager that has no active
-	// session. This lets us test the validation paths that fire before
-	// any network call or grounding call.
-	// Create a minimal server with a session manager. We inject one session
-	// so that raw-coord tests can resolve it, but target-based tests will
-	// fail on the network call (which is fine -- we're testing validation).
 	mgr := &DeviceSessionManager{
 		sessions:    make(map[int]*DeviceSession),
 		idleTimers:  make(map[int]*time.Timer),
@@ -202,11 +191,6 @@ func TestHandleDeviceNavigatePreservesURLAndSurfacesWorkerFailure(t *testing.T) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestResolveCoords_TargetRequiresSession: When target is provided but no
-// session is active, the grounding path should return a meaningful error.
-// ---------------------------------------------------------------------------
-
 func TestResolveCoords_TargetRequiresSession(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{
@@ -220,14 +204,11 @@ func TestResolveCoords_TargetRequiresSession(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when using target without active session")
 	}
-	// The error should mention no active session (from Screenshot -> WorkerRequest)
 	if got := err.Error(); got == "" {
 		t.Fatal("error message should not be empty")
 	}
 }
 
-// newSessionSyncTestServer returns a backend+worker test server that supports
-// session sync endpoints and a healthy worker endpoint.
 func newSessionSyncTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -601,10 +582,6 @@ func TestDevLoopActionGuard_InactiveDevLoopDoesNotGateActions(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestInputValidation_StartDeviceSession: Platform validation.
-// ---------------------------------------------------------------------------
-
 func TestInputValidation_StartDeviceSession(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},
@@ -778,10 +755,6 @@ func TestInputValidation_StartDeviceSession_RejectsConflictingArtifactInputs(t *
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestInputValidation_DeviceType_TextRequired: Text field validation.
-// ---------------------------------------------------------------------------
-
 func TestInputValidation_DeviceType_TextRequired(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},
@@ -803,10 +776,6 @@ func TestInputValidation_DeviceType_TextRequired(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestInputValidation_DeviceSwipe_DirectionRequired: Direction field validation.
-// ---------------------------------------------------------------------------
-
 func TestInputValidation_DeviceSwipe_DirectionRequired(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},
@@ -827,10 +796,6 @@ func TestInputValidation_DeviceSwipe_DirectionRequired(t *testing.T) {
 		t.Errorf("error = %q, want direction error", output.Error)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestInputValidation_InstallApp_RequiresInput: install_app requires app_url or build_version_id.
-// ---------------------------------------------------------------------------
 
 func TestInputValidation_InstallApp_RequiresInput(t *testing.T) {
 	srv := &Server{
@@ -1023,16 +988,6 @@ func TestHandleDeviceDownloadFile_TrimsURLAndFilename(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession: an omitted
-// bundle_id is no longer rejected up front.
-// ---------------------------------------------------------------------------
-
-// TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession asserts that an
-// empty bundle_id gets past input validation and fails only on the real
-// precondition — an actual session. bundle_id used to be required here, which
-// forced callers who could not know the installed bundle to invent one; the
-// worker now resolves it from the session instead.
 func TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},
@@ -1055,7 +1010,6 @@ func TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession(t *testing.T) {
 	}
 }
 
-// intPtrHelper returns a pointer to the given int value.
 func intPtrHelper(v int) *int {
 	return &v
 }

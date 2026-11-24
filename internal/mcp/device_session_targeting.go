@@ -2,8 +2,6 @@ package mcp
 
 import "sort"
 
-// persistedSessionRef names one session in device-sessions.json by the same
-// identity the session cache matches on.
 type persistedSessionRef struct {
 	SessionID     string `json:"session_id,omitempty"`
 	WorkflowRunID string `json:"workflow_run_id,omitempty"`
@@ -17,9 +15,6 @@ func sessionRefFor(session *DeviceSession) persistedSessionRef {
 	return persistedSessionRef{SessionID: session.SessionID, WorkflowRunID: session.WorkflowRunID}
 }
 
-// liveSessionRef refreshes a reference from the session it names, so a
-// session ID issued after the reference was written is kept. It reports false
-// when the session is no longer in the store.
 func liveSessionRef(ref persistedSessionRef, sessions []*DeviceSession) (persistedSessionRef, bool) {
 	index, ok := persistedSessionIndex(sessions, ref.identity())
 	if !ok {
@@ -60,32 +55,19 @@ func optionalLiveSessionRef(ref *persistedSessionRef, sessions []*DeviceSession)
 	return &live
 }
 
-// UntargetedRule is how a command that named no session chose one.
 type UntargetedRule string
 
 const (
-	// UntargetedSelected is the session last started or selected in this
-	// directory (device start, device use, device attach, or a dev loop).
-	UntargetedSelected UntargetedRule = "selected_here"
-	// UntargetedStartedHere is the most recently started live session among
-	// those started from this directory.
+	UntargetedSelected    UntargetedRule = "selected_here"
 	UntargetedStartedHere UntargetedRule = "started_here"
-	// UntargetedOnlyLive is the account's only live session, which this
-	// directory did not start.
-	UntargetedOnlyLive UntargetedRule = "only_live_session"
+	UntargetedOnlyLive    UntargetedRule = "only_live_session"
 )
 
-// UntargetedSessionChoice is the session an untargeted command should act on.
 type UntargetedSessionChoice struct {
-	Session *DeviceSession
-	Rule    UntargetedRule
-	// StartedHere counts live sessions started from this directory.
+	Session     *DeviceSession
+	Rule        UntargetedRule
 	StartedHere int
-	// Changed reports that the choice differs from the one the previous
-	// untargeted command in this directory made.
-	Changed bool
-	// HadPrevious reports that an earlier untargeted command in this
-	// directory chose a session, whether or not that session is still live.
+	Changed     bool
 	HadPrevious bool
 }
 
@@ -154,8 +136,6 @@ func (m *DeviceSessionManager) ResolveUntargetedSession() (UntargetedSessionChoi
 	return choice, nil
 }
 
-// RecordUntargetedChoice remembers the session an untargeted command used, so
-// the next command can tell whether its choice changed.
 func (m *DeviceSessionManager) RecordUntargetedChoice(session *DeviceSession) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -198,8 +178,6 @@ func (m *DeviceSessionManager) directoryTargetingRefs() ([]persistedSessionRef, 
 	return startedHere, selected, lastUntargeted
 }
 
-// applyDirectoryTargeting updates in-memory targeting state for a manager
-// that does not persist, so its own later resolutions still see it.
 func (m *DeviceSessionManager) applyDirectoryTargeting(mutation sessionCacheMutation) {
 	if mutation.startedSession != nil {
 		m.startedHere = append(m.startedHere, sessionCacheIdentityFor(mutation.startedSession))

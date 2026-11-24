@@ -52,7 +52,6 @@ type fakeDevLoopRunner struct {
 	mu               sync.Mutex
 }
 
-// Start returns the configured startup result.
 func (r *fakeDevLoopRunner) Start(
 	ctx context.Context,
 	workDir string,
@@ -65,7 +64,6 @@ func (r *fakeDevLoopRunner) Start(
 	return r.startResult, r.startErr
 }
 
-// Status returns configured snapshots in order, then repeats the last snapshot.
 func (r *fakeDevLoopRunner) Status(
 	ctx context.Context,
 	workDir string,
@@ -89,7 +87,6 @@ func (r *fakeDevLoopRunner) Status(
 	return r.statusResults[index], nil
 }
 
-// Rebuild returns the configured rebuild result.
 func (r *fakeDevLoopRunner) Rebuild(
 	ctx context.Context,
 	workDir string,
@@ -116,7 +113,6 @@ func (r *fakeDevLoopRunner) Rebuild(
 	return r.rebuildResult, r.rebuildErr
 }
 
-// TriggerRebuild returns the configured asynchronous rebuild handle.
 func (r *fakeDevLoopRunner) TriggerRebuild(
 	ctx context.Context,
 	workDir string,
@@ -128,7 +124,6 @@ func (r *fakeDevLoopRunner) TriggerRebuild(
 	return r.triggerHandle, r.triggerErr
 }
 
-// WaitForRebuild returns the configured terminal result and progress.
 func (r *fakeDevLoopRunner) WaitForRebuild(
 	ctx context.Context,
 	workDir string,
@@ -148,7 +143,6 @@ func (r *fakeDevLoopRunner) WaitForRebuild(
 	return r.waitResult, r.waitErr
 }
 
-// Stop returns the configured stop result.
 func (r *fakeDevLoopRunner) Stop(
 	ctx context.Context,
 	workDir string,
@@ -331,7 +325,6 @@ func TestProjectResolutionHandlersReturnStructuredRemediation(t *testing.T) {
 	}
 }
 
-// TestMalformedProjectConfigBlocksSetupSensitiveRunners verifies start and rebuild fail before runner work.
 func TestMalformedProjectConfigBlocksSetupSensitiveRunners(t *testing.T) {
 	projectDir := writeInvalidDevLoopProject(t)
 	configPath := filepath.Join(projectDir, ".revyl", "config.yaml")
@@ -386,7 +379,6 @@ func TestMalformedProjectConfigBlocksSetupSensitiveRunners(t *testing.T) {
 	}
 }
 
-// TestMalformedProjectConfigAllowsExistingOperations verifies cleanup and observation survive config damage.
 func TestMalformedProjectConfigAllowsExistingOperations(t *testing.T) {
 	projectDir := writeInvalidDevLoopProject(t)
 	const contextName = "existing"
@@ -655,7 +647,6 @@ func TestHandleStartDevLoopCommandDisablesDelegatedSessionIdleTimer(t *testing.T
 	}
 }
 
-// TestHandleStartDevLoopCommandFailsWhenSessionAttachFails verifies startup never exposes a foreign process index.
 func TestHandleStartDevLoopCommandFailsWhenSessionAttachFails(t *testing.T) {
 	projectDir := writeDevLoopTestProject(t)
 	runner := &fakeDevLoopRunner{startResult: devloop.StartResult{
@@ -1041,7 +1032,6 @@ func TestWaitForRebuildToolStreamsChildProgressWithoutStatusPolling(t *testing.T
 	}
 }
 
-// containsString reports whether values contains target.
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -1051,7 +1041,6 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-// countString returns the number of exact target matches.
 func countString(values []string, target string) int {
 	count := 0
 	for _, value := range values {
@@ -1258,7 +1247,6 @@ func TestWaitForDevAppReadyWaitsForInstalledSeed(t *testing.T) {
 	}
 }
 
-// writeDevLoopTestProject creates the minimum project marker used by MCP handlers.
 func writeDevLoopTestProject(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()
@@ -1266,7 +1254,6 @@ func writeDevLoopTestProject(t *testing.T) string {
 	return canonicalMCPFixturePath(t, projectDir)
 }
 
-// writeDevLoopProjectAt creates the minimum initialized project marker used by MCP handlers.
 func writeDevLoopProjectAt(t *testing.T, projectDir string) {
 	t.Helper()
 	initializeMCPGitFixture(t, projectDir)
@@ -1288,13 +1275,6 @@ func writeDevLoopConfigAt(t *testing.T, projectDir string) {
 	}
 }
 
-// writeInvalidDevLoopProject creates a project whose config cannot be parsed.
-//
-// Parameters:
-//   - t: Active test.
-//
-// Returns:
-//   - string: Project directory containing the malformed configuration.
 func writeInvalidDevLoopProject(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()

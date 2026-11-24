@@ -276,7 +276,6 @@ send({
 </body>
 </html>`
 
-// screenshotAppToolMeta links a visual tool to the inline screenshot app.
 func screenshotAppToolMeta() mcp.Meta {
 	return mcp.Meta{
 		"ui": map[string]any{
@@ -285,7 +284,6 @@ func screenshotAppToolMeta() mcp.Meta {
 	}
 }
 
-// registerScreenshotAppResource serves the static inline screenshot viewer.
 func (s *Server) registerScreenshotAppResource() {
 	s.mcpServer.AddResource(&mcp.Resource{
 		URI:         screenshotAppURI,
@@ -296,7 +294,6 @@ func (s *Server) registerScreenshotAppResource() {
 	}, s.handleScreenshotAppResource)
 }
 
-// handleScreenshotAppResource returns the static MCP App HTML document.
 func (s *Server) handleScreenshotAppResource(
 	ctx context.Context,
 	request *mcp.ReadResourceRequest,

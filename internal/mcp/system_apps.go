@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// systemApps maps platform -> friendly_name -> bundle_id.
 // Source of truth: cognisim_schemas/schemas/system_apps.py
 var systemApps = map[string]map[string]string{
 	"ios": {
@@ -36,8 +35,6 @@ var systemApps = map[string]map[string]string{
 	},
 }
 
-// ResolveSystemApp resolves a friendly app name to a bundle ID for the given platform.
-// Returns the input unchanged if no match (allows raw bundle IDs as fallback).
 func ResolveSystemApp(platform, appName string) string {
 	appName = strings.ToLower(appName)
 	if apps, ok := systemApps[platform]; ok {
@@ -48,7 +45,6 @@ func ResolveSystemApp(platform, appName string) string {
 	return appName
 }
 
-// ListSystemApps returns available system app names for a platform (sorted).
 func ListSystemApps(platform string) []string {
 	apps, ok := systemApps[platform]
 	if !ok {
@@ -62,7 +58,6 @@ func ListSystemApps(platform string) []string {
 	return names
 }
 
-// SystemAppDisplayName returns the friendly name for a bundle ID, or empty string if not found.
 func SystemAppDisplayName(platform, bundleID string) string {
 	if apps, ok := systemApps[platform]; ok {
 		for name, bid := range apps {

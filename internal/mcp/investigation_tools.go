@@ -19,7 +19,6 @@ const investigationOutputLimitBytes = 60000
 
 var investigationToolNamePattern = regexp.MustCompile(`^[a-z]+(\.[a-z_]+)+$`)
 
-// InvestigateInput selects one catalog operation, mirroring `revyl tools`.
 type InvestigateInput struct {
 	Action    string         `json:"action" jsonschema:"search, describe, cookbook or call"`
 	Query     string         `json:"query,omitempty" jsonschema:"Words to search tool names and descriptions (search)"`
@@ -27,8 +26,6 @@ type InvestigateInput struct {
 	Arguments map[string]any `json:"arguments,omitempty" jsonschema:"Tool arguments matching the describe schema (call)"`
 }
 
-// InvestigateOutput carries the catalog's JSON result; list results from
-// search and cookbook arrive under "tools" and "cookbooks".
 type InvestigateOutput struct {
 	Result map[string]any `json:"result"`
 }

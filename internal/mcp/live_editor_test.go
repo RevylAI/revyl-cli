@@ -9,8 +9,6 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
-// newTestServerNoTools creates a minimal Server for handler testing
-// without calling registerTools() (which requires the full MCP SDK).
 func newTestServerNoTools() *Server {
 	return &Server{
 		workDir: "/tmp/test-project",
@@ -115,7 +113,6 @@ func TestOpenTestEditorIdempotent(t *testing.T) {
 	s.project = &config.ProjectContext{TestsDir: filepath.Join(testsRoot, ".revyl", "tests")}
 	ctx := context.Background()
 
-	// First call — no hot reload, should succeed
 	_, output1, _ := s.handleOpenTestEditor(ctx, nil, OpenTestEditorInput{
 		TestNameOrID: "login-flow",
 		NoOpen:       true,
@@ -124,7 +121,6 @@ func TestOpenTestEditorIdempotent(t *testing.T) {
 		t.Fatalf("first call: expected success, got error: %s", output1.Error)
 	}
 
-	// Second call for same test — should also succeed (idempotent)
 	_, output2, _ := s.handleOpenTestEditor(ctx, nil, OpenTestEditorInput{
 		TestNameOrID: "login-flow",
 		NoOpen:       true,
@@ -171,6 +167,5 @@ func TestHotReloadStatusNoSession(t *testing.T) {
 
 func TestShutdownNoSession(t *testing.T) {
 	s := newTestServerNoTools()
-	// Should not panic when no session is active
 	s.Shutdown()
 }

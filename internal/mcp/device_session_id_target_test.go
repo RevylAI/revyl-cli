@@ -18,14 +18,10 @@ const (
 	targetSessionID     = "9f3c1a2b-4d5e-4f60-8a71-b2c3d4e5f607"
 	targetWorkflowRunID = "33333333-3333-3333-3333-333333333333"
 
-	// Grounded taps scale against the session's screen size, so resolution has
-	// to carry these through or coordinates silently go unscaled.
 	targetScreenWidth  = 440
 	targetScreenHeight = 956
 )
 
-// newSessionIDResolveServer serves the full durable-ID resolution path with a
-// caller-chosen session status and workflow run.
 func newSessionIDResolveServer(t *testing.T, status string, workflowRunID *string) *httptest.Server {
 	t.Helper()
 
@@ -60,8 +56,6 @@ func newSessionIDResolveServer(t *testing.T, status string, workflowRunID *strin
 	}))
 }
 
-// newIDTargetedManager builds a manager rooted at a temp workDir with
-// persistence disabled, mirroring how the CLI constructs it for ID targeting.
 func newIDTargetedManager(t *testing.T, serverURL string) (*DeviceSessionManager, string) {
 	t.Helper()
 
@@ -71,8 +65,6 @@ func newIDTargetedManager(t *testing.T, serverURL string) (*DeviceSessionManager
 	return mgr, workDir
 }
 
-// newCountingSessionIDServer serves the resolution path while recording how
-// many times each backend route was hit.
 func newCountingSessionIDServer(t *testing.T, counts map[string]int, mu *sync.Mutex) *httptest.Server {
 	t.Helper()
 
@@ -103,8 +95,6 @@ func newCountingSessionIDServer(t *testing.T, counts map[string]int, mu *sync.Mu
 	}))
 }
 
-// Parallel batches pay resolution once per command, so anything the happy path
-// does not strictly need is multiplied across every step of every worker.
 func TestResolveSessionByID_IssuesSingleBackendCall(t *testing.T) {
 	t.Parallel()
 
@@ -140,8 +130,6 @@ func TestResolveSessionByID_IssuesSingleBackendCall(t *testing.T) {
 	}
 }
 
-// Dropping the eager health probe must not cost diagnosis: a failing action
-// should still explain that the device is merely still starting.
 func TestWorkerRequestOnSession_ExplainsNotReadyDeviceOnFailure(t *testing.T) {
 	t.Parallel()
 
@@ -208,8 +196,6 @@ func TestResolveSessionByID_ReturnsUnattachedSession(t *testing.T) {
 	}
 }
 
-// An ID-targeted session that reports no screen size makes grounded taps fall
-// back to unscaled coordinates, so they land on the wrong pixels.
 func TestResolveSessionByID_CarriesScreenDimensions(t *testing.T) {
 	t.Parallel()
 
@@ -275,7 +261,6 @@ func TestResolveSessionByID_LeavesLocalSessionStateUntouched(t *testing.T) {
 
 	mgr, workDir := newIDTargetedManager(t, server.URL)
 
-	// Seed a session cache that a parallel CLI process would own.
 	cachePath := filepath.Join(workDir, ".revyl", "device-sessions.json")
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatalf("mkdir .revyl: %v", err)

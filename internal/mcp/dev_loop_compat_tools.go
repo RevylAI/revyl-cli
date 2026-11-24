@@ -8,7 +8,6 @@ import (
 	"github.com/revyl/cli/internal/outcome"
 )
 
-// BuildPreflightInfo preserves the legacy MCP build compatibility schema.
 type BuildPreflightInfo struct {
 	BuildClass  string   `json:"build_class"`
 	Compatible  string   `json:"compatible"`
@@ -16,7 +15,6 @@ type BuildPreflightInfo struct {
 	FixCommands []string `json:"fix_commands,omitempty"`
 }
 
-// StartDevLoopOutput preserves the flat core/full MCP startup contract.
 type StartDevLoopOutput struct {
 	BranchID           string              `json:"branch_id,omitempty"`
 	BranchName         string              `json:"branch_name,omitempty"`
@@ -33,7 +31,6 @@ type StartDevLoopOutput struct {
 	Error              string              `json:"error,omitempty"`
 }
 
-// StartDevLoopCoreOutput adds structured setup recovery to the flat core/full contract.
 type StartDevLoopCoreOutput struct {
 	BranchID           string              `json:"branch_id,omitempty"`
 	BranchName         string              `json:"branch_name,omitempty"`
@@ -52,17 +49,14 @@ type StartDevLoopCoreOutput struct {
 	Error              string              `json:"error,omitempty"`
 }
 
-// StopDevLoopInput preserves the empty legacy stop input schema.
 type StopDevLoopInput struct{}
 
-// StopDevLoopOutput preserves the flat core/full MCP stop contract.
 type StopDevLoopOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// StopDevLoopCoreOutput adds structured setup recovery to the flat core/full contract.
 type StopDevLoopCoreOutput struct {
 	Success     bool             `json:"success"`
 	Message     string           `json:"message,omitempty"`
@@ -71,7 +65,6 @@ type StopDevLoopCoreOutput struct {
 	Error       string           `json:"error,omitempty"`
 }
 
-// handleStartDevLoopCompat adapts canonical startup to the legacy flat output.
 func (s *Server) handleStartDevLoopCompat(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -130,7 +123,6 @@ func (s *Server) handleStartDevLoopCoreCompat(
 	return toolResult, output, err
 }
 
-// handleStopDevLoopCompat adapts canonical cleanup to the legacy flat output.
 func (s *Server) handleStopDevLoopCompat(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
