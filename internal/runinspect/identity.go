@@ -108,7 +108,6 @@ func DetectIdentity(
 	return out
 }
 
-// identityAcc tracks per-source dedup state across observations.
 type identityAcc struct {
 	field      IdentityField
 	firstStep  int
@@ -145,9 +144,6 @@ func equalValues(a, b interface{}) bool {
 	return false
 }
 
-// --- classifier -----------------------------------------------------------
-
-// vendorRule is one exact-key vendor lookup.
 type vendorRule struct {
 	keySuffix string // case-insensitive suffix match on the key path
 	kind      IdentityKind
@@ -238,8 +234,6 @@ func pathIndicatesLocalization(keyPathLower string) bool {
 		if localizationSegmentTokens[seg] {
 			return true
 		}
-		// Suffix match for hyphenated `chatty-strings`, `error-strings`,
-		// `app-strings`, etc.
 		if strings.HasSuffix(seg, "-strings") || strings.HasSuffix(seg, "-i18n") {
 			return true
 		}
@@ -247,9 +241,6 @@ func pathIndicatesLocalization(keyPathLower string) bool {
 	return false
 }
 
-// classifyIdentity returns a partially-populated IdentityField (Kind,
-// Label, Value, Vendor) or nil. The caller fills in Source / step
-// fields after dedup.
 func classifyIdentity(keyPath string, value interface{}) *IdentityField {
 	if value == nil {
 		return nil
@@ -267,7 +258,6 @@ func classifyIdentity(keyPath string, value interface{}) *IdentityField {
 		return nil
 	}
 
-	// 1. Exact vendor-key matches (suffix on full path).
 	for _, rule := range vendorRules {
 		if strings.HasSuffix(keyPathLower, rule.keySuffix) {
 			s, ok := value.(string)
@@ -283,7 +273,6 @@ func classifyIdentity(keyPath string, value interface{}) *IdentityField {
 		}
 	}
 
-	// 2. Role flags (boolean values under known role-keying conventions).
 	if roleLabel, ok := roleFlagKeys[last]; ok {
 		if b, ok := value.(bool); ok {
 			return &IdentityField{
@@ -294,14 +283,11 @@ func classifyIdentity(keyPath string, value interface{}) *IdentityField {
 		}
 	}
 
-	// 3. User / org / account / email / username heuristics — only fire
-	// on string values (skip bytes-encoded blobs, arrays, dicts).
 	s, isStr := value.(string)
 	if !isStr || s == "" {
 		return nil
 	}
 
-	// Email / username conventions are very specific.
 	if endsWith(last, "email") || isExactKey(last, "vieweremail", "useremail") {
 		if looksLikeEmail(s) {
 			return &IdentityField{Kind: IdentityKindEmail, Label: identityLabel(keyPath), Value: s}
@@ -312,20 +298,16 @@ func classifyIdentity(keyPath string, value interface{}) *IdentityField {
 		return &IdentityField{Kind: IdentityKindUsername, Label: identityLabel(keyPath), Value: s}
 	}
 
-	// User ID — `viewerUserID`, `currentUserId`, anything ending in
-	// `userid` or `userId` (case-insensitive).
 	if endsWith(last, "userid") || endsWith(last, "userids") ||
 		isExactKey(last, "uid", "viewer_user_id") {
 		return &IdentityField{Kind: IdentityKindUser, Label: identityLabel(keyPath), Value: s}
 	}
 
-	// Active account.
 	if strings.Contains(last, "activeaccountid") || strings.Contains(last, "activeaccount") ||
 		endsWith(last, "accountid") {
 		return &IdentityField{Kind: IdentityKindAccount, Label: identityLabel(keyPath), Value: s}
 	}
 
-	// Org / workspace / team / business / company / tenant ID.
 	if endsWith(last, "orgid") || endsWith(last, "organizationid") ||
 		endsWith(last, "workspaceid") || endsWith(last, "teamid") ||
 		endsWith(last, "tenantid") || endsWith(last, "companyid") ||
@@ -379,10 +361,8 @@ func looksLikeEmail(s string) bool {
 	return dot > 0 && dot < len(s[at:])-1
 }
 
-// SummaryHighlights picks the most useful 4-6 identity fields for the
-// `revyl run summary` view: the logged-in user, role flags, the active
-// org. Drops the vendor-ID bucket entirely (those go to
-// `revyl run identity`).
+// SummaryHighlights keeps user, email, username, org, account and selected role
+// fields for the summary. Vendor identifiers remain in the identity view.
 func SummaryHighlights(all []IdentityField) []IdentityField {
 	keep := func(f IdentityField) bool {
 		switch f.Kind {

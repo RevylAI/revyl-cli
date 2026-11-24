@@ -13,7 +13,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// deviceServer records what the CLI sent and replays scripted poll responses.
 type deviceServer struct {
 	pollStates   []string
 	pollCount    int
@@ -32,9 +31,7 @@ func (s *deviceServer) handler() http.Handler {
 			"verification_uri":          "https://app.revyl.ai/cli/device",
 			"verification_uri_complete": "https://app.revyl.ai/cli/device?code=ABCD-2345",
 			"expires_in":                600,
-			// Zero keeps the tests fast; the CLI treats it as "use the default",
-			// so the interval is overridden on the handler side below.
-			"interval": 0,
+			"interval":                  0,
 		})
 	})
 	mux.HandleFunc(deviceCredentialsPath, func(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +90,6 @@ func newTestDeviceAuth(t *testing.T, server *deviceServer) (*DeviceAuth, func())
 	return auth, httpServer.Close
 }
 
-// fastAuthorization keeps polling immediate so tests do not sleep.
 func fastAuthorization(deviceCode string) *DeviceAuthorization {
 	return &DeviceAuthorization{
 		DeviceCode: deviceCode,

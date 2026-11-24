@@ -1,12 +1,3 @@
-// summary.go owns the projection of a fetched report (+ identity)
-// into the cross-surface Summary shape, plus the timeout/cache/error
-// policy for loading run artifacts in a single round.
-//
-// Single owner: every CLI subcommand under `revyl run *` and every
-// `get_run_*` MCP tool goes through LoadArtifacts/BuildSummary, so
-// adding logs/network/perf as future subcommands inherits the same
-// fetch contract.
-
 package runinspect
 
 import (
@@ -48,8 +39,7 @@ type SummaryStep struct {
 	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
 }
 
-// Artifacts lists which post-run artifacts are downloadable for the
-// run. Expand as new artifacts ship (logs / network / perf are next).
+// Artifacts reports which run artifacts have a download available.
 type Artifacts struct {
 	DeviceStateAvailable     bool `json:"device_state_available"`
 	NetworkRequestsAvailable bool `json:"network_requests_available"`
@@ -95,10 +85,8 @@ func BuildSummary(report *Report, identity []IdentityField) Summary {
 	return out
 }
 
-// LoadArtifacts fetches the report + device-state JSONL for a task in
-// one timeout-bounded round. Returns the report with lines=nil when
-// the run produced no device-state artifact (Android pre-sampler
-// runs, runs killed before the upload phase).
+// LoadArtifacts loads a report and its device state under a shared timeout.
+// It returns the report with nil lines when no device-state URL is available.
 func LoadArtifacts(
 	ctx context.Context,
 	client *api.Client,
@@ -135,9 +123,7 @@ func LoadArtifactsReference(ctx context.Context, client *api.Client, taskID, kin
 	return report, lines, nil
 }
 
-// DetectIdentityHighlights returns the summary-view subset of identity
-// fields (user / org / role + a couple of vendor IDs). Returns nil if
-// there are no captured lines to read from.
+// DetectIdentityHighlights applies the summary filter to captured identity fields.
 func DetectIdentityHighlights(
 	lines []DeviceStateLine, report *Report,
 ) []IdentityField {

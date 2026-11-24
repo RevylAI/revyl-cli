@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// --- classifyIdentity unit tests ------------------------------------------
-
 func TestClassifyIdentity_VendorKeys(t *testing.T) {
 	cases := []struct {
 		key       string
@@ -249,8 +247,6 @@ func TestClassifyIdentity_BytesEncodedSkipped(t *testing.T) {
 	}
 }
 
-// --- DetectIdentity integration ------------------------------------------
-
 func TestDetectIdentity_RealisticWhopFixture(t *testing.T) {
 	// Mirrors the actual values we pulled out of the Whop run earlier
 	// in the conversation. Confirms the detector surfaces the right
@@ -276,10 +272,9 @@ func TestDetectIdentity_RealisticWhopFixture(t *testing.T) {
 						"segmentAnonymousId":                      "6BE13940-5DC8-4D5B-A598-A9D63D47629E",
 						"sardineSessionKey":                       "0978d678-3966-4fb1-853e-62fc7ae782f1",
 						"viewerIntercomHash":                      "ded197e251b8b498d3476ff8dc4f433a27a2ec5976d74570b931a74a3edaaf92",
-						// noise that shouldn't surface
-						"lastViewedTab":             float64(0),
-						"isDMsEnabled":              false,
-						"hasTrackedOnboardingEvent": true,
+						"lastViewedTab":                           float64(0),
+						"isDMsEnabled":                            false,
+						"hasTrackedOnboardingEvent":               true,
 					},
 				},
 			},
@@ -294,8 +289,6 @@ func TestDetectIdentity_RealisticWhopFixture(t *testing.T) {
 		kinds[f.Kind]++
 		labels[f.Label] = true
 	}
-	// We want all four of: user, email, username, org, account, plus
-	// at least 3 role flags + 4 vendor IDs.
 	want := map[IdentityKind]int{
 		IdentityKindUser:     1,
 		IdentityKindEmail:    1,
@@ -416,8 +409,6 @@ func TestDetectIdentity_AtStepClips(t *testing.T) {
 		t.Errorf("value = %v, want user_step1 (AtStep=2 clip)", fields[0].Value)
 	}
 }
-
-// --- SummaryHighlights ----------------------------------------------------
 
 func TestSummaryHighlights_KeepsCoreDropsVendor(t *testing.T) {
 	all := []IdentityField{

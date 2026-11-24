@@ -1,19 +1,7 @@
-// Package runinspect implements historical device-state inspection
-// against finished test runs.
-//
-// Live device-state inspection (active dev-loop sessions) lives in the
-// MCP / CLI device-state subcommands under cmd/revyl/device_state.go.
-// This package is the parallel surface for **completed** runs — given
-// a task_id (= execution_id), it fetches the recorded
-// device_state.jsonl.gz artifact via the backend Reports v3 API,
-// decompresses + parses it, and exposes typed primitives for
-// summary / trace-hint extraction.
+// Package runinspect reads report artifacts for active and completed runs.
 package runinspect
 
-// DeviceStateLine mirrors the on-disk JSONL contract written by
-// cognisim_python_cli/cognisim/device/ios/_device_state_helper.py.
-// Field-for-field parity with the Python “line“ dict (see helper
-// module docstring) plus Phase 3 + Phase 4 additions.
+// DeviceStateLine is the CLI projection of one device-state sampler record.
 type DeviceStateLine struct {
 	StepID         string                       `json:"step_id"`
 	StepStartedAt  *float64                     `json:"step_started_at,omitempty"`
@@ -40,11 +28,8 @@ type DeviceStateChange struct {
 	XML        *string                        `json:"xml,omitempty"`    // plist
 	Tables     map[string]SQLiteTableSnapshot `json:"tables,omitempty"` // sqlite
 	Companions []map[string]interface{}       `json:"companions,omitempty"`
-	// Sentry envelope items (Phase 11). Each item carries one or more
-	// of event_id / trace_id / span_id / replay_id. Surfaced by the
-	// `DetectTraces` detector for `revyl run traces`.
-	Items   []SentryEnvelopeItem `json:"items,omitempty"`
-	Skipped string               `json:"skipped,omitempty"` // "size_cap" etc. — sentry envelopes set this when oversized
+	Items      []SentryEnvelopeItem           `json:"items,omitempty"`
+	Skipped    string                         `json:"skipped,omitempty"` // "size_cap" etc. — sentry envelopes set this when oversized
 }
 
 // SentryEnvelopeItem is one identifying item extracted from a Sentry
@@ -80,8 +65,6 @@ func (l *DeviceStateLine) IsFloor() bool {
 	return l.ActionType != nil && *l.ActionType == "floor"
 }
 
-// IsSnapshot reports whether this line is a baseline snapshot
-// (added by Phase 4 `device_state/snapshot`).
 func (l *DeviceStateLine) IsSnapshot() bool {
 	if l.Type != nil && *l.Type == "snapshot" {
 		return true

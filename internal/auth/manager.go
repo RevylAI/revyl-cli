@@ -1,11 +1,4 @@
-// Package auth provides authentication management for the Revyl CLI.
-//
-// This package handles stored API credentials and isolated headless Cloud
-// context under the user's Revyl configuration directory.
-//
-// The CLI supports two authentication methods:
-// 1. Browser-based OAuth flow (default) - stores AccessToken with expiration
-// 2. API key authentication (fallback) - stores APIKey for CI/CD environments
+// Package auth resolves CLI credentials and handles browser and device approval sign-in.
 package auth
 
 import (
@@ -37,31 +30,20 @@ func IsUnresolvedAPIKeyEnvironmentValue(value string) bool {
 	return value == unresolvedAPIKeyEnvironmentPlaceholder
 }
 
-// Authentication methods recorded on stored credentials. The value records
-// which flow produced the credential, which is what distinguishes a headless
-// login from a desktop one when diagnosing an environment.
 const (
 	// AuthMethodBrowser is a short-lived access token from a desktop browser login.
 	AuthMethodBrowser = "browser"
 
-	// AuthMethodAPIKey is a key the user pasted in themselves.
 	AuthMethodAPIKey = "api_key"
 
-	// AuthMethodEnvironment is a key supplied through REVYL_API_KEY.
 	AuthMethodEnvironment = "env"
 
-	// AuthMethodBrowserAPIKey is a persistent key minted by a desktop browser login.
+	// AuthMethodBrowserAPIKey is a persistent key minted by browser or device approval.
 	AuthMethodBrowserAPIKey = "browser_api_key"
 )
 
-// IsPersistentAPIKeyAuthMethod reports whether a method yields a stored,
-// non-expiring API key rather than a token that lapses on its own.
-//
-// Parameters:
-//   - method: The AuthMethod recorded on stored credentials.
-//
-// Returns:
-//   - bool: True when the credential stays valid until it is revoked.
+// IsPersistentAPIKeyAuthMethod distinguishes API key methods, including
+// environment keys, from short-lived access tokens.
 func IsPersistentAPIKeyAuthMethod(method string) bool {
 	switch method {
 	case AuthMethodAPIKey, AuthMethodEnvironment, AuthMethodBrowserAPIKey:
@@ -94,39 +76,28 @@ func IsInteractiveLoginAuthMethod(method string) bool {
 // Credentials represents stored authentication credentials.
 // Supports both browser-based OAuth tokens and API keys.
 type Credentials struct {
-	// APIKey is the Revyl API key for authentication (legacy/CI mode).
 	APIKey string `json:"api_key,omitempty"`
 
-	// AccessToken is the PropelAuth access token from browser auth.
 	AccessToken string `json:"access_token,omitempty"`
 
 	// RefreshToken is the PropelAuth refresh token for token renewal.
 	RefreshToken string `json:"refresh_token,omitempty"`
 
-	// ExpiresAt is the timestamp when the access token expires.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 
-	// Email is the user's email address (optional, for display).
 	Email string `json:"email,omitempty"`
 
-	// OrgID is the user's organization ID (optional).
 	OrgID string `json:"org_id,omitempty"`
 
-	// UserID is the user's ID (optional).
 	UserID string `json:"user_id,omitempty"`
 
 	// AuthMethod indicates how the user authenticated; one of the
 	// AuthMethod* constants above.
 	AuthMethod string `json:"auth_method,omitempty"`
 
-	// APIKeyID is the PropelAuth-assigned key ID when a persistent CLI key was created.
-	// Used for key rotation and cleanup on logout.
+	// APIKeyID is the provider key ID used by logout to attempt revocation.
 	APIKeyID string `json:"api_key_id,omitempty"`
 
-	// LocalAuthOverride, when true, indicates that an explicit interactive browser
-	// login should take precedence over the REVYL_API_KEY environment variable.
-	// Set automatically when a user performs a browser login while REVYL_API_KEY is
-	// present. Cleared on logout or manual API-key login.
 	LocalAuthOverride bool `json:"local_auth_override,omitempty"`
 }
 
@@ -141,8 +112,7 @@ type cloudRuntimeContext struct {
 	APIKey           string `json:"api_key,omitempty"`
 }
 
-// CredentialResolution contains credentials, provider-neutral runtime context,
-// and Cloud-context error provenance from one read.
+// CredentialResolution reports the selected credentials and source diagnostics.
 type CredentialResolution struct {
 	Credentials         *Credentials
 	HeadlessCloud       bool
@@ -151,15 +121,14 @@ type CredentialResolution struct {
 	APIKeyEnvironment APIKeyEnvironmentState
 }
 
-// APIKeyEnvironmentState identifies how REVYL_API_KEY appeared in the environment.
 type APIKeyEnvironmentState string
 
 const (
-	// APIKeyEnvironmentAbsent means no REVYL_API_KEY was set.
+	// APIKeyEnvironmentAbsent includes unset and whitespace-only values.
 	APIKeyEnvironmentAbsent APIKeyEnvironmentState = "absent"
 	// APIKeyEnvironmentUnresolved means the host passed its literal interpolation syntax.
 	APIKeyEnvironmentUnresolved APIKeyEnvironmentState = "unresolved"
-	// APIKeyEnvironmentPresent means a usable key value was set.
+	// APIKeyEnvironmentPresent indicates a nonblank value that is not a placeholder.
 	APIKeyEnvironmentPresent APIKeyEnvironmentState = "present"
 )
 
@@ -182,16 +151,12 @@ func classifyAPIKeyEnvironment(rawValue string, configured bool) APIKeyEnvironme
 	}
 }
 
-// Manager handles credential storage and retrieval.
 type Manager struct {
-	// configDir is the directory where credentials are stored.
 	configDir string
 }
 
-// AuthDirectoryEnvironmentVariableName is the name of the environment variable
-// whose directory replaces ~/.revyl for sign-in state: credentials, client
-// identity, and imported Cloud context. It lets one machine keep a separate
-// login per checkout.
+// AuthDirectoryEnvironmentVariableName overrides the directory for credentials,
+// client identity, and imported Cloud context.
 const AuthDirectoryEnvironmentVariableName = "REVYL_AUTH_DIRECTORY"
 
 // NewManager creates a new credential manager.
@@ -217,20 +182,12 @@ func NewManager() *Manager {
 	}
 }
 
-// NewManagerWithDir creates a new credential manager with a custom directory.
-//
-// Parameters:
-//   - configDir: The directory to store credentials in
-//
-// Returns:
-//   - *Manager: A new manager instance
 func NewManagerWithDir(configDir string) *Manager {
 	return &Manager{
 		configDir: configDir,
 	}
 }
 
-// credentialsPath returns the path to the credentials file.
 func (m *Manager) credentialsPath() string {
 	return filepath.Join(m.configDir, "credentials.json")
 }
@@ -253,17 +210,12 @@ func (m *Manager) clientIdentityPath() string {
 	return filepath.Join(m.configDir, "client-identity.json")
 }
 
-// cloudRuntimeContextPath returns the isolated headless Cloud context path.
-//
-// Returns:
-//   - string: Path to the ephemeral Cloud context file.
 func (m *Manager) cloudRuntimeContextPath() string {
 	return filepath.Join(m.configDir, cloudRuntimeContextFilename)
 }
 
-// GetOrCreateClientInstanceID returns a stable per-install CLI identifier.
-// The identity survives logout so repeated browser auth on the same machine
-// can rotate only that machine's CLI key.
+// GetOrCreateClientInstanceID reuses the saved identity or creates one.
+// The new ID is returned even if it cannot be persisted.
 func (m *Manager) GetOrCreateClientInstanceID() (string, error) {
 	if data, err := os.ReadFile(m.clientIdentityPath()); err == nil {
 		var identity clientIdentity
@@ -304,7 +256,6 @@ func generateClientInstanceID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// CurrentDeviceLabel returns a human-readable label for the current machine.
 func CurrentDeviceLabel() string {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -327,22 +278,7 @@ func normalizeDeviceLabel(label string) string {
 	return label
 }
 
-// GetCredentials retrieves stored credentials.
-//
-// Priority order (default):
-//  1. REVYL_API_KEY environment variable (for CI/CD)
-//  2. Cloud Runtime Secret imported by trusted bootstrap
-//  3. Valid (non-expired) access token from browser auth
-//  4. API key from stored credentials
-//
-// When the stored credentials have LocalAuthOverride set (i.e. the user
-// performed an explicit browser login while REVYL_API_KEY was present), the
-// file credentials take precedence over the environment variable so that the
-// interactive login "sticks" for subsequent local commands.
-//
-// Returns:
-//   - *Credentials: The stored credentials, or nil if not found
-//   - error: Any error that occurred during retrieval
+// GetCredentials returns the selected credentials, or nil when none are configured.
 func (m *Manager) GetCredentials() (*Credentials, error) {
 	resolution, err := m.ResolveCredentials()
 	if err != nil {
@@ -351,11 +287,7 @@ func (m *Manager) GetCredentials() (*Credentials, error) {
 	return resolution.Credentials, nil
 }
 
-// ResolveCredentials reads active credentials and headless Cloud context as one consistent snapshot.
-//
-// Returns:
-//   - CredentialResolution: Active credentials, headless Cloud presence, and Cloud-context error provenance.
-//   - error: Any Cloud-context or credential read error.
+// ResolveCredentials selects credentials and reports environment and Cloud context diagnostics.
 func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 	envKey, envKeyConfigured := os.LookupEnv("REVYL_API_KEY")
 	apiKeyEnvironment := classifyAPIKeyEnvironment(envKey, envKeyConfigured)
@@ -370,8 +302,6 @@ func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 		APIKeyEnvironment:   apiKeyEnvironment,
 	}
 
-	// When the env var is set, check whether file creds have a local
-	// override before falling back to the env-var-first default.
 	if envKey != "" {
 		fileCreds, err := m.GetFileCredentials()
 		if err == nil && fileCreds != nil && fileCreds.LocalAuthOverride && fileCreds.HasValidAuth() {
@@ -401,15 +331,8 @@ func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 	return resolution, nil
 }
 
-// GetFileCredentials retrieves credentials directly from the file,
-// bypassing the environment variable check.
-//
-// This is useful when you need to read/update file-based credentials
-// even when REVYL_API_KEY is set (e.g., after saving browser auth credentials).
-//
-// Returns:
-//   - *Credentials: The stored credentials, or nil if not found
-//   - error: Any error that occurred during retrieval
+// GetFileCredentials bypasses environment and Cloud selection and returns nil
+// if the file is absent.
 func (m *Manager) GetFileCredentials() (*Credentials, error) {
 	data, err := os.ReadFile(m.credentialsPath())
 	if err != nil {
@@ -466,32 +389,22 @@ func (m *Manager) GetActiveToken() (string, error) {
 		return "", nil
 	}
 
-	// Check for valid access token first
 	if creds.AccessToken != "" && !creds.IsExpired() {
 		return creds.AccessToken, nil
 	}
 
-	// Fall back to API key
 	return creds.APIKey, nil
 }
 
-// IsExpired checks if the access token has expired.
-//
-// Returns:
-//   - bool: True if the token is expired or expiration is not set
+// IsExpired applies a one-minute margin to the stored expiry hint.
+// An omitted expiry is not considered expired.
 func (c *Credentials) IsExpired() bool {
 	if c.ExpiresAt == nil {
-		// If no expiration set, consider it valid (API key mode)
 		return false
 	}
-	// Add a small buffer (1 minute) to avoid edge cases
 	return time.Now().Add(time.Minute).After(*c.ExpiresAt)
 }
 
-// GetDisplayName returns a user-friendly display name for the credentials.
-//
-// Returns:
-//   - string: Email if available, otherwise UserID, otherwise "Unknown"
 func (c *Credentials) GetDisplayName() string {
 	if c.Email != "" {
 		return c.Email
@@ -507,21 +420,12 @@ func (c *Credentials) GetDisplayName() string {
 // Returns:
 //   - bool: True if either a valid access token or API key exists
 func (c *Credentials) HasValidAuth() bool {
-	// Check for valid access token
 	if c.AccessToken != "" && !c.IsExpired() {
 		return true
 	}
-	// Check for API key
 	return c.APIKey != ""
 }
 
-// SaveCredentials stores credentials to disk.
-//
-// Parameters:
-//   - creds: The credentials to store
-//
-// Returns:
-//   - error: Any error that occurred during storage
 func (m *Manager) SaveCredentials(creds *Credentials) error {
 	data, err := json.MarshalIndent(creds, "", "  ")
 	if err != nil {
@@ -628,10 +532,6 @@ func (m *Manager) writePrivateFile(destinationPath string, content []byte) (err 
 	return nil
 }
 
-// ClearCredentials removes stored credentials (and any local auth override).
-//
-// Returns:
-//   - error: Any error that occurred during removal
 func (m *Manager) ClearCredentials() error {
 	err := os.Remove(m.credentialsPath())
 	if err != nil && !os.IsNotExist(err) {
@@ -652,13 +552,8 @@ func (m *Manager) ClearCloudRuntimeContext() error {
 	return nil
 }
 
-// ClearAuthenticationState removes every local authentication store.
-//
-// Cloud context is removed first so a cleanup failure cannot delete the user's
-// fallback credentials while leaving an imported Cloud key active.
-//
-// Returns:
-//   - error: The first Cloud-context or user-credential removal error.
+// ClearAuthenticationState removes the imported Cloud context and user credentials.
+// It retains the client identity and does not unset environment variables.
 func (m *Manager) ClearAuthenticationState() error {
 	if err := m.ClearCloudRuntimeContext(); err != nil {
 		return err
@@ -669,12 +564,8 @@ func (m *Manager) ClearAuthenticationState() error {
 	return nil
 }
 
-// SetLocalAuthOverride marks the stored credentials so that they take
-// precedence over REVYL_API_KEY for subsequent commands. Call this after a
-// successful interactive browser login when REVYL_API_KEY is present.
-//
-// Returns:
-//   - error: Any error reading or persisting the flag
+// SetLocalAuthOverride marks existing stored credentials to win over REVYL_API_KEY
+// when they pass the local validity check.
 func (m *Manager) SetLocalAuthOverride() error {
 	creds, err := m.GetFileCredentials()
 	if err != nil {
@@ -687,12 +578,7 @@ func (m *Manager) SetLocalAuthOverride() error {
 	return m.SaveCredentials(creds)
 }
 
-// ClearLocalAuthOverride removes the local override flag so that REVYL_API_KEY
-// resumes its normal env-first precedence. Called on logout or manual API-key
-// login.
-//
-// Returns:
-//   - error: Any error reading or persisting the flag
+// ClearLocalAuthOverride restores the default precedence for REVYL_API_KEY.
 func (m *Manager) ClearLocalAuthOverride() error {
 	creds, err := m.GetFileCredentials()
 	if err != nil {
@@ -723,20 +609,9 @@ func (m *Manager) IsAuthenticated() bool {
 	return creds.HasValidAuth()
 }
 
-// SaveBrowserCredentials stores credentials from browser-based authentication.
-//
-// Decodes the JWT to extract the real server-side expiry (`exp` claim) so that
-// IsExpired() accurately reflects when the backend will reject the token.
-// Falls back to the caller-provided expiresIn if JWT decoding fails.
-//
-// Parameters:
-//   - result: The browser auth result containing token and user info
-//   - expiresIn: Fallback duration until the token expires (used if JWT exp extraction fails)
-//
-// Returns:
-//   - error: Any error that occurred during storage
+// SaveBrowserCredentials uses the unverified JWT expiry as a local hint, falling
+// back to expiresIn if it cannot decode that hint.
 func (m *Manager) SaveBrowserCredentials(result *BrowserAuthResult, expiresIn time.Duration) error {
-	// Try to extract the real expiry from the JWT; fall back to caller-provided duration.
 	expiresAt := time.Now().Add(expiresIn)
 	if jwtExp, err := extractJWTExpiry(result.Token); err == nil {
 		expiresAt = jwtExp
@@ -800,16 +675,6 @@ func extractJWTExpiry(token string) (time.Time, error) {
 	return time.Unix(int64(claims.Exp), 0), nil
 }
 
-// SaveAPIKeyCredentials stores credentials from API key authentication.
-//
-// Parameters:
-//   - apiKey: The API key
-//   - email: User's email (optional)
-//   - orgID: Organization ID (optional)
-//   - userID: User ID (optional)
-//
-// Returns:
-//   - error: Any error that occurred during storage
 func (m *Manager) SaveAPIKeyCredentials(apiKey, email, orgID, userID string) error {
 	creds := &Credentials{
 		APIKey:     apiKey,
@@ -845,17 +710,8 @@ func (m *Manager) SaveCloudRuntimeContext(apiKey string, apiKeyConfigured bool) 
 	return nil
 }
 
-// SaveBrowserAPIKeyCredentials stores credentials from browser-based auth
-// that generated a persistent API key (instead of a short-lived access token).
-// These credentials never expire, providing the same UX as manual API key auth
-// while being created automatically via the browser login flow.
-//
-// Parameters:
-//   - result: The browser auth result containing the API key token and user info
-//   - apiKeyID: The PropelAuth-assigned key ID for rotation/cleanup
-//
-// Returns:
-//   - error: Any error that occurred during storage
+// SaveBrowserAPIKeyCredentials stores a minted key and its provider ID without a
+// local expiry. The key can still be revoked remotely.
 func (m *Manager) SaveBrowserAPIKeyCredentials(result *BrowserAuthResult, apiKeyID string) error {
 	creds := &Credentials{
 		APIKey:     result.Token,

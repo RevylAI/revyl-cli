@@ -123,7 +123,6 @@ func TestDetectTraces_DedupAcrossSteps(t *testing.T) {
 	}
 	idx := MapIndexer{"step-a": 1, "step-b": 2}
 	out := DetectTraces(lines, idx, TracesOptions{})
-	// Two unique (vendor, kind, value) tuples: one event, one trace.
 	if len(out) != 2 {
 		t.Fatalf("expected 2 records (event + trace), got %d", len(out))
 	}
@@ -207,14 +206,11 @@ func TestDetectTraces_VendorFilter(t *testing.T) {
 	if len(out) != 1 {
 		t.Errorf("expected 1 sentry record, got %d", len(out))
 	}
-	// A vendor that doesn't exist yet — nothing.
 	out = DetectTraces(lines, idx, TracesOptions{Vendors: []TraceVendor{"datadog"}})
 	if len(out) != 0 {
 		t.Errorf("expected 0 records under datadog filter, got %d", len(out))
 	}
 }
-
-// helpers
 
 func repeated(s string, n int) string {
 	out := make([]byte, 0, len(s)*n)

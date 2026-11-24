@@ -1,11 +1,3 @@
-// Network-requests parsing + filtering for the run-inspector.
-//
-// The captured artifact is a single JSON document with a `requests`
-// array and a `summary` object. Each request entry has timing relative
-// to run start (`start_time_s`), URL/method/status, and optionally a
-// request/response body preview (small slice — bodies aren't archived
-// in full).
-
 package runinspect
 
 import (
@@ -79,9 +71,8 @@ func ParseNetworkCapture(data []byte) (*NetworkCapture, error) {
 	return &out, nil
 }
 
-// NetworkFilter narrows the request list. Zero value matches everything.
-// HostGlobs are path.Match patterns; Statuses match exact codes or
-// "Nxx" buckets; Grep is applied to URL + body previews.
+// NetworkFilter matches all requests when unset. HostGlobs accept case-insensitive
+// substrings or wildcard patterns; Grep tests URLs and body previews.
 type NetworkFilter struct {
 	HostGlobs    []string
 	Statuses     []StatusMatcher

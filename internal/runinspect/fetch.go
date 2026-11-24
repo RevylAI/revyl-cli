@@ -38,11 +38,7 @@ type Report struct {
 	NetworkRequestsURL string
 	HardwareMetricsURL string
 	PerfettoTraceURL   string
-	// *Partial flags mark a download URL that resolves to an in-progress
-	// {session_id}/live/ object (run still executing) rather than the
-	// finalized end-of-run artifact. The flag tells the reader to use the
-	// live per-record JSONL parser (network/perf) and to label the output
-	// partial; logs/state share their format both ways.
+	// The report's partial flags describe live availability, not parser selection.
 	DeviceStatePartial     bool
 	NetworkRequestsPartial bool
 	HardwareMetricsPartial bool
@@ -155,10 +151,7 @@ func FetchReportReference(ctx context.Context, client *api.Client, taskID, kind 
 // artifact was uploaded, or the caller has the wrong ID.
 var ErrReportNotFound = errors.New("report not found")
 
-// ErrNoDeviceStateArtifact signals the report exists but no
-// device_state.jsonl.gz was uploaded — typically means the run was on
-// Android, or the iOS sampler was disabled, or the run ended before
-// the upload phase.
+// ErrNoDeviceStateArtifact indicates the report has no device-state URL.
 var ErrNoDeviceStateArtifact = errors.New("device state artifact not present on this report")
 
 // FetchDeviceStateLines downloads the presigned device_state.jsonl.gz
@@ -184,10 +177,6 @@ func FetchDeviceStateLines(
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	// A still-growing live object must never be read from or written to the
-	// taskID-keyed cache, or a later post-run read is served the stale partial
-	// (and a mid-run `revyl run summary` would poison it). Enforce this here so
-	// every caller is safe regardless of the cacheDir it passes.
 	if IsLiveURL(report.DeviceStateURL) {
 		cacheDir = ""
 	}
@@ -238,9 +227,7 @@ func FetchDeviceStateLines(
 	return parseJSONLLines(raw)
 }
 
-// parseJSONLLines splits “text“ on newlines and decodes each
-// non-empty line. Lines that fail to parse are dropped — the sampler
-// writes line-by-line, so a crash mid-line is normal.
+// parseJSONLLines skips malformed records, including incomplete sampler writes.
 func parseJSONLLines(text []byte) ([]DeviceStateLine, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(text)))
 	// Plist XML can be sizable — give the scanner a generous line cap.
@@ -288,10 +275,6 @@ func strDeref[Text ~string](s *Text) string {
 	return string(*s)
 }
 
-// timeToRFC3339 renders an optional timestamp as an RFC3339 string (the shape
-// the report consumers expect), or "" when absent. The backend types
-// started_at/completed_at as date-times, so the generated client yields
-// *time.Time here rather than *string.
 func timeToRFC3339(t *time.Time) string {
 	if t == nil {
 		return ""
@@ -299,10 +282,7 @@ func timeToRFC3339(t *time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-// isNotFound recognises a 404 from the backend so callers can map
-// it to “ErrReportNotFound“ for a friendlier message. Prefers the
-// typed status code on “*api.APIError“ to avoid false positives from
-// transport errors whose messages happen to contain "not found".
+// isNotFound matches a typed backend 404, not text in a transport error.
 func isNotFound(err error) bool {
 	if err == nil {
 		return false

@@ -35,8 +35,7 @@ type SignupAttribution struct {
 	Version string
 }
 
-// addSignupAttribution sets the first-touch params the app reads at signup,
-// keeping any value the URL already carries.
+// addSignupAttribution fills missing or empty first-touch query values.
 func addSignupAttribution(query url.Values, flow string, attribution SignupAttribution) {
 	version := unreleasedCLIVersion
 	if releasedCLIVersionPattern.MatchString(attribution.Version) {

@@ -9,7 +9,7 @@ import "strconv"
 // CapturedPath is one row of the `revyl run state` listing.
 type CapturedPath struct {
 	Path          string `json:"path"`
-	Kind          string `json:"kind"`                  // "plist" or "sqlite"
+	Kind          string `json:"kind"`
 	KeyCount      int    `json:"key_count,omitempty"`   // plist
 	TableCount    int    `json:"table_count,omitempty"` // sqlite
 	FirstSeenStep int    `json:"first_seen_step"`
@@ -19,7 +19,7 @@ type CapturedPath struct {
 
 // PathSnapshot is the latest captured shape for a single path.
 type PathSnapshot struct {
-	Kind          string                  `json:"kind"` // "plist" or "sqlite"
+	Kind          string                  `json:"kind"`
 	Size          int64                   `json:"size"`
 	FirstSeenStep int                     `json:"first_seen_step"`
 	LastSeenStep  int                     `json:"last_seen_step"`

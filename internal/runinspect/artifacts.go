@@ -1,6 +1,3 @@
-// Generic artifact-download helpers for the run-inspector — fetch a
-// presigned S3 URL, optionally gunzip, optionally cache to disk.
-
 package runinspect
 
 import (
@@ -16,15 +13,11 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// ErrArtifactNotAvailable signals the report exists but the requested
-// artifact wasn't uploaded for this run.
+// ErrArtifactNotAvailable indicates no usable artifact URL was supplied or returned.
 var ErrArtifactNotAvailable = errors.New("artifact not available for this run")
 
-// FetchArtifactBytes downloads a presigned-URL artifact and returns its
-// decompressed contents (or raw bytes when `gunzip` is false). When
-// `cacheDir` is set, the payload is cached at
-// `<cacheDir>/<taskID>/<filename>` and reused on subsequent calls.
-// Caps decompressed size at 256 MiB.
+// FetchArtifactBytes reads a presigned artifact, optionally decompressing gzip.
+// The 256 MiB limit applies after decompression; live URLs bypass the task-ID cache.
 func FetchArtifactBytes(
 	ctx context.Context,
 	url string,
@@ -35,8 +28,6 @@ func FetchArtifactBytes(
 	if url == "" {
 		return nil, ErrArtifactNotAvailable
 	}
-	// Never cache a still-growing live object under the finalized key — see
-	// FetchDeviceStateLines. Centralized here so callers can't poison the cache.
 	if IsLiveURL(url) {
 		cacheDir = ""
 	}
@@ -145,9 +136,8 @@ func DownloadArtifactToFile(
 	return written, nil
 }
 
-// ResolveDeviceLogsURL hits the dedicated /reports/{report_id}/device-logs
-// endpoint to obtain a presigned URL. Returns ErrArtifactNotAvailable
-// when the backend says no device logs were uploaded.
+// ResolveDeviceLogsURL returns ErrArtifactNotAvailable for a 404 or a response
+// without a download URL.
 func ResolveDeviceLogsURL(
 	ctx context.Context,
 	client *api.Client,

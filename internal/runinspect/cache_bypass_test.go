@@ -11,7 +11,6 @@ import (
 	"testing"
 )
 
-// gzipBytes returns gzip(payload) for serving from a test server.
 func gzipBytes(t *testing.T, payload string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -40,7 +39,6 @@ func TestFetchDeviceStateLines_LiveURLBypassesCache(t *testing.T) {
 	cacheDir := t.TempDir()
 	taskID := "task-live"
 
-	// A live URL (contains /live/), served from the test server's path.
 	liveReport := &Report{
 		TaskID:         taskID,
 		DeviceStateURL: srv.URL + "/sess/live/device_state.jsonl.gz",

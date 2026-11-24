@@ -23,14 +23,11 @@ import (
 )
 
 const (
-	// deviceAuthorizationsPath is the collection the CLI registers against.
 	deviceAuthorizationsPath = "/api/v1/entity/users/cli-device-authorizations"
 
-	// deviceCredentialsPath is where an approved authorization is redeemed.
 	deviceCredentialsPath = "/api/v1/entity/users/cli-device-authorizations/credentials"
 
-	// deviceRequestTimeout bounds each individual call, so a hung server stalls
-	// one poll rather than the whole login.
+	// deviceRequestTimeout is the default HTTP client timeout for each call.
 	deviceRequestTimeout = 15 * time.Second
 
 	// defaultDevicePollInterval is used when the server does not state one.
@@ -52,7 +49,6 @@ var ErrDeviceAuthorizationDenied = errors.New("the authorization request was den
 // redeemable, because it timed out or was already completed.
 var ErrDeviceAuthorizationExpired = errors.New("the authorization request expired; run the command again")
 
-// DeviceAuthorization is a pending request the user has yet to decide.
 type DeviceAuthorization = api.CreateCLIDeviceAuthorizationResponse
 
 // PollDeadline returns when this authorization stops being redeemable.
@@ -70,7 +66,6 @@ func PollDeadline(authorization *DeviceAuthorization, now time.Time) time.Time {
 	return now.Add(time.Duration(authorization.ExpiresIn) * time.Second)
 }
 
-// pollInterval returns the first wait between polls.
 func pollInterval(interval int) time.Duration {
 	if interval <= 0 {
 		return defaultDevicePollInterval
@@ -78,9 +73,7 @@ func pollInterval(interval int) time.Duration {
 	return time.Duration(interval) * time.Second
 }
 
-// DeviceAuthConfig configures the device approval flow.
 type DeviceAuthConfig struct {
-	// BackendURL is the base URL of the Revyl API.
 	BackendURL string
 
 	// ClientInstanceID is the stable per-install identifier used to rotate only
@@ -97,14 +90,7 @@ type DeviceAuthConfig struct {
 	HTTPClient *http.Client
 }
 
-// ClientSourceFromEnv returns the bounded launcher stamped by the plugin hook.
-//
-// Only `cursor_plugin` is accepted. Any other value is treated as ordinary CLI
-// so an unknown or spoofed REVYL_CLIENT_SOURCE cannot change approval copy.
-//
-// Returns:
-//   - *api.CLIClientSource: The cursor_plugin enum when the environment stamps
-//     that source, otherwise nil.
+// ClientSourceFromEnv accepts only cursor_plugin as a hint for approval copy.
 func ClientSourceFromEnv() *api.CLIClientSource {
 	if strings.TrimSpace(os.Getenv("REVYL_CLIENT_SOURCE")) != string(api.CLIClientSourceCursorPlugin) {
 		return nil
@@ -113,7 +99,6 @@ func ClientSourceFromEnv() *api.CLIClientSource {
 	return &source
 }
 
-// DeviceAuth runs the server-brokered approval flow.
 type DeviceAuth struct {
 	config DeviceAuthConfig
 	client *http.Client
@@ -123,13 +108,6 @@ type DeviceAuth struct {
 	wait func(ctx context.Context, d time.Duration) error
 }
 
-// NewDeviceAuth creates a device approval handler.
-//
-// Parameters:
-//   - config: Backend URL and the identity of the requesting device.
-//
-// Returns:
-//   - *DeviceAuth: A handler ready to create and poll authorizations.
 func NewDeviceAuth(config DeviceAuthConfig) *DeviceAuth {
 	client := config.HTTPClient
 	if client == nil {
@@ -138,14 +116,6 @@ func NewDeviceAuth(config DeviceAuthConfig) *DeviceAuth {
 	return &DeviceAuth{config: config, client: client, wait: sleepOrCancel}
 }
 
-// sleepOrCancel waits out one poll interval unless the caller cancels first.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - d: How long to wait.
-//
-// Returns:
-//   - error: ctx.Err() when cancelled during the wait, otherwise nil.
 func sleepOrCancel(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -157,14 +127,7 @@ func sleepOrCancel(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// CreateAuthorization registers a pending approval request.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//
-// Returns:
-//   - *DeviceAuthorization: The device code, user code, and approval URLs.
-//   - error: A transport error, or a server error that never includes a secret.
+// CreateAuthorization requires a device code and a complete verification URL in the response.
 func (d *DeviceAuth) CreateAuthorization(ctx context.Context) (*DeviceAuthorization, error) {
 	body := api.CreateCLIDeviceAuthorizationRequest{}
 	if d.config.ClientInstanceID != "" {
@@ -187,22 +150,8 @@ func (d *DeviceAuth) CreateAuthorization(ctx context.Context) (*DeviceAuthorizat
 	return &authorization, nil
 }
 
-// WaitForApproval polls until the user decides or the request expires.
-//
-// Polling backs off while the request stays pending, so an approval a user
-// leaves for minutes does not hammer an unauthenticated endpoint, and returns
-// promptly once they act.
-//
-// Parameters:
-//   - ctx: Context for cancellation; a cancelled context stops polling at once.
-//   - authorization: The pending request returned by CreateAuthorization.
-//
-// Returns:
-//   - *BrowserAuthResult: The minted credential, shaped like the browser flow's
-//     result so both paths persist credentials through one code path.
-//   - error: ErrDeviceAuthorizationDenied when refused,
-//     ErrDeviceAuthorizationExpired when it timed out or was already redeemed,
-//     ctx.Err() when cancelled, or a transport error.
+// WaitForApproval backs off on pending responses and returns the approved key in
+// the browser login result shape so both flows can share credential storage.
 func (d *DeviceAuth) WaitForApproval(
 	ctx context.Context,
 	authorization *DeviceAuthorization,
@@ -252,13 +201,6 @@ func (d *DeviceAuth) WaitForApproval(
 	}
 }
 
-// nextPollInterval backs off one step, bounded by the cap.
-//
-// Parameters:
-//   - current: The interval just waited.
-//
-// Returns:
-//   - time.Duration: The next wait, never above maxDevicePollInterval.
 func nextPollInterval(current time.Duration) time.Duration {
 	next := time.Duration(float64(current) * devicePollBackoffFactor)
 	if next > maxDevicePollInterval {
@@ -291,13 +233,11 @@ func (d *DeviceAuth) redeem(ctx context.Context, deviceCode string) (*api.Redeem
 	return &credential, nil
 }
 
-// deviceStatusError is a non-2xx response from the authorization endpoints.
 type deviceStatusError struct {
 	StatusCode int
 	Detail     string
 }
 
-// Error describes the failure without echoing any request body.
 func (e *deviceStatusError) Error() string {
 	if e.Detail != "" {
 		return fmt.Sprintf("authorization request failed (%d): %s", e.StatusCode, e.Detail)
@@ -305,19 +245,8 @@ func (e *deviceStatusError) Error() string {
 	return fmt.Sprintf("authorization request failed with status %d", e.StatusCode)
 }
 
-// post sends one JSON request and decodes a JSON response.
-//
-// These endpoints are unauthenticated by design, so no credential is attached.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - path: Backend path to call.
-//   - body: Request payload to encode.
-//   - out: Destination for the decoded response.
-//
-// Returns:
-//   - error: A *deviceStatusError for non-2xx responses, otherwise a transport
-//     or decoding error. No error text contains the device code.
+// post sends a JSON request without an Authorization header. Non-2xx responses
+// return a deviceStatusError with the server's decoded detail, if any.
 func (d *DeviceAuth) post(ctx context.Context, path string, body any, out any) error {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -350,7 +279,6 @@ func (d *DeviceAuth) post(ctx context.Context, path string, body any, out any) e
 	return nil
 }
 
-// derefString returns the pointed-to string, or empty when the pointer is nil.
 func derefString(value *string) string {
 	if value == nil {
 		return ""
@@ -358,13 +286,6 @@ func derefString(value *string) string {
 	return *value
 }
 
-// decodeDetail extracts a FastAPI error detail, tolerating any other shape.
-//
-// Parameters:
-//   - body: The error response body.
-//
-// Returns:
-//   - string: The detail string, or empty when the body is not a detail object.
 func decodeDetail(body io.Reader) string {
 	var parsed struct {
 		Detail string `json:"detail"`

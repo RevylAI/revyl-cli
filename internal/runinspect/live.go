@@ -1,18 +1,3 @@
-// Live-source reading for in-progress runs.
-//
-// `revyl run {logs,network,perf,state}` defaults to the recorded S3
-// artifact, but those finalized objects only exist once the run uploads
-// them at the end. While a run is still executing, a per-step shipper
-// writes the still-growing capture files to a `{session_id}/live/...`
-// S3 prefix; the backend report context presigns those in-progress
-// objects and flags the field `*_partial`. The CLI downloads the object
-// through the same presigned-URL path it uses for the finalized artifact
-// and parses it: logs and state share their byte format with the
-// finalized object, so the post-run parsers are reused verbatim; the
-// network and perf live objects are per-record JSONL (vs the finalized
-// aggregated JSON), so they get the JSONL item parsers below. Renderers
-// stay shared in all cases.
-
 package runinspect
 
 import (
@@ -36,12 +21,7 @@ func IsLiveURL(url string) bool {
 	return strings.Contains(url, "/live/")
 }
 
-// RunLiveness reports whether the run behind a report is still active.
-// It frames messaging only — the per-artifact `*_partial` flag from the
-// report context is the authoritative signal for which parser to use and
-// whether to label the output partial. Liveness is consulted to explain
-// "no artifact yet" (run still executing) vs "no artifact" (finished run
-// that never captured it).
+// RunLiveness frames missing-artifact messages; parser selection uses the bytes.
 type RunLiveness struct {
 	Live     bool
 	Platform string
@@ -76,27 +56,14 @@ func ResolveRunLiveness(ctx context.Context, client *api.Client, report *Report)
 	return out, nil
 }
 
-// isAggregated reports whether data is the finalized single aggregated
-// JSON document — which carries aggregateKey ("samples" for perf,
-// "requests" for network) at the top level — rather than per-record
-// JSONL. It inspects only the first top-level JSON value, so a one-line
-// live file (whose record has no aggregateKey) is correctly classified as
-// JSONL. Detection is structural by design: it does not trust the
-// report's *_partial flag, so a stale or wrong flag can never route bytes
-// to the wrong parser.
-//
-// It scans top-level object keys via the token stream rather than decoding
-// the whole value, so probing a large aggregated document (the samples /
-// requests array can reach tens of MB) doesn't allocate the full payload
-// just to check for a key.
+// isAggregated checks the first object's top-level keys without decoding the
+// aggregate arrays into application data.
 func isAggregated(data []byte, aggregateKey string) bool {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	tok, err := dec.Token()
 	if err != nil {
 		return false
 	}
-	// A JSONL record also opens with '{', but its keys are per-record fields
-	// that won't include aggregateKey, so it falls through to false below.
 	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
 		return false
 	}
@@ -108,8 +75,6 @@ func isAggregated(data []byte, aggregateKey string) bool {
 		if key, ok := keyTok.(string); ok && key == aggregateKey {
 			return true
 		}
-		// Consume this key's value without retaining it, then continue
-		// scanning the remaining top-level keys.
 		if err := dec.Decode(&json.RawMessage{}); err != nil {
 			return false
 		}
@@ -138,8 +103,6 @@ func scanLiveJSONL(data []byte, fn func(line []byte)) error {
 	}
 	return nil
 }
-
-// --- network --------------------------------------------------------------
 
 type liveNetworkItem struct {
 	URL              string   `json:"url"`
@@ -195,8 +158,6 @@ func ParseLiveNetwork(data []byte) (*NetworkCapture, error) {
 	}
 	return out, nil
 }
-
-// --- perf -----------------------------------------------------------------
 
 type livePerfItem struct {
 	Timestamp float64                `json:"timestamp"`
@@ -267,8 +228,6 @@ func ParseLivePerf(data []byte) (*PerfCapture, error) {
 	return out, nil
 }
 
-// mapFloat extracts a numeric field from a loosely-typed JSON object,
-// tolerating the float64 / json.Number forms the decoder may produce.
 func mapFloat(m map[string]interface{}, key string) (float64, bool) {
 	if m == nil {
 		return 0, false

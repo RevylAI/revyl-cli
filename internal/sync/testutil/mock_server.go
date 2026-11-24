@@ -14,7 +14,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-// MockTest represents a test stored in the mock server's in-memory store.
 type MockTest struct {
 	ID       string
 	Name     string
@@ -24,43 +23,31 @@ type MockTest struct {
 	AppID    string
 }
 
-// MockApp represents an app stored in the mock server's in-memory store.
 type MockApp struct {
 	ID       string
 	Name     string
 	Platform string
 }
 
-// APICall records a single API request received by the mock server.
 type APICall struct {
 	Body   json.RawMessage
 	Method string
 	Path   string
 }
 
-// MockServer is an in-memory HTTP test server that simulates the Revyl API.
-//
-// It supports pre-seeding test data, recording API calls for assertions,
-// and injecting error responses for specific path prefixes.
 type MockServer struct {
 	Server *httptest.Server
 	Client *api.Client
 
-	tests map[string]MockTest
-	apps  map[string]MockApp
-	calls []APICall
-	// globals maps a global variable's name to its plaintext value.
+	tests   map[string]MockTest
+	apps    map[string]MockApp
+	calls   []APICall
 	globals map[string]string
 	errors  map[string]int // path prefix -> forced HTTP status code
 	nextID  int
 	mu      sync.Mutex
 }
 
-// NewMockServer creates and starts a new mock API server with all
-// supported endpoints and returns a configured API client.
-//
-// Returns:
-//   - *MockServer: A running mock server ready for use in tests
 func NewMockServer() *MockServer {
 	m := &MockServer{
 		tests:   make(map[string]MockTest),
@@ -76,53 +63,38 @@ func NewMockServer() *MockServer {
 	return m
 }
 
-// SeedGlobalVariable adds a plaintext org global variable.
 func (m *MockServer) SeedGlobalVariable(name, value string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.globals[name] = value
 }
 
-// SeedTest adds a test to the mock server's in-memory store.
-//
-// Parameters:
-//   - t: The test data to seed
 func (m *MockServer) SeedTest(t MockTest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tests[t.ID] = t
 }
 
-// SeedApp adds an app to the mock server's in-memory store.
 func (m *MockServer) SeedApp(app MockApp) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.apps[app.ID] = app
 }
 
-// ForceError injects an error response for any request whose path starts
-// with the given prefix. Persists until ClearErrors is called.
-//
-// Parameters:
-//   - pathPrefix: URL path prefix to match
-//   - statusCode: HTTP status code to return
+// ForceError adds a path-prefix override that lasts until ClearErrors.
 func (m *MockServer) ForceError(pathPrefix string, statusCode int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.errors[pathPrefix] = statusCode
 }
 
-// ClearErrors removes all injected error responses.
 func (m *MockServer) ClearErrors() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.errors = make(map[string]int)
 }
 
-// Calls returns a snapshot of all recorded API calls in order.
-//
-// Returns:
-//   - []APICall: Copy of recorded calls
+// Calls returns a slice copy of requests in recorded order.
 func (m *MockServer) Calls() []APICall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -148,14 +120,6 @@ func (m *MockServer) HasCall(method, pathPrefix string) bool {
 	return false
 }
 
-// TestByID returns the in-memory test for the given ID, if it exists.
-//
-// Parameters:
-//   - id: The test ID to look up
-//
-// Returns:
-//   - MockTest: The test data
-//   - bool: True if found
 func (m *MockServer) TestByID(id string) (MockTest, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -163,7 +127,6 @@ func (m *MockServer) TestByID(id string) (MockTest, bool) {
 	return t, ok
 }
 
-// Close shuts down the mock server.
 func (m *MockServer) Close() {
 	m.Server.Close()
 }

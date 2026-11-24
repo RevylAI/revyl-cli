@@ -9,9 +9,6 @@
 //     "memory_app": {"rss_kb": 193424, "vsize_kb": 411162672}
 //   }
 //
-// The captured `summary` field already has peak/avg pre-computed by the
-// worker, so the CLI mainly adds percentile detail (p50 / p95) the worker
-// doesn't pre-compute, and a peak-timestamp lookup.
 
 package runinspect
 
@@ -35,9 +32,7 @@ type PerfSample struct {
 	} `json:"memory_app,omitempty"`
 }
 
-// PerfSummary mirrors the captured `summary` object (worker-computed
-// aggregates). Fields are pointers so we can detect "field not in
-// payload" vs "field is zero".
+// PerfSummary uses pointers to distinguish omitted aggregates from zero values.
 type PerfSummary struct {
 	PeakCPUPercent      *float64 `json:"peak_cpu_percent,omitempty"`
 	AvgCPUPercent       *float64 `json:"avg_cpu_percent,omitempty"`
@@ -95,7 +90,7 @@ func ParsePerfCapture(data []byte) (*PerfCapture, error) {
 
 // MetricStats holds the percentile breakdown for a single series.
 type MetricStats struct {
-	Label   string // "CPU %", "Mem RSS MiB"
+	Label   string
 	Unit    string // "%", "MiB"
 	Min     float64
 	P50     float64
@@ -103,14 +98,12 @@ type MetricStats struct {
 	Max     float64
 	Avg     float64
 	Samples int
-	// PeakWallTimeS is the wall-clock offset (seconds from trace start)
-	// at which Max was first observed.
+	// PeakWallTimeS is the peak sample's offset in seconds from trace start.
 	PeakWallTimeS float64
 }
 
-// ComputeMetricStats returns p50/p95/min/max/avg for the two series
-// we currently capture (CPU and memory RSS). Skip is true for any
-// series with no captured samples.
+// ComputeMetricStats derives CPU and RSS statistics from samples. cpuOK and
+// memOK indicate whether their respective series had samples.
 func ComputeMetricStats(cap *PerfCapture) (cpu MetricStats, mem MetricStats, cpuOK, memOK bool) {
 	cpu.Label, cpu.Unit = "CPU %", "%"
 	mem.Label, mem.Unit = "Mem RSS", "MiB"

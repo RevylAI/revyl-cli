@@ -1,18 +1,3 @@
-// Device-log parsing + filtering for the run-inspector.
-//
-// We capture two different formats:
-//   - iOS: `log show --predicate ...` output. Header lines describe the
-//     predicate, then a column header (Timestamp / Thread / Type /
-//     Activity / PID / TTL), then a blank line, then data rows. Level is
-//     in the Type column ("Info", "Debug", "Default", "Error", "Fault").
-//   - Android: `adb logcat -v threadtime --uid=<uid>` output. Each line
-//     is "MM-DD HH:MM:SS.mmm PID TID L TAG: message" where L is a single
-//     letter level (V/D/I/W/E/F).
-//
-// The grep/level/tail filters work on parsed-line structs; the original
-// text is preserved verbatim for display so the user sees the same
-// content they'd see in raw logcat / `log show` output.
-
 package runinspect
 
 import (
@@ -123,8 +108,6 @@ func NormaliseLevels(tokens []string) map[string]bool {
 	}
 	return out
 }
-
-// --- internal parsing helpers --------------------------------------------
 
 // iosLevelRE matches the Type column of `log show` output. The column
 // is positional but indentation varies, so we anchor on word matches at

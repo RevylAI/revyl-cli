@@ -1,7 +1,4 @@
-// Package sse provides execution monitoring via SSE and polling.
-//
-// This package handles streaming and status-polling connections to the Revyl API
-// for monitoring test and workflow execution progress.
+// Package sse monitors test and workflow executions by stream or status polling.
 package sse
 
 import (
@@ -22,24 +19,20 @@ import (
 )
 
 const (
-	// sseStreamPath is the SSE streaming endpoint path appended to the backend URL.
 	sseStreamPath = "/api/v1/monitor/stream/unified"
 
-	// defaultPollInterval is the delay between status polling attempts.
 	defaultPollInterval = 2 * time.Second
 )
 
-// MonitoringMode controls how execution monitoring is performed.
 type MonitoringMode string
 
 const (
-	// MonitoringModeAuto attempts SSE first and falls back to polling on stream failure.
+	// MonitoringModeAuto tries SSE, then polls on error within the same deadline.
 	MonitoringModeAuto MonitoringMode = "auto"
 	// MonitoringModePolling uses status polling only and never opens an SSE stream.
 	MonitoringModePolling MonitoringMode = "polling"
 )
 
-// normalizeMonitoringMode resolves unset or unknown values to the default mode.
 func normalizeMonitoringMode(mode MonitoringMode) MonitoringMode {
 	if mode == MonitoringModePolling {
 		return MonitoringModePolling
@@ -47,7 +40,6 @@ func normalizeMonitoringMode(mode MonitoringMode) MonitoringMode {
 	return MonitoringModeAuto
 }
 
-// Monitor handles execution monitoring over SSE or polling.
 type Monitor struct {
 	apiKey     string
 	timeout    int
@@ -74,16 +66,8 @@ func NewMonitor(apiKey string, timeout int) *Monitor {
 	}
 }
 
-// NewMonitorWithDevMode creates a new SSE monitor with dev mode support.
-// When devMode is true, the monitor uses localhost URLs read from .env files.
-//
-// Parameters:
-//   - apiKey: The API key for authentication
-//   - timeout: Timeout in seconds
-//   - devMode: If true, use local development server URLs
-//
-// Returns:
-//   - *Monitor: A new monitor instance
+// NewMonitorWithDevMode uses the backend URL selected by devMode.
+// The timeout is in seconds and is shared by streaming and fallback polling.
 func NewMonitorWithDevMode(apiKey string, timeout int, devMode bool) *Monitor {
 	backendURL := config.GetBackendURL(devMode)
 	return &Monitor{
@@ -94,82 +78,59 @@ func NewMonitorWithDevMode(apiKey string, timeout int, devMode bool) *Monitor {
 	}
 }
 
-// TestStatus represents the status of a test execution.
 type TestStatus struct {
-	// TaskID is the execution task ID.
 	TaskID string
 
-	// Status is the current status (queued, running, completed, failed).
 	Status string
 
 	// Progress is the completion percentage (0-100).
 	Progress int
 
-	// CurrentStep is the description of the current step.
 	CurrentStep string
 
-	// TestName is the name of the test.
 	TestName string
 
-	// Duration is the execution duration.
 	Duration string
 
-	// ErrorMessage is the error message if failed.
 	ErrorMessage string
 
-	// CompletedSteps is the number of completed steps.
 	CompletedSteps int
 
-	// TotalSteps is the total number of steps.
 	TotalSteps int
 
-	// Success indicates if the test passed (true) or failed (false). Nil means still running.
+	// Success is nil when no outcome was reported.
 	Success *bool
 }
 
-// ChildTestProgress represents the status of an individual test within a workflow.
 type ChildTestProgress struct {
-	// TestName is the name of the test.
 	TestName string
-	// Platform is the execution platform (ios, android).
 	Platform string
-	// Status is the current status (queued, running, completed, failed, cancelled).
-	Status string
-	// Success indicates if the test passed. Nil means still running.
+	Status   string
+	// Success is nil when no outcome was reported.
 	Success *bool
 	// Duration is the execution duration as a human-readable string.
 	Duration string
 }
 
-// WorkflowStatus represents the status of a workflow execution.
 type WorkflowStatus struct {
 	ChildTasks []api.CLIWorkflowChildExecution
 
-	// TaskID is the execution task ID.
 	TaskID string
 
-	// Status is the current status.
 	Status string
 
-	// WorkflowName is the name of the workflow.
 	WorkflowName string
 
-	// TotalTests is the total number of tests.
 	TotalTests int
 
-	// CompletedTests is the number of completed tests.
 	CompletedTests int
 
-	// PassedTests is the number of passed tests.
 	PassedTests int
 
-	// FailedTests is the number of failed tests.
 	FailedTests int
 
-	// Duration is the execution duration.
 	Duration string
 
-	// ErrorMessage is the error message if failed.
 	ErrorMessage string
 
 	// ChildTests contains per-test progress when available from polling.
@@ -204,7 +165,6 @@ type OrgWorkflowMonitorItem struct {
 	Progress     float64                         `json:"progress"`
 }
 
-// WorkflowTask represents the task data within a workflow monitor item.
 type WorkflowTask struct {
 	ID             string `json:"id"`
 	WorkflowID     string `json:"workflow_id"`
@@ -228,8 +188,6 @@ type completedTestEnriched struct {
 	EnhancedTask         completedTestEnrichedTask `json:"enhanced_task"`
 }
 
-// completedTestEnrichedTask is the nested enhanced_task within completedTestEnriched.
-// It carries step-level execution details and error information.
 type completedTestEnrichedTask struct {
 	TotalSteps     int    `json:"total_steps"`
 	StepsCompleted int    `json:"steps_completed"`
@@ -237,35 +195,13 @@ type completedTestEnrichedTask struct {
 	Success        *bool  `json:"success"`
 }
 
-// MonitorTest monitors a test execution using the default monitoring mode.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - taskID: The task ID to monitor
-//   - testID: The test ID
-//   - onProgress: Callback for progress updates
-//
-// Returns:
-//   - *TestStatus: The final test status
-//   - error: Any error that occurred
+// MonitorTest uses auto mode to monitor taskID, the test execution ID.
 func (m *Monitor) MonitorTest(ctx context.Context, taskID, testID string, onProgress func(*TestStatus)) (*TestStatus, error) {
 	return m.MonitorTestWithMode(ctx, taskID, testID, MonitoringModeAuto, onProgress)
 }
 
-// MonitorTestWithMode monitors a test execution using the requested monitoring mode.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - taskID: The task ID to monitor
-//   - testID: The test ID
-//   - mode: Monitoring strategy to use (auto or polling-only)
-//   - onProgress: Callback for progress updates
-//
-// Returns:
-//   - *TestStatus: The final test status
-//   - error: Any error that occurred
+// MonitorTestWithMode shares one deadline across streaming and polling.
 func (m *Monitor) MonitorTestWithMode(ctx context.Context, taskID, testID string, mode MonitoringMode, onProgress func(*TestStatus)) (*TestStatus, error) {
-	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(m.timeout)*time.Second)
 	defer cancel()
 
@@ -273,10 +209,8 @@ func (m *Monitor) MonitorTestWithMode(ctx context.Context, taskID, testID string
 		return m.pollTestStatus(ctx, taskID, testID, onProgress)
 	}
 
-	// Try SSE first for real-time updates
 	status, err := m.monitorTestSSE(ctx, taskID, testID, onProgress)
 	if err != nil {
-		// Fallback to polling if SSE fails (connection issues, server doesn't support it, etc.)
 		return m.pollTestStatus(ctx, taskID, testID, onProgress)
 	}
 	return status, nil
@@ -295,7 +229,6 @@ func (m *Monitor) MonitorTestWithMode(ctx context.Context, taskID, testID string
 //   - *TestStatus: The final test status
 //   - error: Any error that occurred
 func (m *Monitor) monitorTestSSE(ctx context.Context, taskID, testID string, onProgress func(*TestStatus)) (*TestStatus, error) {
-	// Connect to unified SSE stream
 	sseURL := fmt.Sprintf("%s/api/v1/monitor/stream/unified", m.backendURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
@@ -339,7 +272,6 @@ func (m *Monitor) monitorTestSSE(ctx context.Context, taskID, testID string, onP
 
 		case event, ok := <-events:
 			if !ok {
-				// Channel closed
 				if lastStatus != nil {
 					return lastStatus, nil
 				}
@@ -361,19 +293,9 @@ func (m *Monitor) monitorTestSSE(ctx context.Context, taskID, testID string, onP
 	}
 }
 
-// handleTestEvent processes an SSE event and returns a TestStatus if the event
-// is relevant to the target task ID.
-//
-// Parameters:
-//   - event: The SSE event to process
-//   - targetTaskID: The task ID we're monitoring
-//
-// Returns:
-//   - *TestStatus: The test status if event is relevant, nil otherwise
 func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStatus {
 	switch event.Event {
 	case "initial_state":
-		// Check if our test is in the initial state
 		var data struct {
 			RunningTests []OrgTestMonitorItem `json:"running_tests"`
 		}
@@ -401,22 +323,14 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 
 	case "test_completed", "test_failed", "test_cancelled",
 		"test_completed_with_data", "test_failed_with_data", "test_cancelled_with_data":
-		// Handle completion events.
-		// Non-_with_data events use {"test": {...}} structure.
-		// _with_data events use flat base_data fields plus an enriched object under a status-specific key:
-		//   - "completed_test": {...}  (for test_completed_with_data)
-		//   - "failed_test": {...}     (for test_failed_with_data)
-		//   - "cancelled_test": {...}  (for test_cancelled_with_data)
+		// Terminal events can carry a nested test or flat IDs with status-specific data.
 		var data struct {
-			// Non-_with_data events nest the item under "test"
-			Test OrgTestMonitorItem `json:"test"`
-			// _with_data events include flat base_data fields
-			ID       string `json:"id"`
-			TaskID   string `json:"task_id"`
-			TestID   string `json:"test_id"`
-			TestName string `json:"test_name"`
-			Platform string `json:"platform"`
-			// Enriched test data keyed by final status
+			Test          OrgTestMonitorItem     `json:"test"`
+			ID            string                 `json:"id"`
+			TaskID        string                 `json:"task_id"`
+			TestID        string                 `json:"test_id"`
+			TestName      string                 `json:"test_name"`
+			Platform      string                 `json:"platform"`
 			CompletedTest *completedTestEnriched `json:"completed_test"`
 			FailedTest    *completedTestEnriched `json:"failed_test"`
 			CancelledTest *completedTestEnriched `json:"cancelled_test"`
@@ -425,7 +339,6 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 			log.Debug("Failed to parse test completion event", "event", event.Event, "error", err)
 			return nil
 		}
-		// Match by nested Test or by flat ID/TaskID fields (for _with_data events)
 		testID := data.Test.ID
 		testTaskID := data.Test.TaskID
 		if testID == "" {
@@ -446,7 +359,6 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 					TaskID:   testTaskID,
 					TestName: data.TestName,
 				}
-				// Extract duration from the enriched test data if available
 				enriched := data.CompletedTest
 				if enriched == nil {
 					enriched = data.FailedTest
@@ -489,19 +401,11 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 		}
 
 	case "heartbeat", "connection_ready":
-		// Ignore system events
 		return nil
 	}
 	return nil
 }
 
-// testMonitorItemToStatus converts an OrgTestMonitorItem to a TestStatus.
-//
-// Parameters:
-//   - item: The monitor item to convert
-//
-// Returns:
-//   - *TestStatus: The converted test status
 func testMonitorItemToStatus(item *OrgTestMonitorItem) *TestStatus {
 	// Backend sends progress as 0-100 float; truncate to int.
 	progressPercent := int(item.Progress)
@@ -518,10 +422,8 @@ func testMonitorItemToStatus(item *OrgTestMonitorItem) *TestStatus {
 	}
 }
 
-// pollTestStatus polls for test status updates.
 func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onProgress func(*TestStatus)) (*TestStatus, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	// Use the correct endpoint: /api/v1/tests/get_test_execution_task?task_id={taskID}
 	statusURL := fmt.Sprintf("%s/api/v1/tests/get_test_execution_task?task_id=%s", m.backendURL, taskID)
 
 	ticker := time.NewTicker(defaultPollInterval)
@@ -565,10 +467,6 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 			continue
 		}
 
-		// The backend returns TestExecutionTasksEnhanced model from test_executions_full view
-		// Fields: id, test_id, session_id, success, progress, current_step, current_step_index,
-		//         total_steps, steps_completed, error_message, status (from device_sessions),
-		//         started_at, completed_at, execution_time_seconds, platform
 		var statusResp struct {
 			Status               string   `json:"status"`   // From device_sessions
 			Progress             float64  `json:"progress"` // 0-100
@@ -591,13 +489,11 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 		}
 		resp.Body.Close()
 
-		// Reset consecutive errors on successful response
 		consecutiveErrors = 0
 
 		// Backend sends progress as 0-100 float; truncate to int.
 		progressPercent := int(statusResp.Progress)
 
-		// Format duration
 		duration := ""
 		if statusResp.ExecutionTimeSeconds != nil && *statusResp.ExecutionTimeSeconds > 0 {
 			duration = fmt.Sprintf("%.1fs", *statusResp.ExecutionTimeSeconds)
@@ -626,7 +522,6 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 			onProgress(status)
 		}
 
-		// Check if execution is complete using the shared status package
 		if statusutil.IsTerminal(status.Status) {
 			return status, nil
 		}
@@ -634,7 +529,6 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 		// If status is empty but success is explicitly set, the test has finished
 		// but the status field wasn't populated - this is a completion signal
 		if status.Status == "" && statusResp.Success != nil {
-			// Infer status from success field
 			if *statusResp.Success {
 				status.Status = "completed"
 			} else {
@@ -645,34 +539,13 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 	}
 }
 
-// MonitorWorkflow monitors a workflow execution using the default monitoring mode.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - taskID: The task ID to monitor (workflow execution ID)
-//   - workflowID: The workflow ID
-//
-// Returns:
-//   - *WorkflowStatus: The final workflow status
-//   - error: Any error that occurred
+// MonitorWorkflow uses auto mode to monitor taskID, the workflow execution ID.
 func (m *Monitor) MonitorWorkflow(ctx context.Context, taskID, workflowID string, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
 	return m.MonitorWorkflowWithMode(ctx, taskID, workflowID, MonitoringModeAuto, onProgress)
 }
 
-// MonitorWorkflowWithMode monitors a workflow execution using the requested monitoring mode.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - taskID: The task ID to monitor (workflow execution ID)
-//   - workflowID: The workflow ID
-//   - mode: Monitoring strategy to use (auto or polling-only)
-//   - onProgress: Optional callback for progress updates
-//
-// Returns:
-//   - *WorkflowStatus: The final workflow status
-//   - error: Any error that occurred
+// MonitorWorkflowWithMode shares one deadline across streaming and polling.
 func (m *Monitor) MonitorWorkflowWithMode(ctx context.Context, taskID, workflowID string, mode MonitoringMode, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
-	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(m.timeout)*time.Second)
 	defer cancel()
 
@@ -680,10 +553,8 @@ func (m *Monitor) MonitorWorkflowWithMode(ctx context.Context, taskID, workflowI
 		return m.pollWorkflowStatus(ctx, taskID, workflowID, onProgress)
 	}
 
-	// Try SSE first for real-time updates
 	status, err := m.monitorWorkflowSSE(ctx, taskID, workflowID, onProgress)
 	if err != nil {
-		// Fallback to polling if SSE fails
 		return m.pollWorkflowStatus(ctx, taskID, workflowID, onProgress)
 	}
 	return status, nil
@@ -702,7 +573,6 @@ func (m *Monitor) MonitorWorkflowWithMode(ctx context.Context, taskID, workflowI
 //   - *WorkflowStatus: The final workflow status
 //   - error: Any error that occurred
 func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID string, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
-	// Connect to unified SSE stream
 	sseURL := fmt.Sprintf("%s/api/v1/monitor/stream/unified", m.backendURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
@@ -746,7 +616,6 @@ func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID str
 
 		case event, ok := <-events:
 			if !ok {
-				// Channel closed
 				if lastStatus != nil {
 					return lastStatus, nil
 				}
@@ -772,19 +641,9 @@ func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID str
 	}
 }
 
-// handleWorkflowEvent processes an SSE event and returns a WorkflowStatus if the event
-// is relevant to the target task ID.
-//
-// Parameters:
-//   - event: The SSE event to process
-//   - targetTaskID: The workflow execution ID we're monitoring
-//
-// Returns:
-//   - *WorkflowStatus: The workflow status if event is relevant, nil otherwise
 func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *WorkflowStatus {
 	switch event.Event {
 	case "initial_state":
-		// Check if our workflow is in the initial state
 		var data struct {
 			RunningWorkflows []OrgWorkflowMonitorItem `json:"running_workflows"`
 		}
@@ -853,19 +712,11 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 		}
 
 	case "heartbeat", "connection_ready":
-		// Ignore system events
 		return nil
 	}
 	return nil
 }
 
-// workflowMonitorItemToStatus converts an OrgWorkflowMonitorItem to a WorkflowStatus.
-//
-// Parameters:
-//   - item: The monitor item to convert
-//
-// Returns:
-//   - *WorkflowStatus: The converted workflow status
 func workflowMonitorItemToStatus(item *OrgWorkflowMonitorItem) *WorkflowStatus {
 	return &WorkflowStatus{
 		TaskID:         item.Task.ID,
@@ -881,7 +732,6 @@ func workflowMonitorItemToStatus(item *OrgWorkflowMonitorItem) *WorkflowStatus {
 	}
 }
 
-// pollWorkflowStatus polls for workflow status updates.
 func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID string, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	statusURL := fmt.Sprintf("%s/api/v1/workflows/status/%s", m.backendURL, taskID)
@@ -953,10 +803,8 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 		}
 		resp.Body.Close()
 
-		// Reset consecutive errors on successful response
 		consecutiveErrors = 0
 
-		// Fetch per-test progress periodically via the unified report endpoint.
 		if pollCount%childTestPollInterval == 0 {
 			if children := m.fetchChildTestProgress(ctx, client, taskID); children != nil {
 				lastChildTests = children
@@ -982,16 +830,14 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 			onProgress(status)
 		}
 
-		// Check if execution is complete using the shared status package
 		if statusutil.IsTerminal(status.Status) {
 			return status, nil
 		}
 	}
 }
 
-// fetchChildTestProgress calls the unified report endpoint to get per-test
-// progress for the given workflow task. Returns nil on any error so the caller
-// can fall back to aggregate-only display.
+// fetchChildTestProgress returns nil on a report request or decode failure so
+// polling can still report aggregate progress.
 func (m *Monitor) fetchChildTestProgress(ctx context.Context, client *http.Client, taskID string) []ChildTestProgress {
 	url := fmt.Sprintf("%s/api/v1/workflows/share/unified-report", m.backendURL)
 	body := fmt.Sprintf(`{"workflow_task_id":%q}`, taskID)
@@ -1042,16 +888,8 @@ func (m *Monitor) fetchChildTestProgress(ctx context.Context, client *http.Clien
 	return children
 }
 
-// readSSEStream reads events from an SSE stream and sends them to channels.
-// It handles the text/event-stream format: id, event, data fields.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - resp: The HTTP response with the SSE stream body
-//
-// Returns:
-//   - <-chan SSEEvent: Channel that receives parsed SSE events
-//   - <-chan error: Channel that receives any errors
+// readSSEStream emits events delimited by blank lines. It closes the response
+// body and both result channels when the reader exits.
 func (m *Monitor) readSSEStream(ctx context.Context, resp *http.Response) (<-chan SSEEvent, <-chan error) {
 	events := make(chan SSEEvent, 10)
 	errs := make(chan error, 1)
@@ -1084,7 +922,6 @@ func (m *Monitor) readSSEStream(ctx context.Context, resp *http.Response) (<-cha
 			line = strings.TrimSuffix(line, "\r")
 
 			if line == "" {
-				// Empty line = end of event, dispatch if we have data
 				if event.Event != "" || dataBuilder.Len() > 0 {
 					if dataBuilder.Len() > 0 {
 						event.Data = json.RawMessage(dataBuilder.String())
@@ -1100,12 +937,10 @@ func (m *Monitor) readSSEStream(ctx context.Context, resp *http.Response) (<-cha
 				continue
 			}
 
-			// Parse SSE field
 			if strings.HasPrefix(line, "event:") {
 				event.Event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			} else if strings.HasPrefix(line, "data:") {
 				data := strings.TrimPrefix(line, "data:")
-				// Handle multi-line data by appending
 				if dataBuilder.Len() > 0 {
 					dataBuilder.WriteString("\n")
 				}
@@ -1118,11 +953,8 @@ func (m *Monitor) readSSEStream(ctx context.Context, resp *http.Response) (<-cha
 	return events, errs
 }
 
-// SSEEvent represents a parsed SSE event.
 type SSEEvent struct {
-	// Event is the event type.
 	Event string
 
-	// Data is the event data.
 	Data json.RawMessage
 }

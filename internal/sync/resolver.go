@@ -1,7 +1,4 @@
-// Package sync provides version conflict detection and resolution for test synchronization.
-//
-// This package handles detecting conflicts between local and remote test versions,
-// and provides strategies for resolving them.
+// Package sync reconciles local test files with saved tests.
 package sync
 
 import (
@@ -24,27 +21,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SyncStatus represents the sync status of a test.
 type SyncStatus int
 
 const (
-	// StatusSynced means local and remote are in sync.
+	// StatusSynced means no local checksum change or newer remote version was detected.
 	StatusSynced SyncStatus = iota
-	// StatusModified means local has changes not pushed.
 	StatusModified
-	// StatusOutdated means remote has changes not pulled.
 	StatusOutdated
-	// StatusConflict means both local and remote have changes.
 	StatusConflict
-	// StatusLocalOnly means test exists only locally.
 	StatusLocalOnly
-	// StatusRemoteOnly means test exists only on remote.
 	StatusRemoteOnly
 	// StatusOrphaned means the local/config remote link is stale or inaccessible.
 	StatusOrphaned
 )
 
-// String returns the string representation of a sync status.
 func (s SyncStatus) String() string {
 	switch s {
 	case StatusSynced:
@@ -66,73 +56,47 @@ func (s SyncStatus) String() string {
 	}
 }
 
-// RemoteLinkIssue describes why a linked remote test could not be resolved.
 type RemoteLinkIssue string
 
 const (
-	// RemoteLinkIssueNone indicates there is no remote link issue.
 	RemoteLinkIssueNone RemoteLinkIssue = ""
-	// RemoteLinkIssueMissing indicates the remote test no longer exists (404).
+	// RemoteLinkIssueMissing means the linked lookup returned HTTP 404.
 	RemoteLinkIssueMissing RemoteLinkIssue = "missing"
 	// RemoteLinkIssueInvalidID indicates the configured remote test ID is invalid (400).
 	RemoteLinkIssueInvalidID RemoteLinkIssue = "invalid-id"
-	// RemoteLinkIssueUnauthorized indicates authentication is missing/expired (401).
+	// RemoteLinkIssueUnauthorized means the linked lookup returned HTTP 401.
 	RemoteLinkIssueUnauthorized RemoteLinkIssue = "unauthorized"
 	// RemoteLinkIssueForbidden indicates access to the linked test is denied (403).
 	RemoteLinkIssueForbidden RemoteLinkIssue = "forbidden"
 )
 
-// TestSyncStatus contains sync status information for a test.
 type TestSyncStatus struct {
-	// Name is the test name/alias.
-	Name string
-	// Status is the sync status.
-	Status SyncStatus
-	// LocalVersion is the local version number.
-	LocalVersion int
-	// RemoteVersion is the remote version number.
+	Name          string
+	Status        SyncStatus
+	LocalVersion  int
 	RemoteVersion int
-	// LastSync is a human-readable last sync time.
-	LastSync string
-	// RemoteID is the test ID on the server.
-	RemoteID string
+	LastSync      string
+	RemoteID      string
 	// LinkIssue indicates a non-fatal remote link resolution issue.
-	LinkIssue RemoteLinkIssue
-	// LinkIssueMessage is a user-facing detail about LinkIssue.
+	LinkIssue        RemoteLinkIssue
 	LinkIssueMessage string
-	// ErrorMessage contains any error that occurred while determining status.
-	ErrorMessage string
+	ErrorMessage     string
 }
 
-// SyncResult contains the result of a sync operation.
 type SyncResult struct {
-	// Name is the test name.
-	Name string
-	// NewVersion is the new version after sync.
+	Name       string
 	NewVersion int
-	// Conflict indicates if there was a conflict.
-	Conflict bool
-	// Error is any error that occurred.
-	Error error
+	Conflict   bool
+	Error      error
 	// TagSyncError is a non-fatal error from tag synchronization.
 	TagSyncError error
 }
 
-// Resolver handles test name resolution and sync operations.
 type Resolver struct {
 	client     *api.Client
 	localTests map[string]*config.LocalTest
 }
 
-// NewResolver creates a new sync resolver.
-//
-// Parameters:
-//   - client: The API client
-//   - cfg: The project configuration
-//   - localTests: Map of local test definitions
-//
-// Returns:
-//   - *Resolver: A new resolver instance
 func NewResolver(client *api.Client, _ *config.ProjectConfig, localTests map[string]*config.LocalTest) *Resolver {
 	if localTests == nil {
 		localTests = make(map[string]*config.LocalTest)
@@ -144,19 +108,9 @@ func NewResolver(client *api.Client, _ *config.ProjectConfig, localTests map[str
 	}
 }
 
-// remoteStatusBatchSize bounds the test IDs sent per batch status lookup.
 const remoteStatusBatchSize = 100
 
-// GetAllStatuses returns sync status for all known tests.
-// Tests linked by UUID are looked up in batches so a project costs a few
-// requests instead of one per test; other links use the per-test lookup.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//
-// Returns:
-//   - []TestSyncStatus: List of test sync statuses
-//   - error: Any error that occurred
+// GetAllStatuses batches canonical UUID links and looks up other links individually.
 func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error) {
 	if len(r.localTests) == 0 {
 		return nil, nil
@@ -182,8 +136,7 @@ func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error)
 	return statuses, nil
 }
 
-// getBatchedStatuses resolves statuses for tests linked by UUID with one
-// request, falling back to per-test lookups when the backend rejects the batch.
+// getBatchedStatuses falls back to individual lookups for HTTP 400 or 404.
 func (r *Resolver) getBatchedStatuses(ctx context.Context, names []string) []TestSyncStatus {
 	remoteIDs := make([]string, 0, len(names))
 	for _, name := range names {
@@ -265,8 +218,6 @@ func (r *Resolver) getIndividualStatuses(ctx context.Context, names []string) []
 	return statuses
 }
 
-// newLinkedStatus returns the local half of a test's status: local-only when
-// it has no remote link, otherwise its link and local sync metadata.
 func (r *Resolver) newLinkedStatus(name string) *TestSyncStatus {
 	status := &TestSyncStatus{Name: name}
 
@@ -286,7 +237,6 @@ func (r *Resolver) newLinkedStatus(name string) *TestSyncStatus {
 	return status
 }
 
-// getTestStatus gets the sync status for a single test.
 func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncStatus, error) {
 	status := r.newLinkedStatus(name)
 	if status.RemoteID == "" {
@@ -306,8 +256,6 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 	return status, nil
 }
 
-// applyRemoteLookupError marks the status orphaned when the remote lookup
-// failed because the link is missing, invalid, or not accessible.
 func applyRemoteLookupError(status *TestSyncStatus, apiErr *api.APIError) bool {
 	switch apiErr.StatusCode {
 	case 404:
@@ -329,8 +277,6 @@ func applyRemoteLookupError(status *TestSyncStatus, apiErr *api.APIError) bool {
 	return true
 }
 
-// applyRemoteVersion classifies a linked test by comparing local content and
-// the last synced version with the current remote version.
 func (r *Resolver) applyRemoteVersion(status *TestSyncStatus, remoteVersion int) {
 	status.RemoteVersion = remoteVersion
 
@@ -340,16 +286,12 @@ func (r *Resolver) applyRemoteVersion(status *TestSyncStatus, remoteVersion int)
 	if !hasLocal {
 		status.Status = StatusRemoteOnly
 	} else if hasLocalChanges && remoteVersion > localTest.Meta.RemoteVersion {
-		// Both local content changed AND remote has newer version = conflict
 		status.Status = StatusConflict
 	} else if hasLocalChanges {
-		// Local content changed (detected via checksum mismatch)
 		status.Status = StatusModified
 	} else if remoteVersion > localTest.Meta.RemoteVersion {
-		// Remote has newer version, no local changes
 		status.Status = StatusOutdated
 	} else {
-		// Checksums match and versions are in sync
 		status.Status = StatusSynced
 	}
 }
@@ -399,13 +341,11 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	createOrgIDResolved := false
 	var createOrgIDErr error
 
-	// Fetch module/script name mappings once for name → UUID resolution.
 	pushScriptNames, pushModuleNames := r.FetchNameMappings(ctx)
 
 	for name, localTest := range testsToSync {
 		result := SyncResult{Name: name}
 
-		// Resolve build.name → app ID for push (with caching)
 		var resolvedAppID string
 		if localTest.Test.Build.Name != "" {
 			cacheKey := localTest.Test.Build.Name + "\x00" + localTest.Test.Metadata.Platform
@@ -442,8 +382,6 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				continue
 			}
 
-			// Resolve module/script names → UUIDs on a copy so the
-			// local YAML stays human-readable.
 			resolvedBlocks := deepCopyBlocks(localTest.Test.Blocks)
 			if err := resolveBlockNamesForPush(resolvedBlocks, pushScriptNames, pushModuleNames); err != nil {
 				result.Error = err
@@ -457,7 +395,6 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				continue
 			}
 
-			// Create new test on remote
 			resp, err := r.client.CreateTest(ctx, &api.CreateTestRequest{
 				SavedBuildSelection: saved,
 				PinnedVersionID:     localTest.Test.Build.PinnedVersion,
@@ -492,7 +429,6 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				}
 			}
 		} else {
-			// Update existing test
 			expectedVersion := 0
 			if !force {
 				expectedVersion = localTest.Meta.RemoteVersion
@@ -544,7 +480,6 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 					result.Error = fmt.Errorf("saved v%d, but its settings failed to save: %w", resp.Version, cfgErr)
 				}
 
-				// Save updated local test file
 				sanitized := util.SanitizeForFilename(name)
 				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
@@ -607,14 +542,11 @@ func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []st
 	return err
 }
 
-// syncTestConfig pushes variables, env vars, and device targets from local YAML
-// to the remote test. Uses delete-then-re-add when the YAML defines the section
-// (even if empty, to clear remote values), skipping only when the section is
-// completely absent (nil map). Saved secret variables are kept, and a file
-// variable with a secret's name is ignored, since files never hold secret values.
-//
-// Returns a joined error of all individual failures so callers can surface
-// partial-sync warnings without aborting the overall operation.
+// syncTestConfig leaves omitted variable and launch attachment sections unchanged;
+// explicit empty sections clear non-secret variables or attachments. Saved secret
+// variables are never overwritten by file values. Target fields are updated only
+// when at least one is set. Earlier errors can prevent replacing launch attachments;
+// the joined error can describe a partial sync.
 func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest *config.LocalTest) error {
 	var errs []error
 
@@ -727,7 +659,6 @@ func (r *Resolver) savedRunConfigWithFileLocation(ctx context.Context, testID st
 func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string, force bool) ([]SyncResult, error) {
 	var results []SyncResult
 
-	// Ensure tests directory exists
 	if err := ensureDir(testsDir); err != nil {
 		return nil, fmt.Errorf("failed to create tests directory: %w", err)
 	}
@@ -828,8 +759,6 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 	return result
 }
 
-// remoteTestDefinition returns the saved test's version and its definition as
-// a pull writes it to the test's file.
 func (r *Resolver) remoteTestDefinition(ctx context.Context, remoteID string) (int, config.TestDefinition, error) {
 	remoteTest, err := r.client.GetTest(ctx, remoteID)
 	if err != nil {
@@ -915,7 +844,6 @@ func (r *Resolver) remoteTestDefinition(ctx context.Context, remoteID string) (i
 		definition.EnvVars = envVars
 	}
 
-	// Parse device targets and orientation from GetTest response
 	if len(remoteTest.MobileTargets) > 0 {
 		mt := remoteTest.MobileTargets[0]
 		if mt.DeviceModel != "" && mt.DeviceModel != "AUTO" {
@@ -1007,18 +935,8 @@ func fallbackTestAlias(remoteID string) string {
 	return "test-" + trimmed
 }
 
-// GetDiff returns a unified diff of the test's file against the saved test as
-// a pull writes it to the file, both without _meta, so variables and the other
-// test settings compare alongside the steps. Lines starting with "-" are the
-// file's and lines starting with "+" the saved test's.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - testName: The test name
-//
-// Returns:
-//   - string: The diff output, empty when they match
-//   - error: Any error that occurred
+// GetDiff compares the file (-) with the saved test's pull projection (+),
+// including test settings but excluding _meta.
 func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error) {
 	localTest, hasLocal := r.localTests[testName]
 	if !hasLocal {
@@ -1049,7 +967,6 @@ func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error)
 	return generateSimpleDiff(sides[0], sides[1]), nil
 }
 
-// formatTimeAgo formats a timestamp as a human-readable "time ago" string.
 func formatTimeAgo(timestamp string) string {
 	t, err := time.Parse(time.RFC3339, timestamp)
 	if err != nil {
@@ -1073,14 +990,6 @@ func formatTimeAgo(timestamp string) string {
 	}
 }
 
-// generateSimpleDiff generates a unified diff between local and remote content.
-//
-// Parameters:
-//   - local: The local content
-//   - remote: The remote content
-//
-// Returns:
-//   - string: A unified diff format string showing the differences
 func generateSimpleDiff(local, remote string) string {
 	if local == remote {
 		return ""
@@ -1089,19 +998,15 @@ func generateSimpleDiff(local, remote string) string {
 	localLines := strings.Split(local, "\n")
 	remoteLines := strings.Split(remote, "\n")
 
-	// Build the diff output
 	var diff strings.Builder
 	diff.WriteString("--- local\n")
 	diff.WriteString("+++ remote\n")
 
-	// Use a simple line-by-line comparison with context
-	// This is a simplified diff that shows changed, added, and removed lines
 	maxLen := len(localLines)
 	if len(remoteLines) > maxLen {
 		maxLen = len(remoteLines)
 	}
 
-	// Track hunks of changes
 	type hunk struct {
 		localStart  int
 		localCount  int
@@ -1117,7 +1022,6 @@ func generateSimpleDiff(local, remote string) string {
 	i, j := 0, 0
 	for i < len(localLines) || j < len(remoteLines) {
 		if i < len(localLines) && j < len(remoteLines) && localLines[i] == remoteLines[j] {
-			// Lines match - context line
 			if currentHunk != nil {
 				currentHunk.lines = append(currentHunk.lines, " "+localLines[i])
 				currentHunk.localCount++
@@ -1126,9 +1030,7 @@ func generateSimpleDiff(local, remote string) string {
 			i++
 			j++
 		} else {
-			// Lines differ - start or continue a hunk
 			if currentHunk == nil {
-				// Start new hunk with context
 				startLocal := i - contextLines
 				if startLocal < 0 {
 					startLocal = 0
@@ -1143,7 +1045,6 @@ func generateSimpleDiff(local, remote string) string {
 					remoteStart: startRemote + 1,
 				}
 
-				// Add leading context
 				for k := startLocal; k < i; k++ {
 					currentHunk.lines = append(currentHunk.lines, " "+localLines[k])
 					currentHunk.localCount++
@@ -1151,21 +1052,17 @@ func generateSimpleDiff(local, remote string) string {
 				}
 			}
 
-			// Find the next matching line or end
 			if i < len(localLines) && (j >= len(remoteLines) || !containsLine(remoteLines[j:], localLines[i])) {
-				// Line removed from local
 				currentHunk.lines = append(currentHunk.lines, "-"+localLines[i])
 				currentHunk.localCount++
 				i++
 			} else if j < len(remoteLines) {
-				// Line added in remote
 				currentHunk.lines = append(currentHunk.lines, "+"+remoteLines[j])
 				currentHunk.remoteCount++
 				j++
 			}
 		}
 
-		// Check if we should close the hunk (after enough matching lines)
 		if currentHunk != nil && i < len(localLines) && j < len(remoteLines) {
 			matchCount := 0
 			for k := 0; k < contextLines*2 && i+k < len(localLines) && j+k < len(remoteLines); k++ {
@@ -1176,7 +1073,6 @@ func generateSimpleDiff(local, remote string) string {
 				}
 			}
 			if matchCount >= contextLines*2 {
-				// Add trailing context and close hunk
 				for k := 0; k < contextLines && i < len(localLines) && j < len(remoteLines); k++ {
 					if localLines[i] == remoteLines[j] {
 						currentHunk.lines = append(currentHunk.lines, " "+localLines[i])
@@ -1192,12 +1088,10 @@ func generateSimpleDiff(local, remote string) string {
 		}
 	}
 
-	// Close any remaining hunk
 	if currentHunk != nil {
 		hunks = append(hunks, *currentHunk)
 	}
 
-	// Format hunks
 	for _, h := range hunks {
 		diff.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", h.localStart, h.localCount, h.remoteStart, h.remoteCount))
 		for _, line := range h.lines {
@@ -1208,7 +1102,6 @@ func generateSimpleDiff(local, remote string) string {
 	return diff.String()
 }
 
-// containsLine checks if a line exists in the remaining lines.
 func containsLine(lines []string, target string) bool {
 	// Only look ahead a limited distance to avoid O(n^2) behavior
 	lookAhead := 10
@@ -1223,9 +1116,8 @@ func containsLine(lines []string, target string) bool {
 	return false
 }
 
-// FetchNameMappings fetches script and module name mappings for the org.
-// Returns two maps: scriptID->name and moduleID->name.
-// Failures are non-fatal; empty maps are returned on error.
+// FetchNameMappings returns script and module ID-to-name maps, in that order.
+// Each failed lookup leaves only its own map empty.
 func (r *Resolver) FetchNameMappings(ctx context.Context) (map[string]string, map[string]string) {
 	scriptNames := make(map[string]string)
 	moduleNames := make(map[string]string)
@@ -1245,9 +1137,8 @@ func (r *Resolver) FetchNameMappings(ctx context.Context) (map[string]string, ma
 	return scriptNames, moduleNames
 }
 
-// RemoteTestBlocks returns the saved test's blocks as a pull writes them to
-// its file, with module and script references by name. scriptNames and
-// moduleNames come from FetchNameMappings, fetched once for several tests.
+// RemoteTestBlocks projects the saved blocks for an authored file, resolving
+// script and module names where mappings are available.
 func (r *Resolver) RemoteTestBlocks(ctx context.Context, remoteID string, scriptNames, moduleNames map[string]string) ([]config.TestBlock, error) {
 	remoteTest, err := r.client.GetTest(ctx, remoteID)
 	if err != nil {
@@ -1261,9 +1152,6 @@ func (r *Resolver) RemoteTestBlocks(ctx context.Context, remoteID string, script
 	return blocks, nil
 }
 
-// authoredBlocksFromTasks converts a saved test's tasks into the blocks its
-// file holds, without server block IDs; the module and script references
-// still carry IDs until resolveBlockNames names them.
 func authoredBlocksFromTasks(tasks interface{}) ([]config.TestBlock, error) {
 	blocks, err := convertTasksToBlocks(tasks)
 	if err != nil {
@@ -1272,9 +1160,8 @@ func authoredBlocksFromTasks(tasks interface{}) ([]config.TestBlock, error) {
 	return stripBlockIDs(blocks), nil
 }
 
-// resolveBlockNames converts pulled internal references into clean authored YAML.
-// Legacy code_execution UUIDs in step_description are normalized into script_id
-// so local YAML no longer treats step_description as a reference payload.
+// resolveBlockNames also handles legacy script IDs in step_description when the
+// ID has a known name; unresolved references may remain.
 func resolveBlockNames(blocks []config.TestBlock, scriptNames, moduleNames map[string]string) {
 	for i := range blocks {
 		b := &blocks[i]
@@ -1403,8 +1290,6 @@ func resolveBlockNamesForPushWalk(blocks []config.TestBlock, scriptByName, modul
 	}
 }
 
-// deepCopyBlocks returns a deep copy of blocks so push resolution doesn't
-// mutate the originals (keeping the local YAML free of injected UUIDs).
 func deepCopyBlocks(blocks []config.TestBlock) []config.TestBlock {
 	out := make([]config.TestBlock, len(blocks))
 	copy(out, blocks)
@@ -1422,14 +1307,6 @@ func deepCopyBlocks(blocks []config.TestBlock) []config.TestBlock {
 	return out
 }
 
-// convertTasksToBlocks converts the API tasks (interface{}) to []config.TestBlock.
-//
-// Parameters:
-//   - tasks: The tasks from the API response (can be []interface{}, []map[string]interface{}, etc.)
-//
-// Returns:
-//   - []config.TestBlock: The converted blocks
-//   - error: Any parse error from converting tasks to blocks
 func convertTasksToBlocks(tasks interface{}) ([]config.TestBlock, error) {
 	if tasks == nil {
 		return nil, nil
@@ -1456,9 +1333,6 @@ func convertTasksToBlocks(tasks interface{}) ([]config.TestBlock, error) {
 	return blocks, nil
 }
 
-// nameGlobalVariables rewrites each saved block whose variable_scope is
-// global to the "global.<name>" variable_name files use, since TestBlock has
-// no scope field.
 func nameGlobalVariables(savedBlocks interface{}) {
 	switch value := savedBlocks.(type) {
 	case map[string]interface{}:
@@ -1475,8 +1349,8 @@ func nameGlobalVariables(savedBlocks interface{}) {
 	}
 }
 
-// AuthoredBlocks converts saved blocks into the form local files hold: no
-// server block IDs, and modules and scripts named instead of referenced by ID.
+// AuthoredBlocks drops server block IDs and replaces mapped module and script
+// references with names.
 func AuthoredBlocks(savedBlocks interface{}, scriptNames, moduleNames map[string]string) ([]config.TestBlock, error) {
 	blocks, err := convertTasksToBlocks(savedBlocks)
 	if err != nil {
@@ -1487,25 +1361,11 @@ func AuthoredBlocks(savedBlocks interface{}, scriptNames, moduleNames map[string
 	return blocks, nil
 }
 
-// stripBlockIDs removes server-generated IDs from blocks recursively.
-//
-// Block IDs are computed server-side from the test_id and the block's
-// semantic path (position in the hierarchy). They should not be stored
-// in local YAML files because:
-//   - IDs are noise for users editing tests
-//   - They cause merge conflicts across branches
-//   - They pollute diffs with irrelevant changes
-//
-// Parameters:
-//   - blocks: The blocks to strip IDs from
-//
-// Returns:
-//   - []config.TestBlock: Blocks with IDs cleared
 func stripBlockIDs(blocks []config.TestBlock) []config.TestBlock {
 	result := make([]config.TestBlock, len(blocks))
 	for i, block := range blocks {
 		result[i] = block
-		result[i].ID = "" // Server-generated; noise in YAML
+		result[i].ID = ""
 
 		if len(block.Then) > 0 {
 			result[i].Then = stripBlockIDs(block.Then)
@@ -1520,13 +1380,6 @@ func stripBlockIDs(blocks []config.TestBlock) []config.TestBlock {
 	return result
 }
 
-// ensureDir creates a directory if it doesn't exist.
-//
-// Parameters:
-//   - path: The directory path to create
-//
-// Returns:
-//   - error: Any error that occurred during creation
 func ensureDir(path string) error {
 	return os.MkdirAll(path, 0755)
 }

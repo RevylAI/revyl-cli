@@ -1,6 +1,3 @@
-// Package interactive provides the interactive test creation mode for the CLI.
-//
-// This file contains the REPL (Read-Eval-Print Loop) for interactive test creation.
 package interactive
 
 import (
@@ -20,69 +17,44 @@ import (
 	"github.com/revyl/cli/internal/util"
 )
 
-// REPL handles the interactive command loop.
 type REPL struct {
-	// session is the interactive session.
 	session *Session
 
-	// reader reads user input.
 	reader *bufio.Reader
 
-	// running indicates if the REPL is active (accessed atomically).
 	running atomic.Bool
 
-	// styles contains the UI styles.
 	styles *REPLStyles
 
-	// hotReloadManager is the optional hot reload manager for cleanup.
-	// When set, the REPL will stop the hot reload manager on exit.
 	hotReloadManager *hotreload.Manager
 
-	// hotReloadURL is the deep link URL for hot reload mode.
-	// When set, the 'navigate' command without arguments will use this URL.
 	hotReloadURL string
 }
 
-// REPLStyles contains the styling for REPL output.
 type REPLStyles struct {
-	// Prompt is the style for the input prompt.
 	Prompt lipgloss.Style
 
-	// Success is the style for success messages.
 	Success lipgloss.Style
 
-	// Error is the style for error messages.
 	Error lipgloss.Style
 
-	// Info is the style for info messages.
 	Info lipgloss.Style
 
-	// Dim is the style for dimmed text.
 	Dim lipgloss.Style
 
-	// StepIndex is the style for step indices.
 	StepIndex lipgloss.Style
 
-	// StepType is the style for step types.
 	StepType lipgloss.Style
 
-	// Header is the style for headers.
 	Header lipgloss.Style
 
-	// Running is the style for running/executing state.
 	Running lipgloss.Style
 
-	// Action is the style for action descriptions.
 	Action lipgloss.Style
 
-	// Duration is the style for duration text.
 	Duration lipgloss.Style
 }
 
-// NewREPLStyles creates default REPL styles.
-//
-// Returns:
-//   - *REPLStyles: The default styles
 func NewREPLStyles() *REPLStyles {
 	return &REPLStyles{
 		Prompt:    lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")).Bold(true),
@@ -99,13 +71,6 @@ func NewREPLStyles() *REPLStyles {
 	}
 }
 
-// NewREPL creates a new REPL instance.
-//
-// Parameters:
-//   - session: The interactive session to use
-//
-// Returns:
-//   - *REPL: A new REPL instance
 func NewREPL(session *Session) *REPL {
 	return &REPL{
 		session:      session,
@@ -115,41 +80,22 @@ func NewREPL(session *Session) *REPL {
 	}
 }
 
-// SetHotReloadManager sets the hot reload manager for coordinated cleanup.
-// When set, the REPL will stop the hot reload manager (dev server + tunnel)
-// when the REPL exits.
-//
-// Parameters:
-//   - manager: The hot reload manager to cleanup on exit (can be nil)
+// SetHotReloadManager assigns ownership of hot reload cleanup to the REPL.
 func (r *REPL) SetHotReloadManager(manager *hotreload.Manager) {
 	r.hotReloadManager = manager
 }
 
-// SetHotReloadURL sets the hot reload deep link URL.
-// When set, the 'navigate' command without arguments will use this URL,
-// providing a convenient shortcut to navigate to the hot reload app.
-//
-// Parameters:
-//   - url: The deep link URL for hot reload (e.g., "nof1://expo-development-client/?url=...")
+// SetHotReloadURL supplies the deep link used by a bare navigate command.
 func (r *REPL) SetHotReloadURL(url string) {
 	r.hotReloadURL = url
 }
 
-// Run starts the REPL loop.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//
-// Returns:
-//   - error: Any error that occurred
 func (r *REPL) Run(ctx context.Context) error {
 	r.running.Store(true)
 
-	// Create a cancellable context for the REPL
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Ensure cleanup on any exit (including panic)
 	defer func() {
 		// Stop hot reload manager first (dev server + tunnel)
 		if r.hotReloadManager != nil {
@@ -164,40 +110,33 @@ func (r *REPL) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// Handle signals in a separate goroutine
 	go func() {
 		select {
 		case sig := <-sigChan:
 			fmt.Printf("\n%s\n", r.styles.Info.Render(fmt.Sprintf("Received %v, shutting down...", sig)))
 			r.running.Store(false)
-			cancel() // Cancel context to unblock any waiting operations
+			cancel()
 		case <-ctx.Done():
 			return
 		}
 	}()
 
-	// Track if we've shown the ready prompt yet
 	var readyPromptShown atomic.Bool
 
-	// Set up session callbacks
 	r.session.SetOnLog(func(msg string) {
-		// If we haven't shown the ready prompt yet, just print the log
-		// Otherwise, we need to handle the prompt being on screen
+		// Skip startup logs once the ready prompt is shown.
 		if !readyPromptShown.Load() {
 			fmt.Println(r.styles.Dim.Render("  " + msg))
 		}
-		// After ready prompt is shown, logs will be handled by the main loop
 	})
 
 	r.session.SetOnStateChange(func(state SessionState) {
 		switch state {
 		case StateReady:
-			// Don't print anything, just ready for input
 		case StateExecuting:
 			// Don't print here - we'll print the instruction in executeStep
 		case StateError:
@@ -213,7 +152,6 @@ func (r *REPL) Run(ctx context.Context) error {
 		r.printStepProgress(msg)
 	})
 
-	// Start the session
 	fmt.Println(r.styles.Info.Render("Starting device..."))
 	if err := r.session.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start session: %w", err)
@@ -235,23 +173,18 @@ func (r *REPL) Run(ctx context.Context) error {
 	}
 	fmt.Println()
 
-	// Print welcome message after device is ready
 	r.printWelcome()
 
-	// Display frontend URL for live preview
 	frontendURL := r.session.GetFrontendURL()
 	fmt.Println(r.styles.Info.Render("Live preview: " + frontendURL))
 	fmt.Println()
 
-	// Print a clear ready indicator
 	r.printReadyBanner()
 	readyPromptShown.Store(true)
 
-	// Channel for input lines
 	inputChan := make(chan string)
 	errChan := make(chan error)
 
-	// Read input in a separate goroutine
 	go func() {
 		for r.running.Load() {
 			input, err := r.reader.ReadString('\n')
@@ -267,13 +200,10 @@ func (r *REPL) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Main REPL loop
 	for r.running.Load() {
-		// Print prompt
 		prompt := r.styles.Prompt.Render("revyl> ")
 		fmt.Print(prompt)
 
-		// Wait for input or cancellation
 		select {
 		case <-ctx.Done():
 			r.running.Store(false)
@@ -292,14 +222,12 @@ func (r *REPL) Run(ctx context.Context) error {
 				continue
 			}
 
-			// Parse and execute command
 			if err := r.executeCommand(ctx, input); err != nil {
 				fmt.Println(r.styles.Error.Render(fmt.Sprintf("Error: %v", err)))
 			}
 		}
 	}
 
-	// Cleanup
 	fmt.Println(r.styles.Info.Render("Stopping session..."))
 	if err := r.session.Stop(); err != nil {
 		fmt.Println(r.styles.Error.Render(fmt.Sprintf("Warning: %v", err)))
@@ -309,7 +237,6 @@ func (r *REPL) Run(ctx context.Context) error {
 	return nil
 }
 
-// executeCommand parses and executes a user command.
 func (r *REPL) executeCommand(ctx context.Context, input string) error {
 	cmd, err := ParseCommandWithDefaults(input, r.hotReloadURL)
 	if err != nil {
@@ -355,7 +282,6 @@ func (r *REPL) executeCommand(ctx context.Context, input string) error {
 		return r.handleRun(ctx)
 
 	default:
-		// Step commands
 		if IsStepCommand(cmd) {
 			return r.executeStep(ctx, cmd)
 		}
@@ -363,7 +289,6 @@ func (r *REPL) executeCommand(ctx context.Context, input string) error {
 	}
 }
 
-// executeStep executes a step command.
 func (r *REPL) executeStep(ctx context.Context, cmd *ParsedCommand) error {
 	if !r.session.IsDeviceReady() {
 		return fmt.Errorf("device is still initializing, please wait...")
@@ -371,12 +296,10 @@ func (r *REPL) executeStep(ctx context.Context, cmd *ParsedCommand) error {
 
 	instruction := cmd.Instruction
 
-	// For commands without explicit instruction, use the command type
 	if instruction == "" {
 		instruction = string(cmd.Type)
 	}
 
-	// Print execution feedback with clean visual hierarchy
 	stepNum := len(r.session.Steps()) + 1
 	fmt.Println()
 	fmt.Printf("  %s %s\n",
@@ -391,7 +314,6 @@ func (r *REPL) executeStep(ctx context.Context, cmd *ParsedCommand) error {
 	return err
 }
 
-// handleUndo removes the last step.
 func (r *REPL) handleUndo() error {
 	step, err := r.session.UndoLastStep()
 	if err != nil {
@@ -402,36 +324,29 @@ func (r *REPL) handleUndo() error {
 	return nil
 }
 
-// handleSave exports the test to YAML.
 func (r *REPL) handleSave(args []string) error {
 	steps := r.session.Steps()
 	if len(steps) == 0 {
 		return fmt.Errorf("no steps to save")
 	}
 
-	// Determine filename: use provided arg, or test name, or default
 	var filename string
 	if len(args) > 0 {
 		filename = args[0]
 	} else {
-		// Use test name from session config if available
 		testName := r.session.GetTestName()
 		if testName != "" {
-			// Sanitize test name for filename
 			filename = util.SanitizeForFilename(testName)
 		} else {
 			filename = "test"
 		}
 	}
 
-	// Ensure .yaml extension
 	if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
 		filename += ".yaml"
 	}
 
-	// Check if file already exists
 	if _, err := os.Stat(filename); err == nil {
-		// File exists - prompt for confirmation or suggest alternative
 		fmt.Printf("  %s File %s already exists\n", r.styles.Error.Render("!"), filename)
 		fmt.Printf("  %s Use 'save <new-filename>' to save with a different name\n", r.styles.Dim.Render("→"))
 		return nil
@@ -448,7 +363,6 @@ func (r *REPL) handleSave(args []string) error {
 	return nil
 }
 
-// handleClear clears all recorded steps.
 func (r *REPL) handleClear() error {
 	steps := r.session.Steps()
 	if len(steps) == 0 {
@@ -456,7 +370,6 @@ func (r *REPL) handleClear() error {
 		return nil
 	}
 
-	// Undo all steps
 	for range steps {
 		if _, err := r.session.UndoLastStep(); err != nil {
 			return fmt.Errorf("failed to clear steps: %w", err)
@@ -467,14 +380,12 @@ func (r *REPL) handleClear() error {
 	return nil
 }
 
-// handleReplay re-executes a step by index.
 func (r *REPL) handleReplay(ctx context.Context, args []string) error {
 	steps := r.session.Steps()
 	if len(steps) == 0 {
 		return fmt.Errorf("no steps to replay")
 	}
 
-	// Default to last step
 	index := len(steps) - 1
 	if len(args) > 0 {
 		i, err := strconv.Atoi(args[0])
@@ -491,13 +402,11 @@ func (r *REPL) handleReplay(ctx context.Context, args []string) error {
 	step := steps[index]
 	fmt.Println(r.styles.Info.Render(fmt.Sprintf("Replaying step %d: %s", index+1, step.Instruction)))
 
-	// Convert step type back to command type for replay
 	cmdType := StepTypeToCommandType(step.StepType)
 	_, err := r.session.ExecuteStep(ctx, cmdType, step.Instruction)
 	return err
 }
 
-// handleRun executes all steps from the beginning.
 func (r *REPL) handleRun(ctx context.Context) error {
 	steps := r.session.Steps()
 	if len(steps) == 0 {
@@ -509,7 +418,6 @@ func (r *REPL) handleRun(ctx context.Context) error {
 	for i, step := range steps {
 		fmt.Println(r.styles.Info.Render(fmt.Sprintf("Step %d/%d: %s", i+1, len(steps), step.Instruction)))
 
-		// Convert step type back to command type for execution
 		cmdType := StepTypeToCommandType(step.StepType)
 		_, err := r.session.ExecuteStep(ctx, cmdType, step.Instruction)
 		if err != nil {
@@ -521,7 +429,6 @@ func (r *REPL) handleRun(ctx context.Context) error {
 	return nil
 }
 
-// printWelcome prints the welcome message.
 func (r *REPL) printWelcome() {
 	fmt.Println()
 	fmt.Println(r.styles.Header.Render("Revyl Interactive Test Creation"))
@@ -535,7 +442,6 @@ func (r *REPL) printWelcome() {
 	fmt.Println()
 }
 
-// printReadyBanner prints a clear visual indicator that the REPL is ready for input.
 func (r *REPL) printReadyBanner() {
 	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 	if r.session.IsDeviceReady() {
@@ -547,8 +453,6 @@ func (r *REPL) printReadyBanner() {
 	fmt.Println()
 }
 
-// printHelp displays the styled help text with visual hierarchy using lipgloss.
-// Step commands are shown in purple, session commands in teal, examples dimmed.
 func (r *REPL) printHelp() {
 	purple := lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF"))
 	teal := lipgloss.NewStyle().Foreground(lipgloss.Color("#14B8A6"))
@@ -561,46 +465,38 @@ func (r *REPL) printHelp() {
 
 	fmt.Println()
 
-	// Step commands section
 	fmt.Printf("  %s\n", purple.Bold(true).Render("STEP COMMANDS"))
 	fmt.Printf("  %s\n", line)
 	fmt.Println()
 
-	// Natural language instruction
 	fmt.Printf("  %s  %s\n", cmd.Render("<instruction>     "), desc.Render("Natural language action on the device"))
 	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("Tap the Sign In button"))
 	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("Type \"hello@example.com\" in the email field"))
 	fmt.Println()
 
-	// Validate
 	fmt.Printf("  %s  %s\n", cmd.Render("validate <text>   "), desc.Render("Assert something is true on screen"))
 	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("validate Welcome message is visible"))
 	fmt.Println()
 
-	// Wait
 	fmt.Printf("  %s  %s\n", cmd.Render("wait <time/cond>  "), desc.Render("Pause or wait for a condition"))
 	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("wait 3s"))
 	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("wait for loading to complete"))
 	fmt.Println()
 
-	// Navigate
 	fmt.Printf("  %s  %s\n", cmd.Render("navigate <url>    "), desc.Render("Open a URL or deep link"))
 	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("navigate myapp://settings"))
 	fmt.Println()
 
-	// Simple commands
 	fmt.Printf("  %s  %s\n", cmd.Render("back              "), desc.Render("Press the back button"))
 	fmt.Printf("  %s  %s\n", cmd.Render("home              "), desc.Render("Press the home button"))
 	fmt.Printf("  %s  %s\n", cmd.Render("open-app <id>     "), desc.Render("Launch app by bundle ID"))
 	fmt.Printf("  %s  %s\n", cmd.Render("kill-app [id]     "), desc.Render("Terminate app (current if no ID)"))
 	fmt.Println()
 
-	// Session commands section
 	fmt.Printf("  %s\n", teal.Bold(true).Render("SESSION COMMANDS"))
 	fmt.Printf("  %s\n", line)
 	fmt.Println()
 
-	// Two-column layout for session commands
 	fmt.Printf("  %s %s      %s %s\n",
 		cmd.Render("undo     "), desc.Render("Remove last step"),
 		cmd.Render("list  "), desc.Render("Show all steps"))
@@ -615,13 +511,11 @@ func (r *REPL) printHelp() {
 		cmd.Render("quit  "), desc.Render("Exit"))
 	fmt.Println()
 
-	// Tips
 	fmt.Printf("  %s\n", divider.Render("─────────────────────────────────────────────────────────"))
 	fmt.Printf("  %s %s\n", example.Render("tip:"), desc.Render("Steps auto-save after each execution. Use natural language!"))
 	fmt.Println()
 }
 
-// printStatus prints the current session status.
 func (r *REPL) printStatus() {
 	fmt.Println()
 	fmt.Println(r.styles.Header.Render("Session Status"))
@@ -634,7 +528,6 @@ func (r *REPL) printStatus() {
 	fmt.Println()
 }
 
-// printSteps prints all recorded steps.
 func (r *REPL) printSteps() {
 	steps := r.session.Steps()
 	if len(steps) == 0 {
@@ -668,16 +561,13 @@ func (r *REPL) printSteps() {
 	fmt.Println()
 }
 
-// printStepResult prints the result of a step execution.
 func (r *REPL) printStepResult(step *StepRecord) {
-	// Format duration nicely
 	durationStr := fmt.Sprintf("%dms", step.Duration)
 	if step.Duration >= 1000 {
 		durationStr = fmt.Sprintf("%.1fs", float64(step.Duration)/1000)
 	}
 
-	// Clear the "executing" line by moving cursor up
-	fmt.Print("\033[1A\033[K") // Move up one line and clear it
+	fmt.Print("\033[1A\033[K")
 
 	if step.Success != nil && *step.Success {
 		fmt.Printf("    %s %s\n",
@@ -690,7 +580,6 @@ func (r *REPL) printStepResult(step *StepRecord) {
 		fmt.Printf("    %s\n", r.styles.Dim.Render("○ executed"))
 	}
 
-	// Print actions taken with clean formatting
 	if len(step.ActionsTaken) > 0 {
 		for _, action := range step.ActionsTaken {
 			desc := action.Description
@@ -702,28 +591,22 @@ func (r *REPL) printStepResult(step *StepRecord) {
 	}
 }
 
-// printStepProgress prints intermediate progress during step execution.
 func (r *REPL) printStepProgress(msg *api.StepStreamMessage) {
-	// Clear the current "executing" line and print progress
-	fmt.Print("\033[1A\033[K") // Move up one line and clear it
+	fmt.Print("\033[1A\033[K")
 
-	// Build progress info
 	var progressInfo string
 
-	// Check for action type from the message
 	actionType := msg.ActionType
 	if actionType == "" && msg.Result != nil {
 		actionType = msg.Result.ActionType
 	}
 
-	// Check for current step description from result
 	if msg.Result != nil && msg.Result.CurrentStep != "" {
 		progressInfo = msg.Result.CurrentStep
 	} else if actionType != "" {
 		progressInfo = actionType
 	}
 
-	// Format the status line
 	statusIcon := r.styles.Running.Render("⋯")
 	statusText := "executing"
 
@@ -733,18 +616,14 @@ func (r *REPL) printStepProgress(msg *api.StepStreamMessage) {
 		statusText = "in progress"
 	}
 
-	// Print progress with action info if available
 	if progressInfo != "" {
 		fmt.Printf("    %s %s: %s\n", statusIcon, r.styles.Running.Render(statusText), r.styles.Action.Render(progressInfo))
 	} else {
 		fmt.Printf("    %s %s\n", statusIcon, r.styles.Running.Render(statusText))
 	}
 
-	// Print additional details if available
 	if msg.Result != nil {
-		// Show reasoning if available (helps understand what the AI is thinking)
 		if msg.Result.Reasoning != "" {
-			// Truncate long reasoning
 			reasoning := msg.Result.Reasoning
 			if len(reasoning) > 80 {
 				reasoning = reasoning[:77] + "..."
@@ -752,7 +631,6 @@ func (r *REPL) printStepProgress(msg *api.StepStreamMessage) {
 			fmt.Printf("      %s %s\n", r.styles.Dim.Render("💭"), r.styles.Dim.Render(reasoning))
 		}
 
-		// Show action description if available
 		if msg.Result.ActionDescription != "" {
 			fmt.Printf("      %s %s\n", r.styles.Action.Render("→"), r.styles.Action.Render(msg.Result.ActionDescription))
 		}

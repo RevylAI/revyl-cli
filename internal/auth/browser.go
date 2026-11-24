@@ -1,9 +1,3 @@
-// Package auth provides authentication management for the Revyl CLI.
-//
-// This file implements browser-based OAuth authentication using a local
-// callback server pattern. The CLI starts a temporary HTTP server,
-// opens the browser to the auth page, and waits for the callback with
-// the access token.
 package auth
 
 import (
@@ -23,7 +17,7 @@ import (
 )
 
 const (
-	// DefaultAuthTimeout is the maximum time to wait for browser authentication.
+	// DefaultAuthTimeout bounds the callback wait after the browser opens.
 	DefaultAuthTimeout = 5 * time.Minute
 
 	// StateTokenLength is the length of the random state token in bytes.
@@ -31,18 +25,14 @@ const (
 	StateTokenLength = 32
 )
 
-// BrowserAuthResult contains the result of browser-based authentication.
 type BrowserAuthResult struct {
 	// Token is the access token or API key received from the auth callback.
 	Token string
 
-	// Email is the user's email address (optional).
 	Email string
 
-	// OrgID is the user's organization ID (optional).
 	OrgID string
 
-	// UserID is the user's ID (optional).
 	UserID string
 
 	// APIKeyID is the PropelAuth-assigned key ID when a persistent key was created (optional).
@@ -52,21 +42,17 @@ type BrowserAuthResult struct {
 	// AuthMethod indicates how the token was generated ("api_key" for persistent key, empty for access token).
 	AuthMethod string
 
-	// Error contains any error message from the auth flow.
 	Error string
 }
 
-// BrowserAuthConfig contains configuration for browser-based authentication.
 type BrowserAuthConfig struct {
 	// AppURL is the base URL of the frontend app (e.g., https://app.revyl.ai).
 	AppURL string
 
-	// Timeout is the maximum time to wait for authentication.
-	// Defaults to DefaultAuthTimeout if zero.
+	// Timeout bounds the callback wait. Zero uses DefaultAuthTimeout.
 	Timeout time.Duration
 
-	// ClientInstanceID is the stable per-install CLI identifier used to rotate
-	// only this machine's browser-generated API key.
+	// ClientInstanceID scopes key rotation when supplied; omission uses the legacy path.
 	ClientInstanceID string
 
 	// DeviceLabel is a human-readable device label attached to the CLI key.
@@ -76,18 +62,10 @@ type BrowserAuthConfig struct {
 	Attribution SignupAttribution
 }
 
-// BrowserAuth handles browser-based OAuth authentication.
 type BrowserAuth struct {
 	config BrowserAuthConfig
 }
 
-// NewBrowserAuth creates a new browser authentication handler.
-//
-// Parameters:
-//   - config: Configuration for the auth flow
-//
-// Returns:
-//   - *BrowserAuth: A new browser auth handler
 func NewBrowserAuth(config BrowserAuthConfig) *BrowserAuth {
 	if config.Timeout == 0 {
 		config.Timeout = DefaultAuthTimeout
@@ -118,7 +96,6 @@ func generateStateToken() (string, error) {
 //   - int: The port number
 //   - error: Any error during port discovery
 func findAvailablePort() (net.Listener, int, error) {
-	// Listen on port 0 to get an available port from the OS
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to find available port: %w", err)
@@ -128,21 +105,7 @@ func findAvailablePort() (net.Listener, int, error) {
 	return listener, addr.Port, nil
 }
 
-// Authenticate performs browser-based authentication.
-//
-// This method:
-// 1. Starts a local HTTP server on a random available port
-// 2. Generates a cryptographic state token for CSRF protection
-// 3. Opens the browser to the auth page with port and state parameters
-// 4. Waits for the callback with the access token
-// 5. Returns the authentication result
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//
-// Returns:
-//   - *BrowserAuthResult: The authentication result
-//   - error: Any error during authentication
+// Authenticate opens browser sign-in and waits for a state-checked loopback callback.
 func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, error) {
 	// Generate state token for CSRF protection
 	state, err := generateStateToken()
@@ -165,11 +128,9 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 	signedInURL := *authURL
 	signedInURL.Path = "/cli/authorized"
 
-	// Create result channel
 	resultCh := make(chan *BrowserAuthResult, 1)
 	errCh := make(chan error, 1)
 
-	// Create HTTP server with the pre-bound listener
 	server := &callbackServer{
 		port:        port,
 		state:       state,
@@ -179,23 +140,19 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 		errCh:       errCh,
 	}
 
-	// Start the server
 	if err := server.Start(); err != nil {
-		listener.Close() // Clean up listener on error
+		listener.Close()
 		return nil, fmt.Errorf("failed to start callback server: %w", err)
 	}
 	defer server.Stop()
 
-	// Open browser
 	if err := ui.OpenBrowser(b.GetAuthURL(port, state)); err != nil {
 		return nil, fmt.Errorf("failed to open browser: %w", err)
 	}
 
-	// Create timeout context
 	timeoutCtx, cancel := context.WithTimeout(ctx, b.config.Timeout)
 	defer cancel()
 
-	// Wait for result
 	select {
 	case result := <-resultCh:
 		if result.Error != "" {
@@ -212,19 +169,10 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 	}
 }
 
-// GetAuthURL returns the URL that would be opened for authentication.
-// Useful for displaying to users who need to manually open the URL.
-//
-// Parameters:
-//   - port: The local server port
-//   - state: The state token
-//
-// Returns:
-//   - string: The full auth URL, or empty string if AppURL is invalid
+// GetAuthURL builds the browser sign-in URL, or returns empty if AppURL cannot be parsed.
 func (b *BrowserAuth) GetAuthURL(port int, state string) string {
 	authURL, err := url.Parse(b.config.AppURL)
 	if err != nil || authURL == nil {
-		// Return empty string for invalid URLs rather than panicking
 		return ""
 	}
 	authURL.Path = "/cli/auth"
@@ -242,11 +190,9 @@ func (b *BrowserAuth) GetAuthURL(port int, state string) string {
 	return authURL.String()
 }
 
-// callbackServer is a temporary HTTP server that handles the OAuth callback.
 type callbackServer struct {
-	port  int
-	state string
-	// signedInURL is the app page the browser lands on after a successful callback.
+	port        int
+	state       string
 	signedInURL string
 	listener    net.Listener // Pre-bound listener to avoid race conditions
 	resultCh    chan *BrowserAuthResult
@@ -255,10 +201,7 @@ type callbackServer struct {
 	wg          sync.WaitGroup
 }
 
-// Start starts the callback server using the pre-bound listener.
-//
-// Returns:
-//   - error: Any error during server startup
+// Start serves the pre-bound listener. Serve errors are sent to errCh.
 func (s *callbackServer) Start() error {
 	if s.listener == nil {
 		return fmt.Errorf("listener not set: use findAvailablePort() to get a listener")
@@ -284,7 +227,6 @@ func (s *callbackServer) Start() error {
 	return nil
 }
 
-// Stop gracefully stops the callback server.
 func (s *callbackServer) Stop() {
 	if s.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -294,11 +236,9 @@ func (s *callbackServer) Stop() {
 	}
 }
 
-// handleCallback handles the OAuth callback request.
 func (s *callbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
-	// Validate state parameter
 	receivedState := query.Get("state")
 	if receivedState != s.state {
 		s.sendErrorResponse(w, "Invalid state parameter")
@@ -306,14 +246,12 @@ func (s *callbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Check for error
 	if errMsg := query.Get("error"); errMsg != "" {
 		s.sendErrorResponse(w, fmt.Sprintf("Authentication error: %s", errMsg))
 		s.resultCh <- &BrowserAuthResult{Error: errMsg}
 		return
 	}
 
-	// Get token
 	token := query.Get("token")
 	if token == "" {
 		s.sendErrorResponse(w, "Missing token")
@@ -321,7 +259,6 @@ func (s *callbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Build result
 	result := &BrowserAuthResult{
 		Token:      token,
 		Email:      query.Get("email"),
@@ -333,7 +270,6 @@ func (s *callbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 
 	s.redirectToSignedInPage(w, r)
 
-	// Send result
 	s.resultCh <- result
 }
 

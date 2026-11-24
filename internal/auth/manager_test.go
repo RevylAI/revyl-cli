@@ -57,10 +57,6 @@ func TestGetOrCreateClientInstanceIDSurvivesCredentialLogout(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Auth precedence tests
-// ---------------------------------------------------------------------------
-
 func TestGetCredentials_EnvWinsWhenNoOverride(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "env-key-123")
 
@@ -212,7 +208,6 @@ func TestResolveCredentialsIgnoresHostedAgentEnvironmentMarkers(t *testing.T) {
 	}
 }
 
-// TestResolveCredentialsClassifiesAPIKeyEnvironment verifies secret-free diagnostics.
 func TestResolveCredentialsClassifiesAPIKeyEnvironment(t *testing.T) {
 	testCases := []struct {
 		name          string

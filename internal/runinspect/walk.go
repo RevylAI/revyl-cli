@@ -7,9 +7,7 @@ import "strconv"
 // and the recursive plist walker. Kept here so `identity.go` /
 // `state.go` / future detectors don't all duplicate it.
 
-// FieldSource pinpoints where a value was read from. Kind is "plist"
-// or "sqlite"; Path is container-relative; KeyPath is dotted for
-// nested plists, column-qualified for sqlite.
+// FieldSource identifies the capture kind, path and key that supplied a value.
 type FieldSource struct {
 	Kind    string `json:"kind"`
 	Path    string `json:"path"`

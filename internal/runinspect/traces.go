@@ -21,7 +21,6 @@ type TraceVendor string
 
 const (
 	TraceVendorSentry TraceVendor = "sentry"
-	// Future: TraceVendorDatadog, TraceVendorNewRelic, etc.
 )
 
 // TraceKind names which Sentry-side concept the handle pivots to.
@@ -30,9 +29,9 @@ type TraceKind string
 const (
 	TraceKindEvent       TraceKind = "event"       // exception event ID
 	TraceKindTransaction TraceKind = "transaction" // perf transaction
-	TraceKindTrace       TraceKind = "trace"       // raw trace_id (no event_id co-located)
-	TraceKindSpan        TraceKind = "span"        // span_id (paired with a trace)
-	TraceKindReplay      TraceKind = "replay"      // session-replay handle
+	TraceKindTrace       TraceKind = "trace"
+	TraceKindSpan        TraceKind = "span"   // span_id (paired with a trace)
+	TraceKindReplay      TraceKind = "replay" // session-replay handle
 )
 
 // TraceRecord is one backend-pivotable trace handle.
@@ -53,7 +52,7 @@ type TraceRecord struct {
 
 // TracesOptions tunes the detector.
 type TracesOptions struct {
-	// AtStep restricts to lines with step index ≤ AtStep. 0 = all.
+	// AtStep restricts to lines at or before the given step index when positive.
 	AtStep int
 	// Vendors restricts output to specific vendors. Empty = all.
 	Vendors []TraceVendor
@@ -145,10 +144,8 @@ func DetectTraces(
 	return out
 }
 
-// envelopeItemToRecords expands one Sentry envelope item into 1-N
-// TraceRecords. An event with both event_id and trace_id produces
-// two records (one per pivot URL); the `Related` field cross-links
-// them so the agent can render either independently.
+// envelopeItemToRecords projects one envelope item into zero or more handles.
+// Each emitted record carries the item's related IDs.
 func envelopeItemToRecords(item SentryEnvelopeItem, source FieldSource) []TraceRecord {
 	related := map[string]string{}
 	if item.TraceID != "" {

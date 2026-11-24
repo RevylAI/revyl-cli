@@ -1,6 +1,3 @@
-// Package interactive provides the interactive test creation mode for the CLI.
-//
-// This file contains the command parser that maps user input to step types.
 package interactive
 
 import (
@@ -8,7 +5,6 @@ import (
 	"strings"
 )
 
-// CommandType represents the type of command parsed from user input.
 type CommandType string
 
 const (
@@ -64,22 +60,17 @@ const (
 	CommandClear CommandType = "clear"
 )
 
-// ParsedCommand represents a parsed user command.
 type ParsedCommand struct {
-	// Type is the command type.
 	Type CommandType
 
-	// Instruction is the instruction text (for instruction/validation steps).
 	Instruction string
 
-	// Args contains additional arguments for the command.
 	Args []string
 
-	// Raw is the original input string.
+	// Raw is the input after trimming surrounding whitespace.
 	Raw string
 }
 
-// reservedCommands maps command keywords to their types.
 var reservedCommands = map[string]CommandType{
 	"validate": CommandValidation,
 	"assert":   CommandValidation,
@@ -106,7 +97,6 @@ var reservedCommands = map[string]CommandType{
 	"clear":    CommandClear,
 }
 
-// stepTypeCommands are commands that create steps (vs. session commands).
 var stepTypeCommands = map[CommandType]bool{
 	CommandInstruction: true,
 	CommandValidation:  true,
@@ -118,42 +108,18 @@ var stepTypeCommands = map[CommandType]bool{
 	CommandKillApp:     true,
 }
 
-// ParseCommand parses user input into a command.
-//
-// The parsing logic follows these rules:
-// 1. If the first word is a reserved command, parse as that command type
-// 2. Otherwise, treat the entire input as an instruction step
-//
-// Parameters:
-//   - input: The raw user input string
-//
-// Returns:
-//   - *ParsedCommand: The parsed command
-//   - error: Any parsing error
+// ParseCommand treats a reserved first word as a command and other input as an instruction.
 func ParseCommand(input string) (*ParsedCommand, error) {
 	return ParseCommandWithDefaults(input, "")
 }
 
-// ParseCommandWithDefaults parses user input into a command with optional defaults.
-//
-// This function extends ParseCommand by allowing default values for certain commands.
-// For example, when hotReloadURL is provided, the 'navigate' command without arguments
-// will use that URL as the default destination.
-//
-// Parameters:
-//   - input: The raw user input string
-//   - hotReloadURL: Optional default URL for the navigate command (empty string to disable)
-//
-// Returns:
-//   - *ParsedCommand: The parsed command
-//   - error: Any parsing error
+// ParseCommandWithDefaults uses hotReloadURL for a bare navigate command when set.
 func ParseCommandWithDefaults(input string, hotReloadURL string) (*ParsedCommand, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty input")
 	}
 
-	// Split into words
 	words := strings.Fields(input)
 	if len(words) == 0 {
 		return nil, fmt.Errorf("empty input")
@@ -161,12 +127,10 @@ func ParseCommandWithDefaults(input string, hotReloadURL string) (*ParsedCommand
 
 	firstWord := strings.ToLower(words[0])
 
-	// Check if first word is a reserved command
 	if cmdType, ok := reservedCommands[firstWord]; ok {
 		return parseReservedCommandWithDefaults(cmdType, words[1:], input, hotReloadURL)
 	}
 
-	// Default: treat entire input as instruction
 	return &ParsedCommand{
 		Type:        CommandInstruction,
 		Instruction: input,
@@ -174,7 +138,6 @@ func ParseCommandWithDefaults(input string, hotReloadURL string) (*ParsedCommand
 	}, nil
 }
 
-// parseReservedCommandWithDefaults parses a reserved command with its arguments and optional defaults.
 func parseReservedCommandWithDefaults(cmdType CommandType, args []string, raw string, hotReloadURL string) (*ParsedCommand, error) {
 	cmd := &ParsedCommand{
 		Type: cmdType,
@@ -231,30 +194,15 @@ func parseReservedCommandWithDefaults(cmdType CommandType, args []string, raw st
 
 	case CommandBack, CommandHome, CommandUndo, CommandSave, CommandHelp,
 		CommandRun, CommandQuit, CommandStatus, CommandList, CommandClear:
-		// These commands don't require additional arguments
 	}
 
 	return cmd, nil
 }
 
-// IsStepCommand returns true if the command creates a step.
-//
-// Parameters:
-//   - cmd: The parsed command
-//
-// Returns:
-//   - bool: True if this command creates a step
 func IsStepCommand(cmd *ParsedCommand) bool {
 	return stepTypeCommands[cmd.Type]
 }
 
-// GetStepType returns the step type string for backend API.
-//
-// Parameters:
-//   - cmdType: The command type
-//
-// Returns:
-//   - string: The step type for the backend
 func GetStepType(cmdType CommandType) string {
 	switch cmdType {
 	case CommandInstruction:
@@ -301,15 +249,6 @@ func GetBlockType(cmdType CommandType) string {
 	}
 }
 
-// StepTypeToCommandType converts a step type string back to a CommandType.
-//
-// This is used when replaying steps from recorded history.
-//
-// Parameters:
-//   - stepType: The step type string (e.g., "navigate", "instruction")
-//
-// Returns:
-//   - CommandType: The corresponding command type
 func StepTypeToCommandType(stepType string) CommandType {
 	switch stepType {
 	case "instruction":
@@ -333,10 +272,6 @@ func StepTypeToCommandType(stepType string) CommandType {
 	}
 }
 
-// HelpText returns the help text for interactive mode.
-//
-// Returns:
-//   - string: The help text
 func HelpText() string {
 	return `Interactive Test Creation Commands:
 
@@ -381,13 +316,6 @@ TIPS:
 `
 }
 
-// CommandSuggestions returns command suggestions for autocomplete.
-//
-// Parameters:
-//   - prefix: The current input prefix
-//
-// Returns:
-//   - []string: List of matching command suggestions
 func CommandSuggestions(prefix string) []string {
 	prefix = strings.ToLower(strings.TrimSpace(prefix))
 	if prefix == "" {
