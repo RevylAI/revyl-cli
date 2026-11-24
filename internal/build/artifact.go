@@ -1,4 +1,3 @@
-// Package build provides build execution and artifact management utilities.
 package build
 
 import (
@@ -124,7 +123,7 @@ func isZipFile(path string) (bool, error) {
 
 	magic := make([]byte, 4)
 	if _, err := io.ReadFull(f, magic); err != nil {
-		return false, nil // Can't read magic bytes, assume not zip
+		return false, nil
 	}
 
 	return magic[0] == 'P' && magic[1] == 'K' && magic[2] == 0x03 && magic[3] == 0x04, nil
@@ -317,7 +316,6 @@ func preferredIOSAppBundle(rootDir string, layout *archiveLayout) (string, error
 		if candidate.isAppClip && (!hasAppClipMetadata || candidate.appBundleCount != 1) {
 			return nil
 		}
-		// Preserve malformed hosts for API validation instead of substituting a Clip.
 		candidates = append(candidates, candidate)
 		return nil
 	})

@@ -59,7 +59,6 @@ func (r *commandOutputReader) startReadTimerLocked() {
 	r.timer = time.AfterFunc(r.idleTimeout, func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		// A stopped timer can already be waiting for this lock during a later read.
 		if r.reading && r.readSequence == sequence {
 			r.timedOut = true
 			_ = r.pipe.Close()

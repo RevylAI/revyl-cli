@@ -1,4 +1,3 @@
-// Package build provides build execution and artifact management utilities.
 package build
 
 import (
@@ -19,7 +18,6 @@ import (
 
 // Runner executes build commands in a specified working directory.
 type Runner struct {
-	// workDir is the working directory for build commands.
 	workDir string
 
 	// Interactive, when true, connects stdin/stdout/stderr directly to the
@@ -47,18 +45,11 @@ type RunOptions struct {
 	Timeout time.Duration
 }
 
-// NewRunner creates a new build runner.
-//
-// Parameters:
-//   - workDir: The working directory for build commands
-//
-// Returns:
-//   - *Runner: A new Runner instance
 func NewRunner(workDir string) *Runner {
 	return &Runner{workDir: workDir}
 }
 
-// Run executes a build command and streams output to the callback.
+// Run executes a build command and streams each output line to onOutput.
 //
 // SECURITY: The command string is passed to the platform shell and can contain
 // arbitrary shell operators. It originates from the project's
@@ -66,13 +57,6 @@ func NewRunner(workDir string) *Runner {
 // execution), but means that cloning and building an untrusted repository grants
 // that repo full shell access as the current user. Treat .revyl/config.yaml with
 // the same trust level as a Makefile or package.json script.
-//
-// Parameters:
-//   - command: The build command to execute (can include shell operators)
-//   - onOutput: Callback function called for each line of output
-//
-// Returns:
-//   - error: Any error that occurred during execution
 func (r *Runner) Run(command string, onOutput func(line string)) error {
 	return r.RunContext(context.Background(), command, RunOptions{}, onOutput)
 }
@@ -111,14 +95,8 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 	cmd.Dir = r.workDir
 	cmd.Env = commandEnvironment
 
-	// In interactive mode (TTY detected), connect stdin/stdout/stderr
-	// directly so interactive prompts (Apple login, etc.) work properly.
-	// We lose the [prefix] output tagging but gain full prompt support.
 	isTTY := isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
 	directTerminalIO := r.Interactive && isTTY && !r.FilterOutput
-	// A separate process group lets cancellation clean up descendants. Commands
-	// that read from the controlling terminal must remain in Revyl's foreground
-	// process group or Unix job control can suspend them with SIGTTIN.
 	ownsProcessGroup := false
 	if !directTerminalIO {
 		ownsProcessGroup = configureCommandProcessGroup(cmd)
@@ -141,7 +119,6 @@ func (r *Runner) RunContext(ctx context.Context, command string, options RunOpti
 		return nil
 	}
 
-	// Own the pipes so cmd.Wait cannot close them before the readers drain.
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -343,14 +320,8 @@ func environmentWithOverrides(inherited []string, overrides map[string]string) (
 	return result, nil
 }
 
-// FilterBuildOutputLine returns a display-safe build line when it is useful for normal CLI output.
-//
-// Parameters:
-//   - line: The raw stdout or stderr line from a build tool.
-//
-// Returns:
-//   - string: The shortened display line when the input should be shown.
-//   - bool: True when the line should be displayed, false when it is noisy diagnostic output.
+// FilterBuildOutputLine returns a display-safe shortened build line and true
+// when a raw stdout/stderr line is useful for normal CLI output, or false for noisy output.
 func FilterBuildOutputLine(line string) (string, bool) {
 	if !shouldShowBuildLine(line) {
 		return "", false
@@ -358,9 +329,6 @@ func FilterBuildOutputLine(line string) (string, bool) {
 	return shortenBuildLine(strings.TrimLeft(line, " \t")), true
 }
 
-// scanCRLF is a bufio.SplitFunc that splits on \r\n, \r, or \n. This handles
-// xcodebuild-style progress output that uses bare \r to update in-place,
-// preventing multiple progress updates from being concatenated into one token.
 func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {
 		return 0, nil, nil
@@ -382,10 +350,6 @@ func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	return 0, nil, nil
 }
 
-// shouldShowBuildLine returns true if a build output line is significant enough
-// to display when FilterOutput is enabled. Hides verbose compiler invocations,
-// destination lists, and tool paths; shows build phase names, warnings, errors,
-// and EAS/Expo lifecycle milestones.
 func shouldShowBuildLine(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")
 	if trimmed == "" {
@@ -401,7 +365,6 @@ func shouldShowBuildLine(line string) bool {
 	}
 
 	showPrefixes := []string{
-		// Xcode build phases
 		"Compiling", "Linking", "Signing",
 		"CodeSign", "Ld ", "CompileC",
 		"SwiftCompile", "SwiftEmitModule",
@@ -411,9 +374,7 @@ func shouldShowBuildLine(line string) bool {
 		"** BUILD",
 		"warning:", "error:",
 		"note: Building targets",
-		// Gradle phases
 		":app:", "> Task :",
-		// EAS / Expo lifecycle milestones
 		"Creating build",
 		"Resolving",
 		"Installing dependencies",
@@ -437,7 +398,6 @@ func shouldShowBuildLine(line string) bool {
 		return true
 	}
 
-	// EAS progress markers that appear mid-line
 	if strings.Contains(lowerTrimmed, "creating build") ||
 		strings.Contains(lowerTrimmed, "prebuild") ||
 		strings.Contains(lowerTrimmed, "pod install") {
@@ -447,10 +407,6 @@ func shouldShowBuildLine(line string) bool {
 	return false
 }
 
-// shortenBuildLine condenses verbose compiler output into human-friendly
-// single-line summaries. Long SwiftCompile / CompileC invocations become
-// "Compiling File.swift"; SwiftEmitModule becomes "Emitting module Target".
-// Lines that don't match a known pattern are returned unchanged.
 func shortenBuildLine(line string) string {
 	trimmed := strings.TrimLeft(line, " \t")
 
@@ -525,31 +481,14 @@ type BuildToolError struct {
 	Guidance string
 }
 
-// Error implements the error interface.
 func (e *BuildToolError) Error() string {
 	return e.Message
 }
 
-// parseBuildToolError checks stderr output for known build-tool error patterns
-// and returns a BuildToolError with actionable guidance if a match is found.
-// Checks are ordered from most-general (missing executable) to tool-specific
-// (EAS auth, config files).
-//
-// Parameters:
-//   - stderr: the combined stderr output from the build command
-//   - command: the build command string from .revyl/config.yaml (used to
-//     tailor guidance to the specific tool the user configured)
-//
-// Returns:
-//   - *BuildToolError if a known pattern matched, nil otherwise
 func parseBuildToolError(stderr, command string) *BuildToolError {
 	lower := strings.ToLower(stderr)
 	cmdLower := strings.ToLower(command)
 
-	// --- Generic "command not found" heuristic ---
-	// Shells emit "<tool>: command not found" or "command not found: <tool>".
-	// Check Bazel/Bazelisk first (most specific), then fall through to a
-	// catch-all that extracts the tool name from the shell message.
 	if strings.Contains(lower, "bazel: command not found") ||
 		strings.Contains(lower, "command not found: bazel") ||
 		strings.Contains(lower, "bazelisk: command not found") ||
@@ -610,7 +549,6 @@ Verify:
 		}
 	}
 
-	// --- EAS / Expo specific errors ---
 	if strings.Contains(lower, "npx: command not found") ||
 		strings.Contains(lower, "command not found: npx") {
 		return &BuildToolError{

@@ -1,4 +1,3 @@
-// Package build provides build execution and artifact management utilities.
 package build
 
 import (
@@ -18,43 +17,22 @@ import (
 
 var bazelTargetNamePattern = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
 
-// reactNativeAndroidArchitecture is the one ABI React Native compiles its
-// native code for, the ABI of Revyl's Android emulators, instead of all four.
 const reactNativeAndroidArchitecture = " -PreactNativeArchitectures=x86_64"
 
-// BuildSystem represents a detected build system type.
 type BuildSystem int
 
 const (
-	// SystemUnknown indicates the build system could not be detected.
 	SystemUnknown BuildSystem = iota
-
-	// SystemExpo indicates an Expo/React Native project.
 	SystemExpo
-
-	// SystemReactNative indicates a React Native project (non-Expo).
 	SystemReactNative
-
-	// SystemFlutter indicates a Flutter project.
 	SystemFlutter
-
-	// SystemXcode indicates a native iOS Xcode project.
 	SystemXcode
-
-	// SystemGradle indicates a native Android Gradle project.
 	SystemGradle
-
-	// SystemSwift indicates a Swift Package Manager project.
 	SystemSwift
-
-	// SystemBazel indicates a Bazel-managed mobile project.
 	SystemBazel
-
-	// SystemKMP indicates a Kotlin Multiplatform project with shared native binaries.
 	SystemKMP
 )
 
-// String returns the human-readable name of the build system.
 func (s BuildSystem) String() string {
 	switch s {
 	case SystemExpo:
@@ -78,9 +56,7 @@ func (s BuildSystem) String() string {
 	}
 }
 
-// DetectedBuild contains information about a detected build system.
 type DetectedBuild struct {
-	// System is the detected build system type.
 	System BuildSystem
 
 	// Command is the suggested build command.
@@ -89,14 +65,12 @@ type DetectedBuild struct {
 	// Output is the expected output artifact path.
 	Output string
 
-	// Platform is the detected platform (ios, android, or empty for both).
+	// Platform is the single detected platform (ios or android), or empty for multi-platform or unknown results.
 	Platform string
 
-	// Platforms contains platform-specific build configurations.
 	Platforms map[string]BuildPlatform
 }
 
-// BuildPlatform represents a platform-specific build configuration.
 type BuildPlatform struct {
 	// SetupCommands run in order before Command, from the project root.
 	SetupCommands []string
@@ -114,41 +88,25 @@ type BuildPlatform struct {
 	Note string
 }
 
-// Detect attempts to detect the build system in the given directory.
-//
-// Parameters:
-//   - dir: The directory to scan for build system indicators
-//
-// Returns:
-//   - *DetectedBuild: Information about the detected build system
-//   - error: Any error that occurred during detection
-//
-// The function checks for various build system indicators in order of specificity:
-// Expo > React Native > Flutter > Xcode > Gradle > Swift
+// Detect inspects dir in precedence order (Expo, React Native, Flutter, Bazel,
+// Kotlin Multiplatform, XcodeGen, Xcode, Gradle, Swift) and returns the matched build configuration.
 func Detect(dir string) (*DetectedBuild, error) {
-	// Check for Expo (app.json with expo key, or eas.json)
 	if isExpoProject(dir) {
 		return detectExpo(dir)
 	}
 
-	// Check for React Native (react-native in package.json)
 	if isReactNativeProject(dir) {
 		return detectReactNative(dir)
 	}
 
-	// Check for Flutter (pubspec.yaml with flutter SDK dependency)
 	if isFlutterProject(dir) {
 		return detectFlutter(dir)
 	}
 
-	// Check for Bazel workspace before Xcode/Gradle so Bazel monorepos
-	// are not misclassified by the presence of ios/ or android/ directories.
 	if isBazelProject(dir) {
 		return detectBazel(dir)
 	}
 
-	// Check for Kotlin Multiplatform before plain Xcode/Gradle so KMP
-	// projects get explicit onboarding instead of generic native detection.
 	if isKMPProject(dir) {
 		return detectKMP(dir)
 	}
@@ -159,17 +117,14 @@ func Detect(dir string) (*DetectedBuild, error) {
 		}
 	}
 
-	// Check for Xcode project
 	if hasXcodeProject(dir) {
 		return detectXcode(dir)
 	}
 
-	// Check for Gradle (Android)
 	if fileExists(filepath.Join(dir, "build.gradle")) || fileExists(filepath.Join(dir, "build.gradle.kts")) {
 		return detectGradle(dir)
 	}
 
-	// Check for Swift Package Manager
 	if fileExists(filepath.Join(dir, "Package.swift")) {
 		return detectSwift(dir)
 	}
@@ -177,7 +132,6 @@ func Detect(dir string) (*DetectedBuild, error) {
 	return &DetectedBuild{System: SystemUnknown}, nil
 }
 
-// isExpoProject checks if the directory contains an Expo project.
 func isExpoProject(dir string) bool {
 	if !isJSApp(dir) {
 		return false
@@ -224,12 +178,10 @@ func HasExpoDevClient(dir string) bool {
 	return inDependencies || inDevDependencies
 }
 
-// isReactNativeProject checks if the directory contains a React Native project.
 func isReactNativeProject(dir string) bool {
 	return isJSApp(dir) && fileContains(filepath.Join(dir, "package.json"), `"react-native"`)
 }
 
-// hasXcodeProject checks if the directory contains an Xcode project.
 func hasXcodeProject(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -243,7 +195,6 @@ func hasXcodeProject(dir string) bool {
 		}
 	}
 
-	// Check ios subdirectory
 	iosDir := filepath.Join(dir, "ios")
 	if DirExists(iosDir) {
 		entries, err := os.ReadDir(iosDir)
@@ -267,8 +218,6 @@ func detectExpo(dir string) (*DetectedBuild, error) {
 	return detectReactNativeApp(SystemExpo, dir), nil
 }
 
-// detectReactNative returns build configuration for a React Native project
-// without Expo: the same recipes as Expo, without prebuild.
 func detectReactNative(dir string) (*DetectedBuild, error) {
 	return detectReactNativeApp(SystemReactNative, dir), nil
 }
@@ -313,8 +262,6 @@ func detectReactNativeApp(system BuildSystem, dir string) *DetectedBuild {
 	return detected
 }
 
-// reactNativePlatform returns one platform's recipe in the given build
-// configuration, or false when the app has no project for that platform.
 // Expo generates missing native projects with prebuild, so it always has both.
 func reactNativePlatform(system BuildSystem, dir, platform, configuration string) (BuildPlatform, bool) {
 	nativeDir := filepath.Join(dir, platform)
@@ -361,8 +308,6 @@ func reactNativePlatform(system BuildSystem, dir, platform, configuration string
 		}
 		return BuildPlatform{IncompleteReason: reason}, true
 	case system == SystemExpo:
-		// expo prebuild names the workspace and its app scheme after the app,
-		// which app.config.js/ts can compute, so read the name after prebuild.
 		return BuildPlatform{
 			Command: `cd ios && if [ ! -d Pods ]; then pod install; fi && WS=$(ls -d *.xcworkspace | head -n 1) && ` + XcodebuildCommand(`-workspace "$WS" -scheme "${WS%.xcworkspace}"`, configuration),
 			Output:  output,
@@ -372,16 +317,11 @@ func reactNativePlatform(system BuildSystem, dir, platform, configuration string
 	}
 }
 
-// XcodebuildCommand builds target, the container and scheme arguments, for
-// the iOS simulator. ARCHS=arm64 builds only the slice Revyl's Apple silicon
-// simulators run, instead of every simulator architecture.
+// XcodebuildCommand returns the iOS simulator xcodebuild command for target and configuration.
 func XcodebuildCommand(target, configuration string) string {
 	return "xcodebuild " + target + " -configuration " + configuration + " -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath build"
 }
 
-// gradleCommand returns how to run Gradle in dir: its wrapper, through sh when
-// Git checked the wrapper out without its executable bit, or the gradle on
-// PATH when the project has no wrapper.
 func gradleCommand(dir string) string {
 	info, err := os.Stat(filepath.Join(dir, "gradlew"))
 	switch {
@@ -463,15 +403,10 @@ func xcodeScheme(dir, container string) string {
 	return schemes[0]
 }
 
-// shellQuote single-quotes a value for a POSIX shell command.
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-// expoDeclaredPlatforms returns the platforms expo prebuild generates, from
-// expo.platforms in app.json, else the expo key of package.json, and whether
-// they are known. A dynamic app config can compute them, so with one they are
-// unknown.
 func expoDeclaredPlatforms(dir string) ([]string, bool) {
 	if hasExpoDynamicConfig(dir) {
 		return nil, false
@@ -579,11 +514,8 @@ func frozenInstallCommand(dir, manager string, activatePinnedVersion bool) strin
 
 var packageManagerVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
-// pinnedPackageManager returns the package manager and version that
-// package.json in dir pins with its packageManager field, such as
-// "pnpm@9.15.0+sha512.abc", without the hash. The field is untrusted and the
-// version goes into a shell command, so anything but a semantic version pins
-// nothing.
+// pinnedPackageManager extracts a strict semver pin from package.json's untrusted
+// packageManager field so only validated versions reach shell commands.
 func pinnedPackageManager(dir string) (manager, version string) {
 	data, err := readLocalFile(filepath.Join(dir, "package.json"))
 	if err != nil {
@@ -603,13 +535,6 @@ func pinnedPackageManager(dir string) (manager, version string) {
 	return manager, version
 }
 
-// hasReactNativeAndroidProject checks whether a React Native project has a usable Android Gradle layout.
-//
-// Parameters:
-//   - dir: The React Native project directory to inspect
-//
-// Returns:
-//   - bool: True when Android build files exist under android/
 func hasReactNativeAndroidProject(dir string) bool {
 	androidDir := filepath.Join(dir, "android")
 	if !DirExists(androidDir) {
@@ -633,9 +558,6 @@ func hasReactNativeAndroidProject(dir string) bool {
 	return false
 }
 
-// detectFlutter returns build configuration for a Flutter app's ios/ and
-// android/ projects. A Flutter package has neither, so it gets no platforms.
-// The APK holds only the x86_64 code Revyl's Android emulators run.
 func detectFlutter(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemFlutter,
@@ -660,9 +582,6 @@ func detectFlutter(dir string) (*DetectedBuild, error) {
 	return detected, nil
 }
 
-// detectXcode returns build configuration for an Xcode project. A Podfile
-// next to the project installs CocoaPods first and builds the workspace that
-// pod install creates.
 func detectXcode(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemXcode,
@@ -699,9 +618,6 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 	return detected, nil
 }
 
-// findXcodeGenSpec returns the folder, dir or ios, holding an XcodeGen
-// project.yml with no generated Xcode project beside it, and the project name
-// the spec sets.
 func findXcodeGenSpec(dir string) (specDir, projectName string) {
 	for _, candidate := range []string{".", "ios"} {
 		candidateDir := filepath.Join(dir, candidate)
@@ -723,10 +639,6 @@ func findXcodeGenSpec(dir string) (specDir, projectName string) {
 	return "", ""
 }
 
-// detectXcodeGen returns build configuration for an app whose Xcode project
-// XcodeGen generates from project.yml in specDir. The project is generated
-// before the first step that needs it: CocoaPods when a Podfile is present,
-// else the build.
 func detectXcodeGen(dir, specDir, projectName string) *DetectedBuild {
 	generate := "xcodegen generate"
 	ref := projectName + ".xcodeproj"
@@ -763,7 +675,6 @@ func detectXcodeGen(dir, specDir, projectName string) *DetectedBuild {
 	}
 }
 
-// detectGradle returns build configuration for a Gradle/Android project.
 func detectGradle(dir string) (*DetectedBuild, error) {
 	output, note := apkOutput(dir, "app", "debug")
 	detected := &DetectedBuild{
@@ -783,7 +694,6 @@ func detectGradle(dir string) (*DetectedBuild, error) {
 	return detected, nil
 }
 
-// detectSwift returns build configuration for a Swift Package Manager project.
 func detectSwift(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemSwift,
@@ -796,14 +706,6 @@ func detectSwift(dir string) (*DetectedBuild, error) {
 	return detected, nil
 }
 
-// isBazelProject checks whether the directory contains a Bazel workspace by
-// looking for MODULE.bazel, WORKSPACE.bazel, or WORKSPACE files.
-//
-// Parameters:
-//   - dir: The directory to check for Bazel workspace markers
-//
-// Returns:
-//   - bool: True when a recognised Bazel workspace file exists
 func isBazelProject(dir string) bool {
 	markers := []string{"MODULE.bazel", "WORKSPACE.bazel", "WORKSPACE"}
 	for _, m := range markers {
@@ -814,16 +716,7 @@ func isBazelProject(dir string) bool {
 	return false
 }
 
-// detectBazel returns build configuration for a Bazel workspace.
-// Because Bazel targets and artifact paths are project-specific, the
-// returned platforms use placeholder commands that the user fills in.
-//
-// Parameters:
-//   - dir: The Bazel workspace root directory
-//
-// Returns:
-//   - *DetectedBuild: Detected build info with placeholder platform entries
-//   - error: Any error during detection
+// detectBazel infers concrete Bazel Android/iOS targets when found, otherwise emits incomplete placeholders.
 func detectBazel(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemBazel,
@@ -945,16 +838,8 @@ func parseBazelAndroidTarget(dir string) string {
 	return ""
 }
 
-// detectBazelIOSPlatform scans common iOS package directories for an
-// ios_application target in a BUILD.bazel or BUILD file. Returns a concrete
-// BuildPlatform when a target is found.
-//
-// Parameters:
-//   - dir: The Bazel workspace root directory
-//
-// Returns:
-//   - BuildPlatform: Concrete iOS build platform with command and .app output
-//   - bool: True if a concrete ios_application target was found
+// detectBazelIOSPlatform scans common iOS directories for an ios_application
+// rule in BUILD.bazel or BUILD and returns a suggested BuildPlatform if matched.
 func detectBazelIOSPlatform(dir string) (BuildPlatform, bool) {
 	candidates := []string{
 		".",
@@ -986,13 +871,7 @@ func detectBazelIOSPlatform(dir string) (BuildPlatform, bool) {
 }
 
 // parseBazelIOSTarget extracts the target name from an ios_application rule in
-// a BUILD.bazel or BUILD file within the given directory.
-//
-// Parameters:
-//   - dir: Directory containing the BUILD file to parse
-//
-// Returns:
-//   - string: The target name, or "" if no ios_application rule was found
+// BUILD.bazel or BUILD under dir, or returns "" if none is matched.
 func parseBazelIOSTarget(dir string) string {
 	buildFiles := []string{
 		filepath.Join(dir, "BUILD.bazel"),
@@ -1031,16 +910,7 @@ func parseBazelIOSTarget(dir string) string {
 	return ""
 }
 
-// isKMPProject checks whether the directory contains a Kotlin Multiplatform
-// project. Detection requires multi-signal evidence to avoid false positives:
-//   - At least one KMP native shell (iosApp/, androidApp/, or composeApp/)
-//   - A KMP-specific Gradle build marker in the project
-//
-// Parameters:
-//   - dir: The directory to check for KMP indicators
-//
-// Returns:
-//   - bool: True only when strong multi-signal evidence confirms KMP
+// isKMPProject reports whether dir matches heuristic KMP native-shell and Gradle markers.
 func isKMPProject(dir string) bool {
 	hasNativeShell := DirExists(filepath.Join(dir, "iosApp")) ||
 		DirExists(filepath.Join(dir, "androidApp")) ||
@@ -1052,15 +922,6 @@ func isKMPProject(dir string) bool {
 	return hasKMPGradleMarker(dir)
 }
 
-// hasKMPGradleMarker checks for Kotlin Multiplatform-specific content, matched
-// case-insensitively, in the root Gradle files, gradle/libs.versions.toml, and
-// the build.gradle(.kts) of every top-level module.
-//
-// Parameters:
-//   - dir: The project root directory
-//
-// Returns:
-//   - bool: True when KMP-specific Gradle content is found
 func hasKMPGradleMarker(dir string) bool {
 	candidates := []string{
 		filepath.Join(dir, "settings.gradle.kts"),
@@ -1106,16 +967,6 @@ func hasKMPGradleMarker(dir string) bool {
 	return false
 }
 
-// detectKMP returns build configuration for a Kotlin Multiplatform project.
-// It detects native shell directories and generates platform-specific build
-// commands or placeholders based on the available project structure.
-//
-// Parameters:
-//   - dir: The KMP project root directory
-//
-// Returns:
-//   - *DetectedBuild: Detected build info with native platform entries
-//   - error: Any error during detection
 func detectKMP(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
 		System:    SystemKMP,
@@ -1170,13 +1021,6 @@ func detectKMP(dir string) (*DetectedBuild, error) {
 	return detected, nil
 }
 
-// findXcodeWorkspaceIn finds an .xcworkspace file directly within the given directory.
-//
-// Parameters:
-//   - dir: Directory to scan
-//
-// Returns:
-//   - string: Workspace filename, or empty if not found
 func findXcodeWorkspaceIn(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1190,13 +1034,6 @@ func findXcodeWorkspaceIn(dir string) string {
 	return ""
 }
 
-// findXcodeProjectIn finds an .xcodeproj file directly within the given directory.
-//
-// Parameters:
-//   - dir: Directory to scan
-//
-// Returns:
-//   - string: Project filename, or empty if not found
 func findXcodeProjectIn(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1210,7 +1047,6 @@ func findXcodeProjectIn(dir string) string {
 	return ""
 }
 
-// findXcodeWorkspace finds an .xcworkspace file in the directory.
 func findXcodeWorkspace(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1223,7 +1059,6 @@ func findXcodeWorkspace(dir string) string {
 		}
 	}
 
-	// Check ios subdirectory
 	iosDir := filepath.Join(dir, "ios")
 	entries, err = os.ReadDir(iosDir)
 	if err != nil {
@@ -1239,7 +1074,6 @@ func findXcodeWorkspace(dir string) string {
 	return ""
 }
 
-// findXcodeProject finds an .xcodeproj file in the directory.
 func findXcodeProject(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1252,7 +1086,6 @@ func findXcodeProject(dir string) string {
 		}
 	}
 
-	// Check ios subdirectory
 	iosDir := filepath.Join(dir, "ios")
 	entries, err = os.ReadDir(iosDir)
 	if err != nil {
@@ -1268,7 +1101,6 @@ func findXcodeProject(dir string) string {
 	return ""
 }
 
-// fileExists checks if a file exists.
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -1277,7 +1109,6 @@ func fileExists(path string) bool {
 	return !info.IsDir()
 }
 
-// DirExists checks if a directory exists.
 func DirExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -1289,12 +1120,6 @@ func DirExists(path string) bool {
 // isFlutterProject checks whether the directory contains a Flutter project by
 // looking for a pubspec.yaml that declares a flutter SDK dependency. This avoids
 // misclassifying plain Dart packages or non-mobile pubspec.yaml projects.
-//
-// Parameters:
-//   - dir: The directory to check for Flutter indicators
-//
-// Returns:
-//   - bool: True when pubspec.yaml exists and references the Flutter SDK
 func isFlutterProject(dir string) bool {
 	pubspecPath := filepath.Join(dir, "pubspec.yaml")
 	if !fileExists(pubspecPath) {
@@ -1314,25 +1139,16 @@ func isFlutterProject(dir string) bool {
 // to a typed BuildSystem value. Handles canonical names from BuildSystem.String()
 // as well as common variants (e.g. "React Native (bare)"). This allows init UX
 // code to branch on typed constants instead of ad-hoc string comparisons.
-//
-// Parameters:
-//   - s: The build-system string (e.g. "Flutter", "Expo", "Gradle (Android)")
-//
-// Returns:
-//   - BuildSystem: The matching typed constant, or SystemUnknown
 func ParseBuildSystem(s string) BuildSystem {
 	lower := strings.ToLower(strings.TrimSpace(s))
 	if lower == "" {
 		return SystemUnknown
 	}
 
-	// Expo check first: "expo" but not "expo react native" variants.
 	if strings.HasPrefix(lower, "expo") {
 		return SystemExpo
 	}
 
-	// React Native: "react native", "react native (bare)", etc. Must come
-	// after the Expo check so "Expo React Native" doesn't match here.
 	if strings.HasPrefix(lower, "react native") {
 		return SystemReactNative
 	}
@@ -1356,11 +1172,9 @@ func ParseBuildSystem(s string) BuildSystem {
 }
 
 // IsRebuildOnly reports whether this build system uses a rebuild-based dev loop
-// rather than a live hot-reload dev server. Rebuild-only systems require a full
-// binary rebuild + reinstall on each code change.
-//
-// Returns:
-//   - bool: True for Flutter, Xcode, Gradle, and Swift; false otherwise
+// rather than a live hot-reload dev server (Flutter, Xcode, Gradle, Swift,
+// Bazel, and KMP). Rebuild-only systems require a full binary rebuild and
+// reinstall on each code change.
 func (s BuildSystem) IsRebuildOnly() bool {
 	switch s {
 	case SystemFlutter, SystemXcode, SystemGradle, SystemSwift, SystemBazel, SystemKMP:
@@ -1372,13 +1186,6 @@ func (s BuildSystem) IsRebuildOnly() bool {
 
 // ListXcodeSchemes discovers available Xcode schemes by running `xcodebuild -list`
 // in the given directory.
-//
-// Parameters:
-//   - dir: The directory to run xcodebuild -list in
-//
-// Returns:
-//   - []string: List of scheme names
-//   - error: Any error that occurred during discovery
 func ListXcodeSchemes(dir string) ([]string, error) {
 	cmd := exec.Command("xcodebuild", "-list")
 	cmd.Dir = dir
@@ -1390,19 +1197,6 @@ func ListXcodeSchemes(dir string) ([]string, error) {
 	return schemes, nil
 }
 
-// parseXcodebuildListOutput parses the "Schemes:" section from xcodebuild -list output.
-//
-// Example xcodebuild -list output:
-//
-//	Information about project "MyApp":
-//	    Targets:
-//	        MyApp
-//	    Build Configurations:
-//	        Debug
-//	        Release
-//	    Schemes:
-//	        MyApp
-//	        MyAppTests
 func parseXcodebuildListOutput(output string) []string {
 	var schemes []string
 	inSchemes := false
@@ -1410,7 +1204,7 @@ func parseXcodebuildListOutput(output string) []string {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			if inSchemes {
-				break // Empty line after schemes section ends it
+				break
 			}
 			continue
 		}
@@ -1419,7 +1213,6 @@ func parseXcodebuildListOutput(output string) []string {
 			continue
 		}
 		if inSchemes {
-			// A new section header (e.g. "Targets:") ends the schemes block
 			if strings.HasSuffix(trimmed, ":") {
 				break
 			}
@@ -1440,7 +1233,6 @@ type SimulatorBuildResult struct {
 	ModTime time.Time
 }
 
-// Age returns how long ago the .app was last modified.
 func (r *SimulatorBuildResult) Age() time.Duration {
 	return time.Since(r.ModTime)
 }
@@ -1451,15 +1243,9 @@ func (r *SimulatorBuildResult) IsStale(threshold time.Duration) bool {
 }
 
 // FindSimulatorBuild scans Xcode DerivedData for the most recently modified
-// simulator .app bundle that matches the Xcode project in dir. This lets
-// `revyl dev` reuse an app the developer already built in Xcode without
-// running a separate build command.
-//
-// Parameters:
-//   - dir: The project directory containing .xcodeproj or .xcworkspace
-//
-// Returns:
-//   - *SimulatorBuildResult: The discovered build with path and mod time, or nil if none found
+// simulator .app bundle that matches the Xcode project in dir, or returns nil
+// if none is found. This lets `revyl dev` reuse an app the developer already
+// built in Xcode without running a separate build command.
 func FindSimulatorBuild(dir string) *SimulatorBuildResult {
 	projectName := xcodeProjectBaseName(dir)
 	if projectName == "" {
@@ -1476,21 +1262,12 @@ func FindSimulatorBuild(dir string) *SimulatorBuildResult {
 }
 
 // FindSimulatorBuildInDir scans a specific DerivedData-style directory root for
-// the most recently modified simulator .app. Useful for testing with synthetic
-// directory trees.
-//
-// Parameters:
-//   - derivedDataRoot: Directory to scan for project-hash/Build/Products/Debug-iphonesimulator/*.app
-//   - projectName: Xcode project base name (without .xcodeproj)
-//
-// Returns:
-//   - *SimulatorBuildResult: The discovered build with path and mod time, or nil if none found
+// the most recently modified simulator .app matching projectName, or returns
+// nil if none is found. Useful for testing with synthetic directory trees.
 func FindSimulatorBuildInDir(derivedDataRoot, projectName string) *SimulatorBuildResult {
 	return findSimulatorBuildInRoot(derivedDataRoot, projectName)
 }
 
-// findSimulatorBuildInRoot is the shared implementation for FindSimulatorBuild
-// and FindSimulatorBuildInDir.
 func findSimulatorBuildInRoot(derivedDataRoot, projectName string) *SimulatorBuildResult {
 	entries, err := os.ReadDir(derivedDataRoot)
 	if err != nil {
@@ -1536,9 +1313,6 @@ func findSimulatorBuildInRoot(derivedDataRoot, projectName string) *SimulatorBui
 	}
 }
 
-// xcodeProjectBaseName extracts the Xcode project name (without extension) from
-// the given directory. Checks for .xcworkspace first, then .xcodeproj, then
-// the ios/ subdirectory.
 func xcodeProjectBaseName(dir string) string {
 	if name := findXcodeWorkspace(dir); name != "" {
 		return strings.TrimSuffix(filepath.Base(name), ".xcworkspace")
@@ -1549,9 +1323,6 @@ func xcodeProjectBaseName(dir string) string {
 	return ""
 }
 
-// isTestRunnerBundle returns true if the .app appears to be an XCTest runner
-// rather than a real application. Test runners are conventionally named
-// *Tests.app or *UITests.app.
 func isTestRunnerBundle(appPath string) bool {
 	base := filepath.Base(appPath)
 	name := strings.TrimSuffix(base, ".app")
@@ -1560,13 +1331,6 @@ func isTestRunnerBundle(appPath string) bool {
 
 // ApplySchemeToCommand replaces `-scheme *` in a build command with `-scheme <name>`.
 // If scheme is empty or the command doesn't contain `-scheme *`, the command is returned unchanged.
-//
-// Parameters:
-//   - command: The build command string
-//   - scheme: The scheme name to substitute
-//
-// Returns:
-//   - string: The modified command
 func ApplySchemeToCommand(command, scheme string) string {
 	if scheme == "" {
 		return command

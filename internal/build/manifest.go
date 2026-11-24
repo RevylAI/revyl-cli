@@ -45,10 +45,6 @@ type BuildError struct {
 	Message  string `json:"message"`
 }
 
-// bazelEpochMtime is the Unix timestamp Bazel assigns to all output files for
-// reproducible builds (1980-01-01T00:00:00Z). When every file in a manifest
-// has this mtime, size+mtime diffing is blind to content changes so we fall
-// back to SHA-256 content hashing.
 const bazelEpochMtime int64 = 315532800
 
 // BuildManifest walks an .app directory (or single .apk file) and records the
@@ -57,13 +53,6 @@ const bazelEpochMtime int64 = 315532800
 // content hash is computed so that DiffManifest can detect changes. The overall
 // Hash is a deterministic SHA-256 over all (relativePath, size, mtime) tuples
 // sorted by path.
-//
-// Parameters:
-//   - appPath: root of the .app directory or path to an .apk file
-//
-// Returns:
-//   - *AppManifest: populated manifest
-//   - error: filesystem error
 func BuildManifest(appPath string) (*AppManifest, error) {
 	m := &AppManifest{
 		AppPath: appPath,
@@ -122,23 +111,16 @@ func BuildManifest(appPath string) (*AppManifest, error) {
 	return m, nil
 }
 
-// ManifestDiff holds the result of comparing two app manifests.
 type ManifestDiff struct {
 	Changed []string // new or modified relative paths (sorted)
 	Deleted []string // paths present in old but absent in cur (sorted)
 }
 
-// DiffManifest compares two manifests and returns changed/added files and
-// deleted files. A file is considered changed when its size or mtime differs.
-// When both entries have a ContentHash (Bazel builds), the hash is compared
-// instead of mtime, since Bazel freezes all mtimes to a fixed epoch.
-//
-// Parameters:
-//   - old: previous manifest (nil treats every file as new)
-//   - cur: current manifest
-//
-// Returns:
-//   - ManifestDiff with Changed and Deleted paths, both sorted
+// DiffManifest compares two manifests and returns sorted changed/added and
+// deleted files (a nil old manifest treats every file as new). A file is
+// considered changed when its size or mtime differs. When both entries have a
+// ContentHash (Bazel builds), the hash is compared instead of mtime, since
+// Bazel freezes all mtimes to a fixed epoch.
 func DiffManifest(old, cur *AppManifest) ManifestDiff {
 	if old == nil {
 		keys := make([]string, 0, len(cur.Files))
@@ -182,14 +164,6 @@ func DiffManifest(old, cur *AppManifest) ManifestDiff {
 // CreateDeltaZip builds an in-memory zip containing only the specified files
 // from appPath. Relative paths inside the zip mirror their position in the
 // .app bundle so the worker can extract directly on top of its cached copy.
-//
-// Parameters:
-//   - appPath: root directory of the .app bundle
-//   - changedFiles: relative paths to include (from DiffManifest)
-//
-// Returns:
-//   - []byte: zip archive bytes
-//   - error: filesystem or zip error
 func CreateDeltaZip(appPath string, changedFiles []string) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -231,13 +205,6 @@ func CreateDeltaZip(appPath string, changedFiles []string) ([]byte, error) {
 // DeltaSize returns the total size of the changed files in bytes without
 // creating the zip. Useful for deciding whether to use the delta path or fall
 // back to a full upload.
-//
-// Parameters:
-//   - appPath: root directory of the .app bundle
-//   - changedFiles: relative paths from DiffManifest
-//
-// Returns:
-//   - int64: sum of file sizes
 func DeltaSize(appPath string, changedFiles []string) int64 {
 	var total int64
 	for _, rel := range changedFiles {
@@ -249,15 +216,8 @@ func DeltaSize(appPath string, changedFiles []string) int64 {
 	return total
 }
 
-// LoadManifest reads a persisted manifest from disk.
-//
-// Parameters:
-//   - trustedRoot: repository root
-//   - relativePath: managed manifest path within the repository
-//
-// Returns:
-//   - *AppManifest: loaded manifest, or nil if the file does not exist
-//   - error: parse error (missing file is not an error)
+// LoadManifest reads a persisted manifest at relativePath under trustedRoot.
+// Returns nil, nil if the file does not exist.
 func LoadManifest(trustedRoot, relativePath string) (*AppManifest, error) {
 	root, err := privatefs.OpenDirectory(trustedRoot, filepath.Dir(relativePath))
 	if err != nil {
@@ -281,15 +241,8 @@ func LoadManifest(trustedRoot, relativePath string) (*AppManifest, error) {
 	return &m, nil
 }
 
-// SaveManifest writes a manifest to disk atomically (write-to-temp then rename).
-//
-// Parameters:
-//   - m: manifest to persist
-//   - trustedRoot: repository root
-//   - relativePath: managed destination within the repository
-//
-// Returns:
-//   - error: filesystem error
+// SaveManifest writes a manifest atomically (write-to-temp then rename) to
+// relativePath under trustedRoot.
 func SaveManifest(m *AppManifest, trustedRoot, relativePath string) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -337,9 +290,6 @@ func hashManifestFiles(files map[string]ManifestEntry) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// needsContentHashing returns true when mtime-based diffing would be unreliable.
-// This is the case for Bazel builds where all output files share the same fixed
-// epoch mtime (1980-01-01).
 func needsContentHashing(m *AppManifest) bool {
 	if len(m.Files) == 0 {
 		return false
@@ -352,14 +302,6 @@ func needsContentHashing(m *AppManifest) bool {
 	return true
 }
 
-// populateContentHashes computes SHA-256 hashes for every file in the manifest.
-//
-// Parameters:
-//   - appPath: root directory of the .app bundle
-//   - m: manifest to populate (modified in place)
-//
-// Returns:
-//   - error: filesystem or read error
 func populateContentHashes(appPath string, m *AppManifest) error {
 	for rel, entry := range m.Files {
 		h, err := hashFileContent(filepath.Join(appPath, rel))
@@ -372,7 +314,6 @@ func populateContentHashes(appPath string, m *AppManifest) error {
 	return nil
 }
 
-// hashFileContent returns the hex-encoded SHA-256 digest of a file's contents.
 func hashFileContent(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -382,17 +323,9 @@ func hashFileContent(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// xcodeBuildErrorRe matches Xcode compiler errors in the format:
-// /path/to/File.swift:42:15: error: Cannot convert...
 var xcodeBuildErrorRe = regexp.MustCompile(`^(.+?):(\d+):(\d+):\s+(error|warning|note):\s+(.+)$`)
 
-// ParseXcodeBuildErrors extracts structured errors from xcodebuild output.
-//
-// Parameters:
-//   - output: raw xcodebuild stdout+stderr
-//
-// Returns:
-//   - []BuildError: parsed errors (may be empty)
+// ParseXcodeBuildErrors extracts structured errors (possibly empty) from xcodebuild output.
 func ParseXcodeBuildErrors(output string) []BuildError {
 	var errors []BuildError
 	for _, line := range strings.Split(output, "\n") {
@@ -413,17 +346,9 @@ func ParseXcodeBuildErrors(output string) []BuildError {
 	return errors
 }
 
-// gradleBuildErrorRe matches Kotlin/Java compiler errors in the format:
-// e: file:///path/File.kt:42:15 Cannot convert...
 var gradleBuildErrorRe = regexp.MustCompile(`^e:\s+file://(.+?):(\d+):(\d+)\s+(.+)$`)
 
-// ParseGradleBuildErrors extracts structured errors from Gradle build output.
-//
-// Parameters:
-//   - output: raw Gradle stdout+stderr
-//
-// Returns:
-//   - []BuildError: parsed errors (may be empty)
+// ParseGradleBuildErrors extracts structured errors (possibly empty) from Gradle build output.
 func ParseGradleBuildErrors(output string) []BuildError {
 	var errors []BuildError
 	for _, line := range strings.Split(output, "\n") {

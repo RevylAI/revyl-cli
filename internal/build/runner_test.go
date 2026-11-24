@@ -406,7 +406,6 @@ func TestShouldShowBuildLine(t *testing.T) {
 		line string
 		want bool
 	}{
-		// Xcode build phases
 		{"xcode compile", "Compiling AppDelegate.swift", true},
 		{"xcode link", "Linking MyApp", true},
 		{"xcode sign", "Signing MyApp.app", true},
@@ -420,11 +419,9 @@ func TestShouldShowBuildLine(t *testing.T) {
 		{"build all caps failed", "BUILD FAILED", true},
 		{"xcode build marker", "** BUILD SUCCEEDED **", true},
 
-		// Gradle phases
 		{"gradle app task", ":app:compileDebugKotlin", true},
 		{"gradle task", "> Task :app:bundleRelease", true},
 
-		// EAS / Expo lifecycle milestones
 		{"eas creating build", "Creating build for simulator", true},
 		{"eas resolving", "Resolving iOS build settings", true},
 		{"eas install deps", "Installing dependencies", true},
@@ -438,18 +435,15 @@ func TestShouldShowBuildLine(t *testing.T) {
 		{"eas pod install", "Installing pods", true},
 		{"eas pod install run", "Running pod install", true},
 
-		// Mid-line EAS markers (case-insensitive)
 		{"mid-line creating build", "  > Creating build for iOS simulator", true},
 		{"mid-line prebuild", "  [expo] Running expo prebuild --platform ios", true},
 		{"mid-line pod install", "  [expo] Running pod install in ios directory", true},
 
-		// Warning / error lines
 		{"warning prefix", "warning: unused variable", true},
 		{"error prefix", "error: cannot find module", true},
 		{"mid-line warning", "MyFile.swift:42: warning: deprecated API", true},
 		{"mid-line error", "MyFile.swift:10: error: type mismatch", true},
 
-		// Lines that should be filtered out
 		{"empty line", "", false},
 		{"whitespace only", "   ", false},
 		{"cd command", "cd /path/to/project", false},
@@ -461,7 +455,6 @@ func TestShouldShowBuildLine(t *testing.T) {
 		{"export command", "export DEVELOPER_DIR=/Applications/Xcode.app", false},
 		{"note targets line", "note: Run script build phase", false},
 
-		// Indented versions of valid lines
 		{"indented compile", "  Compiling ViewController.m", true},
 		{"tab indented build succeeded", "\tBuild Succeeded", true},
 	}
@@ -521,7 +514,6 @@ func TestScanCRLF(t *testing.T) {
 			for len(data) > 0 {
 				advance, token, _ := scanCRLF(data, false)
 				if advance == 0 {
-					// Not enough data; pass remainder as EOF
 					_, token, _ = scanCRLF(data, true)
 					if token != nil {
 						tokens = append(tokens, string(token))

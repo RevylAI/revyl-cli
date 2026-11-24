@@ -40,8 +40,6 @@ type webFramework struct {
 	devPort     int
 }
 
-// webFrameworks are checked in order: frameworks that build on Vite come
-// before Vite itself.
 var webFrameworks = []webFramework{
 	{name: "nextjs", packages: []string{"next"}, binaries: []string{"next"}, configFiles: []string{"next.config.js", "next.config.mjs", "next.config.ts", "next.config.cjs"}, devPort: 3000},
 	{name: "remix", packages: []string{"@remix-run/dev"}, binaries: []string{"remix"}, configFiles: []string{"remix.config.js", "remix.config.mjs"}, devPort: 5173},
@@ -77,12 +75,11 @@ var (
 	repositoryHosts     = map[string]bool{"github.com": true, "gitlab.com": true, "bitbucket.org": true, "npmjs.com": true, "www.npmjs.com": true}
 )
 
-// DetectWebApp reports the Web app in dir, if any. A directory holds a Web app
-// when its package.json depends on a known Web framework and a script or a
-// framework config file shows it is the app, rather than a workspace root that
-// only hoists the dependency. A directory with an index.html and no
-// package.json counts as a static site only when static is true. An Expo or
-// React Native app is a mobile app, unless Capacitor wraps a Web app in it.
+// DetectWebApp reports the Web app in dir, if any. A directory with a readable
+// package.json matches when it depends on a known Web framework and a script or
+// config file confirms it is an app rather than a workspace root. Directories
+// without a readable package.json count as static sites only when static is true
+// and index.html exists. Mobile app markers exclude dir unless Capacitor config exists.
 func DetectWebApp(dir string, static bool) (*WebApp, bool) {
 	manifest, hasManifest := readPackageManifest(dir)
 	if !hasManifest {
@@ -218,9 +215,8 @@ func hasCapacitorConfig(dir string) bool {
 	return false
 }
 
-// detectPackageManager reads the lockfile in dir or its nearest ancestor up to
-// the repository root, so a monorepo app uses the workspace's package manager.
-// Without any lockfile, the nearest package.json packageManager pin counts.
+// detectPackageManager checks dir and up to 7 ancestor directories (stopping at
+// .git) for a lockfile, falling back to the nearest packageManager pin or "npm".
 func detectPackageManager(dir string) string {
 	lockfiles := []struct{ file, manager string }{
 		{"pnpm-lock.yaml", "pnpm"}, {"yarn.lock", "yarn"}, {"bun.lockb", "bun"}, {"bun.lock", "bun"}, {"package-lock.json", "npm"},

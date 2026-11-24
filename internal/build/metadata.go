@@ -1,4 +1,3 @@
-// Package build provides build execution and artifact management utilities.
 package build
 
 import (
@@ -11,19 +10,13 @@ import (
 	"time"
 )
 
-// GenerateVersionString generates a version string based on the current timestamp.
-//
-// Returns:
-//   - string: A version string in the format "YYYYMMDD-HHMMSS"
+// GenerateVersionString generates a timestamp version string formatted as "YYYYMMDD-HHMMSS".
 func GenerateVersionString() string {
 	return time.Now().Format("20060102-150405")
 }
 
-// GenerateVersionStringForWorkDir generates a branch-aware version string.
-//
-// Format:
-//   - "<branch-slug>-YYYYMMDD-HHMMSS" when a git branch is available
-//   - "YYYYMMDD-HHMMSS" fallback otherwise (e.g., detached HEAD / non-git dir)
+// GenerateVersionStringForWorkDir returns "<branch-slug>-YYYYMMDD-HHMMSS" when
+// a git branch is available, or "YYYYMMDD-HHMMSS" otherwise (e.g., detached HEAD).
 func GenerateVersionStringForWorkDir(workDir string) string {
 	timestamp := GenerateVersionString()
 	branch := runGitCommand(workDir, "rev-parse", "--abbrev-ref", "HEAD")
@@ -64,16 +57,8 @@ func sanitizeBranchForVersion(branch string) string {
 	return slug
 }
 
-// CollectMetadata gathers build metadata including git info, machine info, and build details.
-//
-// Parameters:
-//   - workDir: The working directory (used for git commands)
-//   - buildCommand: The build command that was executed
-//   - platform: The build platform name (e.g., "ios", "android")
-//   - duration: How long the build took
-//
-// Returns:
-//   - map[string]interface{}: A map containing build metadata
+// CollectMetadata gathers build metadata (git info from workDir, machine info,
+// buildCommand, platform, and duration).
 func CollectMetadata(workDir, buildCommand, platform string, duration time.Duration) map[string]interface{} {
 	return CollectMetadataWithContext(context.Background(), workDir, buildCommand, platform, duration)
 }
@@ -82,7 +67,6 @@ func CollectMetadata(workDir, buildCommand, platform string, duration time.Durat
 func CollectMetadataWithContext(ctx context.Context, workDir, buildCommand, platform string, duration time.Duration) map[string]interface{} {
 	metadata := make(map[string]interface{})
 
-	// Build info
 	metadata["build_command"] = buildCommand
 	if platform != "" {
 		metadata["platform"] = platform
@@ -92,7 +76,6 @@ func CollectMetadataWithContext(ctx context.Context, workDir, buildCommand, plat
 	}
 	metadata["built_at"] = time.Now().UTC().Format(time.RFC3339)
 
-	// Machine info
 	metadata["machine"] = map[string]interface{}{
 		"os":       runtime.GOOS,
 		"arch":     runtime.GOARCH,
@@ -100,7 +83,6 @@ func CollectMetadataWithContext(ctx context.Context, workDir, buildCommand, plat
 		"user":     getUsername(),
 	}
 
-	// Git info
 	gitInfo := collectGitInfo(workDir)
 	if len(gitInfo) > 0 {
 		metadata["git"] = gitInfo
@@ -122,8 +104,6 @@ func CIMetadata(ctx context.Context, platform string) map[string]interface{} {
 	return metadata
 }
 
-// attachCIMetadata adds the provider-neutral SCM keys used to match uploaded
-// builds with pull requests.
 func attachCIMetadata(ctx context.Context, metadata map[string]interface{}, platform string) {
 	context, ok := CIContextFromContext(ctx)
 	if !ok {
@@ -171,47 +151,33 @@ func attachCIMetadata(ctx context.Context, metadata map[string]interface{}, plat
 	}
 }
 
-// collectGitInfo gathers git repository information.
-//
-// Parameters:
-//   - workDir: The working directory to run git commands in
-//
-// Returns:
-//   - map[string]interface{}: A map containing git metadata
 func collectGitInfo(workDir string) map[string]interface{} {
 	gitInfo := make(map[string]interface{})
 
-	// Get current commit hash
 	if commit := runGitCommand(workDir, "rev-parse", "HEAD"); commit != "" {
 		gitInfo["commit"] = commit
 	}
 
-	// Get short commit hash
 	if shortCommit := runGitCommand(workDir, "rev-parse", "--short", "HEAD"); shortCommit != "" {
 		gitInfo["commit_short"] = shortCommit
 	}
 
-	// Get current branch
 	if branch := runGitCommand(workDir, "rev-parse", "--abbrev-ref", "HEAD"); branch != "" {
 		gitInfo["branch"] = branch
 	}
 
-	// Get commit message
 	if message := runGitCommand(workDir, "log", "-1", "--format=%s"); message != "" {
 		gitInfo["message"] = message
 	}
 
-	// Get commit author
 	if author := runGitCommand(workDir, "log", "-1", "--format=%an"); author != "" {
 		gitInfo["author"] = author
 	}
 
-	// Get commit timestamp
 	if timestamp := runGitCommand(workDir, "log", "-1", "--format=%ci"); timestamp != "" {
 		gitInfo["timestamp"] = timestamp
 	}
 
-	// Check if working directory is dirty
 	if status := runGitCommand(workDir, "status", "--porcelain"); status != "" {
 		gitInfo["dirty"] = true
 	} else {
@@ -226,14 +192,6 @@ func collectGitInfo(workDir string) map[string]interface{} {
 	return gitInfo
 }
 
-// runGitCommand executes a git command and returns the trimmed output.
-//
-// Parameters:
-//   - workDir: The working directory to run the command in
-//   - args: The git command arguments
-//
-// Returns:
-//   - string: The trimmed command output, or empty string on error
 func runGitCommand(workDir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = workDir
@@ -245,14 +203,7 @@ func runGitCommand(workDir string, args ...string) string {
 }
 
 // sanitizeRemoteURL removes credentials from a git remote URL.
-//
-// Parameters:
-//   - url: The remote URL to sanitize
-//
-// Returns:
-//   - string: The sanitized URL
 func sanitizeRemoteURL(url string) string {
-	// Remove credentials from URLs like https://user:pass@github.com/...
 	if strings.Contains(url, "@") && strings.HasPrefix(url, "https://") {
 		parts := strings.SplitN(url, "@", 2)
 		if len(parts) == 2 {
@@ -262,10 +213,6 @@ func sanitizeRemoteURL(url string) string {
 	return url
 }
 
-// getHostname returns the machine hostname.
-//
-// Returns:
-//   - string: The hostname, or "unknown" on error
 func getHostname() string {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -274,10 +221,6 @@ func getHostname() string {
 	return hostname
 }
 
-// getUsername returns the current user's username.
-//
-// Returns:
-//   - string: The username, or "unknown" on error
 func getUsername() string {
 	if user := os.Getenv("USER"); user != "" {
 		return user
@@ -288,13 +231,6 @@ func getUsername() string {
 	return "unknown"
 }
 
-// FormatDuration formats a duration in a human-readable way.
-//
-// Parameters:
-//   - d: The duration to format
-//
-// Returns:
-//   - string: A human-readable duration string
 func FormatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

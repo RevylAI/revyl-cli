@@ -361,9 +361,6 @@ func TestDetectGradle_RunsTheWrapperItHasAndFindsFlavoredAPKs(t *testing.T) {
 	}
 }
 
-// executableGradleWrapper is how Detect runs a wrapper the test made
-// executable. Windows files carry no executable bit, so there Detect always
-// runs the wrapper through sh.
 func executableGradleWrapper() string {
 	if runtime.GOOS == "windows" {
 		return "sh ./gradlew"
@@ -631,10 +628,6 @@ func writeDetectTestFile(t *testing.T, path, content string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Bazel detection tests
-// ---------------------------------------------------------------------------
-
 func TestDetectBazel_ModuleBazel(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "MODULE.bazel"), `module(name = "myapp")`)
@@ -814,10 +807,6 @@ func TestDetectBazel_ExpoTakesPrecedenceOverBazel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// KMP detection tests
-// ---------------------------------------------------------------------------
-
 func TestDetectKMP_SharedAndroidIOSWithGradleMarker(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "shared"), 0755); err != nil {
@@ -895,10 +884,6 @@ func TestDetectKMP_AndroidOnlyKMP(t *testing.T) {
 		t.Fatal("did not expect ios platform for Android-only KMP project")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// KMP negative tests (precision over recall)
-// ---------------------------------------------------------------------------
 
 func TestDetectKMP_SharedDirAloneIsNotKMP(t *testing.T) {
 	dir := t.TempDir()
@@ -1028,10 +1013,6 @@ func TestDetectKMP_BazelWithKMPLayoutIsBazel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Existing stack guardrail tests
-// ---------------------------------------------------------------------------
-
 func TestDetect_PlainGradleStaysGradle(t *testing.T) {
 	dir := t.TempDir()
 	writeDetectTestFile(t, filepath.Join(dir, "build.gradle"), "apply plugin: 'com.android.application'")
@@ -1084,11 +1065,6 @@ func TestIsRebuildOnly_BazelAndKMP(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FindSimulatorBuildInDir tests
-// ---------------------------------------------------------------------------
-
-// createSyntheticDerivedData builds a fake DerivedData layout and returns the root.
 func createSyntheticDerivedData(t *testing.T, projectName string, appNames []string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -1208,10 +1184,6 @@ func TestXcodeProjectBaseName_NoProject(t *testing.T) {
 		t.Fatalf("xcodeProjectBaseName() = %q, want empty", name)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Dogfood matrix: comprehensive detection validation across all stack shapes
-// ---------------------------------------------------------------------------
 
 type dogfoodFixture struct {
 	name          string

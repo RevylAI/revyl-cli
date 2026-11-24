@@ -1,4 +1,3 @@
-// Package build provides EAS (Expo Application Services) config parsing and validation.
 package build
 
 import (
@@ -13,19 +12,16 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// EASConfig represents a parsed eas.json file.
 type EASConfig struct {
 	Build map[string]EASBuildProfile `json:"build"`
 }
 
-// EASBuildProfile represents a single build profile in eas.json.
 type EASBuildProfile struct {
 	DevelopmentClient bool               `json:"developmentClient,omitempty"`
 	Distribution      string             `json:"distribution,omitempty"`
 	IOS               *EASPlatformConfig `json:"ios,omitempty"`
 }
 
-// EASPlatformConfig represents platform-specific config within a build profile.
 type EASPlatformConfig struct {
 	Simulator bool `json:"simulator,omitempty"`
 }
@@ -75,8 +71,7 @@ func (c *EASConfig) FindSimulatorProfiles() []string {
 	return profiles
 }
 
-// FindDevSimulatorProfile finds the best simulator profile for dev builds.
-// Preference order: "development" (if simulator), "development-simulator", first match.
+// FindDevSimulatorProfile selects a dev simulator profile: "development" (if simulator), "development-simulator", or first match.
 func (c *EASConfig) FindDevSimulatorProfile() string {
 	if c == nil {
 		return ""
@@ -89,13 +84,11 @@ func (c *EASConfig) FindDevSimulatorProfile() string {
 		return "development-simulator"
 	}
 
-	// Fall back to first profile with simulator + developmentClient
 	for name, profile := range c.Build {
 		if profile.IOS != nil && profile.IOS.Simulator && profile.DevelopmentClient {
 			return name
 		}
 	}
-	// Fall back to any simulator profile
 	for name, profile := range c.Build {
 		if profile.IOS != nil && profile.IOS.Simulator {
 			return name
@@ -104,8 +97,7 @@ func (c *EASConfig) FindDevSimulatorProfile() string {
 	return ""
 }
 
-// FindCISimulatorProfile finds the best simulator profile for CI builds.
-// Preference order: "preview" (if simulator), first match.
+// FindCISimulatorProfile selects a CI simulator profile: "preview" (if simulator), or first match.
 func (c *EASConfig) FindCISimulatorProfile() string {
 	if c == nil {
 		return ""
@@ -115,13 +107,11 @@ func (c *EASConfig) FindCISimulatorProfile() string {
 		return "preview"
 	}
 
-	// Fall back to any simulator profile (excluding development ones)
 	for name, profile := range c.Build {
 		if profile.IOS != nil && profile.IOS.Simulator && !profile.DevelopmentClient {
 			return name
 		}
 	}
-	// Any simulator profile
 	for name, profile := range c.Build {
 		if profile.IOS != nil && profile.IOS.Simulator {
 			return name
@@ -130,7 +120,6 @@ func (c *EASConfig) FindCISimulatorProfile() string {
 	return ""
 }
 
-// profileRegex matches --profile <name> in an EAS build command.
 var profileRegex = regexp.MustCompile(`--profile\s+(\S+)`)
 
 // ExtractProfileFromCommand parses --profile <name> from an EAS build command.
@@ -148,11 +137,9 @@ func ReplaceProfileInCommand(command, newProfile string) string {
 	return profileRegex.ReplaceAllString(command, "--profile "+newProfile)
 }
 
-// SimulatorValidationResult describes the outcome of validating an EAS profile.
 type SimulatorValidationResult struct {
 	// Valid is true if the profile produces a simulator build.
-	Valid bool
-	// ProfileName is the profile that was checked.
+	Valid       bool
 	ProfileName string
 	// Alternatives are simulator-compatible profiles that could be used instead.
 	Alternatives []string
@@ -171,15 +158,13 @@ func ValidateEASSimulatorProfile(easCfg *EASConfig, command string) SimulatorVal
 
 	profileName, found := ExtractProfileFromCommand(command)
 	if !found {
-		// No --profile in command — skip validation (custom command).
 		return SimulatorValidationResult{Valid: true}
 	}
 
 	result := SimulatorValidationResult{ProfileName: profileName}
 
-	// Check if profile exists
 	if _, ok := easCfg.Build[profileName]; !ok {
-		result.Valid = true // Let EAS CLI handle missing profiles
+		result.Valid = true
 		result.ProfileNotFound = true
 		return result
 	}
@@ -189,12 +174,10 @@ func ValidateEASSimulatorProfile(easCfg *EASConfig, command string) SimulatorVal
 		return result
 	}
 
-	// Profile exists but is not a simulator build — find alternatives
 	result.Alternatives = easCfg.FindSimulatorProfiles()
 	return result
 }
 
-// SimulatorFixSnippet returns a JSON snippet users can add to eas.json to fix a profile.
 func SimulatorFixSnippet(profileName string) string {
 	return fmt.Sprintf(`Add "simulator": true to your "%s" profile in eas.json:
 

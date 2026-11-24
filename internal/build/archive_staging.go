@@ -41,7 +41,6 @@ func stageValidatedTar(compressed io.Reader, tempDir string, budget *archiveWork
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to stage and validate tar archive: %w", err)
 	}
-	// Tar EOF can precede the gzip trailer containing its checksum.
 	if _, err := copyArchiveContent(io.Discard, decompressed, budget.remainingBytes()); err != nil {
 		return nil, nil, fmt.Errorf("failed to finish staging gzip archive: %w", err)
 	}
