@@ -45,6 +45,11 @@ func TestDetectInstallMethodFromPath(t *testing.T) {
 			expected: "npm",
 		},
 		{
+			name:     "npx cache path",
+			execPath: "/home/alice/.npm/_npx/3f2a/node_modules/@revyl/cli/bin/revyl",
+			expected: "npx",
+		},
+		{
 			name:     "pipx venvs path",
 			execPath: "/Users/alice/.local/pipx/venvs/revyl/bin/revyl",
 			expected: "pipx",
@@ -815,13 +820,16 @@ func TestResolveLatestReleaseTagRejectsUnexpectedResponses(t *testing.T) {
 
 func TestUpgradeCommandForInstallMethod(t *testing.T) {
 	for method, want := range map[string]string{
-		"homebrew": "brew upgrade revyl",
-		"npm":      "npm update -g @revyl/cli",
-		"pipx":     "pipx upgrade revyl",
-		"uv":       "uv tool upgrade revyl",
-		"pip":      "pip install --upgrade revyl",
-		"direct":   "revyl upgrade",
-		"":         "revyl upgrade",
+		"homebrew":  "brew upgrade revyl",
+		"npm":       "npm update -g @revyl/cli",
+		"pipx":      "pipx upgrade revyl",
+		"uv":        "uv tool upgrade revyl",
+		"pip":       "pip install --upgrade revyl",
+		"npx":       "npx -y @revyl/cli@latest",
+		"read_only": "sudo revyl upgrade",
+		"managed":   "update the image or package that provides revyl",
+		"direct":    "revyl upgrade",
+		"":          "revyl upgrade",
 	} {
 		if got := upgradeCommandForInstallMethod(method); got != want {
 			t.Errorf("upgradeCommandForInstallMethod(%q) = %q, want %q", method, got, want)
@@ -911,5 +919,107 @@ func TestPerformSelfUpdateRejectsReadOnlyInstallDirBeforeDownloading(t *testing.
 	}
 	if contents, readErr := os.ReadFile(execPath); readErr != nil || string(contents) != "current" {
 		t.Fatalf("installed binary changed: %q, %v", contents, readErr)
+	}
+}
+
+func TestClassifyDirectInstall(t *testing.T) {
+	writableDir := t.TempDir()
+	readOnlyDir := t.TempDir()
+	if err := os.Chmod(readOnlyDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyDir, 0o755) })
+
+	tests := []struct {
+		name     string
+		execPath string
+		want     string
+		skip     bool
+	}{
+		{name: "writable directory self-updates", execPath: filepath.Join(writableDir, "revyl"), want: "direct"},
+		{name: "agent outpost overlay", execPath: "/opt/revyl/overlay/bin/revyl", want: installMethodManaged},
+		{name: "nix store", execPath: "/nix/store/abc-revyl/bin/revyl", want: installMethodManaged},
+		{
+			name:     "directory this user cannot write",
+			execPath: filepath.Join(readOnlyDir, "revyl"),
+			want:     installMethodReadOnly,
+			skip:     runtime.GOOS == "windows" || os.Geteuid() == 0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.skip {
+				t.Skip("POSIX directory permissions do not restrict this user")
+			}
+			if got := classifyDirectInstall(test.execPath); got != test.want {
+				t.Fatalf("classifyDirectInstall(%q) = %q, want %q", test.execPath, got, test.want)
+			}
+		})
+	}
+}
+
+func TestRunUpgradeOnInstallItCannotReplaceExitsCleanlyWithoutDownloading(t *testing.T) {
+	originalQuietMode := ui.IsQuietMode()
+	ui.SetQuietMode(false)
+	t.Cleanup(func() { ui.SetQuietMode(originalQuietMode) })
+
+	for _, test := range []struct {
+		method      string
+		jsonOutput  bool
+		wantCommand string
+	}{
+		{method: installMethodReadOnly, wantCommand: "sudo /usr/local/bin/revyl upgrade"},
+		{method: installMethodReadOnly, jsonOutput: true, wantCommand: "sudo /usr/local/bin/revyl upgrade"},
+		{method: installMethodManaged, wantCommand: "update the image or package that provides revyl"},
+		{method: installMethodManaged, jsonOutput: true, wantCommand: "update the image or package that provides revyl"},
+	} {
+		t.Run(fmt.Sprintf("%s/json=%t", test.method, test.jsonOutput), func(t *testing.T) {
+			testutil.SetHomeDir(t, t.TempDir())
+			t.Setenv("GITHUB_TOKEN", "")
+			t.Setenv("GH_TOKEN", "")
+			serveLatestReleaseRedirect(t, "v999.0.0")
+			originalJSON := upgradeOutputJSON
+			originalDetect := detectInstallMethodFn
+			originalUpdate := performSelfUpdateFn
+			originalExecutablePath := upgradeExecutablePathFn
+			t.Cleanup(func() {
+				upgradeOutputJSON = originalJSON
+				detectInstallMethodFn = originalDetect
+				performSelfUpdateFn = originalUpdate
+				upgradeExecutablePathFn = originalExecutablePath
+			})
+			upgradeOutputJSON = test.jsonOutput
+			detectInstallMethodFn = func() string { return test.method }
+			upgradeExecutablePathFn = func() (string, error) { return "/usr/local/bin/revyl", nil }
+			performSelfUpdateFn = func(context.Context, string) (string, error) {
+				t.Fatal("an install revyl upgrade cannot replace attempted a download")
+				return "", nil
+			}
+
+			var stdout string
+			var upgradeErr error
+			stderr := captureStdoutAndStderr(t, func() {
+				stdout = captureStdout(t, func() {
+					upgradeErr = runUpgrade(newTestCommand(), nil)
+				})
+			})
+
+			if upgradeErr != nil {
+				t.Fatalf("runUpgrade() error = %v, want nil", upgradeErr)
+			}
+			if !test.jsonOutput {
+				if !strings.Contains(stdout+stderr, "Update with: "+test.wantCommand) {
+					t.Fatalf("output %q%q does not name %q", stdout, stderr, test.wantCommand)
+				}
+				return
+			}
+			var result UpgradeResult
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatalf("invalid JSON result %q: %v", stdout, err)
+			}
+			if result.InstallMethod != test.method || result.UpgradeCommand != test.wantCommand || !result.UpdateAvailable {
+				t.Fatalf("result = %#v, want %s with %q", result, test.method, test.wantCommand)
+			}
+		})
 	}
 }

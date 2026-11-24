@@ -274,7 +274,7 @@ func printDailyUpdateNotice() {
 		return
 	}
 	update := versionCheckOutput
-	if update == nil || !update.UpdateAvailable || !claimUpdateNotice(time.Now(), updateAvailableShownAt) {
+	if update == nil || !update.UpdateAvailable || update.InstallMethod == installMethodManaged || !claimUpdateNotice(time.Now(), updateAvailableShownAt) {
 		return
 	}
 	ui.PrintWarning(

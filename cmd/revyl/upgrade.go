@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,6 +26,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/skillcatalog"
 	"github.com/revyl/cli/internal/ui"
@@ -89,11 +92,12 @@ var (
 	upgradeOutputJSON bool
 	upgradePrerelease bool
 
-	gitHubAPIBaseURL     = GitHubAPIURL
-	gitHubWebBaseURL     = GitHubWebURL
-	gitHubMaxRetries     = 2
-	gitHubRetryBaseDelay = 500 * time.Millisecond
-	gitHubRetryMaxDelay  = 5 * time.Second
+	gitHubAPIBaseURL      = GitHubAPIURL
+	gitHubWebBaseURL      = GitHubWebURL
+	gitHubReleasesBaseURL = GitHubReleasesURL
+	gitHubMaxRetries      = 2
+	gitHubRetryBaseDelay  = 500 * time.Millisecond
+	gitHubRetryMaxDelay   = 5 * time.Second
 
 	// brewCommandRunner creates exec.Cmd instances for brew commands.
 	// Overridden in tests to avoid running actual brew.
@@ -122,8 +126,12 @@ BEHAVIOR:
   - Detects how the CLI was installed (Homebrew, npm, pip, pipx, uv, install
     script or direct download)
   - Homebrew: runs brew update && brew upgrade revyl automatically
-  - npm/pip/pipx/uv/older Python packages: shows the upgrade command to run
+  - npm/npx/pip/pipx/uv/older Python packages: shows the upgrade command to run
   - Install script and direct downloads: downloads and replaces the binary
+  - A binary this user cannot replace (for example a root-owned directory)
+    shows: sudo revyl upgrade. One provided by an image, agent outpost,
+    read-only filesystem or Nix store shows that its image or package owns
+    updates. Neither downloads anything, and both exit 0
   - Resolves the latest release from the github.com release redirect, which
     is not subject to the GitHub API rate limit
   - Updates only the CLI; existing agent skills are left unchanged
@@ -242,7 +250,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		printUpgradeNextSteps()
 		return nil
 
-	case "npm", "pipx", "uv", "pip":
+	case "npm", "npx", "pipx", "uv", "pip":
+		recordManagedInstallUpgrade(cmd)
 		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
 		result.Message = "Update available via " + result.InstallMethod
 
@@ -258,6 +267,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return nil
 
 	case "python":
+		recordManagedInstallUpgrade(cmd)
 		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
 		result.Message = "Update available via the revyl Python package"
 
@@ -271,6 +281,24 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			for _, command := range legacyPythonPackageUpgradeCommands {
 				ui.PrintDim("  %s", command)
 			}
+		}
+		return nil
+
+	case installMethodReadOnly, installMethodManaged:
+		recordManagedInstallUpgrade(cmd)
+		result.UpgradeCommand = upgradeCommandForInstallMethod(result.InstallMethod)
+		if execPath, err := upgradeExecutablePathFn(); result.InstallMethod == installMethodReadOnly && err == nil && !strings.ContainsAny(execPath, " '\"\\$`") {
+			result.UpgradeCommand = "sudo " + execPath + " upgrade"
+		}
+		result.Message = managedInstallMessage(result.InstallMethod)
+
+		if jsonOutput {
+			outputJSON(result)
+		} else {
+			ui.PrintInfo("Current version: %s", version)
+			ui.PrintInfo("Latest version:  %s", release.TagName)
+			ui.Println()
+			ui.PrintWarning("%s. Update with: %s", result.Message, result.UpgradeCommand)
 		}
 		return nil
 
@@ -314,6 +342,12 @@ func upgradeCommandForInstallMethod(installMethod string) string {
 		return "brew upgrade revyl"
 	case "npm":
 		return "npm update -g @revyl/cli"
+	case "npx":
+		return "npx -y @revyl/cli@latest"
+	case installMethodReadOnly:
+		return "sudo revyl upgrade"
+	case installMethodManaged:
+		return "update the image or package that provides revyl"
 	case "pipx":
 		return "pipx upgrade revyl"
 	case "uv":
@@ -342,7 +376,57 @@ func detectInstallMethod() string {
 		execPath = resolvedExecPath
 	}
 
-	return detectInstallMethodForExecutable(execPath)
+	method := detectInstallMethodForExecutable(execPath)
+	if method != "direct" {
+		return method
+	}
+	return classifyDirectInstall(execPath)
+}
+
+const (
+	// installMethodReadOnly is a direct install whose binary this user cannot
+	// replace, such as a root-owned /usr/local/bin.
+	installMethodReadOnly = "read_only"
+
+	// installMethodManaged is a binary that an image, agent outpost, read-only
+	// filesystem or Nix store provides, so updates come from its owner.
+	installMethodManaged = "managed"
+)
+
+// classifyDirectInstall reports whether revyl upgrade can replace the direct
+// install at execPath in place, before anything is downloaded.
+func classifyDirectInstall(execPath string) string {
+	normalizedPath := filepath.ToSlash(execPath)
+	if strings.HasPrefix(normalizedPath, "/opt/revyl/overlay/") || strings.HasPrefix(normalizedPath, "/nix/store/") {
+		return installMethodManaged
+	}
+	err := executableReplaceBlocker(execPath)
+	switch {
+	case err == nil:
+		return "direct"
+	case errors.Is(err, syscall.EROFS):
+		return installMethodManaged
+	case errors.Is(err, fs.ErrPermission):
+		return installMethodReadOnly
+	default:
+		return "direct"
+	}
+}
+
+func managedInstallMessage(installMethod string) string {
+	if installMethod == installMethodManaged {
+		return "This Revyl CLI is managed by the image or package that installed it, so revyl upgrade cannot replace it"
+	}
+	return "This user cannot replace the installed Revyl CLI"
+}
+
+// recordManagedInstallUpgrade classifies an upgrade that the installation's
+// own manager must perform as a completed command, not a failure.
+func recordManagedInstallUpgrade(cmd *cobra.Command) {
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "cli_upgrade",
+		DomainStatus: "managed_install",
+	})
 }
 
 // detectInstallMethodForExecutable classifies an installed executable by its
@@ -378,6 +462,10 @@ func detectInstallMethodFromPath(execPath string) string {
 	// Check for Homebrew
 	if strings.Contains(normalizedPath, "homebrew") || strings.Contains(normalizedPath, "cellar") {
 		return "homebrew"
+	}
+
+	if strings.Contains(normalizedPath, "/_npx/") {
+		return "npx"
 	}
 
 	// Check for npm
@@ -712,8 +800,8 @@ func performSelfUpdate(ctx context.Context, tagName string) (string, error) {
 	}
 
 	// Download URLs
-	binaryURL := fmt.Sprintf("%s/%s/%s", GitHubReleasesURL, tagName, binaryName)
-	checksumURL := fmt.Sprintf("%s/%s/checksums.txt", GitHubReleasesURL, tagName)
+	binaryURL := fmt.Sprintf("%s/%s/%s", gitHubReleasesBaseURL, tagName, binaryName)
+	checksumURL := fmt.Sprintf("%s/%s/checksums.txt", gitHubReleasesBaseURL, tagName)
 
 	execPath, err := upgradeExecutablePathFn()
 	if err != nil {

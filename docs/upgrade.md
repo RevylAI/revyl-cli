@@ -35,8 +35,10 @@ stderr line at most once every 24 hours per machine:
 The notice names the upgrade command for the installation: `brew upgrade revyl`
 for Homebrew, `pip install --upgrade revyl`, `pipx upgrade revyl`, or
 `uv tool upgrade revyl` for Python packages, `npm update -g @revyl/cli` for npm,
-and `revyl upgrade` for the shell installer, direct downloads, and any location
-it cannot classify. npm, pip, pipx, and uv installations are never updated
+`npx -y @revyl/cli@latest` for npx, `sudo revyl upgrade` for a binary the
+current user cannot replace, and `revyl upgrade` for the shell installer,
+direct downloads, and any location it cannot classify. An installation that an
+image or package owns gets no notice. npm, pip, pipx, and uv installations are never updated
 automatically, because that could update a different installation. A
 `revyl-<os>-<arch>` binary that an older `revyl` Python package downloaded into
 `~/.revyl/bin`, including a `v<version>` subdirectory, counts as a Python
@@ -53,11 +55,24 @@ itself over and over, most visibly on Windows. Upgrade the Python package with
 `uv tool upgrade revyl`, `pipx upgrade revyl`, or `pip install --upgrade revyl`;
 current packages bundle the binary and never search `PATH` for it.
 
-Before it downloads anything, `revyl upgrade` checks that it can write the
-directory holding the installed binary. When it cannot, for example in a
-read-only image, it exits non-zero and names the recovery: reinstall with
-`REVYL_INSTALL_DIR="$HOME/.revyl/bin"` and put that directory first on `PATH`.
-A managed image or agent outpost install is updated by its image owner. Agent
+Before it downloads anything, `revyl upgrade` resolves symlinks to the
+installed binary and checks that the current user can replace it. On Linux and
+macOS, when it cannot, it downloads nothing, prints one line naming the update path, and exits
+0, like npm and Python installations, so a script or agent that runs it on
+every start does not retry a failure it cannot fix:
+
+```text
+⚠ This user cannot replace the installed Revyl CLI. Update with: sudo /usr/local/bin/revyl upgrade
+⚠ This Revyl CLI is managed by the image or package that installed it, so revyl upgrade cannot replace it. Update with: update the image or package that provides revyl
+```
+
+The first applies to a directory such as a root-owned `/usr/local/bin`. The
+second applies to an agent outpost overlay, a read-only filesystem, or the Nix
+store. With `--json`, `install_method` is `read_only` or `managed`, and
+`upgrade_command` holds the update path. On Windows, an install directory the
+user cannot write still stops `revyl upgrade` with a non-zero exit. To update without elevated
+permissions, reinstall with `REVYL_INSTALL_DIR="$HOME/.revyl/bin"` and put that
+directory first on `PATH`. Agent
 outposts set `REVYL_NO_UPDATE_NOTIFIER=1` for their agents, so an outpost agent
 never gets an update notice it cannot act on.
 
