@@ -388,6 +388,9 @@ func pushLocalTests(cmd *cobra.Command, client *api.Client, project *config.Proj
 			failures = append(failures, fmt.Errorf("%s: conflict detected (use --force to overwrite)", r.Name))
 		} else {
 			ui.PrintSuccess("%s: pushed to v%d", r.Name, r.NewVersion)
+			if r.UpdatedExistingByName {
+				ui.PrintInfo("%s: updated the existing test with this name and linked this file to it", r.Name)
+			}
 			if r.TagSyncError != nil {
 				ui.PrintWarning("%s: tags failed to sync: %v", r.Name, r.TagSyncError)
 			}

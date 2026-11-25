@@ -43,7 +43,7 @@ var (
 
 func init() {
 	// Configure flags for subcommands
-	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
+	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Overwrite the saved test, even when its version moved on or this file isn't linked to the saved test with its name")
 	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
 	testsPushCmd.Flags().BoolVar(&testsPushIncludeModulesAndScripts, "include-modules-and-scripts", false, "Also update the saved modules and scripts the pushed tests use to match their files")
 

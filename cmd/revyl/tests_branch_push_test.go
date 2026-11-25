@@ -53,6 +53,8 @@ func TestPushReturnsSelectorFailureWhileKeepingSuccessfulTests(t *testing.T) {
 			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
 		case "/api/v1/modules/list":
 			_, _ = w.Write([]byte(`{"result":[]}`))
+		case "/api/v1/tests/get_simple_tests":
+			_, _ = w.Write([]byte(`{"tests":[],"count":0}`))
 		case "/api/v1/tests/create":
 			var body map[string]interface{}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

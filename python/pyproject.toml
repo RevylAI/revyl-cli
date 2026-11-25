@@ -1,6 +1,6 @@
 [project]
 name = "revyl"
-version = "0.2.74"
+version = "0.2.75"
 description = "Verification infrastructure for cloud agents"
 readme = "README.md"
 license = "MIT"

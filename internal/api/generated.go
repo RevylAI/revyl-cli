@@ -171,6 +171,7 @@ const (
 	AtlasAnnotationAgentKindDevin      AtlasAnnotationAgentKind = "devin"
 	AtlasAnnotationAgentKindOther      AtlasAnnotationAgentKind = "other"
 	AtlasAnnotationAgentKindRevyl      AtlasAnnotationAgentKind = "revyl"
+	AtlasAnnotationAgentKindTembo      AtlasAnnotationAgentKind = "tembo"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationAgentKind enum.
@@ -190,6 +191,8 @@ func (e AtlasAnnotationAgentKind) Valid() bool {
 		return true
 	case AtlasAnnotationAgentKindRevyl:
 		return true
+	case AtlasAnnotationAgentKindTembo:
+		return true
 	default:
 		return false
 	}
@@ -200,6 +203,7 @@ const (
 	AtlasAnnotationAgentToolMentionMetadataAgentKindCapy   AtlasAnnotationAgentToolMentionMetadataAgentKind = "capy"
 	AtlasAnnotationAgentToolMentionMetadataAgentKindCursor AtlasAnnotationAgentToolMentionMetadataAgentKind = "cursor"
 	AtlasAnnotationAgentToolMentionMetadataAgentKindDevin  AtlasAnnotationAgentToolMentionMetadataAgentKind = "devin"
+	AtlasAnnotationAgentToolMentionMetadataAgentKindTembo  AtlasAnnotationAgentToolMentionMetadataAgentKind = "tembo"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationAgentToolMentionMetadataAgentKind enum.
@@ -210,6 +214,8 @@ func (e AtlasAnnotationAgentToolMentionMetadataAgentKind) Valid() bool {
 	case AtlasAnnotationAgentToolMentionMetadataAgentKindCursor:
 		return true
 	case AtlasAnnotationAgentToolMentionMetadataAgentKindDevin:
+		return true
+	case AtlasAnnotationAgentToolMentionMetadataAgentKindTembo:
 		return true
 	default:
 		return false
@@ -263,6 +269,7 @@ const (
 	AtlasAnnotationCursorCloudAgentSummaryAgentKindCapy   AtlasAnnotationCursorCloudAgentSummaryAgentKind = "capy"
 	AtlasAnnotationCursorCloudAgentSummaryAgentKindCursor AtlasAnnotationCursorCloudAgentSummaryAgentKind = "cursor"
 	AtlasAnnotationCursorCloudAgentSummaryAgentKindDevin  AtlasAnnotationCursorCloudAgentSummaryAgentKind = "devin"
+	AtlasAnnotationCursorCloudAgentSummaryAgentKindTembo  AtlasAnnotationCursorCloudAgentSummaryAgentKind = "tembo"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationCursorCloudAgentSummaryAgentKind enum.
@@ -273,6 +280,8 @@ func (e AtlasAnnotationCursorCloudAgentSummaryAgentKind) Valid() bool {
 	case AtlasAnnotationCursorCloudAgentSummaryAgentKindCursor:
 		return true
 	case AtlasAnnotationCursorCloudAgentSummaryAgentKindDevin:
+		return true
+	case AtlasAnnotationCursorCloudAgentSummaryAgentKindTembo:
 		return true
 	default:
 		return false
@@ -1025,6 +1034,7 @@ const (
 	CloudAgentProviderKeyCapy        CloudAgentProviderKey = "capy"
 	CloudAgentProviderKeyCursorCloud CloudAgentProviderKey = "cursor_cloud"
 	CloudAgentProviderKeyDevin       CloudAgentProviderKey = "devin"
+	CloudAgentProviderKeyTembo       CloudAgentProviderKey = "tembo"
 )
 
 // Valid indicates whether the value is a known member of the CloudAgentProviderKey enum.
@@ -1035,6 +1045,8 @@ func (e CloudAgentProviderKey) Valid() bool {
 	case CloudAgentProviderKeyCursorCloud:
 		return true
 	case CloudAgentProviderKeyDevin:
+		return true
+	case CloudAgentProviderKeyTembo:
 		return true
 	default:
 		return false
@@ -4412,6 +4424,7 @@ const (
 	SupportContextSurfaceCursorAgentLaunch SupportContextSurface = "cursor_agent_launch"
 	SupportContextSurfaceDevinAgentLaunch  SupportContextSurface = "devin_agent_launch"
 	SupportContextSurfaceExperiments       SupportContextSurface = "experiments"
+	SupportContextSurfaceTemboAgentLaunch  SupportContextSurface = "tembo_agent_launch"
 )
 
 // Valid indicates whether the value is a known member of the SupportContextSurface enum.
@@ -4428,6 +4441,8 @@ func (e SupportContextSurface) Valid() bool {
 	case SupportContextSurfaceDevinAgentLaunch:
 		return true
 	case SupportContextSurfaceExperiments:
+		return true
+	case SupportContextSurfaceTemboAgentLaunch:
 		return true
 	default:
 		return false
@@ -4452,6 +4467,24 @@ func (e SupportRequestType) Valid() bool {
 	case SupportRequestTypeFriction:
 		return true
 	case SupportRequestTypeOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TemboConnectionType.
+const (
+	TemboConnectionTypeOrganizationDefault TemboConnectionType = "organization_default"
+	TemboConnectionTypePersonal            TemboConnectionType = "personal"
+)
+
+// Valid indicates whether the value is a known member of the TemboConnectionType enum.
+func (e TemboConnectionType) Valid() bool {
+	switch e {
+	case TemboConnectionTypeOrganizationDefault:
+		return true
+	case TemboConnectionTypePersonal:
 		return true
 	default:
 		return false
@@ -5810,6 +5843,98 @@ type AtlasAnnotationStatus string
 type AtlasAnnotationStatusChangeRequest struct {
 	// ExpectedVersion Thread version the client last observed; the transition is rejected with a conflict when the thread moved past it.
 	ExpectedVersion int `json:"expected_version"`
+}
+
+// AtlasAnnotationTemboAdjustSettingsAction defines model for AtlasAnnotationTemboAdjustSettingsAction.
+type AtlasAnnotationTemboAdjustSettingsAction struct {
+	RecoveryKind     string                                       `json:"recovery_kind"`
+	RecoveryRevision string                                       `json:"recovery_revision"`
+	Settings         AtlasAnnotationTemboCloudAgentLaunchSettings `json:"settings"`
+}
+
+// AtlasAnnotationTemboCloudAgentLaunchSettings defines model for AtlasAnnotationTemboCloudAgentLaunchSettings.
+type AtlasAnnotationTemboCloudAgentLaunchSettings struct {
+	ConnectionId       openapi_types.UUID  `json:"connection_id"`
+	ConnectionType     TemboConnectionType `json:"connection_type"`
+	CredentialRevision int                 `json:"credential_revision"`
+
+	// DeviceTarget A device model + runtime combination.
+	DeviceTarget      *DevicePair           `json:"device_target,omitempty"`
+	LaunchEnvVarIds   *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
+	TemboRepositoryId *openapi_types.UUID   `json:"tembo_repository_id,omitempty"`
+}
+
+// AtlasAnnotationTemboConnectAction defines model for AtlasAnnotationTemboConnectAction.
+type AtlasAnnotationTemboConnectAction struct {
+	RecoveryKind string `json:"recovery_kind"`
+}
+
+// AtlasAnnotationTemboFollowupDelivery defines model for AtlasAnnotationTemboFollowupDelivery.
+type AtlasAnnotationTemboFollowupDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus  CloudAgentConversationLaunchSubmissionStatus                `json:"delivery_status"`
+	RecoveryActions []AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item defines model for AtlasAnnotationTemboFollowupDelivery.recovery_actions.Item.
+type AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationTemboFollowupMention defines model for AtlasAnnotationTemboFollowupMention.
+type AtlasAnnotationTemboFollowupMention struct {
+	AgentKind    string                               `json:"agent_kind"`
+	Delivery     AtlasAnnotationTemboFollowupDelivery `json:"delivery"`
+	DispatchKind string                               `json:"dispatch_kind"`
+	DisplayName  string                               `json:"display_name"`
+	EndUtf16     int                                  `json:"end_utf16"`
+	StartUtf16   int                                  `json:"start_utf16"`
+}
+
+// AtlasAnnotationTemboFollowupMentionInput defines model for AtlasAnnotationTemboFollowupMentionInput.
+type AtlasAnnotationTemboFollowupMentionInput struct {
+	AgentKind    string `json:"agent_kind"`
+	DispatchKind string `json:"dispatch_kind"`
+	EndUtf16     int    `json:"end_utf16"`
+	StartUtf16   int    `json:"start_utf16"`
+	UserPrompt   string `json:"user_prompt"`
+}
+
+// AtlasAnnotationTemboLaunchDelivery defines model for AtlasAnnotationTemboLaunchDelivery.
+type AtlasAnnotationTemboLaunchDelivery struct {
+	DeliveryMessage *string `json:"delivery_message,omitempty"`
+
+	// DeliveryStatus Once-only result of submitting the founding launch to its provider.
+	DeliveryStatus        CloudAgentConversationLaunchSubmissionStatus              `json:"delivery_status"`
+	LaunchSettingsSummary string                                                    `json:"launch_settings_summary"`
+	RecoveryActions       []AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item `json:"recovery_actions"`
+}
+
+// AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item defines model for AtlasAnnotationTemboLaunchDelivery.recovery_actions.Item.
+type AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item struct {
+	union json.RawMessage
+}
+
+// AtlasAnnotationTemboLaunchMention defines model for AtlasAnnotationTemboLaunchMention.
+type AtlasAnnotationTemboLaunchMention struct {
+	AgentKind    string                             `json:"agent_kind"`
+	Delivery     AtlasAnnotationTemboLaunchDelivery `json:"delivery"`
+	DispatchKind string                             `json:"dispatch_kind"`
+	DisplayName  string                             `json:"display_name"`
+	EndUtf16     int                                `json:"end_utf16"`
+	StartUtf16   int                                `json:"start_utf16"`
+}
+
+// AtlasAnnotationTemboLaunchMentionInput defines model for AtlasAnnotationTemboLaunchMentionInput.
+type AtlasAnnotationTemboLaunchMentionInput struct {
+	AgentKind    string                                       `json:"agent_kind"`
+	DispatchKind string                                       `json:"dispatch_kind"`
+	EndUtf16     int                                          `json:"end_utf16"`
+	Settings     AtlasAnnotationTemboCloudAgentLaunchSettings `json:"settings"`
+	StartUtf16   int                                          `json:"start_utf16"`
+	UserPrompt   string                                       `json:"user_prompt"`
 }
 
 // AtlasAnnotationThread defines model for AtlasAnnotationThread.
@@ -12328,6 +12453,9 @@ type TaskMetadata struct {
 	StepType        string  `json:"step_type"`
 }
 
+// TemboConnectionType defines model for TemboConnectionType.
+type TemboConnectionType string
+
 // Test defines model for Test.
 type Test struct {
 	AppId          *openapi_types.UUID `json:"app_id,omitempty"`
@@ -16667,6 +16795,58 @@ func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationDevi
 	return err
 }
 
+// AsAtlasAnnotationTemboLaunchMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationTemboLaunchMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationTemboLaunchMention() (AtlasAnnotationTemboLaunchMention, error) {
+	var body AtlasAnnotationTemboLaunchMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboLaunchMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationTemboLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationTemboLaunchMention(v AtlasAnnotationTemboLaunchMention) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboLaunchMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationTemboLaunchMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationTemboLaunchMention(v AtlasAnnotationTemboLaunchMention) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationTemboFollowupMention returns the union data inside the AtlasAnnotationComment_AgentToolMentions_Item as a AtlasAnnotationTemboFollowupMention
+func (t AtlasAnnotationComment_AgentToolMentions_Item) AsAtlasAnnotationTemboFollowupMention() (AtlasAnnotationTemboFollowupMention, error) {
+	var body AtlasAnnotationTemboFollowupMention
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboFollowupMention overwrites any union data inside the AtlasAnnotationComment_AgentToolMentions_Item as the provided AtlasAnnotationTemboFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) FromAtlasAnnotationTemboFollowupMention(v AtlasAnnotationTemboFollowupMention) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboFollowupMention performs a merge with any union data inside the AtlasAnnotationComment_AgentToolMentions_Item, using the provided AtlasAnnotationTemboFollowupMention
+func (t *AtlasAnnotationComment_AgentToolMentions_Item) MergeAtlasAnnotationTemboFollowupMention(v AtlasAnnotationTemboFollowupMention) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t AtlasAnnotationComment_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -17279,12 +17459,272 @@ func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotatio
 	return err
 }
 
+// AsAtlasAnnotationTemboLaunchMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationTemboLaunchMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationTemboLaunchMentionInput() (AtlasAnnotationTemboLaunchMentionInput, error) {
+	var body AtlasAnnotationTemboLaunchMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboLaunchMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationTemboLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationTemboLaunchMentionInput(v AtlasAnnotationTemboLaunchMentionInput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboLaunchMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationTemboLaunchMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationTemboLaunchMentionInput(v AtlasAnnotationTemboLaunchMentionInput) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationTemboFollowupMentionInput returns the union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as a AtlasAnnotationTemboFollowupMentionInput
+func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) AsAtlasAnnotationTemboFollowupMentionInput() (AtlasAnnotationTemboFollowupMentionInput, error) {
+	var body AtlasAnnotationTemboFollowupMentionInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboFollowupMentionInput overwrites any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item as the provided AtlasAnnotationTemboFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) FromAtlasAnnotationTemboFollowupMentionInput(v AtlasAnnotationTemboFollowupMentionInput) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboFollowupMentionInput performs a merge with any union data inside the AtlasAnnotationReplyRequest_AgentToolMentions_Item, using the provided AtlasAnnotationTemboFollowupMentionInput
+func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) MergeAtlasAnnotationTemboFollowupMentionInput(v AtlasAnnotationTemboFollowupMentionInput) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t AtlasAnnotationReplyRequest_AgentToolMentions_Item) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
 }
 
 func (t *AtlasAnnotationReplyRequest_AgentToolMentions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationTemboConnectAction returns the union data inside the AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationTemboConnectAction
+func (t AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationTemboConnectAction() (AtlasAnnotationTemboConnectAction, error) {
+	var body AtlasAnnotationTemboConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboConnectAction overwrites any union data inside the AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationTemboConnectAction
+func (t *AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationTemboConnectAction(v AtlasAnnotationTemboConnectAction) error {
+	v.RecoveryKind = "connect_tembo"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboConnectAction performs a merge with any union data inside the AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationTemboConnectAction
+func (t *AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationTemboConnectAction(v AtlasAnnotationTemboConnectAction) error {
+	v.RecoveryKind = "connect_tembo"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "connect_tembo":
+		return t.AsAtlasAnnotationTemboConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationTemboFollowupDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAtlasAnnotationTemboConnectAction returns the union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationTemboConnectAction
+func (t AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationTemboConnectAction() (AtlasAnnotationTemboConnectAction, error) {
+	var body AtlasAnnotationTemboConnectAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboConnectAction overwrites any union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationTemboConnectAction
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationTemboConnectAction(v AtlasAnnotationTemboConnectAction) error {
+	v.RecoveryKind = "connect_tembo"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboConnectAction performs a merge with any union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationTemboConnectAction
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationTemboConnectAction(v AtlasAnnotationTemboConnectAction) error {
+	v.RecoveryKind = "connect_tembo"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationCursorRetryAction returns the union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationCursorRetryAction
+func (t AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationCursorRetryAction() (AtlasAnnotationCursorRetryAction, error) {
+	var body AtlasAnnotationCursorRetryAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationCursorRetryAction overwrites any union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationCursorRetryAction performs a merge with any union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationCursorRetryAction
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationCursorRetryAction(v AtlasAnnotationCursorRetryAction) error {
+	v.RecoveryKind = "retry"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAtlasAnnotationTemboAdjustSettingsAction returns the union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item as a AtlasAnnotationTemboAdjustSettingsAction
+func (t AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) AsAtlasAnnotationTemboAdjustSettingsAction() (AtlasAnnotationTemboAdjustSettingsAction, error) {
+	var body AtlasAnnotationTemboAdjustSettingsAction
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAtlasAnnotationTemboAdjustSettingsAction overwrites any union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item as the provided AtlasAnnotationTemboAdjustSettingsAction
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) FromAtlasAnnotationTemboAdjustSettingsAction(v AtlasAnnotationTemboAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAtlasAnnotationTemboAdjustSettingsAction performs a merge with any union data inside the AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item, using the provided AtlasAnnotationTemboAdjustSettingsAction
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) MergeAtlasAnnotationTemboAdjustSettingsAction(v AtlasAnnotationTemboAdjustSettingsAction) error {
+	v.RecoveryKind = "adjust_settings"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"recovery_kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "adjust_settings":
+		return t.AsAtlasAnnotationTemboAdjustSettingsAction()
+	case "connect_tembo":
+		return t.AsAtlasAnnotationTemboConnectAction()
+	case "retry":
+		return t.AsAtlasAnnotationCursorRetryAction()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AtlasAnnotationTemboLaunchDelivery_RecoveryActions_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

@@ -60,7 +60,10 @@ revyl test create <test-name> --from-file ./test.yaml
 
 The CLI checks the YAML with backend validation, copies it into
 `.revyl/tests/`, and pushes it. It never creates or migrates project
-configuration.
+configuration. When a saved test already has that name, the command stops and
+says so; rerun it with `--force` to update that test from the file, for
+example when a script creates and runs the same test every time. `--force`
+never replaces a saved test on another platform.
 
 If you prefer to scaffold first:
 

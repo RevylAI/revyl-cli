@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -88,6 +90,9 @@ type SyncResult struct {
 	NewVersion int
 	Conflict   bool
 	Error      error
+	// UpdatedExistingByName is set when a file not yet linked to a saved test
+	// was pushed with force onto the saved test that has its name.
+	UpdatedExistingByName bool
 	// TagSyncError is a non-fatal error from tag synchronization.
 	TagSyncError error
 }
@@ -340,6 +345,8 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	createOrgID := ""
 	createOrgIDResolved := false
 	var createOrgIDErr error
+	var orgTests []api.SimpleTest
+	orgTestsListed := false
 
 	pushScriptNames, pushModuleNames := r.FetchNameMappings(ctx)
 
@@ -370,6 +377,31 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 			continue
 		}
 		remoteID := localTest.Meta.RemoteID
+
+		if remoteID == "" && force {
+			if !orgTestsListed {
+				orgTests, err = r.client.ListAllOrgTests(ctx, 200)
+				orgTestsListed = err == nil
+				if err != nil {
+					result.Error = fmt.Errorf("list your organization's tests to find one named %q: %w", localTest.Test.Metadata.Name, err)
+					results = append(results, result)
+					continue
+				}
+			}
+			if i := slices.IndexFunc(orgTests, func(t api.SimpleTest) bool {
+				return strings.ToLower(t.Name) == strings.ToLower(localTest.Test.Metadata.Name)
+			}); i >= 0 {
+				existing := orgTests[i]
+				if !strings.EqualFold(existing.Platform, localTest.Test.Metadata.Platform) {
+					result.Error = fmt.Errorf("the saved test named %q is on %s, so --force won't replace it with this %s test; rename the test in this file or delete the saved one", existing.Name, existing.Platform, localTest.Test.Metadata.Platform)
+					results = append(results, result)
+					continue
+				}
+				remoteID = existing.ID
+				localTest.Meta.RemoteID = existing.ID
+				result.UpdatedExistingByName = true
+			}
+		}
 
 		if remoteID == "" {
 			if !createOrgIDResolved {
@@ -405,7 +437,10 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				OrgID:               createOrgID,
 				RunConfig:           runConfig,
 			})
-			if err != nil {
+			var apiErr *api.APIError
+			if !force && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
+				result.Error = fmt.Errorf("%w\nThis file isn't linked to that test. To update the test from it, run: revyl test push %s --force", err, name)
+			} else if err != nil {
 				result.Error = err
 			} else {
 				result.NewVersion = resp.Version

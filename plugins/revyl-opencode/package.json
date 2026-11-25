@@ -1,6 +1,6 @@
 {
   "name": "opencode-revyl",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Revyl for OpenCode: cloud iOS, Android, web, and Mac sessions, builds, tests, and Atlas through Revyl's hosted MCP server, with Revyl's agent skills and a /revyl command.",
   "license": "MIT",
   "author": "Revyl <support@revyl.ai>",
