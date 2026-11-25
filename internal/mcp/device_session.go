@@ -2372,7 +2372,8 @@ type workerHealthResponse struct {
 	ScreenWidth     int    `json:"screen_width"`
 	ScreenHeight    int    `json:"screen_height"`
 
-	SupportsHardwareKeys bool `json:"supports_hardware_keys"`
+	SupportsHardwareKeys    bool `json:"supports_hardware_keys"`
+	SupportsPerLaunchValues bool `json:"supports_per_launch_values"`
 }
 
 func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (workerHealthResponse, error) {

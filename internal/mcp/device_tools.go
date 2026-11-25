@@ -371,7 +371,7 @@ func (s *Server) registerDeviceTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "launch_app",
-		Description: "Launch an app on the device. Omit bundle_id to launch the app this session installed — do not guess an ID; a bundle the device does not have is rejected with the list of what is installed.",
+		Description: "Launch an app on the device. Omit bundle_id to launch the app this session installed — do not guess an ID; a bundle the device does not have is rejected with the list of what is installed. Pass launch_env or launch_arguments to restart the app with launch values for this launch only; its next launch without them restores the session's values.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Launch App",
 			DestructiveHint: boolPtr(true),
@@ -2150,9 +2150,11 @@ func (s *Server) handleDeviceUninstallApp(ctx context.Context, req *mcp.CallTool
 }
 
 type LaunchAppInput struct {
-	BundleID     string `json:"bundle_id,omitempty" jsonschema:"App bundle ID to launch. Omit to launch the app this session installed — prefer omitting it over guessing an ID."`
-	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
-	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
+	BundleID        string            `json:"bundle_id,omitempty" jsonschema:"App bundle ID to launch. Omit to launch the app this session installed — prefer omitting it over guessing an ID."`
+	LaunchEnv       map[string]string `json:"launch_env,omitempty" jsonschema:"Launch environment variables for this launch only, as KEY to value, merged over the session's by key. The app restarts so they apply. Values appear in this conversation, so keep secrets out."`
+	LaunchArguments []string          `json:"launch_arguments,omitempty" jsonschema:"Non-secret iOS app argument tokens for this launch only, appended after the session's in exact order. The app restarts so they apply."`
+	SessionIndex    *int              `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID       string            `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
 
 type LaunchAppOutput struct {
@@ -2168,11 +2170,28 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	body := map[string]string{}
-	if bundleID := strings.TrimSpace(input.BundleID); bundleID != "" {
-		body["bundle_id"] = bundleID
+	request := api.DeviceLaunchRequest{
+		BundleID:        strings.TrimSpace(input.BundleID),
+		LaunchEnvVars:   input.LaunchEnv,
+		LaunchArguments: input.LaunchArguments,
 	}
-	respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/launch", body)
+	argumentNames := []string{}
+	for _, argument := range []struct {
+		name   string
+		passed bool
+	}{
+		{"bundle_id", request.BundleID != ""},
+		{"launch_arguments", len(request.LaunchArguments) > 0},
+		{"launch_env", len(request.LaunchEnvVars) > 0},
+		{"session_id", input.SessionID != ""},
+		{"session_index", input.SessionIndex != nil},
+	} {
+		if argument.passed {
+			argumentNames = append(argumentNames, argument.name)
+		}
+	}
+	analytics.SetMCPToolCallProperties(ctx, map[string]interface{}{"argument_names": argumentNames})
+	respBody, err := s.sessionMgr.LaunchAppOnSession(ctx, session, request)
 	if err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}

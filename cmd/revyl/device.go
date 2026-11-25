@@ -2430,10 +2430,17 @@ the apps that are installed.
 
 On iOS, launching an app that is already running terminates it and starts a
 new process, so in-memory app state is lost. To bring a running app forward
-without restarting it, go to the home screen and tap its icon.`,
+without restarting it, go to the home screen and tap its icon.
+
+--launch-env and --launch-arg restart the app with launch values for this
+launch only. --launch-env merges over the session's launch environment by key,
+and --launch-arg appends iOS argument tokens after the session's. The next
+launch without them restarts the app with the session's own values.`,
 	Example: `  revyl device launch
   revyl device launch com.example.app
-  revyl device launch --bundle-id com.example.app`,
+  revyl device launch --bundle-id com.example.app
+  revyl device launch --launch-env FEATURE_FLAG=on --launch-env API_ENV=staging
+  revyl device launch --launch-arg=-onboardingComplete --launch-arg=YES`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
@@ -2449,11 +2456,16 @@ without restarting it, go to the home screen and tap its icon.`,
 			bundleID = args[0]
 		}
 		bundleID = strings.TrimSpace(bundleID)
-		body := map[string]string{}
-		if bundleID != "" {
-			body["bundle_id"] = bundleID
+		launchEnvVars, err := parseLaunchEnvVars(getExactStringArrayFlag(cmd, "launch-env"))
+		if err != nil {
+			return err
 		}
-		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/launch", body)
+		request := api.DeviceLaunchRequest{
+			BundleID:        bundleID,
+			LaunchEnvVars:   launchEnvVars,
+			LaunchArguments: getExactStringArrayFlag(cmd, "launch-arg"),
+		}
+		respBody, err := mgr.LaunchAppOnSession(cmd.Context(), session, request)
 		if err == nil {
 			err = ensureWorkerActionSucceeded(respBody, "launch")
 		}
@@ -4303,6 +4315,8 @@ func init() {
 
 	// Launch
 	deviceLaunchCmd.Flags().String("bundle-id", "", "App bundle ID to launch (required)")
+	deviceLaunchCmd.Flags().StringArray("launch-env", nil, "Launch environment variable as KEY=VALUE for this launch only, merged over the session's (repeatable)")
+	deviceLaunchCmd.Flags().StringArray("launch-arg", nil, "Non-secret iOS app argument token for this launch only, appended after the session's (repeatable; order preserved)")
 	deviceLaunchCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceLaunchCmd)
 
