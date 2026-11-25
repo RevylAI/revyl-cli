@@ -427,7 +427,8 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 		if !doRebuild {
 			continue
 		}
-		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
+		clean := consumeDevCleanRebuildRequest(devCtxCleanRebuildPath(cwd, ctxName), startNonce)
+		if !clean && !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
 			if drainStdinKeys(stdinKeys) {
 				stopper.RequestStop()
 				return nil
@@ -495,7 +496,24 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 		publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 			State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device",
 		})
-		installedBundleID, installDuration, installErr := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
+		var installedBundleID string
+		var installDuration time.Duration
+		var installErr error
+		if clean {
+			installStart := time.Now()
+			var outcome *mcppkg.CleanInstallOutcome
+			outcome, installErr = deviceMgr.CleanInstallOnSession(ctx, session, bundleID, func() (string, error) {
+				var err error
+				installedBundleID, _, err = installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
+				return installedBundleID, err
+			})
+			installDuration = time.Since(installStart)
+			if installErr == nil {
+				appendDevStatusRebuildLog(statusPath, newDevRebuildLog("info", "Clean install: app data reset ("+outcome.Method+")"), 16)
+			}
+		} else {
+			installedBundleID, installDuration, installErr = installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
+		}
 		result.pushDuration = installDuration
 		if installErr != nil {
 			if stopper.IsUserCanceled(installErr) {

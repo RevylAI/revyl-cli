@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,6 +127,7 @@ var devStartCmd = &cobra.Command{
 
 var (
 	rebuildWait    bool
+	rebuildClean   bool
 	rebuildTimeout int
 	rebuildJSON    bool
 )
@@ -145,8 +147,12 @@ var devRebuildCmd = &cobra.Command{
 For use by agents, automation, and MCP tools.
 
 With --wait, blocks until the rebuild completes and reports the result.
-With --json, outputs machine-readable status (implies --wait).`,
+With --json, outputs machine-readable status (implies --wait).
+With --clean, the rebuild installs the full build after uninstalling the app,
+so it starts with fresh data, even when no native files changed. Rebuilds
+otherwise keep the app's data.`,
 	Example: `  revyl dev rebuild
+  revyl dev rebuild --clean --wait
   revyl dev rebuild --wait
   revyl dev rebuild --wait --json
   revyl dev rebuild --wait --timeout 60`,
@@ -183,6 +189,7 @@ func init() {
 	devRebuildCmd.Flags().BoolVar(&rebuildWait, "wait", false, "Block until rebuild completes")
 	devRebuildCmd.Flags().IntVar(&rebuildTimeout, "timeout", 120, "Timeout in seconds (with --wait)")
 	devRebuildCmd.Flags().BoolVar(&rebuildJSON, "json", false, "Output result as JSON (implies --wait)")
+	devRebuildCmd.Flags().BoolVar(&rebuildClean, "clean", false, "Reinstall with fresh app data: uninstall the app before installing the new build")
 
 	devStatusCmd.Flags().Bool("wait-ready", false, "Block until the dev loop has a live device session")
 	devStatusCmd.Flags().Int("timeout", 300, "Timeout in seconds (with --wait-ready)")
@@ -1352,7 +1359,8 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			continue
 		}
 
-		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
+		clean := consumeDevCleanRebuildRequest(devCtxCleanRebuildPath(cwd, ctxName), startNonce)
+		if !clean && !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
 			if drainStdinKeys(stdinKeys) {
 				stopper.RequestStop()
 				return nil
@@ -1378,7 +1386,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			bundleID, session, deviceMgr, client, hrTransport, hrCachedManifest, hrManifestPath, cwd, hrPackagerHost, hrPackagerScheme,
 			func(entry devRebuildLogEntry) {
 				appendDevStatusRebuildLog(hrStatusPath, entry, 16)
-			})
+			}, clean)
 
 		if drainStdinKeys(stdinKeys) {
 			stopper.RequestStop()
@@ -2750,7 +2758,8 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			continue
 		}
 
-		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
+		clean := consumeDevCleanRebuildRequest(devCtxCleanRebuildPath(cwd, ctxName), startNonce)
+		if !clean && !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
 			if drainStdinKeys(stdinKeys) {
 				stopper.RequestStop()
 				return nil
@@ -2765,7 +2774,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			bundleID, session, deviceMgr, client, transport, cachedManifest, manifestPath, cwd, "", "",
 			func(entry devRebuildLogEntry) {
 				appendDevStatusRebuildLog(statusPath, entry, 16)
-			})
+			}, clean)
 
 		if drainStdinKeys(stdinKeys) {
 			stopper.RequestStop()
@@ -3312,6 +3321,7 @@ func devBuildAndDeltaPush(
 	packagerHost string,
 	packagerScheme string,
 	publishLog devRebuildLogSink,
+	clean bool,
 ) devRebuildResult {
 	result := devRebuildResult{}
 	rebuildStart := time.Now()
@@ -3406,7 +3416,7 @@ func devBuildAndDeltaPush(
 		ui.PrintDebug("  changed: %s", f)
 	}
 
-	if len(diff.Changed) == 0 && len(diff.Deleted) == 0 && cachedManifest != nil {
+	if !clean && len(diff.Changed) == 0 && len(diff.Deleted) == 0 && cachedManifest != nil {
 		result.skipped = true
 		result.manifest = newManifest
 		result.elapsed = time.Since(rebuildStart)
@@ -3421,7 +3431,7 @@ func devBuildAndDeltaPush(
 	// pushes -- the "delta" would be the entire file. Skip to full upload.
 	isSingleFileArtifact := len(newManifest.Files) <= 1
 
-	if cachedManifest != nil && deltaSize < maxDeltaSizeBytes && !isSingleFileArtifact {
+	if !clean && cachedManifest != nil && deltaSize < maxDeltaSizeBytes && !isSingleFileArtifact {
 		changedCount := len(diff.Changed) + len(diff.Deleted)
 		ui.PrintInfo("Pushing changes to device...")
 		ui.PrintDim("  %d files changed (%.1f MB)", changedCount, float64(deltaSize)/(1024*1024))
@@ -3555,27 +3565,42 @@ func devBuildAndDeltaPush(
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Installing full build on device")
 	// Async install (submit + poll) so a large app never exceeds the
 	// device-proxy gateway timeout; surface each status change as progress.
-	installResp, installErr := deviceMgr.InstallAppForSessionWithProgress(
-		ctx, session.Index, installReq,
-		func(status string) {
-			ui.StopSpinner()
-			ui.StartSpinner(fmt.Sprintf("Installing full build on device (%s)...", status))
-			appendAndPublishDevRebuildLog(&result, publishLog, "info", "Install status: %s", status)
-		},
-	)
+	var installResp *mcppkg.WorkerActionResponse
+	runInstall := func() (string, error) {
+		var err error
+		installResp, err = deviceMgr.InstallAppForSessionWithProgress(
+			ctx, session.Index, installReq,
+			func(status string) {
+				ui.StopSpinner()
+				ui.StartSpinner(fmt.Sprintf("Installing full build on device (%s)...", status))
+				appendAndPublishDevRebuildLog(&result, publishLog, "info", "Install status: %s", status)
+			},
+		)
+		if err != nil {
+			return "", err
+		}
+		if !installResp.Success {
+			msg := installResp.Error
+			if msg == "" {
+				msg = "install action failed"
+			}
+			return "", errors.New(msg)
+		}
+		return installResp.BundleID, nil
+	}
+	var installErr error
+	if clean {
+		var outcome *mcppkg.CleanInstallOutcome
+		outcome, installErr = deviceMgr.CleanInstallOnSession(ctx, session, bundleID, runInstall)
+		if installErr == nil {
+			appendAndPublishDevRebuildLog(&result, publishLog, "info", "Clean install: app data reset (%s)", outcome.Method)
+		}
+	} else {
+		_, installErr = runInstall()
+	}
 	ui.StopSpinner()
 	if installErr != nil {
 		result.pushErr = fmt.Errorf("reinstall failed: %w", installErr)
-		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.pushErr)
-		result.elapsed = time.Since(rebuildStart)
-		return result
-	}
-	if !installResp.Success {
-		msg := installResp.Error
-		if msg == "" {
-			msg = "install action failed"
-		}
-		result.pushErr = fmt.Errorf("reinstall failed: %s", msg)
 		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.pushErr)
 		result.elapsed = time.Since(rebuildStart)
 		return result
@@ -4553,7 +4578,14 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	if sigutil.RebuildSignal == nil {
 		return fmt.Errorf("signal-based rebuild is not supported on this platform")
 	}
+	cleanPath := devCtxCleanRebuildPath(cwd, ctxName)
+	if rebuildClean {
+		if err := writePrivateRuntimeFile(cleanPath.String(), []byte(strconv.FormatInt(expectedNonce, 10))); err != nil {
+			return fmt.Errorf("request a clean rebuild: %w", err)
+		}
+	}
 	if err := proc.Signal(sigutil.RebuildSignal); err != nil {
+		_ = os.Remove(cleanPath.String())
 		if rebuildJSON {
 			fmt.Printf(`{"status":"no_session","error":"dev session (PID %d) is not running"}`, pid)
 			fmt.Println()
@@ -4607,6 +4639,14 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	}
 
 	resultErr := devRebuildTerminalError(rb)
+	if rebuildClean && resultErr == nil {
+		if _, statErr := os.Stat(cleanPath.String()); statErr == nil {
+			_ = os.Remove(cleanPath.String())
+			rb.Status = "failed"
+			rb.Error = "the running dev loop predates --clean, so the rebuild kept the app's data; restart 'revyl dev' and rebuild again"
+			resultErr = errors.New(rb.Error)
+		}
+	}
 	if rebuildJSON {
 		out, _ := json.MarshalIndent(rb, "", "  ")
 		fmt.Println(string(out))

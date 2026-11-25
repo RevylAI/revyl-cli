@@ -3621,13 +3621,15 @@ func (m *DeviceSessionManager) lockInputAction(ctx context.Context, session *Dev
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
 // Retrying these creates duplicate work (e.g. duplicate agent steps).
 var nonIdempotentPaths = map[string]bool{
-	"/set_fold_state":    true,
-	"/input":             true,
-	"/execute_step":      true,
-	"/install_async":     true,
-	"/push_notification": true,
-	"/scroll":            true,
-	"/open_url":          true,
+	"/set_fold_state":         true,
+	"/start_screen_recording": true,
+	"/stop_screen_recording":  true,
+	"/input":                  true,
+	"/execute_step":           true,
+	"/install_async":          true,
+	"/push_notification":      true,
+	"/scroll":                 true,
+	"/open_url":               true,
 }
 
 func CheckDeviceActionPlatform(session *DeviceSession, action string) error {
@@ -3639,7 +3641,7 @@ func CheckDeviceActionPlatform(session *DeviceSession, action string) error {
 		return nil
 	}
 	switch action {
-	case "hierarchy", "code_execution", "code-execution", "pinch", "shake", "install", "install_async", "launch", "relaunch", "home", "go_home", "go-home", "kill_app", "kill-app", "open-app", "set_location", "push_notification", "push", "performance_metrics", "performance", "perf", "device-state", "state", "device_state", "download_file", "download-file":
+	case "hierarchy", "code_execution", "code-execution", "pinch", "shake", "install", "install_async", "launch", "relaunch", "home", "go_home", "go-home", "kill_app", "kill-app", "open-app", "set_location", "push_notification", "push", "performance_metrics", "performance", "perf", "device-state", "state", "device_state", "download_file", "download-file", "start_screen_recording", "stop_screen_recording":
 		return &api.APIError{StatusCode: http.StatusNotImplemented, Code: "not_available_on_platform", Message: fmt.Sprintf("%s is not available on platform web", action)}
 	}
 	if strings.HasPrefix(action, "set-") || strings.HasPrefix(action, "set_") || strings.HasPrefix(action, "device_state/") {

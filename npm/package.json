@@ -1,6 +1,6 @@
 {
   "name": "@revyl/cli",
-  "version": "0.2.75",
+  "version": "0.2.76",
   "description": "Verification infrastructure for cloud agents",
   "keywords": [
     "revyl",

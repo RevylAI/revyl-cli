@@ -85,6 +85,7 @@ const (
 	devContextPIDFileName  = "dev.pid"
 	devContextStatusFile   = "status.json"
 	devContextManifestFile = "manifest.json"
+	devContextCleanFile    = "clean-rebuild"
 	devContextCurrentFile  = "_current"
 	devActiveLoopsDir      = "_active"
 
@@ -120,6 +121,25 @@ func devCtxStatusPath(repoRoot, name string) privateRuntimePath {
 // devCtxManifestPath returns the push manifest path for a context.
 func devCtxManifestPath(repoRoot, name string) privateRuntimePath {
 	return privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, name, devContextManifestFile)}
+}
+
+// devCtxCleanRebuildPath returns the file that asks a context's next rebuild
+// to install with fresh app data.
+func devCtxCleanRebuildPath(repoRoot, name string) privateRuntimePath {
+	return privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, name, devContextCleanFile)}
+}
+
+// consumeDevCleanRebuildRequest reports whether 'revyl dev rebuild --clean'
+// asked this dev-loop process for a rebuild with fresh app data. It removes the
+// request either way, including one left for an earlier process, so no later
+// rebuild inherits it.
+func consumeDevCleanRebuildRequest(path privateRuntimePath, processStartedAtNano int64) bool {
+	data, err := os.ReadFile(path.String())
+	if err != nil {
+		return false
+	}
+	_ = os.Remove(path.String())
+	return strings.TrimSpace(string(data)) == strconv.FormatInt(processStartedAtNano, 10)
 }
 
 // loadDevContext reads a dev context from disk.

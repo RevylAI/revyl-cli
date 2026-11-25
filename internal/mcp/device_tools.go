@@ -360,6 +360,16 @@ func (s *Server) registerDeviceTools() {
 	}, s.handleInstallApp)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_uninstall_app",
+		Description: "Uninstall an app and delete its data from the device in a running session; on iOS this also resets the simulator keychain. Omit bundle_id to remove the app this session installed. An app that is not installed succeeds with was_installed=false. To reinstall with fresh data in one call, use install_app with clean=true.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Uninstall App",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceUninstallApp)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "launch_app",
 		Description: "Launch an app on the device. Omit bundle_id to launch the app this session installed — do not guess an ID; a bundle the device does not have is rejected with the list of what is installed.",
 		Annotations: &mcp.ToolAnnotations{
@@ -411,6 +421,7 @@ func (s *Server) registerDeviceTools() {
 
 	s.registerDeviceNavigateTool()
 	s.registerDeviceSetFoldStateTool()
+	s.registerDeviceRecordTools()
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_set_location",
@@ -1949,6 +1960,7 @@ type InstallAppInput struct {
 	AppURL         string `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
 	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Build version ID from a previous upload_build. The download URL is resolved automatically. Provide this OR app_url."`
 	BundleID       string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
+	Clean          bool   `json:"clean,omitempty" jsonschema:"Start the app with fresh data: uninstall the app (bundle_id, or the build's package) first, so its data, and on iOS the simulator keychain, are removed. A plain install keeps the app's data."`
 	SessionIndex   *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 	SessionID      string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
 }
@@ -1962,6 +1974,8 @@ type InstallAppOutput struct {
 	BranchName           string           `json:"branch_name,omitempty"`
 	Success              bool             `json:"success"`
 	BundleID             string           `json:"bundle_id,omitempty"`
+	CleanMethod          string           `json:"clean_method,omitempty" jsonschema:"With clean: uninstall when the app was removed before installing, or clear_data when the device's worker predates uninstall or the bundle ID was unknown, so the installed app's data was cleared instead"`
+	PreviousRemoved      *bool            `json:"previous_install_removed,omitempty" jsonschema:"With clean: whether an installed copy was uninstalled first"`
 	Error                string           `json:"error,omitempty"`
 	NextSteps            []NextStep       `json:"next_steps,omitempty"`
 }
@@ -2029,7 +2043,25 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	if bundleID != "" {
 		body["bundle_id"] = bundleID
 	}
-	respBody, err := s.sessionMgr.WorkerRequestOnSession(ctx, session, "/install", body)
+	var respBody []byte
+	runInstall := func() (string, error) {
+		var installErr error
+		respBody, installErr = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/install", body)
+		if installErr != nil {
+			return "", installErr
+		}
+		var installed struct {
+			BundleID string `json:"bundle_id"`
+		}
+		_ = json.Unmarshal(respBody, &installed)
+		return installed.BundleID, EnsureWorkerActionSucceeded(respBody, "install")
+	}
+	var cleanOutcome *CleanInstallOutcome
+	if input.Clean {
+		cleanOutcome, err = s.sessionMgr.CleanInstallOnSession(ctx, session, bundleID, runInstall)
+	} else {
+		_, err = runInstall()
+	}
 	if err != nil {
 		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -2060,6 +2092,10 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID, BuildID: resolved.BuildID, BranchID: resolved.BranchID, BranchName: resolved.BranchName, BranchSource: resolved.BranchSource, GitBranchName: resolved.GitBranchName, AutoGitBranchEnabled: resolved.AutoGitBranchEnabled}
+	if cleanOutcome != nil {
+		output.CleanMethod = cleanOutcome.Method
+		output.PreviousRemoved = &cleanOutcome.PreviousInstallRemoved
+	}
 	if resp.Success {
 		launchReason := "Launch the installed app"
 		if detectedBundleID != "" {
@@ -2076,6 +2112,41 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		}
 	}
 	return nil, output, nil
+}
+
+type DeviceUninstallAppInput struct {
+	BundleID     string `json:"bundle_id,omitempty" jsonschema:"Bundle ID or package name to uninstall. Omit to remove the app this session installed."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	SessionID    string `json:"session_id,omitempty" jsonschema:"Server-issued session ID from start_device_session or list_device_sessions. Wins over session_index and never falls back to the active session, so pass it whenever several sessions are live."`
+}
+
+type DeviceUninstallAppOutput struct {
+	Success      bool       `json:"success"`
+	BundleID     string     `json:"bundle_id,omitempty"`
+	WasInstalled bool       `json:"was_installed"`
+	Error        string     `json:"error,omitempty"`
+	NextSteps    []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceUninstallApp(ctx context.Context, req *mcp.CallToolRequest, input DeviceUninstallAppInput) (*mcp.CallToolResult, DeviceUninstallAppOutput, error) {
+	session, err := s.resolveToolSession(ctx, input.SessionIndex, input.SessionID)
+	if err != nil {
+		return nil, DeviceUninstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	result, err := s.sessionMgr.UninstallAppOnSession(ctx, session, input.BundleID)
+	if err != nil {
+		return nil, DeviceUninstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	return nil, DeviceUninstallAppOutput{
+		Success:      true,
+		BundleID:     result.BundleID,
+		WasInstalled: result.WasInstalled,
+		NextSteps: []NextStep{
+			{Tool: "install_app", Reason: "Install the app again; it starts with fresh data"},
+		},
+	}, nil
 }
 
 type LaunchAppInput struct {

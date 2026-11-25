@@ -5306,17 +5306,25 @@ type DeviceOpenURLRequest struct {
 
 // proxyNoRetryActions lists non-idempotent worker actions sent without automatic retries.
 var proxyNoRetryActions = map[string]bool{
-	"set_fold_state":    true,
-	"input":             true,
-	"execute_step":      true,
-	"install_async":     true,
-	"push_notification": true,
-	"scroll":            true,
-	"open_url":          true,
+	"set_fold_state":         true,
+	"start_screen_recording": true,
+	"stop_screen_recording":  true,
+	"input":                  true,
+	"execute_step":           true,
+	"install_async":          true,
+	"push_notification":      true,
+	"scroll":                 true,
+	"open_url":               true,
 }
 
 var proxyLongRunningActions = map[string]bool{
 	"install": true,
+}
+
+// proxyActionTimeouts gives single-attempt actions that outlast DefaultTimeout their own bound.
+var proxyActionTimeouts = map[string]time.Duration{
+	"launch":                LaunchTimeout,
+	"stop_screen_recording": ScreenRecordingStopTimeout,
 }
 
 // ProxyWorkerRequest relays a device worker action through the backend proxy,
@@ -5388,10 +5396,10 @@ func (c *Client) ProxyWorkerRequestDetailed(ctx context.Context, workflowRunID, 
 	var err error
 	if proxyLongRunningActions[action] {
 		resp, err = c.doRequestOnceWithClient(ctx, method, path, body, c.uploadClient)
-	} else if action == "launch" {
-		launchClient := *c.httpClient
-		launchClient.Timeout = LaunchTimeout
-		resp, err = c.doRequestOnceWithClient(ctx, method, path, body, &launchClient)
+	} else if timeout, ok := proxyActionTimeouts[action]; ok {
+		actionClient := *c.httpClient
+		actionClient.Timeout = timeout
+		resp, err = c.doRequestOnceWithClient(ctx, method, path, body, &actionClient)
 	} else if noRetry || proxyNoRetryActions[action] {
 		resp, err = c.doRequestOnce(ctx, method, path, body)
 	} else {

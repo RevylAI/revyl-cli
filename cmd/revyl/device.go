@@ -2244,6 +2244,13 @@ var deviceInstallCmd = &cobra.Command{
 	Long: `Install an app in an existing session using --app-id, --build-version-id,
 or --app-url.
 
+An install over an installed copy keeps the app's data. --clean uninstalls the
+app first (--bundle-id, or the package the build reports), so it starts with
+fresh data; on iOS the simulator keychain is reset too. On a device whose
+worker predates uninstall, or when the bundle ID is only known after install,
+--clean clears the installed app's data instead and reports clean_method
+"clear_data".
+
 ` + runtimeBuildSelectionHelp,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		appID, _ := cmd.Flags().GetString("app-id")
@@ -2309,15 +2316,32 @@ or --app-url.
 		if bundleID != "" {
 			body["bundle_id"] = bundleID
 		}
-		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/install", body)
-		if err == nil {
-			err = ensureWorkerActionSucceeded(respBody, "install")
+		var respBody []byte
+		runInstall := func() (string, error) {
+			var installErr error
+			respBody, installErr = mgr.WorkerRequestOnSession(cmd.Context(), session, "/install", body)
+			if installErr != nil {
+				return "", installErr
+			}
+			return extractInstallBundleID(respBody), ensureWorkerActionSucceeded(respBody, "install")
+		}
+		clean, _ := cmd.Flags().GetBool("clean")
+		var cleanOutcome *mcppkg.CleanInstallOutcome
+		if clean {
+			cleanOutcome, err = mgr.CleanInstallOnSession(cmd.Context(), session, bundleID, runInstall)
+		} else {
+			_, err = runInstall()
 		}
 		if err != nil {
 			return reportDeviceAppActionFailure(cmd, session, "install", err)
 		}
 
 		payload := map[string]interface{}{"app_url": appURL, "status": "installed", "build_id": resolved.BuildID, "branch_id": resolved.BranchID, "branch_name": resolved.BranchName}
+		if cleanOutcome != nil {
+			payload["clean_method"] = cleanOutcome.Method
+			payload["previous_install_removed"] = cleanOutcome.PreviousInstallRemoved
+			analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "device_install_clean", DomainStatus: cleanOutcome.Method})
+		}
 		if resolved.AutoGitBranchEnabled != nil {
 			payload["auto_git_branch_enabled"] = *resolved.AutoGitBranchEnabled
 		}
@@ -2340,8 +2364,55 @@ or --app-url.
 		if ui.IsDebugMode() {
 			message += " from " + appURL
 		}
+		if cleanOutcome != nil {
+			message += " with fresh data"
+		}
 
 		jsonOrPrint(cmd, payload, message)
+		return nil
+	},
+}
+
+var deviceUninstallCmd = &cobra.Command{
+	Use:   "uninstall [bundle-id]",
+	Short: "Uninstall an app and delete its data (defaults to the app this session installed)",
+	Long: `Uninstall an app from the session's device and delete its data. On iOS the
+simulator keychain is reset too, since keychain items outlive app data there.
+
+The bundle ID is optional. Omitted, the worker removes the app this session
+installed. An app that is not installed succeeds with was_installed=false.
+
+To reinstall with fresh data in one step, use 'revyl device install --clean'.`,
+	Example: `  revyl device uninstall
+  revyl device uninstall com.example.app
+  revyl device uninstall --bundle-id com.example.app --json`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionTarget(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		bundleID, _ := cmd.Flags().GetString("bundle-id")
+		if len(args) > 0 && args[0] != "" {
+			bundleID = args[0]
+		}
+		result, err := mgr.UninstallAppOnSession(cmd.Context(), session, bundleID)
+		if errors.Is(err, mcppkg.ErrUninstallUnsupported) {
+			analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "device_uninstall", DomainStatus: "unsupported_worker"})
+		}
+		if err != nil {
+			return reportDeviceAppActionFailure(cmd, session, "uninstall", err)
+		}
+		status, message := "uninstalled", "Uninstalled "+result.BundleID+" and deleted its data"
+		if !result.WasInstalled {
+			status, message = "not_installed", result.BundleID+" was not installed"
+		}
+		analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{Domain: "device_uninstall", DomainStatus: status})
+		jsonOrPrint(cmd, map[string]interface{}{"bundle_id": result.BundleID, "status": status, "was_installed": result.WasInstalled}, message)
 		return nil
 	},
 }
@@ -4222,8 +4293,13 @@ func init() {
 	deviceInstallCmd.Flags().String("build-version-id", "", "Build version ID from a previous upload; download URL is resolved automatically")
 	deviceInstallCmd.Flags().String("app-url", "", "URL to download app from (.apk or .ipa)")
 	deviceInstallCmd.Flags().String("bundle-id", "", "Bundle ID (optional, auto-detected)")
+	deviceInstallCmd.Flags().Bool("clean", false, "Uninstall the app first so it starts with fresh data")
 	deviceInstallCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceInstallCmd)
+
+	deviceUninstallCmd.Flags().String("bundle-id", "", "App bundle ID to uninstall (default: the app this session installed)")
+	deviceUninstallCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceUninstallCmd)
 
 	// Launch
 	deviceLaunchCmd.Flags().String("bundle-id", "", "App bundle ID to launch (required)")
@@ -4343,6 +4419,7 @@ func init() {
 	deviceCmd.AddCommand(deviceKeyCmd)
 	deviceCmd.AddCommand(deviceShakeCmd)
 	deviceCmd.AddCommand(deviceInstallCmd)
+	deviceCmd.AddCommand(deviceUninstallCmd)
 	deviceCmd.AddCommand(deviceLaunchCmd)
 	deviceCmd.AddCommand(deviceHomeCmd)
 	deviceCmd.AddCommand(deviceKillAppCmd)
