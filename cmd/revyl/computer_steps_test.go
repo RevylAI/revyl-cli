@@ -88,6 +88,27 @@ func TestComputerExtractPrintsTheValue(t *testing.T) {
 	}
 }
 
+func TestComputerStepReportsWhereItsSecondsWent(t *testing.T) {
+	var sent map[string]any
+	computerStepServer(t, http.StatusOK, `{"step_type":"validation","success":true,"status":"passed","status_reason":null,"validation_result":true,"extracted_data":null,"point":null,"engine":"local","local_engine":"mtplx","attempts":1,"seconds":1.4,"timing":{"capture_seconds":0.08,"host_round_trip_seconds":0.21,"queue_seconds":0,"image_seconds":0.05,"first_token_seconds":0.51,"decode_seconds":0.37,"act_seconds":0}}`, &sent)
+
+	_, stderr, err := executeComputerScreen(t, "validation", uuid.NewString(), "The cart shows 2 items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "timing: capture=0.08 host_round_trip=0.21 queue=0.00 image=0.05 first_token=0.51 decode=0.37 act=0.00") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+
+	stdout, _, err := executeComputerScreen(t, "validation", uuid.NewString(), "The cart shows 2 items", "--json")
+	var printed struct {
+		Timing map[string]float64 `json:"timing"`
+	}
+	if err != nil || json.Unmarshal([]byte(stdout), &printed) != nil || printed.Timing["first_token_seconds"] != 0.51 || printed.Timing["host_round_trip_seconds"] != 0.21 {
+		t.Fatalf("stdout = %q err = %v", stdout, err)
+	}
+}
+
 func TestComputerStepNoEngineCanAnswerNamesWhy(t *testing.T) {
 	var sent map[string]any
 	computerStepServer(t, http.StatusConflict, `{"detail":"step_engine_unavailable"}`, &sent)

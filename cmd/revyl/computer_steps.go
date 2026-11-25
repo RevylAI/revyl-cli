@@ -68,6 +68,9 @@ func writeComputerStep(cmd *cobra.Command, result *api.ComputerStepResult, jsonO
 	if result.StatusReason != nil && *result.StatusReason != "" {
 		fmt.Fprintln(cmd.ErrOrStderr(), "reason: "+computerPrintable(*result.StatusReason))
 	}
+	if timing := result.Timing; timing != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "timing: capture=%.2f host_round_trip=%.2f queue=%.2f image=%.2f first_token=%.2f decode=%.2f act=%.2f\n", timing.CaptureSeconds, timing.HostRoundTripSeconds, timing.QueueSeconds, timing.ImageSeconds, timing.FirstTokenSeconds, timing.DecodeSeconds, timing.ActSeconds)
+	}
 	if result.Status == "uncertain" {
 		fmt.Fprintln(cmd.ErrOrStderr(), "Revyl could not confirm this step, so it is not a pass and nothing was clicked; take a screenshot before acting again.")
 	}

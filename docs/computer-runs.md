@@ -439,7 +439,11 @@ The result has the device verbs' fields, `success`, `step_type`, `status`
 `extracted_data.information`, plus `point` for an instruction, `engine`
 (`local` or `hosted`), `local_engine` (the host's model server, `mlx_vlm` or
 `mtplx`, when the host answered), `attempts` (model answers across both
-engines) and `seconds`. The command exits 1 unless the status is `passed`. `click --target`
+engines), `seconds`, and `timing` when the host's model answered: the
+step's seconds by phase (`capture_seconds`, `host_round_trip_seconds`,
+`queue_seconds`, `image_seconds`, `first_token_seconds`, `decode_seconds` and
+`act_seconds`), also printed to stderr without `--json`. The command exits 1
+unless the status is `passed`. `click --target`
 uses the same engines with `auto`, and its `--json` result names the `engine`
 that found the target. The hosted MCP's `device_instruction` and
 `device_validation` tools run these steps when given a computer session.

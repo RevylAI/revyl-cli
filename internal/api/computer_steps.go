@@ -23,6 +23,16 @@ type ComputerExtractedData struct {
 	Information string `json:"information"`
 }
 
+type ComputerStepTiming struct {
+	CaptureSeconds       float64 `json:"capture_seconds"`
+	HostRoundTripSeconds float64 `json:"host_round_trip_seconds"`
+	QueueSeconds         float64 `json:"queue_seconds"`
+	ImageSeconds         float64 `json:"image_seconds"`
+	FirstTokenSeconds    float64 `json:"first_token_seconds"`
+	DecodeSeconds        float64 `json:"decode_seconds"`
+	ActSeconds           float64 `json:"act_seconds"`
+}
+
 type ComputerStepResult struct {
 	StepType         string                 `json:"step_type"`
 	Success          bool                   `json:"success"`
@@ -35,6 +45,7 @@ type ComputerStepResult struct {
 	LocalEngine      *string                `json:"local_engine"`
 	Attempts         int                    `json:"attempts"`
 	Seconds          float64                `json:"seconds"`
+	Timing           *ComputerStepTiming    `json:"timing"`
 }
 
 const (
