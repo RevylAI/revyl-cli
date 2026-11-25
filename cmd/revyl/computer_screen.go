@@ -14,8 +14,13 @@ import (
 
 func addComputerScreenCommands(parent *cobra.Command) {
 	for _, action := range []string{"screenshot", "click", "move", "drag", "scroll", "type", "key"} {
-		command := &cobra.Command{Use: action + " C1", Short: "Perform computer screen " + action}
-		command.Flags().String("out", "", "Save the returned PNG to this local file")
+		usage := computerScreenUsage[action]
+		command := &cobra.Command{Use: action + " C1", Short: usage.short, Example: "  " + usage.example}
+		if action == "screenshot" {
+			command.Flags().String("out", "", "Save the PNG to this local file")
+		} else {
+			command.Flags().String("out", "", "Also save the screen after the action as a PNG to this local file, in the same call")
+		}
 		switch action {
 		case "screenshot":
 			command.Flags().String("zoom", "", "Crop a screenshot region: x0,y0,x1,y1")
@@ -89,6 +94,16 @@ func addComputerScreenCommands(parent *cobra.Command) {
 		}
 		parent.AddCommand(command)
 	}
+}
+
+var computerScreenUsage = map[string]struct{ short, example string }{
+	"screenshot": {"Save the screen as a PNG", "revyl computer screenshot C1 --out screen.png"},
+	"click":      {"Click a point or a described target", `revyl computer click C1 --target "the Save button" --out screen.png`},
+	"move":       {"Move the pointer to a point", "revyl computer move C1 --x 640 --y 400"},
+	"drag":       {"Drag from one point to another", "revyl computer drag C1 --start-x 100 --start-y 200 --end-x 400 --end-y 200"},
+	"scroll":     {"Scroll at a point", "revyl computer scroll C1 --x 640 --y 400 --direction down"},
+	"type":       {"Type text into the focused field", "revyl computer type C1 --text hello"},
+	"key":        {"Press keys or chords", "revyl computer key C1 --key cmd+space"},
 }
 
 func computerScreenshotRegion(cmd *cobra.Command) ([]int, error) {

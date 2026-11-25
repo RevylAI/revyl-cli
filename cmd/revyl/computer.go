@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ type computerInvocation struct {
 	BillingURL         string `json:"billing_url,omitempty"`
 	BillingAction      string `json:"billing_action,omitempty"`
 	NextStep           string `json:"next_step,omitempty"`
+	ErrorCode          string `json:"error_code,omitempty"`
 	waited             bool
 	createdDisplay     *api.ComputerDisplaySize
 	sessionProfile     string
@@ -54,36 +56,33 @@ type computerPerformanceResult struct {
 func newComputerCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use: "computer", Short: "Start, use and stop cloud computers",
-		Long: `A computer is a cloud machine you start, run commands on, and stop.
+		Long: `A computer is a cloud Mac you start, drive and stop. Run revyl computer
+with no arguments to see your running computers.
 
-macOS computers come with Pro. Add a card to unlock them (revyl billing add-card); your free minutes still cover macOS.
-Linux computers are available on request: contact support@revyl.ai.
+  revyl computer create --wait              start a Mac and wait until it is active
+  revyl computer list                       your organization's newest computers
+  revyl computer get ID                     its state and latest steps
+  revyl computer stop ID                    stop it
 
-  revyl computer create --os macos       start a computer
-  revyl computer create --os macos --wait  start one and wait until it is active
-  revyl computer create --os macos --display 1440x900  start one at a display size
-  revyl computer create --os macos --timeout 8h  start one that runs up to 8 hours
-  revyl computer create --os macos --session-profile signed-in  run a session profile on it first
-  revyl computer list                    show your organization's computers
-  revyl computer exec ID -- uname -a     run a program on it
-  revyl computer get ID                  show its state and steps
-  revyl computer hosting ID              show which app sessions it can host now
-  revyl computer sessions ID             list the app sessions running inside it
-  revyl computer export ID               save a Harbor trial bundle
-  revyl computer report ID --format performance
-  revyl computer extend ID --timeout 4h  keep it running 4 more hours (24 h max)
-  revyl computer stop ID                 stop it
+Drive it (x and y are screenshot pixels):
+  revyl computer screenshot ID --out s.png
+  revyl computer click ID --target "the Save button" --out s.png   act, then save the screen, in one call
+  revyl computer type ID --text hello
+  revyl computer key ID --key cmd+space
+  revyl computer exec ID -- uname -a        run a program on it
 
-Add --json to any command for machine-readable output.
+Also: extend, hosting, sessions, report, export, files, process; each has --help.
+--json prints machine-readable output; a failure prints error and, when Revyl named one, error_code.
 
-Coding agents on a Mac computer find which phones and browsers it can host,
-and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
-		RunE: computerHelp,
+macOS computers come with Pro: revyl billing add-card unlocks them, and free minutes still cover macOS.
+Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
+		RunE: runComputerOverview,
 	}
 	command.PersistentFlags().Bool("json", false, "Output JSON; binary fields use URL-safe base64")
-	command.SetFlagErrorFunc(func(*cobra.Command, error) error { return errors.New("invalid computer flags; use --help") })
+	command.SetFlagErrorFunc(computerFlagError)
+	command.SetUsageTemplate(strings.Replace(command.UsageTemplate(), "Global Flags:\n{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}", "Global flags: --json (machine-readable output), --intent, -q/--quiet, --debug, -C/--chdir", 1))
 	create := &cobra.Command{Use: "create", Short: "Start a computer"}
-	create.Flags().String("os", "", "Computer OS: macos")
+	create.Flags().String("os", "macos", "Computer OS")
 	create.Flags().String("id", "", "Proposed computer UUID (generated once when omitted)")
 	create.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
 	create.Flags().Duration("timeout", 0, "Lifetime from creation (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
@@ -108,15 +107,12 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 				if !api.ValidComputerSnapshotReference(fromSnapshot) {
 					return nil, errors.New("--from-snapshot requires a snapshot ID or name")
 				}
-				if osName == "" {
-					osName = "macos"
-				}
 				if osName != "macos" {
 					return nil, errors.New("--from-snapshot requires --os macos")
 				}
 			}
 			if osName != "macos" && osName != "linux" {
-				return nil, errors.New("specify --os macos")
+				return nil, errors.New("--os must be macos")
 			}
 			persistent, _ := cmd.Flags().GetBool("persistent")
 			if persistent && osName != "macos" {
@@ -385,6 +381,9 @@ and how to start them, in /opt/revyl/computer-guide.md on that computer.`,
 	}
 	for _, action := range []string{"get", "stop", "report", "hosting", "sessions"} {
 		leaf := &cobra.Command{Use: action + " C1", Short: leafShorts[action]}
+		if action == "get" {
+			leaf.Flags().Bool("full", false, fmt.Sprintf("Show every step and whole commands, not the last %d steps with commands cut at %d characters", computerDetailStepLimit, computerDetailCommandRunes))
+		}
 		if action == "sessions" {
 			leaf.Flags().Int("limit", 25, fmt.Sprintf("How many sessions to show (1-%d)", api.ComputerListMaxLimit))
 		}
@@ -744,11 +743,99 @@ func computerWaitFlags(cmd *cobra.Command) (bool, time.Duration, error) {
 	return wait, waitTimeout, nil
 }
 
+// runComputerOverview answers a bare revyl computer with the running
+// computers; signed out, it shows help as before.
+func runComputerOverview(cmd *cobra.Command, args []string) error {
+	client, err := computerClient(cmd)
+	if len(args) != 0 || err != nil {
+		return computerHelp(cmd, args)
+	}
+	return runComputerCommand(cmd, func(*computerInvocation) (any, error) {
+		return client.ListComputerRuns(cmd.Context(), 25)
+	})
+}
+
 func computerHelp(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		return cmd.Help()
 	}
 	return runComputerCommand(cmd, func(*computerInvocation) (any, error) { return nil, errors.New("unknown computer command; use --help") })
+}
+
+var computerFlagValueError = regexp.MustCompile(`for "(--[a-z0-9-]+)" flag`)
+
+// computerFlagError names the flag without echoing its value, which may be
+// text to type or an environment variable.
+func computerFlagError(cmd *cobra.Command, err error) error {
+	message := err.Error()
+	for _, prefix := range []string{"unknown flag: ", "unknown shorthand flag: "} {
+		if strings.HasPrefix(message, prefix) {
+			return fmt.Errorf("unknown flag %s; use --help", strings.Fields(strings.TrimPrefix(message, prefix))[0])
+		}
+	}
+	for _, match := range computerFlagValueError.FindAllStringSubmatch(message, -1) {
+		if cmd.Flags().Lookup(strings.TrimLeft(match[1], "-")) != nil {
+			return fmt.Errorf("invalid value for %s; use --help", match[1])
+		}
+	}
+	if start := strings.Index(message, "flag needs an argument: "); start >= 0 {
+		return fmt.Errorf("%s; use --help", message[start:])
+	}
+	return errors.New("invalid computer flags; use --help")
+}
+
+func printComputerNextSteps(cmd *cobra.Command, id string, running bool) {
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		return
+	}
+	if !running {
+		ui.PrintNextSteps([]ui.NextStep{{Label: "Start one:", Command: "revyl computer create --wait"}})
+		return
+	}
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "See the screen:", Command: fmt.Sprintf("revyl computer screenshot %s --out screen.png", id)},
+		{Label: "Act and see the result:", Command: fmt.Sprintf("revyl computer click %s --target \"the Save button\" --out screen.png", id)},
+		{Label: "Stop it when done:", Command: fmt.Sprintf("revyl computer stop %s", id)},
+	})
+}
+
+func printComputerNotReadyStep(cmd *cobra.Command, id string) {
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		return
+	}
+	ui.PrintNextSteps([]ui.NextStep{{Label: "It is still starting; check until it is ready:", Command: "revyl computer get " + id}})
+}
+
+// printComputerListNextSteps points at a usable computer first, then one
+// still starting, then one still holding a device slot, and offers create only
+// when the page holds every computer and none of them is in use.
+func printComputerListNextSteps(cmd *cobra.Command, list *api.ComputerRunListResponse) {
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		return
+	}
+	for _, computer := range list.Computers {
+		if computer.State == "active" {
+			printComputerNextSteps(cmd, computer.ComputerSessionId.String(), true)
+			return
+		}
+	}
+	for _, computer := range list.Computers {
+		if computer.State == "starting" {
+			printComputerNotReadyStep(cmd, computer.ComputerSessionId.String())
+			return
+		}
+	}
+	for _, computer := range list.Computers {
+		if computer.Release != api.ComputerRunSummaryReleaseConfirmed {
+			ui.PrintNextSteps([]ui.NextStep{{Label: "It still holds a device slot; free it:", Command: "revyl computer stop " + computer.ComputerSessionId.String()}})
+			return
+		}
+	}
+	if list.Total > len(list.Computers) {
+		ui.PrintNextSteps([]ui.NextStep{{Label: "Look further back:", Command: fmt.Sprintf("revyl computer list --limit %d", api.ComputerListMaxLimit)}})
+		return
+	}
+	printComputerNextSteps(cmd, "", false)
 }
 
 func newComputerOperationCommand(use, short, kind string) *cobra.Command {
@@ -1043,6 +1130,9 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			}
 		}
 		invocation.Error = err.Error()
+		if errors.As(err, &refusal) {
+			invocation.ErrorCode = refusal.Code
+		}
 		if errors.Is(err, api.ErrComputerOutcomeUnconfirmed) {
 			invocation.Status = "unconfirmed"
 			completion.DomainStatus = "unconfirmed"
@@ -1136,8 +1226,17 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
 				return err
 			}
-		} else if err := writeComputerDetail(cmd.OutOrStdout(), result, status); err != nil {
-			return err
+		} else {
+			full, _ := cmd.Flags().GetBool("full")
+			if err := writeComputerDetail(cmd.OutOrStdout(), result, status, full); err != nil {
+				return err
+			}
+			profileReady := result.SessionProfile == nil || result.SessionProfile.Status == api.ComputerSessionProfileStatusSucceeded
+			if status.State == "active" && profileReady {
+				printComputerNextSteps(cmd, result.ComputerSessionId.String(), true)
+			} else if status.State == "starting" || status.State == "active" {
+				printComputerNotReadyStep(cmd, result.ComputerSessionId.String())
+			}
 		}
 	case *api.ComputerRunListResponse:
 		completion.DomainStatus = "inspected"
@@ -1146,8 +1245,15 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
 				return err
 			}
-		} else if err := writeComputerList(cmd.OutOrStdout(), result); err != nil {
-			return err
+		} else {
+			write := writeComputerList
+			if cmd.Name() == "computer" {
+				write = writeComputerOverview
+			}
+			if err := write(cmd.OutOrStdout(), result); err != nil {
+				return err
+			}
+			printComputerListNextSteps(cmd, result)
 		}
 	case *api.ComputerReport:
 		status := api.InspectComputerReport(*result)
@@ -1214,6 +1320,12 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 				line += " session_profile=" + string(result.SessionProfile.Status)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), line)
+			if cmd.Name() == "create" && exitCode == 0 && status.State == "starting" {
+				printComputerNotReadyStep(cmd, result.ComputerSessionId.String())
+			}
+			if cmd.Name() == "create" && exitCode == 0 && status.State == "active" {
+				printComputerNextSteps(cmd, result.ComputerSessionId.String(), true)
+			}
 		}
 	case *api.PersistentComputerStatus:
 		completion.DomainStatus = string(result.State)

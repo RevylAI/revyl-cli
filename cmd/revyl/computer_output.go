@@ -152,21 +152,79 @@ func writeComputerTable(writer io.Writer, rows [][]string) error {
 
 func writeComputerList(writer io.Writer, list *api.ComputerRunListResponse) error {
 	if len(list.Computers) == 0 {
-		_, err := fmt.Fprintln(writer, "No computers yet. Start one with: revyl computer create --os macos")
+		_, err := fmt.Fprintln(writer, "No computers yet. Start one with: revyl computer create --wait")
 		return err
 	}
-	rows := [][]string{{"COMPUTER", "OS", "STATE", "CREATED"}}
-	for _, computer := range list.Computers {
-		rows = append(rows, []string{computer.ComputerSessionId.String(), string(computer.Os), computerStateText(string(computer.State), string(computer.Release)), computerTime(computer.CreatedAt)})
-	}
-	if err := writeComputerTable(writer, rows); err != nil {
+	if err := writeComputerRows(writer, list.Computers); err != nil {
 		return err
 	}
 	if list.Total > len(list.Computers) {
-		_, err := fmt.Fprintf(writer, "Showing the newest %d of %d computers; use --limit (up to %d) for more.\n", len(list.Computers), list.Total, api.ComputerListMaxLimit)
+		_, err := fmt.Fprintf(writer, "Newest %d of %d computers: %s; use --limit (up to %d) for more.\n", len(list.Computers), list.Total, computerStateCounts(list.Computers), api.ComputerListMaxLimit)
 		return err
 	}
-	return nil
+	_, err := fmt.Fprintf(writer, "%d computers: %s\n", len(list.Computers), computerStateCounts(list.Computers))
+	return err
+}
+
+func writeComputerRows(writer io.Writer, computers []api.ComputerRunSummary) error {
+	rows := [][]string{{"COMPUTER", "OS", "STATE", "CREATED"}}
+	for _, computer := range computers {
+		rows = append(rows, []string{computer.ComputerSessionId.String(), string(computer.Os), computerStateText(string(computer.State), string(computer.Release)), computerTime(computer.CreatedAt)})
+	}
+	return writeComputerTable(writer, rows)
+}
+
+func computerStateCounts(computers []api.ComputerRunSummary) string {
+	order := []string{"active", "starting"}
+	counts := map[string]int{}
+	for _, computer := range computers {
+		state := string(computer.State)
+		if counts[state] == 0 && state != "active" && state != "starting" {
+			order = append(order, state)
+		}
+		counts[state]++
+	}
+	var parts []string
+	for _, state := range order {
+		if counts[state] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[state], state))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func computerRunning(computers []api.ComputerRunSummary) []api.ComputerRunSummary {
+	var running []api.ComputerRunSummary
+	for _, computer := range computers {
+		if computer.State == "active" || computer.State == "starting" {
+			running = append(running, computer)
+		}
+	}
+	return running
+}
+
+// writeComputerOverview is what a bare revyl computer prints: the running
+// computers among the newest page, with counts for the whole page.
+func writeComputerOverview(writer io.Writer, list *api.ComputerRunListResponse) error {
+	running := computerRunning(list.Computers)
+	if len(running) == 0 {
+		message := "No running computers."
+		if list.Total > len(list.Computers) {
+			message = fmt.Sprintf("No running computers among the newest %d; older ones may still run.", len(list.Computers))
+		}
+		_, err := fmt.Fprintln(writer, message)
+		if err != nil || len(list.Computers) == 0 {
+			return err
+		}
+	} else if err := writeComputerRows(writer, running); err != nil {
+		return err
+	}
+	more := "revyl computer list shows each"
+	if list.Total > len(list.Computers) {
+		more = fmt.Sprintf("revyl computer list --limit %d shows more", api.ComputerListMaxLimit)
+	}
+	_, err := fmt.Fprintf(writer, "Newest %d of %d computers: %s; %s.\n", len(list.Computers), list.Total, computerStateCounts(list.Computers), more)
+	return err
 }
 
 // persistentComputerSaveWhere says where a stopped computer's save is: on the
@@ -301,7 +359,7 @@ func writeComputerSessions(writer io.Writer, list *api.ComputerRelatedSessionLis
 	return nil
 }
 
-func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, status api.ComputerReportStatus) error {
+func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, status api.ComputerReportStatus, full bool) error {
 	rows := [][]string{
 		{"Computer", detail.ComputerSessionId.String()},
 		{"OS", string(detail.Os)},
@@ -345,9 +403,18 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 		_, err := fmt.Fprintln(writer, "\nNo steps yet.")
 		return err
 	}
-	fmt.Fprintln(writer, "\nSteps")
+	steps := *detail.Steps
+	shown := steps
+	if !full && len(steps) > computerDetailStepLimit {
+		shown = steps[len(steps)-computerDetailStepLimit:]
+	}
+	summary := fmt.Sprintf("\nSteps (%d: %s)", len(steps), computerStepCounts(steps))
+	if len(shown) < len(steps) {
+		summary += fmt.Sprintf(", the last %d shown; --full shows all", len(shown))
+	}
+	fmt.Fprintln(writer, summary)
 	rows = [][]string{{"#", "KIND", "RESULT", "STARTED", "TOOK", "COMMAND"}}
-	for _, step := range *detail.Steps {
+	for _, step := range shown {
 		took := "-"
 		if step.CompletedAt != nil {
 			took = step.CompletedAt.Sub(step.StartedAt).Round(100 * time.Millisecond).String()
@@ -356,9 +423,37 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 		if step.CommandDisplay != nil {
 			command = *step.CommandDisplay
 		}
+		if runes := []rune(command); !full && len(runes) > computerDetailCommandRunes {
+			command = string(runes[:computerDetailCommandRunes-1]) + "…"
+		}
 		rows = append(rows, []string{fmt.Sprint(step.ExecutionOrder), strings.ReplaceAll(string(step.Kind), "_", " "), computerStepResult(step), step.StartedAt.UTC().Format("15:04:05"), took, command})
 	}
 	return writeComputerTable(writer, rows)
+}
+
+const (
+	computerDetailStepLimit    = 20
+	computerDetailCommandRunes = 80
+)
+
+func computerStepCounts(steps []api.ComputerOperationDetail) string {
+	var order []string
+	counts := map[string]int{}
+	for _, step := range steps {
+		outcome := "running"
+		if step.Outcome != nil && *step.Outcome != "started" {
+			outcome = strings.ReplaceAll(string(*step.Outcome), "_", " ")
+		}
+		if counts[outcome] == 0 {
+			order = append(order, outcome)
+		}
+		counts[outcome]++
+	}
+	parts := make([]string, len(order))
+	for i, outcome := range order {
+		parts[i] = fmt.Sprintf("%d %s", counts[outcome], outcome)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func writeComputerPerformance(writer io.Writer, page *api.ComputerPerformancePage) error {

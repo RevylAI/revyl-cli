@@ -66,6 +66,7 @@ operation automatically. Structured API refusals such as `forbidden` keep their
 existing meaning.
 
 ```sh
+revyl computer create
 revyl computer create --os macos --json
 revyl computer create --os macos --wait --json
 revyl computer create --os macos --wait --wait-timeout 5m
@@ -75,8 +76,10 @@ revyl computer create --os macos --timeout 8h --json
 revyl computer create --os macos --session-profile signed-in --json
 revyl computer create --os macos --inference --json
 revyl computer extend "$C1" --timeout 4h --json
+revyl computer
 revyl computer list
 revyl computer get "$C1"
+revyl computer get "$C1" --full
 revyl computer hosting "$C1"
 revyl computer sessions "$C1" --limit 10
 revyl computer get "$C1" --json
@@ -101,7 +104,8 @@ revyl computer export "$C1" --format harbor --out ./computer.zip
 revyl computer stop "$C1" --json
 ```
 
-Create uses `--os macos` and an optional proposed `--id`; otherwise it
+Create uses `--os macos`, the default, so a bare `revyl computer create`
+starts a Mac; it takes an optional proposed `--id`; otherwise it
 generates C1 once. Create returns as soon as the computer is recorded, usually
 still `starting`. Add `--wait` to return only once it is `active` and accepts
 operations: the CLI re-reads the computer every 250 ms and prints the report
@@ -128,9 +132,20 @@ C1 explicitly. `exec` requires `--`
 before structured argv and never invokes a local shell. `--stdin -` and
 `files write --from -` read bounded stdin. Process handles are run-owned, not PIDs.
 
-`list` prints the organization's newest computers with their state, newest
-first (`--limit 1..100`, default 25). `get` prints the computer's state and
-its steps as a table; `--json` prints the full detail instead. `hosting` prints
+`revyl computer` with no arguments prints the running computers among the
+newest 25 and their counts by state; when none of those is running but older ones exist, it says older ones may still run. It adds a pointer to `list --limit 100` when there are more, or help when you're signed out; `--json`
+prints the same page as `list --json`. `list` prints the organization's newest
+computers with their state, newest first (`--limit 1..100`, default 25), and a
+footer counting them by state. `get` prints the computer's state, a count of its
+steps by outcome and its last 20 steps as a table, cutting commands at 80
+characters; `--full` prints every step and whole commands, and `--json` prints
+the full detail instead. Human output from the bare command, `list`, `create`
+and `get` suggests next commands on stderr: driving an active, ready computer,
+waiting on one still starting or running its session profile, stopping one that
+still holds a device slot, and `create` only when nothing else applies. With `--json`,
+a failure prints `error`, plus `error_code` when the refusal named one (for
+example `computer_limit` or `forbidden`). An unknown flag names the flag and
+exits non-zero; a bad flag value names the flag, never the value. `hosting` prints
 the app-session platforms the computer can host now and how many at once; it is
 empty until the computer is running. `sessions` lists the app sessions hosted
 inside the computer, newest first (`--limit 1..100`, default 25).

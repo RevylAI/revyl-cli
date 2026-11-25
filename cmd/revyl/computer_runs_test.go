@@ -371,7 +371,7 @@ Created   2026-10-10 00:00:00 UTC
 Started   2026-10-10 00:00:00 UTC
 Expires   2026-10-10 01:00:00 UTC
 
-Steps
+Steps (2: 2 failed)
 #  KIND  RESULT             STARTED   TOOK  COMMAND
 1  exec  exit 1             00:00:01  1s    private-command-canary
 2  exec  failed: not_found  00:00:02  1s
@@ -436,7 +436,7 @@ func TestComputerListShowsTheNewestComputers(t *testing.T) {
 	want := `COMPUTER                              OS     STATE                     CREATED
 11111111-1111-4111-8111-111111111111  macos  active                    2026-10-10 00:05:00 UTC
 22222222-2222-4222-8222-222222222222  macos  stopped, cleanup unknown  2026-10-10 00:00:00 UTC
-Showing the newest 2 of 3 computers; use --limit (up to 100) for more.
+Newest 2 of 3 computers: 1 active, 1 stopped; use --limit (up to 100) for more.
 `
 	if printed != want {
 		t.Fatalf("computer list printed\n%s\nwant\n%s", printed, want)
