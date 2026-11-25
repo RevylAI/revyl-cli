@@ -21,6 +21,7 @@ const persistentComputerID = "11111111-1111-4111-8111-111111111111"
 func runPersistentComputerCommand(t *testing.T, handler http.HandlerFunc, args ...string) (string, string, error) {
 	t.Helper()
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	t.Setenv("REVYL_BACKEND_URL", server.URL)

@@ -571,6 +571,7 @@ No steps yet.
 
 func TestComputerCreateSendsTheRequestedDisplaySize(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
 	for _, tc := range []struct {
 		name       string
 		display    string
@@ -653,6 +654,7 @@ func TestComputerCreateSendsTheRequestedDisplaySize(t *testing.T) {
 
 func TestComputerCreateAtTheDeviceLimitNamesTheStepForMoreDevices(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
 	const billingURL = "https://app.revyl.ai/settings/billing?add_card=1&organization_id=org"
 	const contactURL = "https://cal.com/landseer-enga/book-a-demo"
 	const limit = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
@@ -725,6 +727,7 @@ func TestComputerCreateAtTheDeviceLimitNamesTheStepForMoreDevices(t *testing.T) 
 
 func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
 	for _, tc := range []struct {
 		name       string
 		jsonOutput bool
@@ -782,6 +785,7 @@ func TestComputerCreateExplainsTheComputerLimitLikeTheUI(t *testing.T) {
 
 func TestComputerCreateInferenceAsksForAHostModelAndNamesItsRefusal(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
 	for _, tc := range []struct {
 		name      string
 		osName    string
@@ -829,6 +833,7 @@ func TestComputerCreateInferenceAsksForAHostModelAndNamesItsRefusal(t *testing.T
 
 func TestComputerCreateInferenceNamesAnOrganizationWithoutLocalInference(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprint(w, `{"detail":"inference_not_enabled","message":"Local inference isn't enabled for this organization."}`)
