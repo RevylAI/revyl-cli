@@ -73,6 +73,7 @@ command build cancel
 command build upload --branch= --version= --pin --app= --platform= --name= --yes --json --preview --file= --url= --header= --commit= --repo= --pr=
 command build remote
 command build delete --force --json
+command build logs --follow --json
 command build secret
 command build secret set --stdin
 command build secret list
@@ -92,7 +93,7 @@ command test pull --all --app= --dry-run --force --include-modules-and-scripts
 command test diff
 command test sync --apps --bootstrap --dry-run --interactive --non-interactive --prune --skip-hotreload-check --skip-import --tests --workflow=
 command test validate
-command test run --all-branches --branch= --build --build-id= --build-profile= --build-selection= --device --device-model= --fail-fast --from-checkout --github-actions --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --location= --no-inherited-launch-vars --no-open --no-wait --open --orientation= --os-version= --platform= --timeout= --var= --verbose
+command test run --all-branches --branch= --build --build-id= --build-profile= --build-selection= --cookies-file= --device --device-model= --fail-fast --from-checkout --github-actions --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --location= --no-inherited-launch-vars --no-open --no-wait --open --orientation= --os-version= --platform= --timeout= --var= --verbose
 command test cancel
 command test create --all-branches --app= --branch= --build-id= --build-selection= --compile-timeout= --dry-run --force --from-file= --from-session= --interactive --module= --no-open --platform= --tag=
 command test config
@@ -263,7 +264,7 @@ command setup check-url --json --timeout=
 command setup report --json --outcome= --platform= --reason=
 command upgrade --check --force --json --prerelease
 command device
-command device start --all-branches --app= --app-id= --app-link= --app-url= --branch= --browser= --build-selection= --build-version-id= --commit= --computer= --device --device-model= --device-name= --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --locale= --no-inherited-launch-vars --no-open --open --orientation= --os-version= --platform= --session-profile= --timeout= --url= --viewport=
+command device start --all-branches --app= --app-id= --app-link= --app-url= --branch= --browser= --build-selection= --build-version-id= --commit= --computer= --cookies-file= --device --device-model= --device-name= --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --locale= --no-inherited-launch-vars --no-open --open --orientation= --os-version= --platform= --session-profile= --timeout= --url= --viewport=
 command device stop --all --json --s= --session-id=
 command device screenshot --json --out= --s= --session-id=
 command device hierarchy --json --out= --s= --session-id=
@@ -323,6 +324,13 @@ command device select --json --s= --session-id= --target= --x= --y=
 command computer --json
 command computer create --display= --id= --os= --timeout= --wait --wait-timeout=
 command computer list --limit=
+command computer start --display= --timeout= --wait --wait-timeout=
+command computer delete --yes
+command computer snapshot
+command computer snapshot save --name=
+command computer snapshot list --limit=
+command computer snapshot get
+command computer snapshot delete --yes
 command computer extend --timeout=
 command computer get
 command computer stop
