@@ -1217,6 +1217,7 @@ const (
 	ComputerAPIErrorDetail0SnapshotExpired         ComputerAPIErrorDetail0 = "snapshot_expired"
 	ComputerAPIErrorDetail0SnapshotNameTaken       ComputerAPIErrorDetail0 = "snapshot_name_taken"
 	ComputerAPIErrorDetail0StartFailed             ComputerAPIErrorDetail0 = "start_failed"
+	ComputerAPIErrorDetail0StepEngineBusy          ComputerAPIErrorDetail0 = "step_engine_busy"
 	ComputerAPIErrorDetail0StepEngineUnavailable   ComputerAPIErrorDetail0 = "step_engine_unavailable"
 )
 
@@ -1288,6 +1289,8 @@ func (e ComputerAPIErrorDetail0) Valid() bool {
 	case ComputerAPIErrorDetail0SnapshotNameTaken:
 		return true
 	case ComputerAPIErrorDetail0StartFailed:
+		return true
+	case ComputerAPIErrorDetail0StepEngineBusy:
 		return true
 	case ComputerAPIErrorDetail0StepEngineUnavailable:
 		return true

@@ -94,7 +94,18 @@ func TestComputerStepNoEngineCanAnswerNamesWhy(t *testing.T) {
 
 	_, _, err := executeComputerScreen(t, "validation", uuid.NewString(), "The cart shows 2 items")
 
-	if err == nil || !strings.Contains(err.Error(), "own vision model is not answering") || !strings.Contains(err.Error(), "--inference") {
+	if err == nil || !strings.Contains(err.Error(), "own vision model is not answering") || !strings.Contains(err.Error(), "revyl computer get") || strings.Contains(err.Error(), "--inference") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestComputerStepRefusedForABusyModelSaysSoAndHowToSendSteps(t *testing.T) {
+	var sent map[string]any
+	computerStepServer(t, http.StatusConflict, `{"detail":"step_engine_busy"}`, &sent)
+
+	_, _, err := executeComputerScreen(t, "validation", uuid.NewString(), "The cart shows 2 items")
+
+	if err == nil || !strings.Contains(err.Error(), "answering another step") || !strings.Contains(err.Error(), "one step at a time") || strings.Contains(err.Error(), "not answering") {
 		t.Fatalf("err = %v", err)
 	}
 }
