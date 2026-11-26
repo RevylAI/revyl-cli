@@ -146,7 +146,7 @@ func TestComputerDeleteNeedsConfirmationAndReportsTheDeletion(t *testing.T) {
 }
 
 func stoppedComputerJSON(id string, durable bool) string {
-	return fmt.Sprintf(`{"computer_id":%q,"state":"stopped","run_session_id":"33333333-3333-4333-8333-333333333333","saved_at":"2026-10-11T08:00:00Z","durable":%t,"created_at":"2026-10-09T00:00:00Z"}`, id, durable)
+	return fmt.Sprintf(`{"computer_id":%q,"state":"stopped","run_session_id":"33333333-3333-4333-8333-333333333333","saved_at":"2026-10-11T08:00:00Z","durable":%t,"created_at":"2026-10-09T00:00:00Z","saved_disk_expires_at":"2036-10-08T08:00:00Z"}`, id, durable)
 }
 
 func TestComputerListPersistentShowsWhereEachSaveIs(t *testing.T) {
@@ -156,10 +156,10 @@ func TestComputerListPersistentShowsWhereEachSaveIs(t *testing.T) {
 		}
 		fmt.Fprintf(w, `{"computers":[%s,%s,%s],"total":3,"limit":25,"offset":0}`, persistentComputerStatusJSON("running"), stoppedComputerJSON("22222222-2222-4222-8222-222222222222", false), stoppedComputerJSON("44444444-4444-4444-8444-444444444444", true))
 	}, "list", "--persistent")
-	want := `ID                                    STATE                     SAVED                    CREATED
-11111111-1111-4111-8111-111111111111  running                   -                        2026-10-10 00:00:00 UTC
-22222222-2222-4222-8222-222222222222  stopped (saved on host)   2026-10-11 08:00:00 UTC  2026-10-09 00:00:00 UTC
-44444444-4444-4444-8444-444444444444  stopped (saved off host)  2026-10-11 08:00:00 UTC  2026-10-09 00:00:00 UTC
+	want := `ID                                    STATE                     SAVED                    SAVE EXPIRES             CREATED
+11111111-1111-4111-8111-111111111111  running                   -                        -                        2026-10-10 00:00:00 UTC
+22222222-2222-4222-8222-222222222222  stopped (saved on host)   2026-10-11 08:00:00 UTC  2036-10-08 08:00:00 UTC  2026-10-09 00:00:00 UTC
+44444444-4444-4444-8444-444444444444  stopped (saved off host)  2026-10-11 08:00:00 UTC  2036-10-08 08:00:00 UTC  2026-10-09 00:00:00 UTC
 `
 	if err != nil || stdout != want {
 		t.Fatalf("list --persistent printed\n%s\nwant\n%s(%v)", stdout, want, err)
@@ -192,7 +192,7 @@ func TestComputerGetSaysWhetherAStoppedComputersSaveIsOffItsHost(t *testing.T) {
 					"expires_at":"2026-10-10T01:00:00Z","as_of":"2026-10-10T00:00:04Z","execution_started_at":"2026-10-10T00:00:00Z",
 					"state":"active","release":"pending","steps":[],"persistent":%s}`, persistentComputerID, stoppedComputerJSON(persistentComputerID, tc.durable))
 			}, "get", persistentComputerID)
-			if err != nil || !strings.Contains(stdout, "Persistent  stopped ("+tc.want+" 2026-10-11 08:00:00 UTC)\n") {
+			if err != nil || !strings.Contains(stdout, "Persistent    stopped ("+tc.want+" 2026-10-11 08:00:00 UTC)\n") || !strings.Contains(stdout, "Save expires  2036-10-08 08:00:00 UTC\n") {
 				t.Fatalf("get printed\n%s(%v)", stdout, err)
 			}
 		})
@@ -243,6 +243,27 @@ func TestComputerStartSendsADisplayAndLifetimeOnlyWhenAsked(t *testing.T) {
 			}, append([]string{"start", persistentComputerID, "--json"}, tc.args...)...)
 			if err != nil || len(bodies) != 1 || bodies[0] != tc.want {
 				t.Fatalf("start sent %q: %v, want %q", bodies, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestComputerStartWarnsALifetimeTooShortToUseBeforeItsSave(t *testing.T) {
+	for _, tc := range []struct {
+		lifetime string
+		warned   bool
+	}{
+		{"2m", true},
+		{"5m", false},
+	} {
+		t.Run(tc.lifetime, func(t *testing.T) {
+			requests := 0
+			_, stderr, err := runPersistentComputerCommand(t, func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				fmt.Fprint(w, persistentComputerStatusJSON("starting"))
+			}, "start", persistentComputerID, "--json", "--timeout", tc.lifetime)
+			if err != nil || requests != 1 || strings.Contains(stderr, "stops as soon as it starts") != tc.warned {
+				t.Fatalf("start --timeout %s sent %d requests, stderr %q: %v", tc.lifetime, requests, stderr, err)
 			}
 		})
 	}

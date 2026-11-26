@@ -341,6 +341,9 @@ type ComputerSnapshot struct {
 	ComputerID uuid.UUID  `json:"computer_id"`
 	SavedAt    time.Time  `json:"saved_at"`
 	ExpiresAt  *time.Time `json:"expires_at"`
+	// SavedDiskExpiresAt is when a create from this snapshot starts answering
+	// snapshot_expired; absent from backends that predate it.
+	SavedDiskExpiresAt *time.Time `json:"saved_disk_expires_at,omitempty"`
 }
 
 type ComputerSnapshotListResponse struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -154,6 +155,9 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 					return nil, err
 				}
 				timeoutSeconds = &seconds
+				if persistent || cmd.Flags().Changed("from-snapshot") {
+					warnShortPersistentLifetime(cmd.ErrOrStderr(), seconds)
+				}
 			}
 			idText, _ := cmd.Flags().GetString("id")
 			id, err := computerUUIDOrNew(idText)
@@ -256,7 +260,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 	command.AddCommand(listComputers)
 	start := &cobra.Command{Use: "start C1", Short: "Boot a stopped persistent computer from its saved disk", Long: "Boot a stopped persistent computer from its saved disk as a new run.\n\n" + computerPersistentHelp}
 	start.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
-	start.Flags().Duration("timeout", 0, "Lifetime of the new run from the start (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
+	start.Flags().Duration("timeout", 0, "Lifetime of the new run from the start (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h): it starts saving its disk 3m before it ends")
 	start.Flags().Bool("no-inference", false, "Start this run without a host model even though the computer was created with --inference, when no host with one is up; later starts ask for it again")
 	start.Flags().Bool("wait", false, "Wait until the computer is running; exits non-zero if it is not by --wait-timeout")
 	start.Flags().Duration("wait-timeout", 10*time.Minute, "How long --wait waits (1s-30m)")
@@ -288,6 +292,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 					return nil, err
 				}
 				request.TimeoutSeconds = &seconds
+				warnShortPersistentLifetime(cmd.ErrOrStderr(), seconds)
 			}
 			client, err := computerClient(cmd)
 			if err != nil {
@@ -1002,6 +1007,12 @@ func computerLifetimeSeconds(lifetime time.Duration) (int, error) {
 		return 0, errors.New("--timeout must be whole seconds from 1m to 24h")
 	}
 	return int(lifetime / time.Second), nil
+}
+
+func warnShortPersistentLifetime(stderr io.Writer, lifetimeSeconds int) {
+	if lifetimeSeconds < 5*60 {
+		fmt.Fprintln(stderr, "a persistent computer stops to save its disk 3m before its lifetime ends, so with --timeout under 5m it stops as soon as it starts, and a save that does not finish before its lifetime ends is lost")
+	}
 }
 
 func computerDisplaySize(value string) (*api.ComputerDisplaySize, error) {

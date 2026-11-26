@@ -10853,12 +10853,15 @@ type PaginatedBuildsWithJobsResponse_Items_Item struct {
 // `durable` is true once its current save is copied off the host that saved
 // it, so losing that host no longer loses the save.
 type PersistentComputerStatus struct {
-	ComputerId   openapi_types.UUID            `json:"computer_id"`
-	CreatedAt    time.Time                     `json:"created_at"`
-	Durable      bool                          `json:"durable"`
-	RunSessionId openapi_types.UUID            `json:"run_session_id"`
-	SavedAt      *time.Time                    `json:"saved_at"`
-	State        PersistentComputerStatusState `json:"state"`
+	ComputerId   openapi_types.UUID `json:"computer_id"`
+	CreatedAt    time.Time          `json:"created_at"`
+	Durable      bool               `json:"durable"`
+	RunSessionId openapi_types.UUID `json:"run_session_id"`
+	SavedAt      *time.Time         `json:"saved_at"`
+
+	// SavedDiskExpiresAt When its current save stops being startable: from then on start and snapshot save answer saved_disk_expired. A computer created from a snapshot that hasn't saved yet starts from that snapshot's save, so this is that save's. Null before a first save, or when the save never expires.
+	SavedDiskExpiresAt *time.Time                    `json:"saved_disk_expires_at,omitempty"`
+	State              PersistentComputerStatusState `json:"state"`
 }
 
 // PersistentComputerStatusState defines model for PersistentComputerStatus.State.

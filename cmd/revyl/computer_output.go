@@ -258,6 +258,9 @@ func writePersistentComputerStatus(writer io.Writer, computer *api.PersistentCom
 	if computer.SavedAt != nil {
 		line += fmt.Sprintf(" saved_at=%s durable=%t", computer.SavedAt.UTC().Format(time.RFC3339), computer.Durable)
 	}
+	if computer.SavedDiskExpiresAt != nil {
+		line += " saved_disk_expires_at=" + computer.SavedDiskExpiresAt.UTC().Format(time.RFC3339)
+	}
 	_, err := fmt.Fprintln(writer, line)
 	return err
 }
@@ -267,13 +270,16 @@ func writePersistentComputerList(writer io.Writer, list *api.PersistentComputerL
 		_, err := fmt.Fprintln(writer, "No persistent computers yet. Start one with: revyl computer create --os macos --persistent")
 		return err
 	}
-	rows := [][]string{{"ID", "STATE", "SAVED", "CREATED"}}
+	rows := [][]string{{"ID", "STATE", "SAVED", "SAVE EXPIRES", "CREATED"}}
 	for _, computer := range list.Computers {
-		saved := "-"
+		saved, expires := "-", "-"
 		if computer.SavedAt != nil {
 			saved = computerTime(*computer.SavedAt)
 		}
-		rows = append(rows, []string{computer.ComputerId.String(), persistentComputerListState(computer), saved, computerTime(computer.CreatedAt)})
+		if computer.SavedDiskExpiresAt != nil {
+			expires = computerTime(*computer.SavedDiskExpiresAt)
+		}
+		rows = append(rows, []string{computer.ComputerId.String(), persistentComputerListState(computer), saved, expires, computerTime(computer.CreatedAt)})
 	}
 	if err := writeComputerTable(writer, rows); err != nil {
 		return err
@@ -290,6 +296,9 @@ func writeComputerSnapshot(writer io.Writer, snapshot *api.ComputerSnapshot) err
 	if snapshot.ExpiresAt != nil {
 		line += " expires_at=" + snapshot.ExpiresAt.UTC().Format(time.RFC3339)
 	}
+	if snapshot.SavedDiskExpiresAt != nil {
+		line += " saved_disk_expires_at=" + snapshot.SavedDiskExpiresAt.UTC().Format(time.RFC3339)
+	}
 	_, err := fmt.Fprintln(writer, line)
 	return err
 }
@@ -302,7 +311,9 @@ func writeComputerSnapshotList(writer io.Writer, list *api.ComputerSnapshotListR
 	rows := [][]string{{"ID", "NAME", "COMPUTER", "SAVED", "EXPIRES"}}
 	for _, snapshot := range list.Snapshots {
 		expires := "-"
-		if snapshot.ExpiresAt != nil {
+		if snapshot.SavedDiskExpiresAt != nil {
+			expires = computerTime(*snapshot.SavedDiskExpiresAt)
+		} else if snapshot.ExpiresAt != nil {
 			expires = computerTime(*snapshot.ExpiresAt)
 		}
 		rows = append(rows, []string{snapshot.ID.String(), snapshot.Name, snapshot.ComputerID.String(), computerTime(snapshot.SavedAt), expires})
@@ -367,6 +378,9 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 	}
 	if detail.Persistent != nil {
 		rows = append(rows, []string{"Persistent", persistentComputerStateText(*detail.Persistent)})
+		if detail.Persistent.SavedDiskExpiresAt != nil {
+			rows = append(rows, []string{"Save expires", computerTime(*detail.Persistent.SavedDiskExpiresAt)})
+		}
 	}
 	if detail.Inference != nil {
 		rows = append(rows, []string{"Inference", computerInferenceText(string(*detail.Inference))})

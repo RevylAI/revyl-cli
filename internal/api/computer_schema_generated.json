@@ -2741,6 +2741,19 @@
           ],
           "title": "Saved At"
         },
+        "saved_disk_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When its current save stops being startable: from then on start and snapshot save answer saved_disk_expired. A computer created from a snapshot that hasn't saved yet starts from that snapshot's save, so this is that save's. Null before a first save, or when the save never expires.",
+          "title": "Saved Disk Expires At"
+        },
         "state": {
           "enum": [
             "running",
