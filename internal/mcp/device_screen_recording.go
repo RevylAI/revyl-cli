@@ -328,7 +328,7 @@ type DeviceRecordStopOutput struct {
 func (s *Server) registerDeviceRecordTools() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_record_start",
-		Description: "Start an on-demand screen recording of a running iOS or Android session, separate from the full-session recording, which is unchanged. One recording at a time per session; it stops on its own after 180 seconds or about 36 MiB (busy iOS screens reach the size limit in under a minute). Call device_record_stop to save the MP4; stopping the session first discards it. Not available on Web sessions.",
+		Description: "Start an on-demand screen recording of a running iOS or Android session, separate from the full-session recording, which is unchanged. One recording at a time per session; it stops on its own after 180 seconds or about 160 MiB (the busiest iOS screens reach the size limit after about a minute). Call device_record_stop to save the MP4; stopping the session first discards it. Not available on Web sessions.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Start Screen Recording",
 			DestructiveHint: boolPtr(false),

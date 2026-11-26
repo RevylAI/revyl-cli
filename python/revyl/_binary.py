@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-__version__ = "0.2.79"
+__version__ = "0.2.80"
 
 
 def get_platform_info() -> tuple[str, str, str]:

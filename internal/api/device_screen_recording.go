@@ -7,12 +7,12 @@ import "time"
 // a tenth of ScreenRecordingMaxBytes, whichever is first.
 const (
 	ScreenRecordingMaxSeconds = 180
-	ScreenRecordingMaxBytes   = 40 * 1024 * 1024
+	ScreenRecordingMaxBytes   = 180 * 1024 * 1024
 )
 
 // ScreenRecordingStopTimeout bounds a stop request, which finalizes the
 // recording on the device and returns up to ScreenRecordingMaxBytes of MP4.
-const ScreenRecordingStopTimeout = 2 * time.Minute
+const ScreenRecordingStopTimeout = 5 * time.Minute
 
 // DeviceStartScreenRecordingResponse is the worker's /start_screen_recording reply.
 type DeviceStartScreenRecordingResponse struct {

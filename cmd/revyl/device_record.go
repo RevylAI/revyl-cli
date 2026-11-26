@@ -18,8 +18,8 @@ Start, do the steps you want on video, then stop: stop saves that span as an
 MP4 within seconds and the session keeps running. Run as many start/stop
 cycles as you like, one recording at a time per session.
 
-A recording stops on its own after 3 minutes or about 36 MiB, whichever comes
-first; busy iOS screens reach the size limit in under a minute. Stopping the
+A recording stops on its own after 3 minutes or about 160 MiB, whichever comes
+first; the busiest iOS screens reach the size limit after about a minute. Stopping the
 session discards a recording that was not stopped. The full-session video is
 unchanged and still comes from 'revyl session download' after the session ends.`,
 }
