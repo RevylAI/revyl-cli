@@ -73,8 +73,11 @@ const (
 	// Interactive device tasks may wait in Hatchet for up to 30 minutes. Keep
 	// the client alive through that queue SLA plus terminal-state propagation.
 	deviceWorkerReadyTimeout = 35 * time.Minute
-	deviceHealthWaitTimeout  = 30 * time.Second
 	deviceStopReasonMaxRunes = 200
+
+	// Covers an iOS model or OS swap, which boots a new simulator and installs
+	// the app before the worker binds the device (about 90 seconds observed).
+	deviceConnectWaitTimeout = 3 * time.Minute
 )
 
 var (
@@ -706,24 +709,41 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, startErr
 	}
 
+	// The worker URL exists before the worker binds the device, and a model or
+	// OS swap boots a new simulator before installing the app, so poll /health
+	// until device_connected is true rather than for a fixed attempt count.
 	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 	deviceReady := false
 	var lastHealth workerHealthResponse
-	healthDeadline := time.Now().Add(deviceHealthWaitTimeout)
+	pollStarted := time.Now()
+	deadline := pollStarted.Add(deviceConnectWaitTimeout)
+	nextSessionCheck := pollStarted
 	for {
 		if health, err := m.healthCheckSession(tmpSession); err == nil {
 			lastHealth = health
 			deviceReady = true
 			break
 		}
-		if !time.Now().Before(healthDeadline) {
+		if !time.Now().Before(nextSessionCheck) {
+			reason, ended := m.checkSessionStatusOnFailure(tmpSession)
+			if !ended && sessionID != "" {
+				reason, ended = m.sessionStopRequested(ctx, sessionID)
+			}
+			if ended {
+				startErr := m.workerStartFailureError(ctx, sessionID, errors.New(reason))
+				_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
+				return -1, nil, startErr
+			}
+			nextSessionCheck = time.Now().Add(deviceSessionStateCheckDelay)
+		}
+		if !time.Now().Before(deadline) {
 			break
 		}
 		select {
 		case <-ctx.Done():
 			_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
 			return -1, nil, fmt.Errorf("cancelled while waiting for device to connect: %w", ctx.Err())
-		case <-time.After(readinessPollInterval(0)):
+		case <-time.After(readinessPollInterval(time.Since(pollStarted))):
 		}
 	}
 	// A device that never reported ready is not an error: the worker exists, the
@@ -1792,17 +1812,8 @@ func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRun
 		}
 		if sessionID != "" && !time.Now().Before(nextSessionCheck) {
 			nextSessionCheck = time.Now().Add(deviceSessionStateCheckDelay)
-			if detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID); err == nil && strings.EqualFold(detail.Status, "stopping") {
-				if stop, ok := detail.SourceMetadata["stop_request"].(map[string]interface{}); ok {
-					reason := "the session was stopped before its device became ready"
-					if message, ok := stop["error_message"].(string); ok && strings.TrimSpace(message) != "" {
-						reason = strings.Join(strings.Fields(analytics.SanitizeDiagnostic(message)), " ")
-						if runes := []rune(reason); len(runes) > deviceStopReasonMaxRunes {
-							reason = string(runes[:deviceStopReasonMaxRunes]) + "..."
-						}
-					}
-					return "", errors.New(reason)
-				}
+			if reason, stopping := m.sessionStopRequested(ctx, sessionID); stopping {
+				return "", errors.New(reason)
 			}
 		}
 
@@ -1814,6 +1825,27 @@ func (m *DeviceSessionManager) waitForWorkerURL(ctx context.Context, workflowRun
 	}
 
 	return "", fmt.Errorf("timed out waiting for worker URL after %v", timeout)
+}
+
+// sessionStopRequested reports a session that is stopping because a stop was
+// requested before its device became ready, with the requester's reason.
+func (m *DeviceSessionManager) sessionStopRequested(ctx context.Context, sessionID string) (reason string, stopping bool) {
+	detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
+	if err != nil || !strings.EqualFold(detail.Status, "stopping") {
+		return "", false
+	}
+	stop, ok := detail.SourceMetadata["stop_request"].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	reason = "the session was stopped before its device became ready"
+	if message, ok := stop["error_message"].(string); ok && strings.TrimSpace(message) != "" {
+		reason = strings.Join(strings.Fields(analytics.SanitizeDiagnostic(message)), " ")
+		if runes := []rune(reason); len(runes) > deviceStopReasonMaxRunes {
+			reason = string(runes[:deviceStopReasonMaxRunes]) + "..."
+		}
+	}
+	return reason, true
 }
 
 func wsURLToHTTP(wsURL string) string {
