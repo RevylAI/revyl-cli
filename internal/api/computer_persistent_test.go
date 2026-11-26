@@ -101,7 +101,7 @@ func TestPersistentComputerResponsesBindToTheRequestedComputer(t *testing.T) {
 		"unknown_state":   {http.StatusOK, badState, ""},
 		"saved_disk_gone": {http.StatusServiceUnavailable, map[string]any{"detail": "saved_disk_unavailable"}, "saved_disk_unavailable"},
 		"too_old":         {http.StatusConflict, map[string]any{"detail": "saved_disk_expired"}, "saved_disk_expired"},
-		"not_enabled":     {http.StatusForbidden, map[string]any{"detail": "persistent_computers_not_enabled", "message": "Persistent computers aren't enabled for this organization. Contact support@revyl.ai to turn them on."}, "persistent_computers_not_enabled"},
+		"not_enabled":     {http.StatusForbidden, map[string]any{"detail": "persistent_computers_not_enabled", "message": "Persistent computers need a paid plan. Upgrade this organization's plan to use them."}, "persistent_computers_not_enabled"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

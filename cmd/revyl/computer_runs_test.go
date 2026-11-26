@@ -836,7 +836,7 @@ func TestComputerCreateInferenceNamesAnOrganizationWithoutLocalInference(t *test
 	t.Chdir(t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprint(w, `{"detail":"inference_not_enabled","message":"Local inference isn't enabled for this organization. Contact support@revyl.ai to turn it on."}`)
+		fmt.Fprint(w, `{"detail":"inference_not_enabled","message":"Local inference needs a paid plan. Upgrade this organization's plan to use it."}`)
 	}))
 	defer server.Close()
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
@@ -849,7 +849,7 @@ func TestComputerCreateInferenceNamesAnOrganizationWithoutLocalInference(t *test
 
 	err := root.Execute()
 
-	want := "local inference isn't enabled for your organization, so no computer was created"
+	want := "local inference needs a paid plan, so no computer was created"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("computer create --inference said %v, want %q", err, want)
 	}

@@ -310,10 +310,10 @@ shasum -a 256 build.tgz
 
 ## Persistent computers
 
-Persistent computers are enabled per organization. In an organization without
-them, create, start and snapshot save are refused with
-`persistent_computers_not_enabled` (HTTP 403); contact support@revyl.ai to turn
-them on. An organization keeps at most 10 persistent computers and 100
+Persistent computers are included in paid plans. In an organization on the Free
+plan, create, start and snapshot save are refused with
+`persistent_computers_not_enabled` (HTTP 403); upgrade the organization's plan
+to use them. An organization keeps at most 10 persistent computers and 100
 snapshots unless Revyl raised its limits.
 
 An ordinary computer is deleted when it stops. A persistent computer keeps its
@@ -401,7 +401,7 @@ shows in the `SAVE EXPIRES` column of `list --persistent`, the `Save expires`
 row of `get`, and the `start` and `stop` lines. A computer created from a
 snapshot that hasn't saved its own disk yet shows the snapshot's. It is empty
 before a first save otherwise, and for a save that never ends. A persistent computer bills Mac computer time like
-any other computer, only while a run is running. Storing a stopped persistent computer's saved disk and its snapshots is free for now, while persistent computers are in limited preview.
+any other computer, only while a run is running. Storing a stopped persistent computer's saved disk and its snapshots is free for now.
 
 If persistent computers are turned off for your organization, `list --persistent`,
 `snapshot list`, `snapshot get` and both deletes keep working, so you can still
@@ -475,7 +475,7 @@ Without `--json`, the CLI prints the sentence below in place of the code; with
 
 | Code | HTTP | When | What to do |
 | --- | --- | --- | --- |
-| `persistent_computers_not_enabled` | 403 | Persistent computers aren't enabled for your organization. Create, start and snapshot save refuse; reads and deletes still work. | Contact support@revyl.ai to turn them on. |
+| `persistent_computers_not_enabled` | 403 | Your organization isn't on a paid plan. Create, start and snapshot save refuse; reads and deletes still work. | Upgrade the organization's plan. |
 | `persistent_computer_limit` | 429 | The organization already keeps its maximum of persistent computers, running or stopped. | Delete one you no longer need, then create again. |
 | `snapshot_limit` | 429 | The organization already keeps its maximum of snapshots. | Delete one you no longer need, then save again. |
 | `computer_not_persistent` | 409 | `start`, `delete` or `snapshot save` named a computer created without `--persistent`. | Use `stop` for an ordinary computer; it is deleted when it stops. |
@@ -622,9 +622,9 @@ that found the target. The hosted MCP's `device_instruction` and
 
 ### Local inference
 
-Local inference is enabled per organization. In an organization without it,
+Local inference is included in paid plans. In an organization on the Free plan,
 `create --inference` is refused with `inference_not_enabled` (HTTP 403) and
-nothing is created; contact support@revyl.ai to turn it on.
+nothing is created; upgrade the organization's plan to use it.
 
 ```bash
 revyl computer create --os macos --inference --wait --json
@@ -686,7 +686,7 @@ pass. An uncertain instruction clicks nothing.
 
 | Code | HTTP | When | What to do |
 | --- | --- | --- | --- |
-| `inference_not_enabled` | 403 | `create --inference` in an organization without local inference. | Create without `--inference`, or contact support@revyl.ai to turn it on. |
+| `inference_not_enabled` | 403 | `create --inference` in an organization that isn't on a paid plan. | Create without `--inference`, or upgrade the organization's plan. |
 | `inference_unavailable` | 409 | `create --inference`, or `start` of a persistent computer created with it, when no host with a model is up. Nothing is created or started. | Retry later; create without `--inference`, or `start --no-inference` to run once without the model. |
 | `step_engine_unavailable` | 409 | A step that needs the model, such as `validation`, `extract` or `--engine local`, when the computer has none or its model isn't answering. Also `validation` or `extract` with `--engine hosted`. | Check `inference` with `get`; use an `instruction` with `auto` or `hosted` where a click is enough. |
 | `step_engine_busy` | 409 | A step that needs the model stayed waiting past its turn while the model answered another step. | Send one computer's steps one at a time, then retry. |
