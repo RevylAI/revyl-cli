@@ -265,7 +265,7 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 				}
 				if refusal.Code == "inference_not_enabled" {
 					refusal.Message = "local inference isn't enabled for your organization, so no computer was created"
-					refusal.Hint = "Create the computer without --inference."
+					refusal.Hint = "Contact support@revyl.ai to turn it on, or create the computer without --inference."
 				}
 				if offer := safe.Offer; (refusal.Code == "computer_limit" || refusal.UnlocksWithCard) && offer != nil && offer.Action.Valid() && strings.HasPrefix(offer.BillingUrl, "https://") {
 					refusal.BillingURL = offer.BillingUrl

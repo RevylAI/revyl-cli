@@ -1400,24 +1400,24 @@ func (e ComputerAPIErrorDetail2) Valid() bool {
 
 // Defines values for ComputerAPIErrorMessage.
 const (
-	ComputerAPIErrorMessageLocalInferenceIsntEnabledForThisOrganization                                ComputerAPIErrorMessage = "Local inference isn't enabled for this organization."
-	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800 ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
-	ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds                         ComputerAPIErrorMessage = "No computer host can run that long yet; see max_timeout_seconds."
-	ComputerAPIErrorMessagePersistentComputersAreAnInternalPreviewAndAreNotEnabledForThisOrganization  ComputerAPIErrorMessage = "Persistent computers are an internal preview and are not enabled for this organization."
-	ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64       ComputerAPIErrorMessage = "Plain argv/path are no longer accepted; upgrade your client to send argv_b64/path_b64."
-	ComputerAPIErrorMessageTimeoutSecondsMustBeWholeSecondsFrom60To86400                               ComputerAPIErrorMessage = "timeout_seconds must be whole seconds from 60 to 86400."
+	ComputerAPIErrorMessageLocalInferenceIsntEnabledForThisOrganizationContactSupportRevylAiToTurnItOn         ComputerAPIErrorMessage = "Local inference isn't enabled for this organization. Contact support@revyl.ai to turn it on."
+	ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800         ComputerAPIErrorMessage = "No computer host can apply a display size yet; omit --display to start at the default 1280x800."
+	ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds                                 ComputerAPIErrorMessage = "No computer host can run that long yet; see max_timeout_seconds."
+	ComputerAPIErrorMessagePersistentComputersArentEnabledForThisOrganizationContactSupportRevylAiToTurnThemOn ComputerAPIErrorMessage = "Persistent computers aren't enabled for this organization. Contact support@revyl.ai to turn them on."
+	ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64               ComputerAPIErrorMessage = "Plain argv/path are no longer accepted; upgrade your client to send argv_b64/path_b64."
+	ComputerAPIErrorMessageTimeoutSecondsMustBeWholeSecondsFrom60To86400                                       ComputerAPIErrorMessage = "timeout_seconds must be whole seconds from 60 to 86400."
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorMessage enum.
 func (e ComputerAPIErrorMessage) Valid() bool {
 	switch e {
-	case ComputerAPIErrorMessageLocalInferenceIsntEnabledForThisOrganization:
+	case ComputerAPIErrorMessageLocalInferenceIsntEnabledForThisOrganizationContactSupportRevylAiToTurnItOn:
 		return true
 	case ComputerAPIErrorMessageNoComputerHostCanApplyADisplaySizeYetOmitDisplayToStartAtTheDefault1280x800:
 		return true
 	case ComputerAPIErrorMessageNoComputerHostCanRunThatLongYetSeeMaxTimeoutSeconds:
 		return true
-	case ComputerAPIErrorMessagePersistentComputersAreAnInternalPreviewAndAreNotEnabledForThisOrganization:
+	case ComputerAPIErrorMessagePersistentComputersArentEnabledForThisOrganizationContactSupportRevylAiToTurnThemOn:
 		return true
 	case ComputerAPIErrorMessagePlainArgvpathAreNoLongerAcceptedUpgradeYourClientToSendArgvB64pathB64:
 		return true

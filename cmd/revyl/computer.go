@@ -71,7 +71,8 @@ Drive it (x and y are screenshot pixels):
   revyl computer key ID --key cmd+space
   revyl computer exec ID -- uname -a        run a program on it
 
-Also: extend, hosting, sessions, report, export, files, process; each has --help.
+Also: extend, hosting, sessions, report, export, files, process, and for
+persistent computers start, delete and snapshot; each has --help.
 --json prints machine-readable output; a failure prints error and, when Revyl named one, error_code.
 
 macOS computers come with Pro: revyl billing add-card unlocks them, and free minutes still cover macOS.
@@ -92,9 +93,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 	create.Flags().Bool(fromCheckoutFlagName, true, "Send the session profile's definition and script from this checkout, uncommitted changes included; false lets Revyl read them, and the project's default profile, from Git")
 	create.Flags().String("branch", "", "Git branch the session profile reads from Git (default: this checkout's Git branch, else the repository's default branch)")
 	create.Flags().Bool("persistent", false, "Keep the whole disk when it stops or reaches its lifetime end, so it can start again under the same ID (macOS only)")
-	_ = create.Flags().MarkHidden("persistent")
 	create.Flags().String("from-snapshot", "", "Create a persistent macOS computer whose disk starts as this snapshot's (ID or name); it does not take the snapshot's computer's --inference, so pass --inference again for that")
-	_ = create.Flags().MarkHidden("from-snapshot")
 	create.Flags().Bool("inference", false, "Place the computer on a host with its own vision model loaded, so instruction, validation and extract run on it (macOS only)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
@@ -238,7 +237,6 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 	listComputers := &cobra.Command{Use: "list", Short: "Show your organization's newest computers"}
 	listComputers.Flags().Int("limit", 25, fmt.Sprintf("How many computers to show (1-%d)", api.ComputerListMaxLimit))
 	listComputers.Flags().Bool("persistent", false, "Show persistent computers, stopped ones included")
-	_ = listComputers.Flags().MarkHidden("persistent")
 	listComputers.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(*computerInvocation) (any, error) {
 			if len(args) != 0 {
@@ -256,7 +254,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 		})
 	}
 	command.AddCommand(listComputers)
-	start := &cobra.Command{Use: "start C1", Hidden: true, Short: "Boot a stopped persistent computer from its saved disk", Long: "Boot a stopped persistent computer from its saved disk as a new run.\n\n" + computerPersistentHelp}
+	start := &cobra.Command{Use: "start C1", Short: "Boot a stopped persistent computer from its saved disk", Long: "Boot a stopped persistent computer from its saved disk as a new run.\n\n" + computerPersistentHelp}
 	start.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
 	start.Flags().Duration("timeout", 0, "Lifetime of the new run from the start (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
 	start.Flags().Bool("no-inference", false, "Start this run without a host model even though the computer was created with --inference, when no host with one is up; later starts ask for it again")
@@ -309,7 +307,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 		})
 	}
 	command.AddCommand(start)
-	deleteComputer := &cobra.Command{Use: "delete C1", Hidden: true, Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nstops first, without saving. Its snapshots stay: each keeps the save it names\nuntil you delete the snapshot.\n\n" + computerPersistentHelp}
+	deleteComputer := &cobra.Command{Use: "delete C1", Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nstops first, without saving. Its snapshots stay: each keeps the save it names\nuntil you delete the snapshot.\n\n" + computerPersistentHelp}
 	deleteComputer.Flags().Bool("yes", false, "Delete without asking; required when not run in a terminal")
 	deleteComputer.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
@@ -392,8 +390,6 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 		if action == "stop" {
 			leaf.Flags().Bool("wait", false, "On a persistent computer, wait until its disk is saved; exits non-zero if it is not stopped by --wait-timeout")
 			leaf.Flags().Duration("wait-timeout", 10*time.Minute, "How long --wait waits for the disk to be saved (1s-30m)")
-			_ = leaf.Flags().MarkHidden("wait")
-			_ = leaf.Flags().MarkHidden("wait-timeout")
 		}
 		if action == "report" {
 			leaf.Long = `Read a computer report as JSON, ATIF or performance statistics.
@@ -567,9 +563,10 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 
 const computerAccountLaunchAgents = "/Users/computer/Library/LaunchAgents"
 
-const computerPersistentHelp = `Persistent computers are a preview, open to organizations Revyl enabled;
-others get persistent_computers_not_enabled. An organization keeps at most 10
-persistent computers and 100 snapshots unless Revyl raised its limits.
+const computerPersistentHelp = `An organization without persistent computers gets
+persistent_computers_not_enabled; contact support@revyl.ai to turn them on. An
+organization keeps at most 10 persistent computers and 100 snapshots unless
+Revyl raised its limits.
 A persistent computer (create --persistent, macOS only) keeps one ID for life.
 Stop saves its whole disk on the Mac it runs on: files, brew installs and other
 system changes; stop --wait waits until that save is confirmed. Memory and
@@ -595,7 +592,7 @@ snapshots, and each keeps the save it names until you delete the snapshot.`
 const computerStartRunConflict = "This computer's last run hasn't finished stopping: Revyl may still be recording the disk its Mac saved. When that report is delayed this usually clears within 15 minutes, but a computer with no save off host to fall back on can wait until 24 hours 15 minutes after that run started. The disk is kept; try start again shortly, check it with revyl computer get, or remove it with revyl computer delete, which still works."
 
 var computerPersistentRefusals = map[string]string{
-	"persistent_computers_not_enabled": "Persistent computers are a preview and aren't enabled for this organization.",
+	"persistent_computers_not_enabled": "Persistent computers aren't enabled for this organization. Contact support@revyl.ai to turn them on.",
 	"computer_not_persistent":          "This computer isn't persistent. Only computers created with --persistent can start from a saved disk and be deleted.",
 	"saved_disk_unavailable":           "The Mac holding this computer's saved disk is offline and the save isn't copied off it yet, or no Mac can start it right now. The disk stays saved; try start again later.",
 	"saved_disk_expired":               "This computer's saved disk has reached its end: it was made by an older Mac runtime, which kept saves 30 days, or by a stop that could not ready the disk. Delete it, then create a new computer.",
@@ -607,8 +604,8 @@ var computerPersistentRefusals = map[string]string{
 	"snapshot_limit":                   "Your organization has as many snapshots as it may keep. Delete one you no longer need, then save again.",
 }
 
-const computerSnapshotHelp = `Snapshots are part of the persistent computer preview, open to organizations
-Revyl enabled; others get persistent_computers_not_enabled.
+const computerSnapshotHelp = `Snapshots need persistent computers: an organization without them gets
+persistent_computers_not_enabled; contact support@revyl.ai to turn them on.
 A snapshot names a stopped persistent computer's current saved disk once it is
 saved off host, under a name unique in your organization. It copies nothing,
 so it is ready at once. create --from-snapshot S1 creates a new persistent
@@ -628,7 +625,7 @@ see revyl computer start --help), even after its computer starts again or is
 deleted. Deleting a snapshot never changes a computer already created from it.`
 
 func newComputerSnapshotCommand() *cobra.Command {
-	command := &cobra.Command{Use: "snapshot", Hidden: true, Short: "Save, list, show and delete snapshots of stopped persistent computers", Long: computerSnapshotHelp, RunE: computerHelp}
+	command := &cobra.Command{Use: "snapshot", Short: "Save, list, show and delete snapshots of stopped persistent computers", Long: computerSnapshotHelp, RunE: computerHelp}
 	save := &cobra.Command{Use: "save C1 --name NAME", Short: "Save a stopped persistent computer's saved disk as a named snapshot", Long: computerSnapshotHelp}
 	save.Flags().String("name", "", "Snapshot name: 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit")
 	save.RunE = func(cmd *cobra.Command, args []string) error {

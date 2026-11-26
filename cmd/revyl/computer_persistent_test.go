@@ -199,16 +199,27 @@ func TestComputerGetSaysWhetherAStoppedComputersSaveIsOffItsHost(t *testing.T) {
 	}
 }
 
-func TestComputerHelpKeepsTheInternalPersistencePreviewOutOfSight(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"create", "--help"}, {"list", "--help"}, {"stop", "--help"}} {
-		stdout, _, err := runPersistentComputerCommand(t, http.NotFound, args...)
+func TestComputerHelpShowsPersistentComputerCommandsAndFlags(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--help"}, []string{"  start ", "  delete ", "  snapshot "}},
+		{[]string{"create", "--help"}, []string{"--persistent", "--from-snapshot"}},
+		{[]string{"list", "--help"}, []string{"--persistent"}},
+		{[]string{"stop", "--help"}, []string{"--wait ", "--wait-timeout"}},
+	} {
+		stdout, _, err := runPersistentComputerCommand(t, http.NotFound, tc.args...)
 		if err != nil {
-			t.Fatalf("%v: %v", args, err)
+			t.Fatalf("%v: %v", tc.args, err)
 		}
-		for _, hidden := range []string{"persistent", "saved disk", "delete"} {
-			if strings.Contains(strings.ToLower(stdout), hidden) {
-				t.Fatalf("%v help mentions %q:\n%s", args, hidden, stdout)
+		for _, want := range tc.want {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("%v help is missing %q:\n%s", tc.args, want, stdout)
 			}
+		}
+		if strings.Contains(strings.ToLower(stdout), "preview") {
+			t.Fatalf("%v help calls persistence a preview:\n%s", tc.args, stdout)
 		}
 	}
 }

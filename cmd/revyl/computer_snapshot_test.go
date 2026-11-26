@@ -149,12 +149,3 @@ func TestComputerSnapshotDeleteNeedsConfirmationAndDeletesByName(t *testing.T) {
 		t.Fatalf("delete sent %v", requests)
 	}
 }
-
-func TestComputerHelpKeepsSnapshotsOutOfSight(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"create", "--help"}} {
-		stdout, _, err := runPersistentComputerCommand(t, http.NotFound, args...)
-		if err != nil || strings.Contains(strings.ToLower(stdout), "snapshot") {
-			t.Fatalf("%v help mentions snapshots (%v):\n%s", args, err, stdout)
-		}
-	}
-}

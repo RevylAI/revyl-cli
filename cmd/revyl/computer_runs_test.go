@@ -836,7 +836,7 @@ func TestComputerCreateInferenceNamesAnOrganizationWithoutLocalInference(t *test
 	t.Chdir(t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprint(w, `{"detail":"inference_not_enabled","message":"Local inference isn't enabled for this organization."}`)
+		fmt.Fprint(w, `{"detail":"inference_not_enabled","message":"Local inference isn't enabled for this organization. Contact support@revyl.ai to turn it on."}`)
 	}))
 	defer server.Close()
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
