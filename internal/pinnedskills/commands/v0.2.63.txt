@@ -73,6 +73,7 @@ command build cancel
 command build upload --branch= --version= --pin --app= --platform= --name= --yes --json --preview --file= --url= --header= --commit= --repo= --pr=
 command build remote
 command build delete --force --json
+command build download --force --json --out= --print-url --timeout=
 command build logs --follow --json
 command build secret
 command build secret set --stdin
@@ -179,6 +180,10 @@ command report annotations reopen --app= --expected-version=
 command report annotations severity --app= --clear --expected-version= --severity=
 command proof
 command proof comment --blocked= --problem=
+command agent
+command agent proof --all-branches --branch= --build-id= --build-selection= --no-wait --platform= --prompt= --prompt-file= --timeout=
+command agent status
+command agent cancel
 command config
 command config path
 command config show
@@ -264,7 +269,7 @@ command setup check-url --json --timeout=
 command setup report --json --outcome= --platform= --reason=
 command upgrade --check --force --json --prerelease
 command device
-command device start --all-branches --app= --app-id= --app-link= --app-url= --branch= --browser= --build-selection= --build-version-id= --commit= --computer= --cookies-file= --device --device-model= --device-name= --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --locale= --no-inherited-launch-vars --no-open --open --orientation= --os-version= --platform= --session-profile= --timeout= --url= --viewport=
+command device start --all-branches --app= --app-id= --app-link= --app-url= --branch= --browser= --build-selection= --build-version-id= --commit= --computer= --cookies-file= --device --device-model= --device-name= --inference= --json --launch-arg= --launch-arg-set= --launch-env= --launch-var= --locale= --no-inherited-launch-vars --no-open --open --orientation= --os-version= --platform= --session-profile= --timeout= --url= --viewport=
 command device stop --all --json --s= --session-id=
 command device screenshot --json --out= --s= --session-id=
 command device hierarchy --json --out= --s= --session-id=
@@ -322,7 +327,7 @@ command device state sqlite --param=
 command device scroll --amount= --direction= --json --s= --session-id= --target= --x= --y=
 command device select --json --s= --session-id= --target= --x= --y=
 command computer --json
-command computer create --display= --id= --os= --timeout= --wait --wait-timeout=
+command computer create --branch= --display= --from-checkout --id= --inference --os= --session-profile= --timeout= --wait --wait-timeout=
 command computer list --limit=
 command computer start --display= --timeout= --wait --wait-timeout=
 command computer delete --yes
@@ -356,6 +361,9 @@ command computer drag --end-x= --end-y= --out= --start-x= --start-y=
 command computer scroll --amount= --direction= --mods= --out= --x= --y=
 command computer type --out= --text= --text-env=
 command computer key --hold= --key= --out=
+command computer instruction --engine=
+command computer validation --engine=
+command computer extract --engine=
 command dev --app-id= --branch= --build --build-profile= --build-selection= --build-version-id= --computer= --context= --detach --device-runner= --force-hot-reload --json --launch-arg= --launch-arg-set= --launch-var= --no-build --no-inherited-launch-vars --no-open --open --platform= --port= --prewarm-timeout= --ready-timeout= --remote --seed-latest --session-profile= --timeout= --tunnel=
 command dev auth
 command dev auth refresh --json --s= --session-id=
@@ -379,35 +387,35 @@ command skill
 command skill list --all --installed --json
 command skill show --name=
 command skill export --name= --output=
-command skill install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --name= --skill= --yes
+command skill install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --name= --opencode --skill= --yes
 command skill revyl-cli
-command skill revyl-cli install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-create
-command skill revyl-cli-create install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-create install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-analyze
-command skill revyl-cli-analyze install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-analyze install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-optimize-tests
-command skill revyl-cli-optimize-tests install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-optimize-tests install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-import-tests
-command skill revyl-cli-import-tests install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-import-tests install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-dev-loop
-command skill revyl-cli-dev-loop install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-dev-loop install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-atlas
-command skill revyl-cli-atlas install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-atlas install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-atlas-review
-command skill revyl-cli-atlas-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-atlas-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-figma-review
-command skill revyl-cli-figma-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-figma-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-cross-platform-review
-command skill revyl-cli-cross-platform-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-cross-platform-review install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-cli-auth-bypass
-command skill revyl-cli-auth-bypass install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-cli-auth-bypass install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-mcp
-command skill revyl-mcp install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-mcp-create
-command skill revyl-mcp-create install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp-create install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-mcp-analyze
-command skill revyl-mcp-analyze install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp-analyze install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill revyl-mcp-dev-loop
-command skill revyl-mcp-dev-loop install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --yes
+command skill revyl-mcp-dev-loop install --agent= --all --claude --cli --codex --copy --cursor --force --global --json --mcp --opencode --yes
 command skill update --global --json
