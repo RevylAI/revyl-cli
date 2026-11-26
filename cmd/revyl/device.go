@@ -2333,6 +2333,9 @@ worker predates uninstall, or when the bundle ID is only known after install,
 			_, err = runInstall()
 		}
 		if err != nil {
+			if !clean && isReplaceableInstallConflict(err) {
+				err = fmt.Errorf("%w\nThe device already has a newer or differently signed copy of this app. Rerun with --clean to uninstall it first (this clears the app's data), or start a new session with this build", err)
+			}
 			return reportDeviceAppActionFailure(cmd, session, "install", err)
 		}
 

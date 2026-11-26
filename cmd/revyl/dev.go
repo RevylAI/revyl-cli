@@ -1965,6 +1965,12 @@ func extractInstallBundleID(respBody []byte) string {
 	return ""
 }
 
+func isReplaceableInstallConflict(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, "INSTALL_FAILED_VERSION_DOWNGRADE") ||
+		strings.Contains(message, "INSTALL_FAILED_UPDATE_INCOMPATIBLE")
+}
+
 func isUnsupportedWorkerRoute(err error, path string) bool {
 	var workerErr *mcppkg.WorkerHTTPError
 	if !errors.As(err, &workerErr) {
