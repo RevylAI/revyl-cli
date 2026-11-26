@@ -848,6 +848,27 @@ can't take are refused before any build starts. Passing `--computer` with anothe
 from outside a computer, still hosts the device in that computer and keeps the
 relay, since the dev server isn't on that computer's network.
 
+### Tunnel to your machine
+
+`revyl computer tunnel` makes a computer's `localhost` ports reach the same
+ports on the machine running the CLI, until you press Ctrl+C. Safari, the iOS
+simulators and the Web sessions the computer hosts all share its network, so
+they reach your dev server at the address they would use locally:
+
+```sh
+revyl computer tunnel "$COMPUTER_ID" 3000
+```
+
+Each port is a `localhost` port from 1024 up that is free on the computer.
+Nothing else on your machine is reachable through the tunnel, and it carries
+TCP only, up to 64 connections at a time. The tunnel runs as the computer's long `exec`, so other `exec` calls
+and file writes wait until it stops; screen actions, `files read` and
+`process list` keep working. The CLI renews that `exec` every hour, and new
+connections are refused for a few seconds at each renewal; if another `exec`
+takes the computer at that handoff, the tunnel stops with an error rather than
+staying silently down. Stopping the CLI removes it, and if the CLI is killed
+the forwarder notices within about three minutes and exits.
+
 `--url` refuses `localhost` and private addresses. To test a dev server running
 on the computer, start a hosted Web session on any public page, then navigate
 its browser, which runs on the computer:

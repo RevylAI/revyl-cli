@@ -163,6 +163,8 @@ type relayRuntime struct {
 
 	httpStreams map[string]*relayHTTPStream
 	wsStreams   map[string]*relayWSStream
+	tcpStreams  map[string]*relayTCPStream
+	tcpBridge   *TCPBridge
 
 	disconnectOnce  sync.Once
 	intentionalStop atomic.Bool
@@ -204,6 +206,7 @@ func newRelayRuntime(
 		},
 		httpStreams: make(map[string]*relayHTTPStream),
 		wsStreams:   make(map[string]*relayWSStream),
+		tcpStreams:  make(map[string]*relayTCPStream),
 	}
 }
 
@@ -225,9 +228,15 @@ func (r *relayRuntime) stop() {
 	r.streamMu.Lock()
 	httpStreams := r.httpStreams
 	wsStreams := r.wsStreams
+	tcpStreams := r.tcpStreams
 	r.httpStreams = make(map[string]*relayHTTPStream)
 	r.wsStreams = make(map[string]*relayWSStream)
+	r.tcpStreams = make(map[string]*relayTCPStream)
 	r.streamMu.Unlock()
+
+	for _, stream := range tcpStreams {
+		stream.close()
+	}
 
 	for _, stream := range httpStreams {
 		stream.cancel()
@@ -296,6 +305,10 @@ func (r *relayRuntime) sendEnvelope(env relayEnvelope) error {
 }
 
 func (r *relayRuntime) handleEnvelope(env relayEnvelope) {
+	if r.tcpBridge != nil {
+		r.handleTunnelEnvelope(env)
+		return
+	}
 	switch env.Kind {
 	case "http.request.start":
 		r.handleHTTPRequestStart(env)
@@ -313,6 +326,21 @@ func (r *relayRuntime) handleEnvelope(env relayEnvelope) {
 		r.handleWSClose(env)
 	case "stream.error":
 		r.handleStreamError(env)
+	case "ping":
+		_ = r.sendEnvelope(relayEnvelope{Kind: "pong"})
+	}
+}
+
+// handleTunnelEnvelope serves a destination tunnel's relay, which carries
+// only tunnel streams: anything else is refused.
+func (r *relayRuntime) handleTunnelEnvelope(env relayEnvelope) {
+	switch env.Kind {
+	case "ws.start":
+		r.handleTCPStart(env)
+	case "ws.message", "ws.close", "stream.error":
+		r.deliverTCP(env)
+	case "http.request.start":
+		_ = r.sendEnvelope(relayEnvelope{Kind: "stream.error", StreamID: env.StreamID, Message: "this relay carries a tunnel only"})
 	case "ping":
 		_ = r.sendEnvelope(relayEnvelope{Kind: "pong"})
 	}
@@ -807,6 +835,7 @@ type RelayTunnelBackend struct {
 	failures        chan RuntimeFailure
 	stopped         bool
 	disconnects     chan error
+	tcpBridge       *TCPBridge
 }
 
 func NewRelayTunnelBackend(client *api.Client, provider string) TunnelBackend {
@@ -816,6 +845,14 @@ func NewRelayTunnelBackend(client *api.Client, provider string) TunnelBackend {
 		disconnects: make(chan error, 4),
 		failures:    make(chan RuntimeFailure, 16),
 	}
+}
+
+// NewRelayTCPTunnelBackend serves a destination tunnel: its relay carries
+// only streams that bridge accepts, and no local dev server.
+func NewRelayTCPTunnelBackend(client *api.Client, bridge *TCPBridge) *RelayTunnelBackend {
+	backend := NewRelayTunnelBackend(client, "tunnel").(*RelayTunnelBackend)
+	backend.tcpBridge = bridge
+	return backend
 }
 
 func (r *RelayTunnelBackend) SetLogCallback(cb func(string)) {
@@ -972,6 +1009,7 @@ func (r *RelayTunnelBackend) connectRuntime(ctx context.Context, localPort int) 
 	}, func(f RuntimeFailure) {
 		r.emitFailure(f)
 	})
+	runtime.tcpBridge = r.tcpBridge
 	runtime.start()
 
 	r.mu.Lock()

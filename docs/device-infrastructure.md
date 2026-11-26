@@ -341,6 +341,47 @@ for taps, typing, app lifecycle, and other actions.
 
 For supported foldable devices, see [live fold-state control](https://docs.revyl.com/reference/cli#live-fold-state).
 
+### Reach your machine from a phone session
+
+`revyl device tunnel` routes exact destinations of a running iOS simulator or
+Android emulator session through the machine running the CLI, until you press
+Ctrl+C. A bare port means `localhost:PORT`; any other `host:port` is routed as
+written. The app keeps the address it already uses, and this
+machine dials each destination, so its `/etc/hosts`, DNS and VPN apply:
+
+```bash
+revyl device tunnel --session-id "$SESSION_ID" 3000
+revyl device tunnel --session-id "$SESSION_ID" 8080 api.staging.internal:443
+```
+
+Only the declared destinations are reachable, and a tunnel carries TCP only, up
+to 64 connections at a time. Start it before the app opens its connections, or
+relaunch the app afterwards.
+
+- On Android, a `localhost` destination needs a port of 1024 or higher. Any
+  other destination reaches your machine through the emulator's HTTP proxy, so
+  it works for apps and WebViews that use the system proxy; a connection that
+  ignores the proxy isn't routed.
+- On iOS, only the declared port of a host is routed; its other ports keep
+  their usual route. A public hostname reaches your machine through the
+  simulator's HTTP proxy, so a connection that ignores the system proxy keeps
+  going to the public host. A hostname the simulator can't resolve, or a
+  private IP, is routed for every connection on the declared port.
+
+Traffic through the tunnel counts as session activity, so a session whose app
+only talks through the tunnel doesn't hit its idle timeout. Stopping the CLI,
+or the session ending, removes the tunnel. If the CLI goes away without
+stopping it, for example when it is killed, the session's forwarder exits
+after about three minutes and the simulator's network goes back to its usual
+routes. If the session loses the tunnel
+(for example when its device worker restarts), the CLI attaches it again
+within about a minute. The CLI and the session's forwarder reconnect on their
+own when the relay restarts. A second tunnel on the same session replaces the
+first: the first CLI then stops with an error, and stopping it leaves the
+second in place. For a Mac computer and the
+sessions it hosts, use `revyl computer tunnel` (see
+[Computer runs](computer-runs.md)).
+
 ## 4. Stop the device
 
 ```bash

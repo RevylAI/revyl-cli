@@ -561,6 +561,7 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 	list.Flags().Int("max-items", api.ComputerMaxItems, "Maximum process handles (1-64)")
 	process.AddCommand(list, newComputerOperationCommand("inspect C1 HANDLE", "Inspect one run-owned process handle", "process_inspect"), newComputerOperationCommand("terminate C1 HANDLE", "Terminate one run-owned process handle", "process_terminate"))
 	command.AddCommand(process)
+	command.AddCommand(newComputerTunnelCommand())
 	addComputerScreenCommands(command)
 	addComputerStepCommands(command)
 	return command

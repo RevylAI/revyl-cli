@@ -5315,6 +5315,8 @@ var proxyNoRetryActions = map[string]bool{
 	"push_notification":      true,
 	"scroll":                 true,
 	"open_url":               true,
+	"tunnel_start":           true,
+	"tunnel_stop":            true,
 }
 
 var proxyLongRunningActions = map[string]bool{
