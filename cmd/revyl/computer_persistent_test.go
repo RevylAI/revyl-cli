@@ -221,6 +221,7 @@ func TestComputerStartSendsADisplayAndLifetimeOnlyWhenAsked(t *testing.T) {
 	}{
 		{"defaults", nil, ""},
 		{"display_and_lifetime", []string{"--display", "1920x1080", "--timeout", "1h"}, `{"display":{"height":1080,"width":1920},"timeout_seconds":3600}`},
+		{"without_inference", []string{"--no-inference"}, `{"without_inference":true}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var bodies []string

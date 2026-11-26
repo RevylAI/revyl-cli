@@ -8534,7 +8534,7 @@ type ComputerReport struct {
 	ExpiresAt            time.Time                           `json:"expires_at"`
 	FailureReason        *string                             `json:"failure_reason,omitempty"`
 
-	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 	Inference  *ComputerReportInference `json:"inference,omitempty"`
 	Kind       *string                  `json:"kind,omitempty"`
 	OrgId      openapi_types.UUID       `json:"org_id"`
@@ -8562,7 +8562,7 @@ type ComputerReportEvidenceCompleteness string
 // ComputerReportEvidenceWriteStatus defines model for ComputerReport.EvidenceWriteStatus.
 type ComputerReportEvidenceWriteStatus string
 
-// ComputerReportInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+// ComputerReportInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 type ComputerReportInference string
 
 // ComputerReportOs defines model for ComputerReport.Os.
@@ -8587,7 +8587,7 @@ type ComputerReportDetail struct {
 	ExpiresAt            time.Time                                 `json:"expires_at"`
 	FailureReason        *string                                   `json:"failure_reason,omitempty"`
 
-	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 	Inference *ComputerReportDetailInference `json:"inference,omitempty"`
 	Kind      *string                        `json:"kind,omitempty"`
 	OrgId     openapi_types.UUID             `json:"org_id"`
@@ -8621,7 +8621,7 @@ type ComputerReportDetailEvidenceCompleteness string
 // ComputerReportDetailEvidenceWriteStatus defines model for ComputerReportDetail.EvidenceWriteStatus.
 type ComputerReportDetailEvidenceWriteStatus string
 
-// ComputerReportDetailInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+// ComputerReportDetailInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 type ComputerReportDetailInference string
 
 // ComputerReportDetailOs defines model for ComputerReportDetail.Os.
@@ -8640,10 +8640,10 @@ type ComputerRunCreate struct {
 	// Display A computer's display in pixels, fixed when its VM boots.
 	Display *ComputerDisplaySize `json:"display,omitempty"`
 
-	// FromSnapshot ID or name of a snapshot of this organization to create the computer from. Implies a persistent macOS computer whose disk starts as the snapshot's.
+	// FromSnapshot ID or name of a snapshot of this organization to create the computer from. Implies a persistent macOS computer whose disk starts as the snapshot's. It does not take the snapshot's computer's inference; ask for it with inference.
 	FromSnapshot *string `json:"from_snapshot,omitempty"`
 
-	// Inference macOS only: place the computer on a host whose own vision model is loaded, so its instruction, validation and extract steps run on that model. Refused with inference_unavailable when no such host is up. A persistent computer created this way keeps the request for its later starts, which do not wait for such a host; the computer's inference field says whether its host's model answers.
+	// Inference macOS only: place the computer on a host whose own vision model is loaded, so its instruction, validation and extract steps run on that model. Refused with inference_unavailable when no such host is up. A persistent computer created this way keeps the request: each later start is placed on such a host too, and refused with inference_unavailable when none is up unless that start sets without_inference. The computer's inference field says whether its host's model answers.
 	Inference *bool               `json:"inference,omitempty"`
 	Os        ComputerRunCreateOs `json:"os"`
 
@@ -8781,7 +8781,7 @@ type ComputerStopReport struct {
 	ExpiresAt            time.Time                               `json:"expires_at"`
 	FailureReason        *string                                 `json:"failure_reason,omitempty"`
 
-	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+	// Inference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 	Inference *ComputerStopReportInference `json:"inference,omitempty"`
 	Kind      *string                      `json:"kind,omitempty"`
 	OrgId     openapi_types.UUID           `json:"org_id"`
@@ -8815,7 +8815,7 @@ type ComputerStopReportEvidenceCompleteness string
 // ComputerStopReportEvidenceWriteStatus defines model for ComputerStopReport.EvidenceWriteStatus.
 type ComputerStopReportEvidenceWriteStatus string
 
-// ComputerStopReportInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.
+// ComputerStopReportInference Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 type ComputerStopReportInference string
 
 // ComputerStopReportOs defines model for ComputerStopReport.Os.

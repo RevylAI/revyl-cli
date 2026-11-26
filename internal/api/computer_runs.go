@@ -254,13 +254,14 @@ func (c *Client) ExtendComputerRun(ctx context.Context, id uuid.UUID, timeoutSec
 }
 
 type PersistentComputerStartRequest struct {
-	Display        *ComputerDisplaySize `json:"display,omitempty"`
-	TimeoutSeconds *int                 `json:"timeout_seconds,omitempty"`
+	Display          *ComputerDisplaySize `json:"display,omitempty"`
+	TimeoutSeconds   *int                 `json:"timeout_seconds,omitempty"`
+	WithoutInference bool                 `json:"without_inference,omitempty"`
 }
 
 func (c *Client) StartComputer(ctx context.Context, id uuid.UUID, request PersistentComputerStartRequest) (*PersistentComputerStatus, error) {
 	var body any
-	if request.Display != nil || request.TimeoutSeconds != nil {
+	if request.Display != nil || request.TimeoutSeconds != nil || request.WithoutInference {
 		body = request
 	}
 	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/start", id), body, id.String(), DefaultTimeout)

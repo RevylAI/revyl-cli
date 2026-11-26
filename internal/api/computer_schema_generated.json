@@ -1944,7 +1944,7 @@
               "type": "null"
             }
           ],
-          "description": "Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.",
+          "description": "Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.",
           "title": "Inference"
         },
         "kind": {
@@ -2167,7 +2167,7 @@
               "type": "null"
             }
           ],
-          "description": "Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not, and unknown while the computer is not active or its host cannot be asked.",
+          "description": "Only when the computer was created with inference: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.",
           "title": "Inference"
         },
         "kind": {

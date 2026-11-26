@@ -93,7 +93,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 	create.Flags().String("branch", "", "Git branch the session profile reads from Git (default: this checkout's Git branch, else the repository's default branch)")
 	create.Flags().Bool("persistent", false, "Keep the whole disk when it stops or reaches its lifetime end, so it can start again under the same ID (macOS only)")
 	_ = create.Flags().MarkHidden("persistent")
-	create.Flags().String("from-snapshot", "", "Create a persistent macOS computer whose disk starts as this snapshot's (ID or name)")
+	create.Flags().String("from-snapshot", "", "Create a persistent macOS computer whose disk starts as this snapshot's (ID or name); it does not take the snapshot's computer's --inference, so pass --inference again for that")
 	_ = create.Flags().MarkHidden("from-snapshot")
 	create.Flags().Bool("inference", false, "Place the computer on a host with its own vision model loaded, so instruction, validation and extract run on it (macOS only)")
 	create.RunE = func(cmd *cobra.Command, args []string) error {
@@ -259,6 +259,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 	start := &cobra.Command{Use: "start C1", Hidden: true, Short: "Boot a stopped persistent computer from its saved disk", Long: "Boot a stopped persistent computer from its saved disk as a new run.\n\n" + computerPersistentHelp}
 	start.Flags().String("display", "", "Display size in pixels as WIDTHxHEIGHT, fixed at boot: even width 800-1920 and even height 600-1080 (default 1280x800)")
 	start.Flags().Duration("timeout", 0, "Lifetime of the new run from the start (the API's timeout_seconds), whole seconds from 1m to 24h (default 2h)")
+	start.Flags().Bool("no-inference", false, "Start this run without a host model even though the computer was created with --inference, when no host with one is up; later starts ask for it again")
 	start.Flags().Bool("wait", false, "Wait until the computer is running; exits non-zero if it is not by --wait-timeout")
 	start.Flags().Duration("wait-timeout", 10*time.Minute, "How long --wait waits (1s-30m)")
 	start.RunE = func(cmd *cobra.Command, args []string) error {
@@ -281,6 +282,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 				return nil, err
 			}
 			request := api.PersistentComputerStartRequest{Display: display}
+			request.WithoutInference, _ = cmd.Flags().GetBool("no-inference")
 			if cmd.Flags().Changed("timeout") {
 				lifetime, _ := cmd.Flags().GetDuration("timeout")
 				seconds, err := computerLifetimeSeconds(lifetime)
@@ -1128,6 +1130,10 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			if cmd.Name() == "start" && refusal.Code == "run_conflict" {
 				refusal.Message = computerStartRunConflict
 			}
+		}
+		if cmd.Name() == "start" && errors.As(err, &refusal) && refusal.Code == "inference_unavailable" {
+			refusal.Message = "no computer host with its own vision model is up right now, so this computer created with --inference did not start"
+			refusal.Hint = "Retry later, or start this run without its model with revyl computer start " + invocation.ComputerSessionID + " --no-inference."
 		}
 		invocation.Error = err.Error()
 		if errors.As(err, &refusal) {
