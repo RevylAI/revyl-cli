@@ -622,6 +622,9 @@ that found the target. The hosted MCP's `device_instruction` and
 
 ### Local inference
 
+[Local inference on Mac computers](computer-inference.md) walks through this
+end to end. This section is the reference.
+
 Local inference is included in paid plans. In an organization on the Free plan,
 `create --inference` is refused with `inference_not_enabled` (HTTP 403) and
 nothing is created; upgrade the organization's plan to use it.
@@ -638,7 +641,7 @@ revyl device start --platform ios --app "$APP" --computer "$C1" --inference loca
 
 `revyl computer create --os macos --inference` places the computer on a host whose
 own vision model is loaded, so its steps can run there. It needs `--os macos`. For
-an organization local inference isn't enabled for, create fails with
+an organization that isn't on a paid plan, create fails with
 `inference_not_enabled` (HTTP 403) and creates nothing, whatever hosts are up.
 When no host with a model is up, create fails with `inference_unavailable`
 (HTTP 409) and creates nothing; retry later, or create without `--inference`.
@@ -662,6 +665,14 @@ What uses the model on a computer created with `--inference`:
 - The hosted MCP's `device_instruction` and `device_validation` tools, given the
   computer's session, which run as `auto`.
 
+```bash
+revyl computer create --os macos --persistent --inference --wait --json
+revyl computer stop "$C1" --wait
+revyl computer start "$C1" --wait                 # placed beside a model again
+revyl computer start "$C1" --no-inference --wait  # when none is up: this run only
+revyl computer create --from-snapshot S1 --inference --wait --wait-timeout 10m --json
+```
+
 With [persistent computers](#persistent-computers), the flag belongs to
 the computer: one created with `--inference` is placed on a host with a model
 on every later start, and `start` has no `--inference` of its own. When no
@@ -675,14 +686,17 @@ the disk while no host with a model is available; that run's `inference` says
 whether its host's model answers, and later starts ask for the model again. A computer created with
 `--from-snapshot` does not take the source computer's flag: pass `--inference`
 with `--from-snapshot` to place the new computer beside a model, which is then
-checked like any create. If local inference is turned off for your
-organization, its computers start and run without a model: `inference` reads
+checked like any create. If your organization is no longer on a paid plan, its
+computers created with `--inference` start and run without a model: `inference` reads
 `unavailable`, `validation` and `extract` refuse, and instructions use hosted
 grounding.
 
 The local model clicks only a point it has checked. A point it cannot confirm, a
 statement it cannot settle and a value it cannot read are `uncertain`, never a
 pass. An uncertain instruction clicks nothing.
+
+A computer created with `--inference` bills Mac computer time like any other
+computer; local inference has no meter or price of its own.
 
 | Code | HTTP | When | What to do |
 | --- | --- | --- | --- |

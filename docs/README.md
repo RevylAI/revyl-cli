@@ -28,4 +28,5 @@ See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the
 - [Update the CLI](upgrade.md)
 - [Send feedback to the Revyl team](feedback.md)
 - [Execute bounded operations on a computer run](computer-runs.md)
+- [Use local inference on a Mac computer](computer-inference.md)
 - [Try the experimental embedded workspace](experimental-workspace.md)
