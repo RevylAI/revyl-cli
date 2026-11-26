@@ -1180,6 +1180,7 @@ func (e CompileSourceType) Valid() bool {
 const (
 	ComputerAPIErrorCodeRepositoryUnavailable ComputerAPIErrorCode = "repository_unavailable"
 	ComputerAPIErrorCodeSessionProfileRunning ComputerAPIErrorCode = "session_profile_running"
+	ComputerAPIErrorCodeStepEngineBusy        ComputerAPIErrorCode = "step_engine_busy"
 )
 
 // Valid indicates whether the value is a known member of the ComputerAPIErrorCode enum.
@@ -1188,6 +1189,8 @@ func (e ComputerAPIErrorCode) Valid() bool {
 	case ComputerAPIErrorCodeRepositoryUnavailable:
 		return true
 	case ComputerAPIErrorCodeSessionProfileRunning:
+		return true
+	case ComputerAPIErrorCodeStepEngineBusy:
 		return true
 	default:
 		return false
@@ -7837,7 +7840,7 @@ type CompiledIntentStep struct {
 type ComputerAPIError struct {
 	ChannelFailure *ComputerScreenChannelFailure `json:"channel_failure,omitempty"`
 
-	// Code The refusal code session profile refusals carry on every platform; equals detail here.
+	// Code The refusal code session profile and step_engine_busy refusals carry; equals detail here.
 	Code   *ComputerAPIErrorCode   `json:"code,omitempty"`
 	Detail ComputerAPIError_Detail `json:"detail"`
 
@@ -7865,7 +7868,7 @@ type ComputerAPIError struct {
 	UnlocksWithCard *bool `json:"unlocks_with_card,omitempty"`
 }
 
-// ComputerAPIErrorCode The refusal code session profile refusals carry on every platform; equals detail here.
+// ComputerAPIErrorCode The refusal code session profile and step_engine_busy refusals carry; equals detail here.
 type ComputerAPIErrorCode string
 
 // ComputerAPIErrorDetail0 defines model for ComputerAPIError.Detail.0.

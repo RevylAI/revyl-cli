@@ -409,8 +409,8 @@ without a local model, `validation` and `extract` fail with
 `step_engine_unavailable` and nothing is clicked; so does `--engine local` there.
 A computer's model answers one step at a time. A validation or extract waits up
 to 13 seconds for its turn, and an instruction up to 5 before it falls back to
-hosted grounding; a step still waiting then fails with `step_engine_unavailable`,
-so send one computer's steps one at a time.
+hosted grounding; a step still waiting then fails with `step_engine_busy` (HTTP
+409), so send one computer's steps one at a time.
 
 `revyl computer create --os macos --inference` places the computer on a host whose
 own vision model is loaded. Local inference is a preview: for an organization it
