@@ -1018,7 +1018,9 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 			break
 		}
 		var workerErr *mcppkg.WorkerHTTPError
-		isDeviceNotReady := errors.As(err, &workerErr) && workerErr.StatusCode == 503
+		failureClass := analytics.FailureClassForError(err)
+		isDeviceNotReady := errors.As(err, &workerErr) && workerErr.StatusCode == 503 &&
+			failureClass != analytics.FailureClassDeviceNotReady && failureClass != analytics.FailureClassSessionEnded
 		if !isDeviceNotReady || attempt == maxInstallRetries {
 			if isUserCanceled(err) {
 				return nil
@@ -2541,7 +2543,9 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 			break
 		}
 		var workerErr *mcppkg.WorkerHTTPError
-		isDeviceNotReady := errors.As(err, &workerErr) && workerErr.StatusCode == 503
+		failureClass := analytics.FailureClassForError(err)
+		isDeviceNotReady := errors.As(err, &workerErr) && workerErr.StatusCode == 503 &&
+			failureClass != analytics.FailureClassDeviceNotReady && failureClass != analytics.FailureClassSessionEnded
 		if !isDeviceNotReady || attempt == maxInstallRetries {
 			if stopper.IsUserCanceled(err) {
 				return nil

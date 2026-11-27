@@ -123,7 +123,7 @@ func explainSessionIDResolveError(err error) error {
 	case strings.Contains(msg, "session not found or not accessible"):
 		return fmt.Errorf("%s. Check the session_id, or call list_device_sessions() to see live sessions and their IDs", msg)
 	case strings.Contains(msg, "is in terminal state"):
-		return fmt.Errorf("%s. Start a new one with start_device_session(), or read its results with get_session_report(session_id=...)", msg)
+		return fmt.Errorf("%w. Start a new one with start_device_session(), or read its results with get_session_report(session_id=...)", err)
 	case strings.Contains(msg, "has no workflow run ID"):
 		return fmt.Errorf("%s. Wait a few seconds for the device to finish provisioning, then retry", msg)
 	}

@@ -946,8 +946,8 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 	case strings.Contains(msg, "session not found or not accessible"):
 		return fmt.Errorf("%s. The session ID may be wrong or owned by another organization; %s", msg, listAction)
 	case strings.Contains(msg, "is in terminal state"):
-		return fmt.Errorf("%s. Start a new session with '%s device start', or read results with '%s device report --session-id <id>'",
-			msg, cmdPrefix, cmdPrefix)
+		return fmt.Errorf("%w. Start a new session with '%s device start', or read results with '%s device report --session-id <id>'",
+			err, cmdPrefix, cmdPrefix)
 	case strings.Contains(msg, "has no workflow run ID"):
 		return fmt.Errorf("%s. Wait for the device to finish provisioning, then retry; %s", msg, listAction)
 	}

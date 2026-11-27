@@ -40,6 +40,15 @@ const (
 	// FailureClassMetroExited marks a dev loop ended by its local Metro or
 	// Expo process exiting on its own.
 	FailureClassMetroExited FailureClass = "metro_exited"
+	// FailureClassDeviceNotReady marks a device action the worker kept refusing
+	// because its device was not connected yet.
+	FailureClassDeviceNotReady FailureClass = "device_not_ready"
+	// FailureClassSessionEnded marks an action on a device session that had
+	// ended or was ending.
+	FailureClassSessionEnded FailureClass = "session_ended"
+	// FailureClassSessionBusy marks an action refused because the session was
+	// running another step or app install.
+	FailureClassSessionBusy FailureClass = "session_busy"
 )
 
 type classifiedError struct {

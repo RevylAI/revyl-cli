@@ -78,10 +78,16 @@ const (
 	// Covers an iOS model or OS swap, which boots a new simulator and installs
 	// the app before the worker binds the device (about 90 seconds observed).
 	deviceConnectWaitTimeout = 3 * time.Minute
+
+	// Bounds the retries of an action the worker refused because its device is
+	// not bound yet, such as a brief reconnect mid-session.
+	deviceConnectRetryBudget   = 30 * time.Second
+	deviceConnectRetryMaxDelay = 8 * time.Second
 )
 
 var (
 	deviceHealthPollDelay        = 2 * time.Second
+	deviceConnectRetryDelay      = time.Second
 	deviceSessionStateCheckDelay = 5 * time.Second
 )
 
@@ -2876,7 +2882,7 @@ func (e *WorkerHTTPError) Error() string {
 		if e.proxyDetail != "" {
 			message += "; detail=" + e.proxyDetail
 		}
-		message += fmt.Sprintf("; failure_class=%s", analytics.FailureClassServer)
+		message += fmt.Sprintf("; failure_class=%s", e.proxyFailureClass())
 		action := strings.SplitN(strings.TrimPrefix(e.Path, "/"), "?", 2)[0]
 		if e.proxyCode == "worker_gone" && runtimeInputAction(action) {
 			message += "; the " + action + " never reached the device, so retrying the same command is safe"
@@ -2916,6 +2922,47 @@ func (e *WorkerHTTPError) Unwrap() error {
 		return &api.APIError{StatusCode: e.StatusCode, Code: e.proxyCode}
 	}
 	return e.cause
+}
+
+func (e *WorkerHTTPError) workerDetail() string {
+	if e.StatusCode != http.StatusServiceUnavailable {
+		return ""
+	}
+	var body struct {
+		Detail string `json:"detail"`
+	}
+	if json.Unmarshal([]byte(e.Body), &body) != nil {
+		return ""
+	}
+	return body.Detail
+}
+
+// deviceNotConnected reports a 503 the worker returns before it has bound its
+// device. The worker refuses the action before running any of it.
+func (e *WorkerHTTPError) deviceNotConnected() bool {
+	switch e.workerDetail() {
+	case "Device not connected", "Live step executor is not ready for this device session":
+		return true
+	}
+	return false
+}
+
+func (e *WorkerHTTPError) proxyFailureClass() analytics.FailureClass {
+	switch {
+	case e.deviceNotConnected():
+		return analytics.FailureClassDeviceNotReady
+	case e.sessionTerminating():
+		return analytics.FailureClassSessionEnded
+	}
+	return analytics.FailureClassServer
+}
+
+func (e *WorkerHTTPError) sessionTerminating() bool {
+	switch e.workerDetail() {
+	case "Device not connected: session is terminating", "Session is terminating":
+		return true
+	}
+	return false
 }
 
 // undeliveredInputGuidance tells the caller that a bare 5xx left an input
@@ -3043,7 +3090,7 @@ func (m *DeviceSessionManager) InstallAppOnSessionWithProgress(
 				)
 			}
 		case http.StatusServiceUnavailable:
-			if unavailableRetries >= installStartMaxUnavailableRetries {
+			if workerErr.deviceNotConnected() || workerErr.sessionTerminating() || unavailableRetries >= installStartMaxUnavailableRetries {
 				return nil, requestErr
 			}
 			unavailableRetries++
@@ -3094,8 +3141,9 @@ func (m *DeviceSessionManager) pollInstallUntilDone(
 
 			var workerErr *WorkerHTTPError
 			if errors.As(err, &workerErr) &&
-				workerErr.StatusCode < http.StatusInternalServerError &&
-				workerErr.StatusCode != http.StatusTooManyRequests {
+				(workerErr.deviceNotConnected() || workerErr.sessionTerminating() ||
+					workerErr.StatusCode < http.StatusInternalServerError &&
+						workerErr.StatusCode != http.StatusTooManyRequests) {
 				return nil, fmt.Errorf(
 					"failed to poll install status for %s: %w",
 					installID,
@@ -3200,6 +3248,9 @@ func nextStepPollDelay(delay time.Duration) time.Duration {
 
 func classifyStepPollError(err error) (retryAfter time.Duration, transient bool) {
 	var workerErr *WorkerHTTPError
+	if errors.As(err, &workerErr) && (workerErr.deviceNotConnected() || workerErr.sessionTerminating()) {
+		return 0, false
+	}
 	if errors.As(err, &workerErr) && workerErr.StatusCode == 0 {
 		switch workerErr.Code {
 		case "connection_closed", "request_timeout":
@@ -3706,16 +3757,25 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 		return nil, err
 	}
 
+	var workerErr *WorkerHTTPError
+	if errors.As(err, &workerErr) && workerErr.deviceNotConnected() {
+		respBody, err = m.retryWhileDeviceConnects(ctx, session, path, body, workerErr)
+		if err == nil || ctx.Err() != nil || errors.As(err, &workerErr) && workerErr.deviceNotConnected() {
+			return respBody, err
+		}
+	}
+	if errors.As(err, &workerErr) && workerErr.sessionTerminating() {
+		return nil, analytics.WithFailureClass(workerErr, analytics.FailureClassSessionEnded)
+	}
+
 	// Non-idempotent actions must not be retried -- return errors directly.
 	if nonIdempotentPaths[path] {
-		var workerErr *WorkerHTTPError
 		if errors.As(err, &workerErr) {
 			return nil, workerErr
 		}
 		return nil, fmt.Errorf("backend device control request failed: %w", err)
 	}
 
-	var workerErr *WorkerHTTPError
 	if errors.As(err, &workerErr) {
 		if workerErr.StatusCode == http.StatusServiceUnavailable {
 			time.Sleep(2 * time.Second)
@@ -3745,12 +3805,38 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 
 	if reason, ended := m.checkSessionStatusOnFailure(session); reason != "" {
 		if ended {
-			return nil, fmt.Errorf("%s. %s", reason, m.nextStep(nextStepStartNewSession))
+			return nil, analytics.WithFailureClass(fmt.Errorf("%s. %s", reason, m.nextStep(nextStepStartNewSession)), analytics.FailureClassSessionEnded)
 		}
 		return nil, fmt.Errorf("%s", reason)
 	}
 
 	return nil, fmt.Errorf("backend device control request failed: %w", err)
+}
+
+// retryWhileDeviceConnects repeats an action the worker refused because its
+// device was not bound yet, backing off until deviceConnectRetryBudget runs
+// out. The worker refuses before running anything, so a repeat cannot
+// duplicate a non-idempotent action. It returns the first response that is not
+// that refusal, or a device_not_ready failure once the budget is spent.
+func (m *DeviceSessionManager) retryWhileDeviceConnects(ctx context.Context, session *DeviceSession, path string, body interface{}, workerErr *WorkerHTTPError) ([]byte, error) {
+	deadline := time.Now().Add(deviceConnectRetryBudget)
+	for delay := deviceConnectRetryDelay; ; delay = min(delay*2, deviceConnectRetryMaxDelay) {
+		if time.Now().Add(delay).After(deadline) {
+			return nil, analytics.WithFailureClass(
+				fmt.Errorf("%w. The device was still not connected after retrying for %s. %s", workerErr, deviceConnectRetryBudget, m.nextStep(nextStepDiagnose)),
+				analytics.FailureClassDeviceNotReady,
+			)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("cancelled while waiting for the device to connect: %w", ctx.Err())
+		case <-time.After(delay):
+		}
+		respBody, err := m.proxyWorkerRequestForSession(ctx, session, path, body)
+		if err == nil || !errors.As(err, &workerErr) || !workerErr.deviceNotConnected() {
+			return respBody, err
+		}
+	}
 }
 
 func (m *DeviceSessionManager) explainWorkerSessionState(session *DeviceSession, err error) error {
@@ -3763,12 +3849,20 @@ func (m *DeviceSessionManager) explainWorkerSessionState(session *DeviceSession,
 	}
 	switch {
 	case workerErr.StatusCode == http.StatusNotFound:
-		if guidance := m.sessionStateGuidance(session); guidance != "" {
-			return fmt.Errorf("%w. %s", err, guidance)
+		reason, ended := m.checkSessionStatusOnFailure(session)
+		if ended {
+			return analytics.WithFailureClass(fmt.Errorf("%w. %s. %s", err, reason, m.nextStep(nextStepStartNewSession)), analytics.FailureClassSessionEnded)
+		}
+		if reason != "" {
+			return fmt.Errorf("%w. %s", err, reason)
 		}
 		return fmt.Errorf("%w. The device session did not accept this action and may have ended. %s", err, m.nextStep(nextStepListSessions))
 	case workerErr.StatusCode == http.StatusConflict:
-		return fmt.Errorf("%w. The device session is busy with another step or app install. %s", err, m.nextStep(nextStepRetryWhenIdle))
+		return analytics.WithFailureClass(fmt.Errorf("%w. The device session is busy with another step or app install. %s", err, m.nextStep(nextStepRetryWhenIdle)), analytics.FailureClassSessionBusy)
+	case workerErr.sessionTerminating():
+		return analytics.WithFailureClass(fmt.Errorf("%w. The device session is ending. %s", err, m.nextStep(nextStepStartNewSession)), analytics.FailureClassSessionEnded)
+	case workerErr.deviceNotConnected():
+		return err
 	case workerErr.StatusCode == http.StatusServiceUnavailable && nonIdempotentPaths[workerErr.Path]:
 		if guidance := m.sessionStateGuidance(session); guidance != "" {
 			return fmt.Errorf("%w. %s", err, guidance)
@@ -4742,10 +4836,10 @@ func (m *DeviceSessionManager) unattachedSessionFromDetailLocked(sessionID strin
 	status := strings.ToLower(detail.Status)
 	if status == "completed" || status == "failed" || status == "cancelled" || status == "timeout" {
 		if detail.EndedAt == nil {
-			return nil, fmt.Errorf("session %s is in terminal state: %s", shortID, detail.Status)
+			return nil, analytics.WithFailureClass(fmt.Errorf("session %s is in terminal state: %s", shortID, detail.Status), analytics.FailureClassSessionEnded)
 		}
 		ended := endedSessionFromPrune(&DeviceSession{SessionID: sessionID}, detail, time.Now())
-		return nil, fmt.Errorf("session %s is in terminal state: %s; it %s", shortID, detail.Status, ended.endedPhrase(time.Now()))
+		return nil, analytics.WithFailureClass(fmt.Errorf("session %s is in terminal state: %s; it %s", shortID, detail.Status, ended.endedPhrase(time.Now())), analytics.FailureClassSessionEnded)
 	}
 
 	if detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" {
