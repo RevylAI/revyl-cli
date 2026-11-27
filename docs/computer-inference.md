@@ -31,7 +31,9 @@ refusal.
    When no host with a model is up, create is refused with
    `inference_unavailable` (HTTP 409) and nothing is created; retry later, or
    create without `--inference`. When every such host is busy, the computer
-   waits for one like any other.
+   waits for one like any other; if none frees up in time, it fails with
+   `failure_reason` `no_host`, and `create` and `get` name Enterprise, which
+   gets dedicated local inference capacity, and its contact link.
 
 2. **Check that the model answers.**
 
@@ -167,7 +169,7 @@ A computer that isn't running is refused with `screen_input_unavailable`.
 | Code | HTTP | What to do |
 | --- | --- | --- |
 | `inference_not_enabled` | 403 | Your organization isn't on a paid plan. Create without `--inference`, or upgrade the organization's plan. |
-| `inference_unavailable` | 409 | No host with a model is up; nothing was created or started. Retry later, create without `--inference`, or `start --no-inference` to run a persistent computer once without the model. |
+| `inference_unavailable` | 409 | No host with a model is up; nothing was created or started. Retry later, create without `--inference`, or `start --no-inference` to run a persistent computer once without the model. The refusal names Enterprise, which gets dedicated local inference capacity, and its contact link; in `--json` that link is `billing_url` with `billing_action` `contact_sales`. |
 | `step_engine_unavailable` | 409 | The step needed the model and the computer has none or it isn't answering, or you asked for `validation` or `extract` with `--engine hosted`. Check `Inference` with `get`; use an `instruction` with `auto` or `hosted` where a click is enough. |
 | `step_engine_busy` | 409 | The model was answering another step for too long. Send one computer's steps one at a time, then retry. |
 | `computer_local_inference_unavailable` | 409 | `device start --inference local` in a computer without a model. Start without `--inference local`, or use a computer created with `--inference` whose `Inference` reads `ready`. |

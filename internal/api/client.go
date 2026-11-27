@@ -192,6 +192,8 @@ type APIError struct {
 	BillingAction    BillingAction
 	UpgradeBenefits  *UpgradeBenefits
 	UnlocksWithCard  bool
+	// EnterpriseURL is where an inference refusal for capacity says Enterprise gets more; it is no billing refusal.
+	EnterpriseURL string
 	// BillingReported marks that the caller took ownership of reporting this refusal's billing fields in --json output.
 	BillingReported bool
 }

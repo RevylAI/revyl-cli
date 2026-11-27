@@ -512,13 +512,19 @@ func TestComputerGetSaysWhyAStartFailed(t *testing.T) {
 		reason     string
 		jsonOutput bool
 		said       string
+		inference  bool
 	}{
-		{"no_host", false, "No Mac was free to start this computer"},
-		{"no_host", true, ""},
-		{"device_limit", false, "All of your organization's device slots were in use, so this computer didn't start"},
-		{"added_later", false, "added_later"},
+		{"no_host", false, "No Mac was free to start this computer", false},
+		{"no_host", true, "", false},
+		{"no_host", false, "No Mac with its own vision model was free to start this computer. Enterprise gets dedicated local inference capacity: " + api.EnterpriseContactURL, true},
+		{"device_limit", false, "All of your organization's device slots were in use, so this computer didn't start", false},
+		{"added_later", false, "added_later", false},
 	} {
-		body := `{
+		inference := ""
+		if tc.inference {
+			inference = `"inference":"unknown",`
+		}
+		body := `{` + inference + `
 		"report_id":"22222222-2222-4222-8222-222222222222",
 		"computer_session_id":"11111111-1111-4111-8111-111111111111",
 		"org_id":"44444444-4444-4444-8444-444444444444","os":"macos",
@@ -550,6 +556,12 @@ func TestComputerGetSaysWhyAStartFailed(t *testing.T) {
 			if jsonOutput {
 				if !strings.Contains(output.String(), `"failure_reason":"`+tc.reason+`"`) {
 					t.Fatalf("computer get --json dropped the failure reason: %s", output.String())
+				}
+				return
+			}
+			if tc.inference {
+				if !strings.Contains(output.String(), "\nReason     "+tc.said+"\n") {
+					t.Fatalf("computer get output = %q, want reason %q", output.String(), tc.said)
 				}
 				return
 			}
@@ -892,6 +904,65 @@ func TestComputerExecWarnsWhenALaunchAgentMissesTheAccountHome(t *testing.T) {
 
 			if got := strings.Contains(stderr.String(), warning); got != test.wantWarning {
 				t.Fatalf("warning shown %v, want %v; stderr %q", got, test.wantWarning, stderr.String())
+			}
+		})
+	}
+}
+
+func TestComputerCreateInferenceRefusedForCapacityNamesEnterprise(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+	t.Chdir(t.TempDir())
+	const contactURL = "https://cal.com/landseer-enga/book-a-demo"
+	const upsell = "Enterprise gets dedicated local inference capacity: " + contactURL
+	for _, tc := range []struct {
+		name       string
+		status     int
+		code       string
+		jsonOutput bool
+	}{
+		{"unavailable_text", http.StatusConflict, "inference_unavailable", false},
+		{"unavailable_json", http.StatusConflict, "inference_unavailable", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				fmt.Fprintf(w, `{"detail":%q,"offer":{"action":"contact_sales","billing_url":%q,"message":"Enterprise gets dedicated local inference capacity"}}`, tc.code, contactURL)
+			}))
+			defer server.Close()
+			t.Setenv("REVYL_BACKEND_URL", server.URL)
+			t.Setenv("REVYL_API_KEY", "fixture-key")
+			root := &cobra.Command{Use: "revyl", SilenceUsage: true, SilenceErrors: true}
+			root.AddCommand(newComputerCommand())
+			args := []string{"computer", "create", "--os", "macos", "--inference"}
+			if tc.jsonOutput {
+				args = append(args, "--json")
+			}
+			var output bytes.Buffer
+			root.SetOut(&output)
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs(args)
+
+			err := root.Execute()
+
+			var refusal *api.APIError
+			if !errors.As(err, &refusal) || refusal.Code != tc.code {
+				t.Fatalf("computer create --inference said %v, want a %s refusal", err, tc.code)
+			}
+			if _, billing := api.AsBillingRefusal(err); billing {
+				t.Fatalf("an inference capacity refusal read as a billing refusal: %v", err)
+			}
+			if tc.jsonOutput {
+				var payload map[string]any
+				if decodeErr := json.Unmarshal(output.Bytes(), &payload); decodeErr != nil {
+					t.Fatalf("stdout is not one JSON document: %v\n%s", decodeErr, output.String())
+				}
+				if payload["billing_url"] != contactURL || payload["billing_action"] != "contact_sales" {
+					t.Fatalf("--json carried %v, want the Enterprise link", payload)
+				}
+				return
+			}
+			if !strings.HasSuffix(refusal.Hint, " "+upsell) {
+				t.Fatalf("hint = %q, want it to end with %q", refusal.Hint, upsell)
 			}
 		})
 	}

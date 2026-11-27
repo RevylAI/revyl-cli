@@ -261,18 +261,25 @@ func readComputerBody(response *http.Response, requestErr error) ([]byte, error)
 				}
 				if refusal.Code == "inference_unavailable" {
 					refusal.Message = "no computer host with its own vision model is up right now, so no computer was created"
-					refusal.Hint = "Retry later, or create the computer without --inference."
+					refusal.Hint = InferenceUnavailableCreateHint
 				}
 				if refusal.Code == "inference_not_enabled" {
 					refusal.Message = "local inference needs a paid plan, so no computer was created"
 					refusal.Hint = "Upgrade your organization's plan, or create the computer without --inference."
 				}
-				if offer := safe.Offer; (refusal.Code == "computer_limit" || refusal.UnlocksWithCard) && offer != nil && offer.Action.Valid() && strings.HasPrefix(offer.BillingUrl, "https://") {
-					refusal.BillingURL = offer.BillingUrl
-					refusal.BillingAction = BillingAction(offer.Action)
-					refusal.Hint = BillingNextStep(refusal.BillingAction, refusal.BillingURL)
+				inferenceCapacity := refusal.Code == "inference_unavailable"
+				if offer := safe.Offer; (refusal.Code == "computer_limit" || refusal.UnlocksWithCard || inferenceCapacity) && offer != nil && offer.Action.Valid() && strings.HasPrefix(offer.BillingUrl, "https://") {
+					nextStep := BillingNextStep(BillingAction(offer.Action), offer.BillingUrl)
 					if step := strings.TrimSpace(offer.Message); step != "" && len(step) <= computerLimitOfferMaxMessage && !strings.ContainsAny(step, "\n\r") {
-						refusal.Hint = step + ": " + refusal.BillingURL
+						nextStep = step + ": " + offer.BillingUrl
+					}
+					if inferenceCapacity {
+						refusal.EnterpriseURL = offer.BillingUrl
+						refusal.Hint += " " + nextStep
+					} else {
+						refusal.BillingURL = offer.BillingUrl
+						refusal.BillingAction = BillingAction(offer.Action)
+						refusal.Hint = nextStep
 					}
 				}
 			default:
@@ -299,6 +306,10 @@ func computerRefusalNameValid(name string) bool {
 }
 
 const computerLimitOfferMaxMessage = 160
+
+// InferenceUnavailableCreateHint is the inference_unavailable hint before any
+// Enterprise step the refusal names.
+const InferenceUnavailableCreateHint = "Retry later, or create the computer without --inference."
 
 func decodeComputerJSON(body []byte, target any, required ...string) error {
 	var fields map[string]json.RawMessage

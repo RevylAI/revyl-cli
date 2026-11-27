@@ -749,7 +749,7 @@ computer; local inference has no meter or price of its own.
 | Code | HTTP | When | What to do |
 | --- | --- | --- | --- |
 | `inference_not_enabled` | 403 | `create --inference` in an organization that isn't on a paid plan. | Create without `--inference`, or upgrade the organization's plan. |
-| `inference_unavailable` | 409 | `create --inference`, or `start` of a persistent computer created with it, when no host with a model is up. Nothing is created or started. | Retry later; create without `--inference`, or `start --no-inference` to run once without the model. |
+| `inference_unavailable` | 409 | `create --inference`, or `start` of a persistent computer created with it, when no host with a model is up. Nothing is created or started. | Retry later; create without `--inference`, or `start --no-inference` to run once without the model. The refusal names Enterprise, which gets dedicated local inference capacity, and its contact link; in `--json` that link is `billing_url` with `billing_action` `contact_sales`. |
 | `step_engine_unavailable` | 409 | A step that needs the model, such as `validation`, `extract` or `--engine local`, when the computer has none or its model isn't answering. Also `validation` or `extract` with `--engine hosted`. | Check `inference` with `get`; use an `instruction` with `auto` or `hosted` where a click is enough. |
 | `step_engine_busy` | 409 | A step that needs the model stayed waiting past its turn while the model answered another step. | Send one computer's steps one at a time, then retry. |
 | `computer_local_inference_unavailable` | 409 | `device start --inference local` in a computer without a model. | Start without `--inference local`, or use a computer created with `--inference` whose `inference` reads `ready`. |

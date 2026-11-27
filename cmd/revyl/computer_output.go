@@ -63,6 +63,20 @@ var computerFailureReasons = map[string]string{
 	"device_limit": "All of your organization's device slots were in use, so this computer didn't start",
 }
 
+const computerInferenceNoHostMessage = "No Mac with its own vision model was free to start this computer. Enterprise gets dedicated local inference capacity: " + api.EnterpriseContactURL
+
+// computerFailureText says why a computer failed to start, naming Enterprise
+// when one created with inference found no model host free.
+func computerFailureText(reason string, createdWithInference bool) string {
+	if reason == "no_host" && createdWithInference {
+		return computerInferenceNoHostMessage
+	}
+	if text, ok := computerFailureReasons[reason]; ok {
+		return text
+	}
+	return reason
+}
+
 const computerLimitMessage = "Every device slot a computer can use is busy with other computers, phone sessions or builds. Stop one, then try again."
 const computerMacosWithProMessage = "macOS computers come with Pro. Add a card to unlock them; your free minutes still cover macOS.\nAdd one with: revyl billing add-card"
 const computerMacosWithProOfferMessage = "macOS computers come with Pro, and your free minutes still cover macOS."
@@ -402,11 +416,7 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 		rows = append(rows, []string{"Inference", computerInferenceText(string(*detail.Inference))})
 	}
 	if detail.FailureReason != nil {
-		reason, ok := computerFailureReasons[*detail.FailureReason]
-		if !ok {
-			reason = *detail.FailureReason
-		}
-		rows = append(rows, []string{"Reason", reason})
+		rows = append(rows, []string{"Reason", computerFailureText(*detail.FailureReason, detail.Inference != nil)})
 	}
 	if status.State == "stopped" && detail.ExecutionStartedAt == nil {
 		rows = append(rows, []string{"Reason", "Stopped before it started"})

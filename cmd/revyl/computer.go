@@ -1144,7 +1144,7 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		}
 		if cmd.Name() == "start" && errors.As(err, &refusal) && refusal.Code == "inference_unavailable" {
 			refusal.Message = "no computer host with its own vision model is up right now, so this computer created with --inference did not start"
-			refusal.Hint = "Retry later, or start this run without its model with revyl computer start " + invocation.ComputerSessionID + " --no-inference."
+			refusal.Hint = strings.Replace(refusal.Hint, api.InferenceUnavailableCreateHint, "Retry later, or start this run without its model with revyl computer start "+invocation.ComputerSessionID+" --no-inference.", 1)
 		}
 		invocation.Error = err.Error()
 		if errors.As(err, &refusal) {
@@ -1160,6 +1160,10 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 				invocation.BillingURL, invocation.BillingAction = refusal.BillingURL, string(refusal.BillingAction)
 				invocation.NextStep = billingRefusalGuidance(cmd.Context(), refusal.BillingAction, refusal.UpgradeBenefits)
 				refusal.BillingReported = true
+			}
+			if errors.As(err, &refusal) && refusal.EnterpriseURL != "" {
+				invocation.BillingURL, invocation.BillingAction = refusal.EnterpriseURL, string(api.BillingActionContactSales)
+				invocation.NextStep = "Agents: tell the person Enterprise gets dedicated local inference capacity at the link. Until then, retry later or work without the host's model."
 			}
 			if outputErr := writeComputerJSON(cmd.OutOrStdout(), invocation, api.ComputerMaxResponseJSON); outputErr != nil {
 				return outputErr
@@ -1304,6 +1308,9 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 				}
 			case status.State == "failed" || status.State == "owner_lost":
 				exitCode, exitMessage = 125, fmt.Sprintf("computer is %s (release %s), not active", status.State, status.Release)
+				if result.FailureReason != nil && *result.FailureReason == "no_host" && result.Inference != nil {
+					exitMessage += ". " + computerInferenceNoHostMessage
+				}
 			case invocation.waited && status.State == "starting":
 				exitCode, exitMessage = 124, "computer is still starting at --wait-timeout; check it with revyl computer get, or stop it"
 			case invocation.waited && status.State != "active":
