@@ -46,6 +46,7 @@ type computerInvocation struct {
 	sessionProfilePick sessionprofile.PickSource
 	sessionScriptSent  bool
 	execOptions        bool
+	fileKind           string
 }
 
 type computerPerformanceResult struct {
@@ -917,6 +918,7 @@ func newComputerOperationCommand(use, short, kind string) *cobra.Command {
 				if err := api.ValidateComputerPath(args[1]); err != nil {
 					return nil, err
 				}
+				invocation.fileKind = kind
 				if kind == "file_read" {
 					limit, _ := cmd.Flags().GetInt("max-bytes")
 					err = request.Command.FromComputerFileRead(api.ComputerFileRead{Path: args[1], MaxBytes: &limit, TimeoutMs: &timeoutMs})
@@ -1200,6 +1202,11 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 		case "failed":
 			exitCode = 1
 			exitMessage = "Command failed: " + info.ErrorCode
+			if info.ErrorCode == "not_found" && invocation.fileKind == "file_write" {
+				exitMessage += ": the parent directory doesn't exist in the computer's workspace; create it first with revyl computer exec ID -- mkdir -p DIR"
+			} else if info.ErrorCode == "not_found" && invocation.fileKind != "" {
+				exitMessage += ": nothing exists at that path in the computer's workspace"
+			}
 			if info.ExitCode != nil {
 				exitMessage = fmt.Sprintf("Command exited with code %d", *info.ExitCode)
 				if *info.ExitCode > 0 && *info.ExitCode <= 255 {

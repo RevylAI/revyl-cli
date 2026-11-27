@@ -115,7 +115,7 @@ func TestComputerCommandsReportTheGuestOutcomeInPlainWords(t *testing.T) {
 		code                               int
 		args                               []string
 	}{
-		{"file_missing", `{"outcome":"failed","error_code":"not_found"}`, "recorded", "Command failed: not_found", 1, []string{"files", "stat", id.String(), "notes.txt", "--request-id", requestID.String()}},
+		{"file_missing", `{"outcome":"failed","error_code":"not_found"}`, "recorded", "Command failed: not_found: nothing exists at that path in the computer's workspace", 1, []string{"files", "stat", id.String(), "notes.txt", "--request-id", requestID.String()}},
 		{"nonzero", `{"outcome":"failed","error_code":"exec_nonzero","result":{"kind":"exec","exit_code":7,"stdout":"","stderr":""}}`, "recorded", "Command exited with code 7", 7, nil},
 		{"signalled", `{"outcome":"failed","error_code":"exec_nonzero","result":{"kind":"exec","exit_code":-9,"stdout":"","stderr":""}}`, "recorded", "Command exited with code -9", 1, nil},
 		{"nonzero_unrecorded", `{"outcome":"failed","error_code":"exec_nonzero","result":{"kind":"exec","exit_code":3,"stdout":"","stderr":""}}`, "pending", "Command exited with code 3", 3, nil},
