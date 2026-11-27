@@ -16,7 +16,7 @@ var computerValidationSchema []byte
 
 var resolvedComputerSchemas = sync.OnceValues(func() (map[string]*jsonschema.Resolved, error) {
 	result := make(map[string]*jsonschema.Resolved)
-	for _, name := range []string{"ComputerReport", "ComputerReportDetail", "ComputerCommandResponse", "ComputerATIFTrajectory", "ComputerRunListResponse", "ComputerPerformanceReport", "ComputerHostingCapability", "ComputerRelatedSessionListResponse", "PersistentComputerStatus"} {
+	for _, name := range []string{"ComputerReport", "ComputerReportDetail", "ComputerCommandResponse", "ComputerATIFTrajectory", "ComputerRunListResponse", "ComputerPerformanceReport", "ComputerHostingCapability", "ComputerInferenceEndpoint", "ComputerRelatedSessionListResponse", "PersistentComputerStatus"} {
 		var schema jsonschema.Schema
 		if err := json.Unmarshal(computerValidationSchema, &schema); err != nil {
 			return nil, err

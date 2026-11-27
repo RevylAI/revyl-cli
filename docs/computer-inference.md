@@ -4,7 +4,10 @@ A Mac computer created with local inference runs on a host that has its own
 vision model loaded. The computer's plain-language steps and clicks by
 description are then answered by that model, next to the computer, instead of
 only by Revyl's hosted grounding, and app sessions inside the computer can use
-it too. Nothing inside the computer can reach the model.
+it too. Code inside the computer gets its own way to prompt the model, an
+OpenAI-compatible endpoint that `revyl computer inference` opens. No host serves
+that endpoint yet, so for now the command reports it unavailable (see
+[Prompt the model from inside the computer](#prompt-the-model-from-inside-the-computer)).
 
 Local inference is macOS only and is included in paid plans. In an
 organization on the Free plan, `create --inference` is refused with
@@ -117,6 +120,38 @@ revyl computer start "$C1" --no-inference --wait   # when none is up: this run o
 If your organization is no longer on a paid plan, its computers created with
 `--inference` start and run without a model: `Inference` reads `unavailable`,
 `validation` and `extract` refuse, and instructions use hosted grounding.
+
+## Prompt the model from inside the computer
+
+`revyl computer inference` opens the computer's OpenAI-compatible endpoint, so
+code running inside it can prompt the model directly. The endpoint's address
+works only from inside that computer, and its API key works only for that
+computer until it stops.
+
+**Current availability:** no host serves the endpoint yet. Until one does, the
+command reports the endpoint unavailable with `host_unsupported` ("this
+computer's host doesn't serve an inference endpoint yet") and exits 1.
+
+```bash
+revyl computer inference "$C1"            # Base URL, API key, model, output cap, usage so far
+revyl computer inference "$C1" --json     # the same as JSON: available, base_url, api_key, model, max_output_tokens, usage, or reason
+eval "$(revyl computer inference --env)"  # inside the computer: sets OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL
+```
+
+- Inside the computer, the computer ID defaults to `REVYL_COMPUTER_ID`.
+- `--env` prints three `export` lines for `eval` and can't be combined with
+  `--json`.
+- The command exits 0 when the endpoint is available. When it isn't, it exits
+  1 and prints why: `--json` still prints the answer with `available: false`
+  and its `reason`, and `--env` prints nothing.
+
+| Reason | Meaning |
+| --- | --- |
+| `host_unsupported` | The computer's host doesn't serve the endpoint yet. |
+| `computer_inference_off` | The computer wasn't created with `--inference`, or the organization is no longer on a paid plan. |
+| `model_unavailable` | The model isn't answering right now. Retry shortly. |
+
+A computer that isn't running is refused with `screen_input_unavailable`.
 
 ## Limits
 

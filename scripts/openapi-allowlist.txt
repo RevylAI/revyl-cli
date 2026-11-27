@@ -228,6 +228,7 @@ GET /api/v1/computer-runs/{computer_session_id}/report/atif
 GET /api/v1/computer-runs/{computer_session_id}/report/performance
 GET /api/v1/computer-runs/{computer_session_id}/export/harbor
 GET /api/v1/computer-runs/{computer_session_id}/hosting
+POST /api/v1/computer-runs/{computer_session_id}/inference/endpoint
 GET /api/v1/computer-runs/{computer_session_id}/sessions
 POST /api/v1/computer-runs/{computer_session_id}/extend
 POST /api/v1/computer-runs/{computer_session_id}/stop

@@ -871,6 +871,129 @@
       "title": "ComputerHostingCapability",
       "type": "object"
     },
+    "ComputerInferenceEndpoint": {
+      "description": "The OpenAI-compatible endpoint inside a computer created with inference.\n`base_url` is reachable only from inside that computer, and `api_key`\nworks only for it, until it stops.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Api Key"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Base Url"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Answers are capped at this many tokens; a higher max_tokens is lowered to it.",
+          "title": "Max Output Tokens"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "computer_inference_off",
+                "host_unsupported",
+                "model_unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "usage": {
+          "$ref": "#/$defs/ComputerInferenceUsage"
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "title": "ComputerInferenceEndpoint",
+      "type": "object"
+    },
+    "ComputerInferenceUsage": {
+      "description": "What a computer's guest asked its host's model through the computer's\nOpenAI-compatible endpoint during this run.",
+      "properties": {
+        "completion_tokens": {
+          "default": 0,
+          "minimum": 0.0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "preempted": {
+          "default": 0,
+          "description": "Generations cancelled so one of Revyl's own steps could use the model.",
+          "minimum": 0.0,
+          "title": "Preempted",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "minimum": 0.0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "refused": {
+          "default": 0,
+          "description": "Requests refused before the model answered: invalid, busy or unavailable.",
+          "minimum": 0.0,
+          "title": "Refused",
+          "type": "integer"
+        },
+        "requests": {
+          "default": 0,
+          "description": "Chat completions the model answered.",
+          "minimum": 0.0,
+          "title": "Requests",
+          "type": "integer"
+        }
+      },
+      "title": "ComputerInferenceUsage",
+      "type": "object"
+    },
     "ComputerMemorySample": {
       "properties": {
         "available_kb": {

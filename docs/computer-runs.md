@@ -625,7 +625,8 @@ use the screen commands above. A `validation` checks a statement against the
 screen, and an `extract` reads a value off it.
 
 `--engine` picks who answers. `local` is a vision model running on the
-computer's own host, which nothing inside the computer can reach; only a
+computer's own host, which code inside the computer can prompt only through
+`revyl computer inference`'s endpoint; only a
 computer created with `--inference` has one (see
 [Local inference](#local-inference)). `hosted` is Revyl's hosted
 grounding, the same lookup as `click --target`. `auto`, the default, tries the
@@ -698,6 +699,16 @@ What uses the model on a computer created with `--inference`:
   `--inference local`; see [App sessions inside a computer](#app-sessions-inside-a-computer).
 - The hosted MCP's `device_instruction` and `device_validation` tools, given the
   computer's session, which run as `auto`.
+- Code inside the computer, through the OpenAI-compatible endpoint that
+  `revyl computer inference [C1]` opens (C1 defaults to `REVYL_COMPUTER_ID`).
+  Its human output gives the base URL, API key, model, output cap and usage so
+  far; `--json` prints `available` with those fields, or `reason`; `--env`
+  prints `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL` export lines
+  for `eval` and can't be combined with `--json`. It exits 1 when the endpoint
+  is unavailable: `host_unsupported` (no host serves the endpoint yet, which is
+  every host today), `computer_inference_off` or `model_unavailable`. A
+  computer that isn't running is refused with `screen_input_unavailable`, and
+  an older backend answers HTTP 404.
 
 ```bash
 revyl computer create --os macos --persistent --inference --wait --json

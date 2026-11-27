@@ -2145,6 +2145,27 @@ func (e ComputerHostingCapabilityPlatforms) Valid() bool {
 	}
 }
 
+// Defines values for ComputerInferenceEndpointReason.
+const (
+	ComputerInferenceEndpointReasonComputerInferenceOff ComputerInferenceEndpointReason = "computer_inference_off"
+	ComputerInferenceEndpointReasonHostUnsupported      ComputerInferenceEndpointReason = "host_unsupported"
+	ComputerInferenceEndpointReasonModelUnavailable     ComputerInferenceEndpointReason = "model_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ComputerInferenceEndpointReason enum.
+func (e ComputerInferenceEndpointReason) Valid() bool {
+	switch e {
+	case ComputerInferenceEndpointReasonComputerInferenceOff:
+		return true
+	case ComputerInferenceEndpointReasonHostUnsupported:
+		return true
+	case ComputerInferenceEndpointReasonModelUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputerLimitOfferAction.
 const (
 	ComputerLimitOfferActionAddCard       ComputerLimitOfferAction = "add_card"
@@ -8920,6 +8941,43 @@ type ComputerHostingCapability struct {
 
 // ComputerHostingCapabilityPlatforms defines model for ComputerHostingCapability.Platforms.
 type ComputerHostingCapabilityPlatforms string
+
+// ComputerInferenceEndpoint The OpenAI-compatible endpoint inside a computer created with inference.
+// `base_url` is reachable only from inside that computer, and `api_key`
+// works only for it, until it stops.
+type ComputerInferenceEndpoint struct {
+	ApiKey    *string `json:"api_key,omitempty"`
+	Available bool    `json:"available"`
+	BaseUrl   *string `json:"base_url,omitempty"`
+
+	// MaxOutputTokens Answers are capped at this many tokens; a higher max_tokens is lowered to it.
+	MaxOutputTokens *int                             `json:"max_output_tokens,omitempty"`
+	Model           *string                          `json:"model,omitempty"`
+	Reason          *ComputerInferenceEndpointReason `json:"reason,omitempty"`
+
+	// Usage What a computer's guest asked its host's model through the computer's
+	// OpenAI-compatible endpoint during this run.
+	Usage *ComputerInferenceUsage `json:"usage,omitempty"`
+}
+
+// ComputerInferenceEndpointReason defines model for ComputerInferenceEndpoint.Reason.
+type ComputerInferenceEndpointReason string
+
+// ComputerInferenceUsage What a computer's guest asked its host's model through the computer's
+// OpenAI-compatible endpoint during this run.
+type ComputerInferenceUsage struct {
+	CompletionTokens *int `json:"completion_tokens,omitempty"`
+
+	// Preempted Generations cancelled so one of Revyl's own steps could use the model.
+	Preempted    *int `json:"preempted,omitempty"`
+	PromptTokens *int `json:"prompt_tokens,omitempty"`
+
+	// Refused Requests refused before the model answered: invalid, busy or unavailable.
+	Refused *int `json:"refused,omitempty"`
+
+	// Requests Chat completions the model answered.
+	Requests *int `json:"requests,omitempty"`
+}
 
 // ComputerLimitOffer The billing step that lifts a computer refusal: more at once, or Mac computers.
 //

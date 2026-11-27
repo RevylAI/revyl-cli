@@ -72,7 +72,7 @@ Drive it (x and y are screenshot pixels):
   revyl computer key ID --key cmd+space
   revyl computer exec ID -- uname -a        run a program on it
 
-Also: extend, hosting, sessions, report, export, files, process, and for
+Also: extend, hosting, inference, sessions, report, export, files, process, and for
 persistent computers start, delete and snapshot; each has --help.
 --json prints machine-readable output; a failure prints error and, when Revyl named one, error_code.
 
@@ -564,6 +564,7 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 	command.AddCommand(newComputerTunnelCommand())
 	addComputerScreenCommands(command)
 	addComputerStepCommands(command)
+	command.AddCommand(newComputerInferenceCommand())
 	return command
 }
 
@@ -1422,6 +1423,26 @@ func runComputerCommand(cmd *cobra.Command, run func(*computerInvocation) (any, 
 			}
 		} else if err := writeComputerHosting(cmd.OutOrStdout(), result); err != nil {
 			return err
+		}
+	case *api.ComputerInferenceEndpoint:
+		env, _ := cmd.Flags().GetBool("env")
+		completion.DomainStatus = "available"
+		if !result.Available {
+			reason := string(*result.Reason)
+			completion.DomainStatus = reason
+			exitCode, exitMessage = 1, "computer inference endpoint unavailable ("+reason+")"
+			if message, ok := computerInferenceUnavailable[reason]; ok {
+				exitMessage = message
+			}
+		}
+		if jsonOutput {
+			if err := writeComputerJSON(cmd.OutOrStdout(), result, api.ComputerMaxResponseJSON); err != nil {
+				return err
+			}
+		} else if result.Available {
+			if err := writeComputerInference(cmd.OutOrStdout(), result, env); err != nil {
+				return err
+			}
 		}
 	case *api.ComputerRelatedSessionListResponse:
 		completion.DomainStatus = "inspected"

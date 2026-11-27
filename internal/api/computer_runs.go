@@ -160,6 +160,20 @@ func (c *Client) GetComputerHosting(ctx context.Context, id uuid.UUID) (*Compute
 	return &hosting, nil
 }
 
+func (c *Client) OpenComputerInferenceEndpoint(ctx context.Context, id uuid.UUID) (*ComputerInferenceEndpoint, error) {
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/inference/endpoint", id), nil, id.String(), DefaultTimeout)
+	body, err := readComputerBody(response, err)
+	if err != nil {
+		return nil, err
+	}
+	var endpoint ComputerInferenceEndpoint
+	if response.StatusCode != http.StatusOK || validateComputerResponseSchema(body, "ComputerInferenceEndpoint") != nil || decodeComputerJSON(body, &endpoint, "available") != nil ||
+		endpoint.Available != (endpoint.BaseUrl != nil && endpoint.ApiKey != nil && endpoint.Model != nil) || endpoint.Available == (endpoint.Reason != nil) {
+		return nil, errComputerResponse
+	}
+	return &endpoint, nil
+}
+
 func (c *Client) ListComputerSessions(ctx context.Context, id uuid.UUID, limit int) (*ComputerRelatedSessionListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("computer session list limit must be from 1 to %d", ComputerListMaxLimit)
