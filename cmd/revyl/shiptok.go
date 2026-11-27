@@ -41,8 +41,10 @@ ShipTok plays that video first for the pull request.
 
 The video belongs to the GitHub repository of this checkout's origin remote,
 or the one --repo names, and the Revyl GitHub App must be installed on it. The
-link does not expire. Anyone with it can watch a video on a public repository;
-on a private repository, only people GitHub lets read it can.
+link does not expire. A browser that opens it goes to Revyl's watch page,
+where a member of the video's Revyl organization can watch it. Other clients
+can play a public repository's video without signing in, or a private
+repository's video with a GitHub token that can read it.
 
 With --pr, the Revyl GitHub App also posts the video in a tagged comment on
 that pull request, or updates its own earlier ShipTok comment there.`,
