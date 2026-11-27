@@ -104,6 +104,14 @@ revyl computer export "$C1" --format harbor --out ./computer.zip
 revyl computer stop "$C1" --json
 ```
 
+`revyl computer list` and `revyl computer get` show **Hardware**, the class of
+Mac host serving the computer as chip and memory (for example `m4-pro-24gb`);
+`--json` carries it as `host_sku`, with `host_local_model` true when that host
+also runs its own local vision model and so leaves the computer less memory.
+The host records it when it takes the computer, and it stays the same for that
+run. A computer that started on a host that didn't report one shows
+`unknown`; one not placed yet shows nothing.
+
 Create uses `--os macos`, the default, so a bare `revyl computer create`
 starts a Mac; it takes an optional proposed `--id`; otherwise it
 generates C1 once. Create returns as soon as the computer is recorded, usually
@@ -313,8 +321,8 @@ shasum -a 256 build.tgz
 Persistent computers are included in paid plans. In an organization on the Free
 plan, create, start and snapshot save are refused with
 `persistent_computers_not_enabled` (HTTP 403); upgrade the organization's plan
-to use them. An organization keeps at most 10 persistent computers and 100
-snapshots unless Revyl raised its limits.
+to use them. An organization keeps at most 100 snapshots unless Revyl raised
+its limit.
 
 An ordinary computer is deleted when it stops. A persistent computer keeps its
 whole disk instead, so it can start again later under the same ID with your
@@ -386,7 +394,7 @@ only on its host can't start (`saved_disk_unavailable`). If a start never
 becomes active, the computer is stopped again with its disk unchanged and
 `start --wait` exits 1. Starting a computer that is already starting or running
 returns its current state. A start counts against your device slots and
-long-computer limit like a create, but not against the 10 persistent computers.
+long-computer limit like a create.
 
 `delete` removes a persistent computer and its saved disk for good. It asks
 for confirmation in a terminal; pass `--yes` otherwise. A running computer is
@@ -449,8 +457,8 @@ snapshot ID or name; `delete` asks for confirmation in a terminal and needs
 again by name answers `inaccessible`.
 
 `create --from-snapshot S1` (an ID or name) creates a new persistent macOS
-computer whose disk starts as the snapshot's. It implies `--persistent`,
-counts toward the 10 persistent computers, and gets its own ID. Create as many
+computer whose disk starts as the snapshot's. It implies `--persistent` and
+gets its own ID. Create as many
 computers from one snapshot as you need; each is independent. When the new
 computer lands on another Mac than the one that saved the snapshot, its disk is
 restored first and becoming active can take several minutes, longer than
@@ -513,7 +521,6 @@ Without `--json`, the CLI prints the sentence below in place of the code; with
 | Code | HTTP | When | What to do |
 | --- | --- | --- | --- |
 | `persistent_computers_not_enabled` | 403 | Your organization isn't on a paid plan. Create, start and snapshot save refuse; reads and deletes still work. | Upgrade the organization's plan. |
-| `persistent_computer_limit` | 429 | The organization already keeps its maximum of persistent computers, running or stopped. | Delete one you no longer need, then create again. |
 | `snapshot_limit` | 429 | The organization already keeps its maximum of snapshots. | Delete one you no longer need, then save again. |
 | `computer_not_persistent` | 409 | `start`, `delete` or `snapshot save` named a computer created without `--persistent`. | Use `stop` for an ordinary computer; it is deleted when it stops. |
 | `computer_not_stopped` | 409 | `snapshot save` on a computer that isn't `stopped`. | Run `revyl computer stop C1 --wait`, then save. |

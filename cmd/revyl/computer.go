@@ -572,8 +572,8 @@ grace when no performance was saved. Timeout exits 124; Ctrl-C exits 130.
 const computerAccountLaunchAgents = "/Users/computer/Library/LaunchAgents"
 
 const computerPersistentHelp = `Persistent computers are included in paid plans; an organization on the Free
-plan gets persistent_computers_not_enabled. An organization keeps at most 10 persistent computers and 100 snapshots unless
-Revyl raised its limits.
+plan gets persistent_computers_not_enabled. An organization keeps at most 100 snapshots unless
+Revyl raised its limit.
 A persistent computer (create --persistent, macOS only) keeps one ID for life.
 Stop saves its whole disk on the Mac it runs on: files, brew installs and other
 system changes; stop --wait waits until that save is confirmed. Memory and

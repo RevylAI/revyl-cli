@@ -118,6 +118,19 @@ func computerInferenceText(readiness string) string {
 	}
 }
 
+// computerHostSkuText is the hardware class of a computer's host, such as
+// m4-pro-24gb: unknown once it started on a host that didn't report one, and
+// empty before a host is placed.
+func computerHostSkuText(sku *string, started bool) string {
+	if sku != nil {
+		return *sku
+	}
+	if started {
+		return "unknown"
+	}
+	return ""
+}
+
 func computerStateText(state, release string) string {
 	if (state == "stopped" || state == "failed" || state == "owner_lost") && release != "confirmed" {
 		return state + ", cleanup " + release
@@ -181,9 +194,13 @@ func writeComputerList(writer io.Writer, list *api.ComputerRunListResponse) erro
 }
 
 func writeComputerRows(writer io.Writer, computers []api.ComputerRunSummary) error {
-	rows := [][]string{{"COMPUTER", "OS", "STATE", "CREATED"}}
+	rows := [][]string{{"COMPUTER", "OS", "HARDWARE", "STATE", "CREATED"}}
 	for _, computer := range computers {
-		rows = append(rows, []string{computer.ComputerSessionId.String(), string(computer.Os), computerStateText(string(computer.State), string(computer.Release)), computerTime(computer.CreatedAt)})
+		hardware := computerHostSkuText(computer.HostSku, computer.ExecutionStartedAt != nil)
+		if hardware == "" {
+			hardware = "-"
+		}
+		rows = append(rows, []string{computer.ComputerSessionId.String(), string(computer.Os), hardware, computerStateText(string(computer.State), string(computer.Release)), computerTime(computer.CreatedAt)})
 	}
 	return writeComputerTable(writer, rows)
 }
@@ -405,6 +422,9 @@ func writeComputerDetail(writer io.Writer, detail *api.ComputerReportDetail, sta
 		{"Computer", detail.ComputerSessionId.String()},
 		{"OS", string(detail.Os)},
 		{"State", computerStateText(status.State, status.Release)},
+	}
+	if hardware := computerHostSkuText(detail.HostSku, detail.ExecutionStartedAt != nil); hardware != "" {
+		rows = append(rows, []string{"Hardware", hardware})
 	}
 	if detail.Persistent != nil {
 		rows = append(rows, []string{"Persistent", persistentComputerStateText(*detail.Persistent)})

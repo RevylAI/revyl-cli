@@ -2276,6 +2276,33 @@
           ],
           "title": "Failure Reason"
         },
+        "host_local_model": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether that host runs its own local vision model, which leaves the computer less memory; null whenever host_sku is.",
+          "title": "Host Local Model"
+        },
+        "host_sku": {
+          "anyOf": [
+            {
+              "description": "The hardware class of the Mac host serving the computer, as chip family and memory, such as m4-pro-24gb.",
+              "maxLength": 24,
+              "pattern": "^m[1-9][0-9]?(?:-(?:pro|max|ultra))?-[1-9][0-9]{0,3}gb$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The hardware class of the Mac host serving the computer, such as m4-pro-24gb; null until a host is placed, and when its host didn't report one.",
+          "title": "Host Sku"
+        },
         "inference": {
           "anyOf": [
             {
@@ -2517,6 +2544,31 @@
           "format": "date-time",
           "title": "Expires At",
           "type": "string"
+        },
+        "host_local_model": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Host Local Model"
+        },
+        "host_sku": {
+          "anyOf": [
+            {
+              "description": "The hardware class of the Mac host serving the computer, as chip family and memory, such as m4-pro-24gb.",
+              "maxLength": 24,
+              "pattern": "^m[1-9][0-9]?(?:-(?:pro|max|ultra))?-[1-9][0-9]{0,3}gb$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Host Sku"
         },
         "os": {
           "enum": [

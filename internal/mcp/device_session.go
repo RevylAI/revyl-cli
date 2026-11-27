@@ -77,7 +77,8 @@ const (
 
 	// Covers an iOS model or OS swap, which boots a new simulator and installs
 	// the app before the worker binds the device (about 90 seconds observed).
-	deviceConnectWaitTimeout = 3 * time.Minute
+	deviceConnectWaitTimeout      = 3 * time.Minute
+	profileDeviceReadyWaitTimeout = deviceConnectWaitTimeout
 
 	// Bounds the retries of an action the worker refused because its device is
 	// not bound yet, such as a brief reconnect mid-session.
@@ -672,7 +673,7 @@ func (m *DeviceSessionManager) StartSession(
 		!profile.Runs() && resp.SessionProfileName != nil && *resp.SessionProfileName == profile.Name()
 	if profile.Name() != "" && !acknowledged {
 		profileErr := analytics.WithSafeDiagnostic(fmt.Errorf("session profile %q: the Revyl backend started the session without it", profile.Name()), "session profile missing from start")
-		return -1, nil, m.stopAfterSessionProfileError(platform, sessionID, workflowRunID, profileErr)
+		return -1, nil, m.settleAfterSessionProfileError(platform, sessionID, workflowRunID, profileErr)
 	}
 	if opts.OnStartAccepted != nil {
 		opts.OnStartAccepted(sessionID)
@@ -685,8 +686,12 @@ func (m *DeviceSessionManager) StartSession(
 			warn(fmt.Sprintf("Git has no branch %q, so session profile %s reads the repository's default branch instead", *report.MissingGitBranchName, report.Name))
 		}
 		if err := m.awaitSessionProfile(ctx, sessionID, *report, opts.OnSessionProfile); err != nil {
-			return -1, nil, m.stopAfterSessionProfileError(platform, sessionID, workflowRunID, err)
+			return -1, nil, m.settleAfterSessionProfileError(platform, sessionID, workflowRunID, err)
 		}
+	}
+	profileReadyDeadline := time.Time{}
+	if profile.Runs() {
+		profileReadyDeadline = time.Now().Add(profileDeviceReadyWaitTimeout)
 	}
 	autoGitBranchEnabled := resolvedArtifact.AutoGitBranchEnabled
 	if autoGitBranchEnabled == nil {
@@ -695,8 +700,18 @@ func (m *DeviceSessionManager) StartSession(
 	if platform == "web" {
 		now := time.Now()
 		session := &DeviceSession{Index: UnattachedSessionIndex, SessionID: sessionID, WorkflowRunID: workflowRunID, TraceID: traceID, Platform: "web", BuildID: resolvedArtifact.BuildID, BranchID: resolvedArtifact.BranchID, BranchName: resolvedArtifact.BranchName, BranchSource: resolvedArtifact.BranchSource, GitBranchName: resolvedArtifact.GitBranchName, AutoGitBranchEnabled: autoGitBranchEnabled, UsageNotice: resp.UsageNotice, StartedAt: now, LastActivity: now, IdleTimeout: idleTimeout, ViewerURL: fmt.Sprintf("%s/sessions/%s", config.GetAppURL(m.devMode), url.PathEscape(sessionID))}
-		frame, screenToken, err := m.waitForRuntimeReadyLocked(ctx, session, deviceWorkerReadyTimeout, opts.OnPhase)
+		readyTimeout := deviceWorkerReadyTimeout
+		if profile.Runs() {
+			readyTimeout = time.Until(profileReadyDeadline)
+		}
+		frame, screenToken, err := m.waitForRuntimeReadyLocked(ctx, session, readyTimeout, opts.OnPhase)
 		if err != nil {
+			if profile.Runs() {
+				if reason, ended := m.checkSessionStatusOnFailure(session); ended {
+					return -1, nil, m.workerStartFailureError(ctx, sessionID, errors.New(reason))
+				}
+				return -1, nil, m.settleAfterSessionProfileError(platform, sessionID, workflowRunID, m.workerStartFailureError(ctx, sessionID, err))
+			}
 			return -1, nil, m.requestRuntimeStartCleanup(sessionID, err)
 		}
 		session.DeviceReady = boolPointer(true)
@@ -708,9 +723,20 @@ func (m *DeviceSessionManager) StartSession(
 		return index, session, nil
 	}
 
-	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, sessionID, deviceWorkerReadyTimeout)
+	workerURLTimeout := deviceWorkerReadyTimeout
+	if profile.Runs() {
+		workerURLTimeout = time.Until(profileReadyDeadline)
+	}
+	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, sessionID, workerURLTimeout)
 	if err != nil {
 		startErr := m.workerStartFailureError(ctx, sessionID, err)
+		if profile.Runs() {
+			statusSession := &DeviceSession{SessionID: sessionID, WorkflowRunID: workflowRunID, Platform: platform}
+			if reason, ended := m.checkSessionStatusOnFailure(statusSession); ended {
+				return -1, nil, m.workerStartFailureError(ctx, sessionID, errors.New(reason))
+			}
+			return -1, nil, m.settleAfterSessionProfileError(platform, sessionID, workflowRunID, startErr)
+		}
 		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
 		return -1, nil, startErr
 	}
@@ -723,12 +749,21 @@ func (m *DeviceSessionManager) StartSession(
 	var lastHealth workerHealthResponse
 	pollStarted := time.Now()
 	deadline := pollStarted.Add(deviceConnectWaitTimeout)
+	if profile.Runs() {
+		deadline = profileReadyDeadline
+	}
 	nextSessionCheck := pollStarted
+	var lastHealthErr error
 	for {
 		if health, err := m.healthCheckSession(tmpSession); err == nil {
 			lastHealth = health
 			deviceReady = true
 			break
+		} else {
+			lastHealthErr = err
+			if reason, ended := m.checkSessionStatusOnFailure(tmpSession); ended {
+				return -1, nil, m.workerStartFailureError(ctx, sessionID, errors.New(reason))
+			}
 		}
 		if !time.Now().Before(nextSessionCheck) {
 			reason, ended := m.checkSessionStatusOnFailure(tmpSession)
@@ -752,8 +787,15 @@ func (m *DeviceSessionManager) StartSession(
 		case <-time.After(readinessPollInterval(time.Since(pollStarted))):
 		}
 	}
-	// A device that never reported ready is not an error: the worker exists, the
-	// session is addressable, and the device commonly connects moments later.
+	if profile.Runs() && !deviceReady {
+		if lastHealthErr == nil {
+			lastHealthErr = errors.New("device did not report ready")
+		}
+		return -1, nil, m.settleAfterSessionProfileError(platform, sessionID, workflowRunID, m.workerStartFailureError(ctx, sessionID, lastHealthErr))
+	}
+	// Without a session profile, a device that never reported ready is not an
+	// error: the worker exists, the session is addressable, and the device
+	// commonly connects moments later.
 
 	if sessionID == "" {
 		ui.PrintWarning(
@@ -841,7 +883,10 @@ func (m *DeviceSessionManager) awaitSessionProfile(ctx context.Context, sessionI
 			if report.FailureReason != nil && strings.TrimSpace(*report.FailureReason) != "" {
 				reason = strings.TrimSpace(*report.FailureReason)
 			}
-			return analytics.WithSafeDiagnostic(fmt.Errorf("session profile %s failed: %s", report.Name, reason), "session profile failed: script failed")
+			if m.sessionProfileRunEndedBeforeScript(ctx, sessionID, report) {
+				return &sessionProfileRunFailure{err: m.workerStartFailureError(ctx, sessionID, errors.New(reason))}
+			}
+			return &sessionProfileRunFailure{err: analytics.WithSafeDiagnostic(fmt.Errorf("session profile %s failed: %s", report.Name, reason), "session profile failed: script failed")}
 		}
 		if !time.Now().Before(deadline) {
 			return analytics.WithSafeDiagnostic(fmt.Errorf("session profile %s is still %s after waiting for it", report.Name, report.Status), "session profile wait ended")
@@ -877,6 +922,32 @@ func (m *DeviceSessionManager) awaitSessionProfile(ctx context.Context, sessionI
 				return analytics.WithSafeDiagnostic(fmt.Errorf("the session ended (%s) before session profile %s finished", strings.ToLower(detail.Status), report.Name), "session profile failed: session ended")
 			}
 		}
+	}
+}
+
+func (m *DeviceSessionManager) sessionProfileRunEndedBeforeScript(
+	ctx context.Context,
+	sessionID string,
+	report api.SessionProfileReport,
+) bool {
+	const cancelledBeforeScriptOutcome = "cancelled_before_script_execution"
+	if report.Outcome != nil && string(*report.Outcome) == cancelledBeforeScriptOutcome {
+		return true
+	}
+	if sessionID == "" || report.Outcome != nil {
+		return false
+	}
+	detailCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	detail, err := m.apiClient.GetDeviceSessionByID(detailCtx, sessionID)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(detail.Status) {
+	case "completed", "cancelled", "failed", "timeout":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -919,9 +990,25 @@ func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (i
 	return idx, nil
 }
 
-// stopAfterSessionProfileError stops a session whose profile failed and says
-// how far the stop got: confirmed, accepted but unconfirmed, or failed.
-func (m *DeviceSessionManager) stopAfterSessionProfileError(platform, sessionID, workflowRunID string, profileErr error) error {
+type sessionProfileRunFailure struct {
+	err error
+}
+
+func (e *sessionProfileRunFailure) Error() string {
+	return e.err.Error()
+}
+
+func (e *sessionProfileRunFailure) Unwrap() error {
+	return e.err
+}
+
+// settleAfterSessionProfileError preserves the worker's failed status for a
+// failed session profile run; other profile-start failures are stopped here.
+func (m *DeviceSessionManager) settleAfterSessionProfileError(platform, sessionID, workflowRunID string, profileErr error) error {
+	var profileFailure *sessionProfileRunFailure
+	if errors.As(profileErr, &profileFailure) {
+		return profileErr
+	}
 	var stopErr error
 	if platform == "web" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

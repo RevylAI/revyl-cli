@@ -367,6 +367,7 @@ func TestComputerGetPrintsActiveDetailWithFailedOperations(t *testing.T) {
 			} else if want := `Computer  11111111-1111-4111-8111-111111111111
 OS        macos
 State     active
+Hardware  unknown
 Created   2026-10-10 00:00:00 UTC
 Started   2026-10-10 00:00:00 UTC
 Expires   2026-10-10 01:00:00 UTC
@@ -399,7 +400,8 @@ func TestComputerListShowsTheNewestComputers(t *testing.T) {
 		{"computer_session_id":"11111111-1111-4111-8111-111111111111","os":"macos",
 		"created_at":"2026-10-10T00:05:00Z","expires_at":"2026-10-10T01:05:00Z","state":"active",
 		"release":"pending","released_at":null,"execution_started_at":"2026-10-10T00:05:30Z",
-		"execution_ended_at":null,"evidence_write_status":"recorded","evidence_completeness":"complete"},
+		"execution_ended_at":null,"evidence_write_status":"recorded","evidence_completeness":"complete",
+		"host_sku":"m4-pro-24gb"},
 		{"computer_session_id":"22222222-2222-4222-8222-222222222222","os":"macos",
 		"created_at":"2026-10-10T00:00:00Z","expires_at":"2026-10-10T01:00:00Z","state":"stopped",
 		"release":"unknown","released_at":null,"execution_started_at":"2026-10-10T00:00:30Z",
@@ -433,9 +435,9 @@ func TestComputerListShowsTheNewestComputers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("computer list rejected a valid page: %v", err)
 	}
-	want := `COMPUTER                              OS     STATE                     CREATED
-11111111-1111-4111-8111-111111111111  macos  active                    2026-10-10 00:05:00 UTC
-22222222-2222-4222-8222-222222222222  macos  stopped, cleanup unknown  2026-10-10 00:00:00 UTC
+	want := `COMPUTER                              OS     HARDWARE     STATE                     CREATED
+11111111-1111-4111-8111-111111111111  macos  m4-pro-24gb  active                    2026-10-10 00:05:00 UTC
+22222222-2222-4222-8222-222222222222  macos  unknown      stopped, cleanup unknown  2026-10-10 00:00:00 UTC
 Newest 2 of 3 computers: 1 active, 1 stopped; use --limit (up to 100) for more.
 `
 	if printed != want {

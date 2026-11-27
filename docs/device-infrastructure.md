@@ -77,6 +77,14 @@ meantime.
 
 If the device is not confirmed connected by the end of the start wait, the
 session is still returned. Human output warns; `--json` reports `"device_ready": false`.
+When the start runs a session profile, the command waits up to 3 minutes for
+the worker to report readiness after the profile succeeds. A worker or session
+terminal failure fails immediately. If readiness does not arrive in that time,
+the command requests session cleanup, reports the cleanup result, and exits
+non-zero. A failed session profile is reported with its profile error and the
+worker records the session as failed.
+Starts without a session profile keep the asynchronous `device_ready: false`
+behavior above.
 
 `revyl device list` shows sessions whose owner email matches the authenticated
 CLI identity, sessions started in this directory, and the session last selected

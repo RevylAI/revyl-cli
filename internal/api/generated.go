@@ -9472,6 +9472,12 @@ type ComputerReportDetail struct {
 	ExpiresAt            time.Time                                 `json:"expires_at"`
 	FailureReason        *string                                   `json:"failure_reason,omitempty"`
 
+	// HostLocalModel Whether that host runs its own local vision model, which leaves the computer less memory; null whenever host_sku is.
+	HostLocalModel *bool `json:"host_local_model,omitempty"`
+
+	// HostSku The hardware class of the Mac host serving the computer, such as m4-pro-24gb; null until a host is placed, and when its host didn't report one.
+	HostSku *string `json:"host_sku,omitempty"`
+
 	// Inference Only when the computer was created with inference and this run didn't start without it: ready when its host's own vision model answers now, unavailable when it does not or when local inference is no longer enabled for the organization, and unknown while the computer is not active or its host cannot be asked.
 	Inference *ComputerReportDetailInference `json:"inference,omitempty"`
 	Kind      *string                        `json:"kind,omitempty"`
@@ -9591,10 +9597,14 @@ type ComputerRunSummary struct {
 	ExecutionEndedAt     *time.Time                             `json:"execution_ended_at"`
 	ExecutionStartedAt   *time.Time                             `json:"execution_started_at"`
 	ExpiresAt            time.Time                              `json:"expires_at"`
-	Os                   ComputerRunSummaryOs                   `json:"os"`
-	Release              ComputerRunSummaryRelease              `json:"release"`
-	ReleasedAt           *time.Time                             `json:"released_at"`
-	State                ComputerRunSummaryState                `json:"state"`
+	HostLocalModel       *bool                                  `json:"host_local_model,omitempty"`
+
+	// HostSku The hardware class of the Mac host serving the computer, as chip family and memory, such as m4-pro-24gb.
+	HostSku    *string                   `json:"host_sku,omitempty"`
+	Os         ComputerRunSummaryOs      `json:"os"`
+	Release    ComputerRunSummaryRelease `json:"release"`
+	ReleasedAt *time.Time                `json:"released_at"`
+	State      ComputerRunSummaryState   `json:"state"`
 }
 
 // ComputerRunSummaryEvidenceCompleteness defines model for ComputerRunSummary.EvidenceCompleteness.
