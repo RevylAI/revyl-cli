@@ -7,7 +7,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -181,6 +183,16 @@ func isValidVariableName(name string) bool {
 	return true
 }
 
+func formatTestVarValue(variable api.CustomVariable) string {
+	if variable.IsSecret {
+		return "(secret)"
+	}
+	if variable.VariableValue == "" {
+		return "(empty)"
+	}
+	return variable.VariableValue
+}
+
 // runTestVarList lists all test variables for a given test.
 func runTestVarList(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
@@ -197,6 +209,13 @@ func runTestVarList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		ui.PrintError("Failed to list variables: %v", err)
 		return err
+	}
+
+	jsonMode, _ := cmd.Root().PersistentFlags().GetBool("json")
+	if jsonMode {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
 	}
 
 	if len(resp.Result) == 0 {
@@ -218,12 +237,8 @@ func runTestVarList(cmd *cobra.Command, args []string) error {
 	table.SetMinWidth(2, 25) // USAGE
 
 	for _, v := range resp.Result {
-		value := v.VariableValue
-		if value == "" {
-			value = "(empty)"
-		}
 		usage := fmt.Sprintf("{{%s}}", v.VariableName)
-		table.AddRow(v.VariableName, value, usage)
+		table.AddRow(v.VariableName, formatTestVarValue(v), usage)
 	}
 
 	table.Render()
@@ -379,13 +394,15 @@ func runTestVarGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	jsonMode, _ := cmd.Root().PersistentFlags().GetBool("json")
 	for _, v := range resp.Result {
 		if v.VariableName == name {
-			value := v.VariableValue
-			if value == "" {
-				value = "(empty)"
+			if jsonMode {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(v)
 			}
-			fmt.Println(value)
+			fmt.Println(formatTestVarValue(v))
 			return nil
 		}
 	}

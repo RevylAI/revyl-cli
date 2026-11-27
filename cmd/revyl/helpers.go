@@ -292,6 +292,15 @@ func printOrganizationShareLink(link string, openInBrowser bool) {
 //   - testName: The display name (alias or API name)
 //   - error: Any error that occurred
 func resolveTestID(ctx context.Context, nameOrID string, _ *config.ProjectConfig, client *api.Client) (string, string, error) {
+	return resolveTestIDWithCache(ctx, nameOrID, client, &testLookupCache{})
+}
+
+type testLookupCache struct {
+	tests  []api.SimpleTest
+	loaded bool
+}
+
+func resolveTestIDWithCache(ctx context.Context, nameOrID string, client *api.Client, cache *testLookupCache) (string, string, error) {
 	// UUIDs are an explicitly remote identifier and do not consume project
 	// configuration.
 	if looksLikeUUID(nameOrID) {
@@ -317,18 +326,28 @@ func resolveTestID(ctx context.Context, nameOrID string, _ *config.ProjectConfig
 	}
 
 	// Search via API by name across all pages for larger orgs.
-	ui.StartSpinner("Searching for test...")
-	tests, err := client.ListAllOrgTests(ctx, 200)
-	ui.StopSpinner()
-
-	if err != nil {
-		return "", "", fmt.Errorf("failed to search for test: %w", err)
+	if !cache.loaded {
+		ui.StartSpinner("Searching for test...")
+		var err error
+		cache.tests, err = client.ListAllOrgTests(ctx, 200)
+		ui.StopSpinner()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to search for test: %w", err)
+		}
+		cache.loaded = true
 	}
 
-	for _, t := range tests {
+	var matchingTestIDs []string
+	for _, t := range cache.tests {
 		if t.Name == nameOrID {
-			return t.ID, t.Name, nil
+			matchingTestIDs = append(matchingTestIDs, t.ID)
 		}
+	}
+	if len(matchingTestIDs) > 1 {
+		return "", "", fmt.Errorf("test name %q matches multiple tests; use a test ID instead: %s", nameOrID, strings.Join(matchingTestIDs, ", "))
+	}
+	if len(matchingTestIDs) == 1 {
+		return matchingTestIDs[0], nameOrID, nil
 	}
 
 	// Not found - build helpful error message from local YAML files

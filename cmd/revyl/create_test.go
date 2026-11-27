@@ -174,64 +174,6 @@ func TestCreateForceFailsWhenSavedSelectionUpdateIsRejected(t *testing.T) {
 	}
 }
 
-func TestResolveWorkflowCreateTestIDs_UsesNearestCanonicalProject(t *testing.T) {
-	repository := t.TempDir()
-	gitInitCreateRepository(t, repository)
-	projectRoot := filepath.Join(repository, "mobile")
-	nested := filepath.Join(projectRoot, "packages", "app")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCanonicalCreateConfig(t, projectRoot, "project:\n  id: 00000000-0000-4000-8000-000000000001\n")
-	testsDir := filepath.Join(projectRoot, ".revyl", "tests")
-	if err := os.MkdirAll(testsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(testsDir, "checkout.yaml"), []byte("_meta:\n  remote_id: 11111111-1111-4111-8111-111111111111\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	ids, err := resolveWorkflowCreateTestIDs(nested, "checkout,22222222-2222-4222-8222-222222222222")
-	if err != nil {
-		t.Fatalf("resolveWorkflowCreateTestIDs() error = %v", err)
-	}
-	want := []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"}
-	if len(ids) != len(want) || ids[0] != want[0] || ids[1] != want[1] {
-		t.Fatalf("IDs = %#v, want %#v", ids, want)
-	}
-}
-
-func TestResolveWorkflowCreateTestIDs_PreservesConfiglessServerReference(t *testing.T) {
-	ids, err := resolveWorkflowCreateTestIDs(t.TempDir(), "server-test-id")
-	if err != nil {
-		t.Fatalf("resolveWorkflowCreateTestIDs() error = %v", err)
-	}
-	if len(ids) != 1 || ids[0] != "server-test-id" {
-		t.Fatalf("IDs = %#v, want configless server reference", ids)
-	}
-}
-
-func TestResolveWorkflowCreateTestIDs_RejectsLegacyConfig(t *testing.T) {
-	repository := t.TempDir()
-	gitInitCreateRepository(t, repository)
-	configDir := filepath.Join(repository, ".revyl")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("project:\n  name: legacy\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := resolveWorkflowCreateTestIDs(repository, "checkout")
-	if err == nil {
-		t.Fatal("expected strict canonical config error")
-	}
-	if !strings.Contains(err.Error(), "revyl config migrate --check") ||
-		!strings.Contains(err.Error(), "revyl config migrate") {
-		t.Fatalf("error = %v, want migration recovery commands", err)
-	}
-}
-
 func gitInitCreateRepository(t *testing.T, root string) {
 	t.Helper()
 	if output, err := exec.Command("git", "-C", root, "init", "--quiet").CombinedOutput(); err != nil {

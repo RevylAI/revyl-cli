@@ -609,43 +609,21 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) (runErr error) {
 	return runTestsPush(cmd, []string{testName})
 }
 
-func resolveWorkflowCreateTestIDs(cwd, rawTests string) ([]string, error) {
-	refs := make([]string, 0)
-	needsLocalAliasResolution := false
+func resolveWorkflowCreateTestIDs(ctx context.Context, rawTests string, client *api.Client) ([]string, error) {
+	testIDs := make([]string, 0)
+	var testCache testLookupCache
 	for _, raw := range strings.Split(rawTests, ",") {
 		ref := strings.TrimSpace(raw)
 		if ref == "" {
 			continue
 		}
-		refs = append(refs, ref)
-		if !looksLikeUUID(ref) {
-			needsLocalAliasResolution = true
+		testID, _, err := resolveTestIDWithCache(ctx, ref, client, &testCache)
+		if err != nil {
+			return nil, testLookupFailure(err)
 		}
+		testIDs = append(testIDs, testID)
 	}
-	if !needsLocalAliasResolution {
-		return refs, nil
-	}
-
-	project, err := config.ResolveProjectContext(cwd, "")
-	if err != nil {
-		var configErr *config.ConfigError
-		if errors.As(err, &configErr) && (configErr.Code == "git_worktree_unavailable" || configErr.Code == "config_not_found") {
-			// No local project is being consumed. Preserve the configless server
-			// workflow by passing explicit server references through unchanged.
-			return refs, nil
-		}
-		return nil, actionableLocalConfigError(err)
-	}
-
-	resolved := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		if id, _ := config.GetLocalTestRemoteID(project.TestsDir, ref); id != "" {
-			resolved = append(resolved, id)
-		} else {
-			resolved = append(resolved, ref)
-		}
-	}
-	return resolved, nil
+	return testIDs, nil
 }
 
 func runCreateWorkflow(cmd *cobra.Command, args []string) error {
@@ -654,15 +632,6 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	// Validate workflow name
 	if err := validateResourceName(workflowName, "workflow"); err != nil {
 		ui.PrintError("%v", err)
-		return err
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-	testIDs, err := resolveWorkflowCreateTestIDs(cwd, createWorkflowTests)
-	if err != nil {
 		return err
 	}
 
@@ -682,6 +651,11 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	// Create API client with dev mode support
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	testIDs, err := resolveWorkflowCreateTestIDs(cmd.Context(), createWorkflowTests, client)
+	if err != nil {
+		return err
+	}
 
 	// Ensure UserID is available (may be missing if using REVYL_API_KEY env var)
 	if creds.UserID == "" {
