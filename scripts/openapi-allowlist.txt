@@ -10,6 +10,8 @@ DELETE /api/v1/apps/remote/{build_job_id}
 DELETE /api/v1/apps/{app_id}
 DELETE /api/v1/atlas/v2/apps/{app_id}/annotation-comments/{comment_id}
 DELETE /api/v1/atlas/v2/apps/{app_id}/share/{token}
+DELETE /api/v1/automations/triggers/{automation_trigger_id}
+DELETE /api/v1/automations/{automation_id}
 DELETE /api/v1/files/{file_id}
 DELETE /api/v1/hotreload/relays/{relay_id}
 DELETE /api/v1/modules/delete/{module_id}
@@ -43,6 +45,13 @@ GET /api/v1/atlas/v2/apps/{app_id}/structure
 GET /api/v1/atlas/v2/apps/{app_id}/share
 GET /api/v1/atlas/v2/annotations/feedback
 GET /api/v1/atlas/v2/index
+GET /api/v1/automations/
+GET /api/v1/automations/action-types
+GET /api/v1/automations/runs
+GET /api/v1/automations/runs/{automation_run_id}
+GET /api/v1/automations/trigger-types
+GET /api/v1/automations/triggers/{automation_trigger_id}
+GET /api/v1/automations/{automation_id}
 GET /api/v1/backend-capabilities
 GET /api/v1/entity/orgs/members
 GET /api/v1/entity/users/get_dashboard_metrics
@@ -105,6 +114,8 @@ GET /api/v1/workflows/get_workflow_info
 GET /api/v1/workflows/status/history/{workflow_id}
 GET /api/v1/workflows/status/{task_id}
 GET /api/v1/workflows/workflow/{workflow_id}/tests
+PATCH /api/v1/automations/triggers/{automation_trigger_id}
+PATCH /api/v1/automations/{automation_id}
 PATCH /api/v1/tests/tags/{tag_id}
 PATCH /api/v1/atlas/v2/apps/{app_id}/annotation-comments/{comment_id}
 PATCH /api/v1/atlas/v2/apps/{app_id}/annotation-threads/{thread_id}/anchor
@@ -132,6 +143,11 @@ POST /api/v1/atlas/v2/apps/{app_id}/observations/{observation_id}/grounded-annot
 POST /api/v1/atlas/v2/apps/{app_id}/share
 POST /api/v1/atlas/v2/sessions/{session_id}/annotation-anchor-preview
 POST /api/v1/atlas/v2/sessions/{session_id}/grounded-annotation-threads
+POST /api/v1/automations/
+POST /api/v1/automations/runs/{automation_run_id}/cancel
+POST /api/v1/automations/triggers/{automation_trigger_id}/rotate-incoming-webhook-url
+POST /api/v1/automations/{automation_id}/runs
+POST /api/v1/automations/{automation_id}/triggers
 POST /api/v1/entity/users/cli-device-authorizations
 POST /api/v1/entity/users/cli-device-authorizations/credentials
 POST /api/v1/entity/users/revoke_cli_api_key
@@ -180,6 +196,7 @@ POST /api/v1/variables/org_launch_env
 POST /api/v1/workflows/create
 POST /api/v1/workflows/share/generate_shareable_link
 POST /api/v1/workflows/share/unified-report
+PUT /api/v1/automations/{automation_id}
 PUT /api/v1/files/{file_id}
 PUT /api/v1/files/{file_id}/replace-url
 PUT /api/v1/integrations/gitlab/connection

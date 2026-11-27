@@ -558,6 +558,348 @@ func (e AuthoredBuildFramework) Valid() bool {
 	}
 }
 
+// Defines values for AutomationLastRunResponseRunStatus.
+const (
+	AutomationLastRunResponseRunStatusCancelled AutomationLastRunResponseRunStatus = "cancelled"
+	AutomationLastRunResponseRunStatusCompleted AutomationLastRunResponseRunStatus = "completed"
+	AutomationLastRunResponseRunStatusFailed    AutomationLastRunResponseRunStatus = "failed"
+	AutomationLastRunResponseRunStatusQueued    AutomationLastRunResponseRunStatus = "queued"
+	AutomationLastRunResponseRunStatusRunning   AutomationLastRunResponseRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AutomationLastRunResponseRunStatus enum.
+func (e AutomationLastRunResponseRunStatus) Valid() bool {
+	switch e {
+	case AutomationLastRunResponseRunStatusCancelled:
+		return true
+	case AutomationLastRunResponseRunStatusCompleted:
+		return true
+	case AutomationLastRunResponseRunStatusFailed:
+		return true
+	case AutomationLastRunResponseRunStatusQueued:
+		return true
+	case AutomationLastRunResponseRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationLastRunResponseTriggerType.
+const (
+	AutomationLastRunResponseTriggerTypeGithubPullRequestMerged AutomationLastRunResponseTriggerType = "github_pull_request_merged"
+	AutomationLastRunResponseTriggerTypeGithubPullRequestOpened AutomationLastRunResponseTriggerType = "github_pull_request_opened"
+	AutomationLastRunResponseTriggerTypeIncomingWebhook         AutomationLastRunResponseTriggerType = "incoming_webhook"
+	AutomationLastRunResponseTriggerTypeManual                  AutomationLastRunResponseTriggerType = "manual"
+	AutomationLastRunResponseTriggerTypeSchedule                AutomationLastRunResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationLastRunResponseTriggerType enum.
+func (e AutomationLastRunResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationLastRunResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationLastRunResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationLastRunResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationLastRunResponseTriggerTypeManual:
+		return true
+	case AutomationLastRunResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationManualRunResponseOutcome.
+const (
+	AutomationManualRunResponseOutcomeAccepted  AutomationManualRunResponseOutcome = "accepted"
+	AutomationManualRunResponseOutcomeDuplicate AutomationManualRunResponseOutcome = "duplicate"
+)
+
+// Valid indicates whether the value is a known member of the AutomationManualRunResponseOutcome enum.
+func (e AutomationManualRunResponseOutcome) Valid() bool {
+	switch e {
+	case AutomationManualRunResponseOutcomeAccepted:
+		return true
+	case AutomationManualRunResponseOutcomeDuplicate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationManualRunResponseRunStatus.
+const (
+	AutomationManualRunResponseRunStatusCancelled AutomationManualRunResponseRunStatus = "cancelled"
+	AutomationManualRunResponseRunStatusCompleted AutomationManualRunResponseRunStatus = "completed"
+	AutomationManualRunResponseRunStatusFailed    AutomationManualRunResponseRunStatus = "failed"
+	AutomationManualRunResponseRunStatusQueued    AutomationManualRunResponseRunStatus = "queued"
+	AutomationManualRunResponseRunStatusRunning   AutomationManualRunResponseRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AutomationManualRunResponseRunStatus enum.
+func (e AutomationManualRunResponseRunStatus) Valid() bool {
+	switch e {
+	case AutomationManualRunResponseRunStatusCancelled:
+		return true
+	case AutomationManualRunResponseRunStatusCompleted:
+		return true
+	case AutomationManualRunResponseRunStatusFailed:
+		return true
+	case AutomationManualRunResponseRunStatusQueued:
+		return true
+	case AutomationManualRunResponseRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationManualRunResponseTriggerType.
+const (
+	AutomationManualRunResponseTriggerTypeGithubPullRequestMerged AutomationManualRunResponseTriggerType = "github_pull_request_merged"
+	AutomationManualRunResponseTriggerTypeGithubPullRequestOpened AutomationManualRunResponseTriggerType = "github_pull_request_opened"
+	AutomationManualRunResponseTriggerTypeIncomingWebhook         AutomationManualRunResponseTriggerType = "incoming_webhook"
+	AutomationManualRunResponseTriggerTypeManual                  AutomationManualRunResponseTriggerType = "manual"
+	AutomationManualRunResponseTriggerTypeSchedule                AutomationManualRunResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationManualRunResponseTriggerType enum.
+func (e AutomationManualRunResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationManualRunResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationManualRunResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationManualRunResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationManualRunResponseTriggerTypeManual:
+		return true
+	case AutomationManualRunResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationRunDetailResponseRunStatus.
+const (
+	AutomationRunDetailResponseRunStatusCancelled AutomationRunDetailResponseRunStatus = "cancelled"
+	AutomationRunDetailResponseRunStatusCompleted AutomationRunDetailResponseRunStatus = "completed"
+	AutomationRunDetailResponseRunStatusFailed    AutomationRunDetailResponseRunStatus = "failed"
+	AutomationRunDetailResponseRunStatusQueued    AutomationRunDetailResponseRunStatus = "queued"
+	AutomationRunDetailResponseRunStatusRunning   AutomationRunDetailResponseRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AutomationRunDetailResponseRunStatus enum.
+func (e AutomationRunDetailResponseRunStatus) Valid() bool {
+	switch e {
+	case AutomationRunDetailResponseRunStatusCancelled:
+		return true
+	case AutomationRunDetailResponseRunStatusCompleted:
+		return true
+	case AutomationRunDetailResponseRunStatusFailed:
+		return true
+	case AutomationRunDetailResponseRunStatusQueued:
+		return true
+	case AutomationRunDetailResponseRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationRunDetailResponseTriggerType.
+const (
+	AutomationRunDetailResponseTriggerTypeGithubPullRequestMerged AutomationRunDetailResponseTriggerType = "github_pull_request_merged"
+	AutomationRunDetailResponseTriggerTypeGithubPullRequestOpened AutomationRunDetailResponseTriggerType = "github_pull_request_opened"
+	AutomationRunDetailResponseTriggerTypeIncomingWebhook         AutomationRunDetailResponseTriggerType = "incoming_webhook"
+	AutomationRunDetailResponseTriggerTypeManual                  AutomationRunDetailResponseTriggerType = "manual"
+	AutomationRunDetailResponseTriggerTypeSchedule                AutomationRunDetailResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationRunDetailResponseTriggerType enum.
+func (e AutomationRunDetailResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationRunDetailResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationRunDetailResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationRunDetailResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationRunDetailResponseTriggerTypeManual:
+		return true
+	case AutomationRunDetailResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationRunListItemResponseRunStatus.
+const (
+	AutomationRunListItemResponseRunStatusCancelled AutomationRunListItemResponseRunStatus = "cancelled"
+	AutomationRunListItemResponseRunStatusCompleted AutomationRunListItemResponseRunStatus = "completed"
+	AutomationRunListItemResponseRunStatusFailed    AutomationRunListItemResponseRunStatus = "failed"
+	AutomationRunListItemResponseRunStatusQueued    AutomationRunListItemResponseRunStatus = "queued"
+	AutomationRunListItemResponseRunStatusRunning   AutomationRunListItemResponseRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AutomationRunListItemResponseRunStatus enum.
+func (e AutomationRunListItemResponseRunStatus) Valid() bool {
+	switch e {
+	case AutomationRunListItemResponseRunStatusCancelled:
+		return true
+	case AutomationRunListItemResponseRunStatusCompleted:
+		return true
+	case AutomationRunListItemResponseRunStatusFailed:
+		return true
+	case AutomationRunListItemResponseRunStatusQueued:
+		return true
+	case AutomationRunListItemResponseRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationRunListItemResponseTriggerType.
+const (
+	AutomationRunListItemResponseTriggerTypeGithubPullRequestMerged AutomationRunListItemResponseTriggerType = "github_pull_request_merged"
+	AutomationRunListItemResponseTriggerTypeGithubPullRequestOpened AutomationRunListItemResponseTriggerType = "github_pull_request_opened"
+	AutomationRunListItemResponseTriggerTypeIncomingWebhook         AutomationRunListItemResponseTriggerType = "incoming_webhook"
+	AutomationRunListItemResponseTriggerTypeManual                  AutomationRunListItemResponseTriggerType = "manual"
+	AutomationRunListItemResponseTriggerTypeSchedule                AutomationRunListItemResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationRunListItemResponseTriggerType enum.
+func (e AutomationRunListItemResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationRunListItemResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationRunListItemResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationRunListItemResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationRunListItemResponseTriggerTypeManual:
+		return true
+	case AutomationRunListItemResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationTriggerEventResponseTriggerType.
+const (
+	AutomationTriggerEventResponseTriggerTypeGithubPullRequestMerged AutomationTriggerEventResponseTriggerType = "github_pull_request_merged"
+	AutomationTriggerEventResponseTriggerTypeGithubPullRequestOpened AutomationTriggerEventResponseTriggerType = "github_pull_request_opened"
+	AutomationTriggerEventResponseTriggerTypeIncomingWebhook         AutomationTriggerEventResponseTriggerType = "incoming_webhook"
+	AutomationTriggerEventResponseTriggerTypeManual                  AutomationTriggerEventResponseTriggerType = "manual"
+	AutomationTriggerEventResponseTriggerTypeSchedule                AutomationTriggerEventResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationTriggerEventResponseTriggerType enum.
+func (e AutomationTriggerEventResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationTriggerEventResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationTriggerEventResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationTriggerEventResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationTriggerEventResponseTriggerTypeManual:
+		return true
+	case AutomationTriggerEventResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationTriggerMutationResponseTriggerType.
+const (
+	AutomationTriggerMutationResponseTriggerTypeGithubPullRequestMerged AutomationTriggerMutationResponseTriggerType = "github_pull_request_merged"
+	AutomationTriggerMutationResponseTriggerTypeGithubPullRequestOpened AutomationTriggerMutationResponseTriggerType = "github_pull_request_opened"
+	AutomationTriggerMutationResponseTriggerTypeIncomingWebhook         AutomationTriggerMutationResponseTriggerType = "incoming_webhook"
+	AutomationTriggerMutationResponseTriggerTypeManual                  AutomationTriggerMutationResponseTriggerType = "manual"
+	AutomationTriggerMutationResponseTriggerTypeSchedule                AutomationTriggerMutationResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationTriggerMutationResponseTriggerType enum.
+func (e AutomationTriggerMutationResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationTriggerMutationResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationTriggerMutationResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationTriggerMutationResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationTriggerMutationResponseTriggerTypeManual:
+		return true
+	case AutomationTriggerMutationResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationTriggerResponseTriggerType.
+const (
+	AutomationTriggerResponseTriggerTypeGithubPullRequestMerged AutomationTriggerResponseTriggerType = "github_pull_request_merged"
+	AutomationTriggerResponseTriggerTypeGithubPullRequestOpened AutomationTriggerResponseTriggerType = "github_pull_request_opened"
+	AutomationTriggerResponseTriggerTypeIncomingWebhook         AutomationTriggerResponseTriggerType = "incoming_webhook"
+	AutomationTriggerResponseTriggerTypeManual                  AutomationTriggerResponseTriggerType = "manual"
+	AutomationTriggerResponseTriggerTypeSchedule                AutomationTriggerResponseTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationTriggerResponseTriggerType enum.
+func (e AutomationTriggerResponseTriggerType) Valid() bool {
+	switch e {
+	case AutomationTriggerResponseTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationTriggerResponseTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationTriggerResponseTriggerTypeIncomingWebhook:
+		return true
+	case AutomationTriggerResponseTriggerTypeManual:
+		return true
+	case AutomationTriggerResponseTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationTriggerTypeAvailabilityTriggerType.
+const (
+	AutomationTriggerTypeAvailabilityTriggerTypeGithubPullRequestMerged AutomationTriggerTypeAvailabilityTriggerType = "github_pull_request_merged"
+	AutomationTriggerTypeAvailabilityTriggerTypeGithubPullRequestOpened AutomationTriggerTypeAvailabilityTriggerType = "github_pull_request_opened"
+	AutomationTriggerTypeAvailabilityTriggerTypeIncomingWebhook         AutomationTriggerTypeAvailabilityTriggerType = "incoming_webhook"
+	AutomationTriggerTypeAvailabilityTriggerTypeManual                  AutomationTriggerTypeAvailabilityTriggerType = "manual"
+	AutomationTriggerTypeAvailabilityTriggerTypeSchedule                AutomationTriggerTypeAvailabilityTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AutomationTriggerTypeAvailabilityTriggerType enum.
+func (e AutomationTriggerTypeAvailabilityTriggerType) Valid() bool {
+	switch e {
+	case AutomationTriggerTypeAvailabilityTriggerTypeGithubPullRequestMerged:
+		return true
+	case AutomationTriggerTypeAvailabilityTriggerTypeGithubPullRequestOpened:
+		return true
+	case AutomationTriggerTypeAvailabilityTriggerTypeIncomingWebhook:
+		return true
+	case AutomationTriggerTypeAvailabilityTriggerTypeManual:
+		return true
+	case AutomationTriggerTypeAvailabilityTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BackendCapabilitiesCapabilities.
 const (
 	BackendCapabilitiesCapabilitiesDeviceLocalInference   BackendCapabilitiesCapabilities = "device_local_inference"
@@ -4854,6 +5196,87 @@ func (e GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParamsDet
 	}
 }
 
+// Defines values for ListAutomationsParamsTriggerType.
+const (
+	ListAutomationsParamsTriggerTypeGithubPullRequestMerged ListAutomationsParamsTriggerType = "github_pull_request_merged"
+	ListAutomationsParamsTriggerTypeGithubPullRequestOpened ListAutomationsParamsTriggerType = "github_pull_request_opened"
+	ListAutomationsParamsTriggerTypeIncomingWebhook         ListAutomationsParamsTriggerType = "incoming_webhook"
+	ListAutomationsParamsTriggerTypeManual                  ListAutomationsParamsTriggerType = "manual"
+	ListAutomationsParamsTriggerTypeSchedule                ListAutomationsParamsTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the ListAutomationsParamsTriggerType enum.
+func (e ListAutomationsParamsTriggerType) Valid() bool {
+	switch e {
+	case ListAutomationsParamsTriggerTypeGithubPullRequestMerged:
+		return true
+	case ListAutomationsParamsTriggerTypeGithubPullRequestOpened:
+		return true
+	case ListAutomationsParamsTriggerTypeIncomingWebhook:
+		return true
+	case ListAutomationsParamsTriggerTypeManual:
+		return true
+	case ListAutomationsParamsTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListAutomationRunsParamsRunStatus.
+const (
+	ListAutomationRunsParamsRunStatusCancelled ListAutomationRunsParamsRunStatus = "cancelled"
+	ListAutomationRunsParamsRunStatusCompleted ListAutomationRunsParamsRunStatus = "completed"
+	ListAutomationRunsParamsRunStatusFailed    ListAutomationRunsParamsRunStatus = "failed"
+	ListAutomationRunsParamsRunStatusQueued    ListAutomationRunsParamsRunStatus = "queued"
+	ListAutomationRunsParamsRunStatusRunning   ListAutomationRunsParamsRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the ListAutomationRunsParamsRunStatus enum.
+func (e ListAutomationRunsParamsRunStatus) Valid() bool {
+	switch e {
+	case ListAutomationRunsParamsRunStatusCancelled:
+		return true
+	case ListAutomationRunsParamsRunStatusCompleted:
+		return true
+	case ListAutomationRunsParamsRunStatusFailed:
+		return true
+	case ListAutomationRunsParamsRunStatusQueued:
+		return true
+	case ListAutomationRunsParamsRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListAutomationRunsParamsTriggerType.
+const (
+	ListAutomationRunsParamsTriggerTypeGithubPullRequestMerged ListAutomationRunsParamsTriggerType = "github_pull_request_merged"
+	ListAutomationRunsParamsTriggerTypeGithubPullRequestOpened ListAutomationRunsParamsTriggerType = "github_pull_request_opened"
+	ListAutomationRunsParamsTriggerTypeIncomingWebhook         ListAutomationRunsParamsTriggerType = "incoming_webhook"
+	ListAutomationRunsParamsTriggerTypeManual                  ListAutomationRunsParamsTriggerType = "manual"
+	ListAutomationRunsParamsTriggerTypeSchedule                ListAutomationRunsParamsTriggerType = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the ListAutomationRunsParamsTriggerType enum.
+func (e ListAutomationRunsParamsTriggerType) Valid() bool {
+	switch e {
+	case ListAutomationRunsParamsTriggerTypeGithubPullRequestMerged:
+		return true
+	case ListAutomationRunsParamsTriggerTypeGithubPullRequestOpened:
+		return true
+	case ListAutomationRunsParamsTriggerTypeIncomingWebhook:
+		return true
+	case ListAutomationRunsParamsTriggerTypeManual:
+		return true
+	case ListAutomationRunsParamsTriggerTypeSchedule:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSupportRequestMultipartBodyType.
 const (
 	CreateSupportRequestMultipartBodyTypeBug      CreateSupportRequestMultipartBodyType = "bug"
@@ -6754,6 +7177,263 @@ type AutoTopup struct {
 
 	// ThresholdUsd A refill runs when prepaid credit falls below this balance.
 	ThresholdUsd float32 `json:"threshold_usd"`
+}
+
+// AutomationActionTypeResponse defines model for AutomationActionTypeResponse.
+type AutomationActionTypeResponse struct {
+	ActionConfigJsonSchema map[string]JsonValue `json:"action_config_json_schema"`
+	ActionType             string               `json:"action_type"`
+	ProducedResourceType   string               `json:"produced_resource_type"`
+}
+
+// AutomationCreateRequest defines model for AutomationCreateRequest.
+type AutomationCreateRequest struct {
+	ActionConfig RunTestActionConfig                      `json:"action_config"`
+	ActionType   string                                   `json:"action_type"`
+	Description  *string                                  `json:"description,omitempty"`
+	IsEnabled    *bool                                    `json:"is_enabled,omitempty"`
+	Name         string                                   `json:"name"`
+	Triggers     *[]AutomationCreateRequest_Triggers_Item `json:"triggers,omitempty"`
+}
+
+// AutomationCreateRequest_Triggers_Item defines model for AutomationCreateRequest.triggers.Item.
+type AutomationCreateRequest_Triggers_Item struct {
+	union json.RawMessage
+}
+
+// AutomationCreateResponse defines model for AutomationCreateResponse.
+type AutomationCreateResponse struct {
+	Automation          AutomationResponse              `json:"automation"`
+	IncomingWebhookUrls *[]AutomationIncomingWebhookUrl `json:"incoming_webhook_urls,omitempty"`
+}
+
+// AutomationIncomingWebhookUrl defines model for AutomationIncomingWebhookUrl.
+type AutomationIncomingWebhookUrl struct {
+	TriggerId openapi_types.UUID `json:"trigger_id"`
+	Url       string             `json:"url"`
+}
+
+// AutomationLastRunResponse defines model for AutomationLastRunResponse.
+type AutomationLastRunResponse struct {
+	CreatedAt   time.Time                            `json:"created_at"`
+	FinishedAt  *time.Time                           `json:"finished_at"`
+	Id          openapi_types.UUID                   `json:"id"`
+	RunStatus   AutomationLastRunResponseRunStatus   `json:"run_status"`
+	TriggerType AutomationLastRunResponseTriggerType `json:"trigger_type"`
+}
+
+// AutomationLastRunResponseRunStatus defines model for AutomationLastRunResponse.RunStatus.
+type AutomationLastRunResponseRunStatus string
+
+// AutomationLastRunResponseTriggerType defines model for AutomationLastRunResponse.TriggerType.
+type AutomationLastRunResponseTriggerType string
+
+// AutomationListResponse defines model for AutomationListResponse.
+type AutomationListResponse struct {
+	Items      *[]AutomationResponse `json:"items,omitempty"`
+	NextCursor *string               `json:"next_cursor,omitempty"`
+}
+
+// AutomationManualRunResponse defines model for AutomationManualRunResponse.
+type AutomationManualRunResponse struct {
+	ActionConfig            RunTestActionConfig                    `json:"action_config"`
+	ActionType              string                                 `json:"action_type"`
+	AutomationId            openapi_types.UUID                     `json:"automation_id"`
+	AutomationTriggerId     *openapi_types.UUID                    `json:"automation_trigger_id"`
+	CreatedAt               time.Time                              `json:"created_at"`
+	FailureCode             *string                                `json:"failure_code"`
+	FailureMessage          *string                                `json:"failure_message"`
+	FinishedAt              *time.Time                             `json:"finished_at"`
+	Id                      openapi_types.UUID                     `json:"id"`
+	OrgId                   openapi_types.UUID                     `json:"org_id"`
+	Outcome                 AutomationManualRunResponseOutcome     `json:"outcome"`
+	ProducedTestExecutionId *openapi_types.UUID                    `json:"produced_test_execution_id"`
+	RunStatus               AutomationManualRunResponseRunStatus   `json:"run_status"`
+	StartedAt               *time.Time                             `json:"started_at"`
+	TriggerType             AutomationManualRunResponseTriggerType `json:"trigger_type"`
+	UpdatedAt               time.Time                              `json:"updated_at"`
+}
+
+// AutomationManualRunResponseOutcome defines model for AutomationManualRunResponse.Outcome.
+type AutomationManualRunResponseOutcome string
+
+// AutomationManualRunResponseRunStatus defines model for AutomationManualRunResponse.RunStatus.
+type AutomationManualRunResponseRunStatus string
+
+// AutomationManualRunResponseTriggerType defines model for AutomationManualRunResponse.TriggerType.
+type AutomationManualRunResponseTriggerType string
+
+// AutomationPatchRequest defines model for AutomationPatchRequest.
+type AutomationPatchRequest struct {
+	ActionConfig *RunTestActionConfig `json:"action_config,omitempty"`
+	ActionType   *string              `json:"action_type,omitempty"`
+	Description  *string              `json:"description,omitempty"`
+	IsEnabled    *bool                `json:"is_enabled,omitempty"`
+	Name         *string              `json:"name,omitempty"`
+}
+
+// AutomationResponse defines model for AutomationResponse.
+type AutomationResponse struct {
+	ActionConfig    RunTestActionConfig          `json:"action_config"`
+	ActionType      string                       `json:"action_type"`
+	CreatedAt       time.Time                    `json:"created_at"`
+	CreatedByUserId *openapi_types.UUID          `json:"created_by_user_id"`
+	DeletedAt       *time.Time                   `json:"deleted_at"`
+	Description     *string                      `json:"description"`
+	Id              openapi_types.UUID           `json:"id"`
+	IsEnabled       bool                         `json:"is_enabled"`
+	LastRun         *AutomationLastRunResponse   `json:"last_run,omitempty"`
+	Name            string                       `json:"name"`
+	OrgId           openapi_types.UUID           `json:"org_id"`
+	Triggers        *[]AutomationTriggerResponse `json:"triggers,omitempty"`
+	UpdatedAt       time.Time                    `json:"updated_at"`
+}
+
+// AutomationRunDetailResponse defines model for AutomationRunDetailResponse.
+type AutomationRunDetailResponse struct {
+	ActionConfig            RunTestActionConfig                    `json:"action_config"`
+	ActionType              string                                 `json:"action_type"`
+	AutomationId            openapi_types.UUID                     `json:"automation_id"`
+	AutomationName          string                                 `json:"automation_name"`
+	AutomationTriggerId     *openapi_types.UUID                    `json:"automation_trigger_id"`
+	CreatedAt               time.Time                              `json:"created_at"`
+	FailureCode             *string                                `json:"failure_code"`
+	FailureMessage          *string                                `json:"failure_message"`
+	FinishedAt              *time.Time                             `json:"finished_at"`
+	Id                      openapi_types.UUID                     `json:"id"`
+	OrgId                   openapi_types.UUID                     `json:"org_id"`
+	ProducedTestExecutionId *openapi_types.UUID                    `json:"produced_test_execution_id"`
+	RunStatus               AutomationRunDetailResponseRunStatus   `json:"run_status"`
+	StartedAt               *time.Time                             `json:"started_at"`
+	TriggerEvents           *[]AutomationTriggerEventResponse      `json:"trigger_events,omitempty"`
+	TriggerType             AutomationRunDetailResponseTriggerType `json:"trigger_type"`
+	UpdatedAt               time.Time                              `json:"updated_at"`
+}
+
+// AutomationRunDetailResponseRunStatus defines model for AutomationRunDetailResponse.RunStatus.
+type AutomationRunDetailResponseRunStatus string
+
+// AutomationRunDetailResponseTriggerType defines model for AutomationRunDetailResponse.TriggerType.
+type AutomationRunDetailResponseTriggerType string
+
+// AutomationRunListItemResponse defines model for AutomationRunListItemResponse.
+type AutomationRunListItemResponse struct {
+	ActionConfig            RunTestActionConfig                      `json:"action_config"`
+	ActionType              string                                   `json:"action_type"`
+	AutomationId            openapi_types.UUID                       `json:"automation_id"`
+	AutomationName          string                                   `json:"automation_name"`
+	AutomationTriggerId     *openapi_types.UUID                      `json:"automation_trigger_id"`
+	CreatedAt               time.Time                                `json:"created_at"`
+	FailureCode             *string                                  `json:"failure_code"`
+	FailureMessage          *string                                  `json:"failure_message"`
+	FinishedAt              *time.Time                               `json:"finished_at"`
+	Id                      openapi_types.UUID                       `json:"id"`
+	OrgId                   openapi_types.UUID                       `json:"org_id"`
+	ProducedTestExecutionId *openapi_types.UUID                      `json:"produced_test_execution_id"`
+	RunStatus               AutomationRunListItemResponseRunStatus   `json:"run_status"`
+	StartedAt               *time.Time                               `json:"started_at"`
+	TriggerType             AutomationRunListItemResponseTriggerType `json:"trigger_type"`
+	UpdatedAt               time.Time                                `json:"updated_at"`
+}
+
+// AutomationRunListItemResponseRunStatus defines model for AutomationRunListItemResponse.RunStatus.
+type AutomationRunListItemResponseRunStatus string
+
+// AutomationRunListItemResponseTriggerType defines model for AutomationRunListItemResponse.TriggerType.
+type AutomationRunListItemResponseTriggerType string
+
+// AutomationRunListResponse defines model for AutomationRunListResponse.
+type AutomationRunListResponse struct {
+	Items      *[]AutomationRunListItemResponse `json:"items,omitempty"`
+	NextCursor *string                          `json:"next_cursor,omitempty"`
+}
+
+// AutomationTriggerConfigUpdateRequest defines model for AutomationTriggerConfigUpdateRequest.
+type AutomationTriggerConfigUpdateRequest struct {
+	TriggerConfig map[string]JsonValue `json:"trigger_config"`
+}
+
+// AutomationTriggerEventResponse defines model for AutomationTriggerEventResponse.
+type AutomationTriggerEventResponse struct {
+	CreatedAt    time.Time                                 `json:"created_at"`
+	EventPayload JsonValue                                 `json:"event_payload"`
+	TriggerType  AutomationTriggerEventResponseTriggerType `json:"trigger_type"`
+}
+
+// AutomationTriggerEventResponseTriggerType defines model for AutomationTriggerEventResponse.TriggerType.
+type AutomationTriggerEventResponseTriggerType string
+
+// AutomationTriggerMutationResponse defines model for AutomationTriggerMutationResponse.
+type AutomationTriggerMutationResponse struct {
+	AutomationId       openapi_types.UUID                              `json:"automation_id"`
+	CreatedAt          time.Time                                       `json:"created_at"`
+	Id                 openapi_types.UUID                              `json:"id"`
+	IncomingWebhookUrl *string                                         `json:"incoming_webhook_url,omitempty"`
+	NextFireAt         *time.Time                                      `json:"next_fire_at"`
+	OrgId              openapi_types.UUID                              `json:"org_id"`
+	TriggerConfig      AutomationTriggerMutationResponse_TriggerConfig `json:"trigger_config"`
+	TriggerType        AutomationTriggerMutationResponseTriggerType    `json:"trigger_type"`
+	UpdatedAt          time.Time                                       `json:"updated_at"`
+}
+
+// AutomationTriggerMutationResponse_TriggerConfig defines model for AutomationTriggerMutationResponse.TriggerConfig.
+type AutomationTriggerMutationResponse_TriggerConfig struct {
+	union json.RawMessage
+}
+
+// AutomationTriggerMutationResponseTriggerType defines model for AutomationTriggerMutationResponse.TriggerType.
+type AutomationTriggerMutationResponseTriggerType string
+
+// AutomationTriggerResponse defines model for AutomationTriggerResponse.
+type AutomationTriggerResponse struct {
+	AutomationId  openapi_types.UUID                      `json:"automation_id"`
+	CreatedAt     time.Time                               `json:"created_at"`
+	Id            openapi_types.UUID                      `json:"id"`
+	NextFireAt    *time.Time                              `json:"next_fire_at"`
+	OrgId         openapi_types.UUID                      `json:"org_id"`
+	TriggerConfig AutomationTriggerResponse_TriggerConfig `json:"trigger_config"`
+	TriggerType   AutomationTriggerResponseTriggerType    `json:"trigger_type"`
+	UpdatedAt     time.Time                               `json:"updated_at"`
+}
+
+// AutomationTriggerResponse_TriggerConfig defines model for AutomationTriggerResponse.TriggerConfig.
+type AutomationTriggerResponse_TriggerConfig struct {
+	union json.RawMessage
+}
+
+// AutomationTriggerResponseTriggerType defines model for AutomationTriggerResponse.TriggerType.
+type AutomationTriggerResponseTriggerType string
+
+// AutomationTriggerTypeAvailability defines model for AutomationTriggerTypeAvailability.
+type AutomationTriggerTypeAvailability struct {
+	IsAvailable             bool                                         `json:"is_available"`
+	TriggerConfigJsonSchema map[string]JsonValue                         `json:"trigger_config_json_schema"`
+	TriggerType             AutomationTriggerTypeAvailabilityTriggerType `json:"trigger_type"`
+	UnavailableReason       *string                                      `json:"unavailable_reason,omitempty"`
+}
+
+// AutomationTriggerTypeAvailabilityTriggerType defines model for AutomationTriggerTypeAvailability.TriggerType.
+type AutomationTriggerTypeAvailabilityTriggerType string
+
+// AutomationUpdateRequest defines model for AutomationUpdateRequest.
+type AutomationUpdateRequest struct {
+	ActionConfig RunTestActionConfig                      `json:"action_config"`
+	ActionType   string                                   `json:"action_type"`
+	Description  *string                                  `json:"description,omitempty"`
+	IsEnabled    bool                                     `json:"is_enabled"`
+	Name         string                                   `json:"name"`
+	Triggers     *[]AutomationUpdateRequest_Triggers_Item `json:"triggers,omitempty"`
+}
+
+// AutomationUpdateRequest_Triggers_Item defines model for AutomationUpdateRequest.triggers.Item.
+type AutomationUpdateRequest_Triggers_Item struct {
+	union json.RawMessage
+}
+
+// AutomationUpdateResponse defines model for AutomationUpdateResponse.
+type AutomationUpdateResponse struct {
+	Automation          AutomationResponse              `json:"automation"`
+	IncomingWebhookUrls *[]AutomationIncomingWebhookUrl `json:"incoming_webhook_urls,omitempty"`
 }
 
 // BackendCapabilities Optional backend behaviors a client checks for before relying on them.
@@ -9860,6 +10540,42 @@ type GitHubInstallUrlResponse struct {
 	StateToken string `json:"state_token"`
 }
 
+// GithubPullRequestMergedTriggerTypeAndConfig defines model for GithubPullRequestMergedTriggerTypeAndConfig.
+type GithubPullRequestMergedTriggerTypeAndConfig struct {
+	TriggerConfig GithubPullRequestTriggerConfig `json:"trigger_config"`
+	TriggerType   string                         `json:"trigger_type"`
+}
+
+// GithubPullRequestMergedTriggerUpdateTypeAndConfig defines model for GithubPullRequestMergedTriggerUpdateTypeAndConfig.
+type GithubPullRequestMergedTriggerUpdateTypeAndConfig struct {
+	Id            *openapi_types.UUID            `json:"id,omitempty"`
+	TriggerConfig GithubPullRequestTriggerConfig `json:"trigger_config"`
+	TriggerType   string                         `json:"trigger_type"`
+}
+
+// GithubPullRequestOpenedTriggerTypeAndConfig defines model for GithubPullRequestOpenedTriggerTypeAndConfig.
+type GithubPullRequestOpenedTriggerTypeAndConfig struct {
+	TriggerConfig GithubPullRequestTriggerConfig `json:"trigger_config"`
+	TriggerType   string                         `json:"trigger_type"`
+}
+
+// GithubPullRequestOpenedTriggerUpdateTypeAndConfig defines model for GithubPullRequestOpenedTriggerUpdateTypeAndConfig.
+type GithubPullRequestOpenedTriggerUpdateTypeAndConfig struct {
+	Id            *openapi_types.UUID            `json:"id,omitempty"`
+	TriggerConfig GithubPullRequestTriggerConfig `json:"trigger_config"`
+	TriggerType   string                         `json:"trigger_type"`
+}
+
+// GithubPullRequestTriggerConfig defines model for GithubPullRequestTriggerConfig.
+type GithubPullRequestTriggerConfig struct {
+	Filters *[]GithubPullRequestTriggerConfig_Filters_Item `json:"filters,omitempty"`
+}
+
+// GithubPullRequestTriggerConfig_Filters_Item defines model for GithubPullRequestTriggerConfig.filters.Item.
+type GithubPullRequestTriggerConfig_Filters_Item struct {
+	union json.RawMessage
+}
+
 // GitlabConnectRequest defines model for GitlabConnectRequest.
 type GitlabConnectRequest struct {
 	AccessToken *string `json:"access_token,omitempty"`
@@ -10179,6 +10895,25 @@ type IfBlock_ThenChildren_Item struct {
 	union json.RawMessage
 }
 
+// IncomingWebhookTriggerConfig An incoming webhook trigger has no configuration in the first version.
+type IncomingWebhookTriggerConfig = map[string]interface{}
+
+// IncomingWebhookTriggerTypeAndConfig defines model for IncomingWebhookTriggerTypeAndConfig.
+type IncomingWebhookTriggerTypeAndConfig struct {
+	// TriggerConfig An incoming webhook trigger has no configuration in the first version.
+	TriggerConfig IncomingWebhookTriggerConfig `json:"trigger_config"`
+	TriggerType   string                       `json:"trigger_type"`
+}
+
+// IncomingWebhookTriggerUpdateTypeAndConfig defines model for IncomingWebhookTriggerUpdateTypeAndConfig.
+type IncomingWebhookTriggerUpdateTypeAndConfig struct {
+	Id *openapi_types.UUID `json:"id,omitempty"`
+
+	// TriggerConfig An incoming webhook trigger has no configuration in the first version.
+	TriggerConfig IncomingWebhookTriggerConfig `json:"trigger_config"`
+	TriggerType   string                       `json:"trigger_type"`
+}
+
 // IosSigningInputs Install the distribution certificate and make provisioning available.
 //
 // Provisioning comes from uploaded profiles, from Apple through an App Store
@@ -10363,6 +11098,25 @@ type MacShellSession struct {
 // ManualConfigurationSource Accepted manual writer evidence.
 type ManualConfigurationSource struct {
 	Kind string `json:"kind"`
+}
+
+// ManualTriggerConfig A manual trigger has no configuration.
+type ManualTriggerConfig = map[string]interface{}
+
+// ManualTriggerTypeAndConfig defines model for ManualTriggerTypeAndConfig.
+type ManualTriggerTypeAndConfig struct {
+	// TriggerConfig A manual trigger has no configuration.
+	TriggerConfig ManualTriggerConfig `json:"trigger_config"`
+	TriggerType   string              `json:"trigger_type"`
+}
+
+// ManualTriggerUpdateTypeAndConfig defines model for ManualTriggerUpdateTypeAndConfig.
+type ManualTriggerUpdateTypeAndConfig struct {
+	Id *openapi_types.UUID `json:"id,omitempty"`
+
+	// TriggerConfig A manual trigger has no configuration.
+	TriggerConfig ManualTriggerConfig `json:"trigger_config"`
+	TriggerType   string              `json:"trigger_type"`
 }
 
 // MobileTarget Persisted device target for a test (from “test_mobile_targets“).
@@ -11207,6 +11961,30 @@ type ProofRunCreateRequest struct {
 	Prompt  string             `json:"prompt"`
 }
 
+// PullRequestAuthorIsAnyOfFilter defines model for PullRequestAuthorIsAnyOfFilter.
+type PullRequestAuthorIsAnyOfFilter struct {
+	FilterType   string   `json:"filter_type"`
+	GithubLogins []string `json:"github_logins"`
+}
+
+// PullRequestBaseBranchIsAnyOfFilter defines model for PullRequestBaseBranchIsAnyOfFilter.
+type PullRequestBaseBranchIsAnyOfFilter struct {
+	BranchNames []string `json:"branch_names"`
+	FilterType  string   `json:"filter_type"`
+}
+
+// PullRequestHasAnyLabelFilter defines model for PullRequestHasAnyLabelFilter.
+type PullRequestHasAnyLabelFilter struct {
+	FilterType string   `json:"filter_type"`
+	LabelNames []string `json:"label_names"`
+}
+
+// PullRequestRepositoryIsAnyOfFilter defines model for PullRequestRepositoryIsAnyOfFilter.
+type PullRequestRepositoryIsAnyOfFilter struct {
+	FilterType          string   `json:"filter_type"`
+	RepositoryFullNames []string `json:"repository_full_names"`
+}
+
 // RateCardItem defines model for RateCardItem.
 type RateCardItem struct {
 	AutumnFeatureId string  `json:"autumn_feature_id"`
@@ -11861,6 +12639,30 @@ type RunResultCounts struct {
 	PassedCount  int `json:"passed_count"`
 	RunningCount int `json:"running_count"`
 	UnknownCount int `json:"unknown_count"`
+}
+
+// RunTestActionConfig defines model for RunTestActionConfig.
+type RunTestActionConfig struct {
+	TestId openapi_types.UUID `json:"test_id"`
+}
+
+// ScheduleTriggerConfig defines model for ScheduleTriggerConfig.
+type ScheduleTriggerConfig struct {
+	CronExpression string `json:"cron_expression"`
+	IanaTimezone   string `json:"iana_timezone"`
+}
+
+// ScheduleTriggerTypeAndConfig defines model for ScheduleTriggerTypeAndConfig.
+type ScheduleTriggerTypeAndConfig struct {
+	TriggerConfig ScheduleTriggerConfig `json:"trigger_config"`
+	TriggerType   string                `json:"trigger_type"`
+}
+
+// ScheduleTriggerUpdateTypeAndConfig defines model for ScheduleTriggerUpdateTypeAndConfig.
+type ScheduleTriggerUpdateTypeAndConfig struct {
+	Id            *openapi_types.UUID   `json:"id,omitempty"`
+	TriggerConfig ScheduleTriggerConfig `json:"trigger_config"`
+	TriggerType   string                `json:"trigger_type"`
 }
 
 // ScreenComparisonSide defines model for ScreenComparisonSide.
@@ -14202,6 +15004,46 @@ type CreateSessionGroundedAnnotationThreadParams struct {
 	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
 }
 
+// ListAutomationsParams defines parameters for ListAutomations.
+type ListAutomationsParams struct {
+	Limit       *int                                `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor      *string                             `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Search      *string                             `form:"search,omitempty" json:"search,omitempty"`
+	Name        *string                             `form:"name,omitempty" json:"name,omitempty"`
+	IsEnabled   *bool                               `form:"is_enabled,omitempty" json:"is_enabled,omitempty"`
+	TriggerType *[]ListAutomationsParamsTriggerType `form:"trigger_type,omitempty" json:"trigger_type,omitempty"`
+}
+
+// ListAutomationsParamsTriggerType defines parameters for ListAutomations.
+type ListAutomationsParamsTriggerType string
+
+// ListAutomationRunsParams defines parameters for ListAutomationRuns.
+type ListAutomationRunsParams struct {
+	Limit                   *int                                   `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor                  *string                                `form:"cursor,omitempty" json:"cursor,omitempty"`
+	AutomationId            *openapi_types.UUID                    `form:"automation_id,omitempty" json:"automation_id,omitempty"`
+	AutomationTriggerId     *openapi_types.UUID                    `form:"automation_trigger_id,omitempty" json:"automation_trigger_id,omitempty"`
+	ProducedTestExecutionId *openapi_types.UUID                    `form:"produced_test_execution_id,omitempty" json:"produced_test_execution_id,omitempty"`
+	RunStatus               *[]ListAutomationRunsParamsRunStatus   `form:"run_status,omitempty" json:"run_status,omitempty"`
+	TriggerType             *[]ListAutomationRunsParamsTriggerType `form:"trigger_type,omitempty" json:"trigger_type,omitempty"`
+}
+
+// ListAutomationRunsParamsRunStatus defines parameters for ListAutomationRuns.
+type ListAutomationRunsParamsRunStatus string
+
+// ListAutomationRunsParamsTriggerType defines parameters for ListAutomationRuns.
+type ListAutomationRunsParamsTriggerType string
+
+// RunAutomationParams defines parameters for RunAutomation.
+type RunAutomationParams struct {
+	IdempotencyKey *string `json:"Idempotency-Key,omitempty"`
+}
+
+// CreateAutomationTriggerJSONBody defines parameters for CreateAutomationTrigger.
+type CreateAutomationTriggerJSONBody struct {
+	union json.RawMessage
+}
+
 // ListComputerRunsApiV1ComputerRunsGetParams defines parameters for ListComputerRunsApiV1ComputerRunsGet.
 type ListComputerRunsApiV1ComputerRunsGetParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -14751,6 +15593,21 @@ type PreviewSessionAtlasAnnotationAnchorJSONRequestBody = AtlasSessionAnnotation
 
 // CreateSessionGroundedAnnotationThreadJSONRequestBody defines body for CreateSessionGroundedAnnotationThread for application/json ContentType.
 type CreateSessionGroundedAnnotationThreadJSONRequestBody = AtlasSessionGroundedAnnotationThreadCreateRequest
+
+// CreateAutomationJSONRequestBody defines body for CreateAutomation for application/json ContentType.
+type CreateAutomationJSONRequestBody = AutomationCreateRequest
+
+// PatchAutomationTriggerJSONRequestBody defines body for PatchAutomationTrigger for application/json ContentType.
+type PatchAutomationTriggerJSONRequestBody = AutomationTriggerConfigUpdateRequest
+
+// PatchAutomationJSONRequestBody defines body for PatchAutomation for application/json ContentType.
+type PatchAutomationJSONRequestBody = AutomationPatchRequest
+
+// UpdateAutomationJSONRequestBody defines body for UpdateAutomation for application/json ContentType.
+type UpdateAutomationJSONRequestBody = AutomationUpdateRequest
+
+// CreateAutomationTriggerJSONRequestBody defines body for CreateAutomationTrigger for application/json ContentType.
+type CreateAutomationTriggerJSONRequestBody CreateAutomationTriggerJSONBody
 
 // CreateComputerRunApiV1ComputerRunsPostJSONRequestBody defines body for CreateComputerRunApiV1ComputerRunsPost for application/json ContentType.
 type CreateComputerRunApiV1ComputerRunsPostJSONRequestBody = ComputerRunCreate
@@ -18221,6 +19078,592 @@ func (t *AuthoredWebRecipe_SetupCommands_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsScheduleTriggerTypeAndConfig returns the union data inside the AutomationCreateRequest_Triggers_Item as a ScheduleTriggerTypeAndConfig
+func (t AutomationCreateRequest_Triggers_Item) AsScheduleTriggerTypeAndConfig() (ScheduleTriggerTypeAndConfig, error) {
+	var body ScheduleTriggerTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScheduleTriggerTypeAndConfig overwrites any union data inside the AutomationCreateRequest_Triggers_Item as the provided ScheduleTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) FromScheduleTriggerTypeAndConfig(v ScheduleTriggerTypeAndConfig) error {
+	v.TriggerType = "schedule"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScheduleTriggerTypeAndConfig performs a merge with any union data inside the AutomationCreateRequest_Triggers_Item, using the provided ScheduleTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) MergeScheduleTriggerTypeAndConfig(v ScheduleTriggerTypeAndConfig) error {
+	v.TriggerType = "schedule"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsManualTriggerTypeAndConfig returns the union data inside the AutomationCreateRequest_Triggers_Item as a ManualTriggerTypeAndConfig
+func (t AutomationCreateRequest_Triggers_Item) AsManualTriggerTypeAndConfig() (ManualTriggerTypeAndConfig, error) {
+	var body ManualTriggerTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromManualTriggerTypeAndConfig overwrites any union data inside the AutomationCreateRequest_Triggers_Item as the provided ManualTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) FromManualTriggerTypeAndConfig(v ManualTriggerTypeAndConfig) error {
+	v.TriggerType = "manual"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeManualTriggerTypeAndConfig performs a merge with any union data inside the AutomationCreateRequest_Triggers_Item, using the provided ManualTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) MergeManualTriggerTypeAndConfig(v ManualTriggerTypeAndConfig) error {
+	v.TriggerType = "manual"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsIncomingWebhookTriggerTypeAndConfig returns the union data inside the AutomationCreateRequest_Triggers_Item as a IncomingWebhookTriggerTypeAndConfig
+func (t AutomationCreateRequest_Triggers_Item) AsIncomingWebhookTriggerTypeAndConfig() (IncomingWebhookTriggerTypeAndConfig, error) {
+	var body IncomingWebhookTriggerTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIncomingWebhookTriggerTypeAndConfig overwrites any union data inside the AutomationCreateRequest_Triggers_Item as the provided IncomingWebhookTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) FromIncomingWebhookTriggerTypeAndConfig(v IncomingWebhookTriggerTypeAndConfig) error {
+	v.TriggerType = "incoming_webhook"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIncomingWebhookTriggerTypeAndConfig performs a merge with any union data inside the AutomationCreateRequest_Triggers_Item, using the provided IncomingWebhookTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) MergeIncomingWebhookTriggerTypeAndConfig(v IncomingWebhookTriggerTypeAndConfig) error {
+	v.TriggerType = "incoming_webhook"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGithubPullRequestMergedTriggerTypeAndConfig returns the union data inside the AutomationCreateRequest_Triggers_Item as a GithubPullRequestMergedTriggerTypeAndConfig
+func (t AutomationCreateRequest_Triggers_Item) AsGithubPullRequestMergedTriggerTypeAndConfig() (GithubPullRequestMergedTriggerTypeAndConfig, error) {
+	var body GithubPullRequestMergedTriggerTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGithubPullRequestMergedTriggerTypeAndConfig overwrites any union data inside the AutomationCreateRequest_Triggers_Item as the provided GithubPullRequestMergedTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) FromGithubPullRequestMergedTriggerTypeAndConfig(v GithubPullRequestMergedTriggerTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_merged"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGithubPullRequestMergedTriggerTypeAndConfig performs a merge with any union data inside the AutomationCreateRequest_Triggers_Item, using the provided GithubPullRequestMergedTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) MergeGithubPullRequestMergedTriggerTypeAndConfig(v GithubPullRequestMergedTriggerTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_merged"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGithubPullRequestOpenedTriggerTypeAndConfig returns the union data inside the AutomationCreateRequest_Triggers_Item as a GithubPullRequestOpenedTriggerTypeAndConfig
+func (t AutomationCreateRequest_Triggers_Item) AsGithubPullRequestOpenedTriggerTypeAndConfig() (GithubPullRequestOpenedTriggerTypeAndConfig, error) {
+	var body GithubPullRequestOpenedTriggerTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGithubPullRequestOpenedTriggerTypeAndConfig overwrites any union data inside the AutomationCreateRequest_Triggers_Item as the provided GithubPullRequestOpenedTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) FromGithubPullRequestOpenedTriggerTypeAndConfig(v GithubPullRequestOpenedTriggerTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_opened"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGithubPullRequestOpenedTriggerTypeAndConfig performs a merge with any union data inside the AutomationCreateRequest_Triggers_Item, using the provided GithubPullRequestOpenedTriggerTypeAndConfig
+func (t *AutomationCreateRequest_Triggers_Item) MergeGithubPullRequestOpenedTriggerTypeAndConfig(v GithubPullRequestOpenedTriggerTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_opened"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AutomationCreateRequest_Triggers_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"trigger_type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AutomationCreateRequest_Triggers_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "github_pull_request_merged":
+		return t.AsGithubPullRequestMergedTriggerTypeAndConfig()
+	case "github_pull_request_opened":
+		return t.AsGithubPullRequestOpenedTriggerTypeAndConfig()
+	case "incoming_webhook":
+		return t.AsIncomingWebhookTriggerTypeAndConfig()
+	case "manual":
+		return t.AsManualTriggerTypeAndConfig()
+	case "schedule":
+		return t.AsScheduleTriggerTypeAndConfig()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AutomationCreateRequest_Triggers_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AutomationCreateRequest_Triggers_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsScheduleTriggerConfig returns the union data inside the AutomationTriggerMutationResponse_TriggerConfig as a ScheduleTriggerConfig
+func (t AutomationTriggerMutationResponse_TriggerConfig) AsScheduleTriggerConfig() (ScheduleTriggerConfig, error) {
+	var body ScheduleTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScheduleTriggerConfig overwrites any union data inside the AutomationTriggerMutationResponse_TriggerConfig as the provided ScheduleTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) FromScheduleTriggerConfig(v ScheduleTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScheduleTriggerConfig performs a merge with any union data inside the AutomationTriggerMutationResponse_TriggerConfig, using the provided ScheduleTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) MergeScheduleTriggerConfig(v ScheduleTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsManualTriggerConfig returns the union data inside the AutomationTriggerMutationResponse_TriggerConfig as a ManualTriggerConfig
+func (t AutomationTriggerMutationResponse_TriggerConfig) AsManualTriggerConfig() (ManualTriggerConfig, error) {
+	var body ManualTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromManualTriggerConfig overwrites any union data inside the AutomationTriggerMutationResponse_TriggerConfig as the provided ManualTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) FromManualTriggerConfig(v ManualTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeManualTriggerConfig performs a merge with any union data inside the AutomationTriggerMutationResponse_TriggerConfig, using the provided ManualTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) MergeManualTriggerConfig(v ManualTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsIncomingWebhookTriggerConfig returns the union data inside the AutomationTriggerMutationResponse_TriggerConfig as a IncomingWebhookTriggerConfig
+func (t AutomationTriggerMutationResponse_TriggerConfig) AsIncomingWebhookTriggerConfig() (IncomingWebhookTriggerConfig, error) {
+	var body IncomingWebhookTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIncomingWebhookTriggerConfig overwrites any union data inside the AutomationTriggerMutationResponse_TriggerConfig as the provided IncomingWebhookTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) FromIncomingWebhookTriggerConfig(v IncomingWebhookTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIncomingWebhookTriggerConfig performs a merge with any union data inside the AutomationTriggerMutationResponse_TriggerConfig, using the provided IncomingWebhookTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) MergeIncomingWebhookTriggerConfig(v IncomingWebhookTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGithubPullRequestTriggerConfig returns the union data inside the AutomationTriggerMutationResponse_TriggerConfig as a GithubPullRequestTriggerConfig
+func (t AutomationTriggerMutationResponse_TriggerConfig) AsGithubPullRequestTriggerConfig() (GithubPullRequestTriggerConfig, error) {
+	var body GithubPullRequestTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGithubPullRequestTriggerConfig overwrites any union data inside the AutomationTriggerMutationResponse_TriggerConfig as the provided GithubPullRequestTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) FromGithubPullRequestTriggerConfig(v GithubPullRequestTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGithubPullRequestTriggerConfig performs a merge with any union data inside the AutomationTriggerMutationResponse_TriggerConfig, using the provided GithubPullRequestTriggerConfig
+func (t *AutomationTriggerMutationResponse_TriggerConfig) MergeGithubPullRequestTriggerConfig(v GithubPullRequestTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AutomationTriggerMutationResponse_TriggerConfig) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AutomationTriggerMutationResponse_TriggerConfig) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsScheduleTriggerConfig returns the union data inside the AutomationTriggerResponse_TriggerConfig as a ScheduleTriggerConfig
+func (t AutomationTriggerResponse_TriggerConfig) AsScheduleTriggerConfig() (ScheduleTriggerConfig, error) {
+	var body ScheduleTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScheduleTriggerConfig overwrites any union data inside the AutomationTriggerResponse_TriggerConfig as the provided ScheduleTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) FromScheduleTriggerConfig(v ScheduleTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScheduleTriggerConfig performs a merge with any union data inside the AutomationTriggerResponse_TriggerConfig, using the provided ScheduleTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) MergeScheduleTriggerConfig(v ScheduleTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsManualTriggerConfig returns the union data inside the AutomationTriggerResponse_TriggerConfig as a ManualTriggerConfig
+func (t AutomationTriggerResponse_TriggerConfig) AsManualTriggerConfig() (ManualTriggerConfig, error) {
+	var body ManualTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromManualTriggerConfig overwrites any union data inside the AutomationTriggerResponse_TriggerConfig as the provided ManualTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) FromManualTriggerConfig(v ManualTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeManualTriggerConfig performs a merge with any union data inside the AutomationTriggerResponse_TriggerConfig, using the provided ManualTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) MergeManualTriggerConfig(v ManualTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsIncomingWebhookTriggerConfig returns the union data inside the AutomationTriggerResponse_TriggerConfig as a IncomingWebhookTriggerConfig
+func (t AutomationTriggerResponse_TriggerConfig) AsIncomingWebhookTriggerConfig() (IncomingWebhookTriggerConfig, error) {
+	var body IncomingWebhookTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIncomingWebhookTriggerConfig overwrites any union data inside the AutomationTriggerResponse_TriggerConfig as the provided IncomingWebhookTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) FromIncomingWebhookTriggerConfig(v IncomingWebhookTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIncomingWebhookTriggerConfig performs a merge with any union data inside the AutomationTriggerResponse_TriggerConfig, using the provided IncomingWebhookTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) MergeIncomingWebhookTriggerConfig(v IncomingWebhookTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGithubPullRequestTriggerConfig returns the union data inside the AutomationTriggerResponse_TriggerConfig as a GithubPullRequestTriggerConfig
+func (t AutomationTriggerResponse_TriggerConfig) AsGithubPullRequestTriggerConfig() (GithubPullRequestTriggerConfig, error) {
+	var body GithubPullRequestTriggerConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGithubPullRequestTriggerConfig overwrites any union data inside the AutomationTriggerResponse_TriggerConfig as the provided GithubPullRequestTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) FromGithubPullRequestTriggerConfig(v GithubPullRequestTriggerConfig) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGithubPullRequestTriggerConfig performs a merge with any union data inside the AutomationTriggerResponse_TriggerConfig, using the provided GithubPullRequestTriggerConfig
+func (t *AutomationTriggerResponse_TriggerConfig) MergeGithubPullRequestTriggerConfig(v GithubPullRequestTriggerConfig) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AutomationTriggerResponse_TriggerConfig) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AutomationTriggerResponse_TriggerConfig) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsScheduleTriggerUpdateTypeAndConfig returns the union data inside the AutomationUpdateRequest_Triggers_Item as a ScheduleTriggerUpdateTypeAndConfig
+func (t AutomationUpdateRequest_Triggers_Item) AsScheduleTriggerUpdateTypeAndConfig() (ScheduleTriggerUpdateTypeAndConfig, error) {
+	var body ScheduleTriggerUpdateTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScheduleTriggerUpdateTypeAndConfig overwrites any union data inside the AutomationUpdateRequest_Triggers_Item as the provided ScheduleTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) FromScheduleTriggerUpdateTypeAndConfig(v ScheduleTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "schedule"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScheduleTriggerUpdateTypeAndConfig performs a merge with any union data inside the AutomationUpdateRequest_Triggers_Item, using the provided ScheduleTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) MergeScheduleTriggerUpdateTypeAndConfig(v ScheduleTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "schedule"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsManualTriggerUpdateTypeAndConfig returns the union data inside the AutomationUpdateRequest_Triggers_Item as a ManualTriggerUpdateTypeAndConfig
+func (t AutomationUpdateRequest_Triggers_Item) AsManualTriggerUpdateTypeAndConfig() (ManualTriggerUpdateTypeAndConfig, error) {
+	var body ManualTriggerUpdateTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromManualTriggerUpdateTypeAndConfig overwrites any union data inside the AutomationUpdateRequest_Triggers_Item as the provided ManualTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) FromManualTriggerUpdateTypeAndConfig(v ManualTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "manual"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeManualTriggerUpdateTypeAndConfig performs a merge with any union data inside the AutomationUpdateRequest_Triggers_Item, using the provided ManualTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) MergeManualTriggerUpdateTypeAndConfig(v ManualTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "manual"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsIncomingWebhookTriggerUpdateTypeAndConfig returns the union data inside the AutomationUpdateRequest_Triggers_Item as a IncomingWebhookTriggerUpdateTypeAndConfig
+func (t AutomationUpdateRequest_Triggers_Item) AsIncomingWebhookTriggerUpdateTypeAndConfig() (IncomingWebhookTriggerUpdateTypeAndConfig, error) {
+	var body IncomingWebhookTriggerUpdateTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIncomingWebhookTriggerUpdateTypeAndConfig overwrites any union data inside the AutomationUpdateRequest_Triggers_Item as the provided IncomingWebhookTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) FromIncomingWebhookTriggerUpdateTypeAndConfig(v IncomingWebhookTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "incoming_webhook"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIncomingWebhookTriggerUpdateTypeAndConfig performs a merge with any union data inside the AutomationUpdateRequest_Triggers_Item, using the provided IncomingWebhookTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) MergeIncomingWebhookTriggerUpdateTypeAndConfig(v IncomingWebhookTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "incoming_webhook"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGithubPullRequestMergedTriggerUpdateTypeAndConfig returns the union data inside the AutomationUpdateRequest_Triggers_Item as a GithubPullRequestMergedTriggerUpdateTypeAndConfig
+func (t AutomationUpdateRequest_Triggers_Item) AsGithubPullRequestMergedTriggerUpdateTypeAndConfig() (GithubPullRequestMergedTriggerUpdateTypeAndConfig, error) {
+	var body GithubPullRequestMergedTriggerUpdateTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGithubPullRequestMergedTriggerUpdateTypeAndConfig overwrites any union data inside the AutomationUpdateRequest_Triggers_Item as the provided GithubPullRequestMergedTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) FromGithubPullRequestMergedTriggerUpdateTypeAndConfig(v GithubPullRequestMergedTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_merged"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGithubPullRequestMergedTriggerUpdateTypeAndConfig performs a merge with any union data inside the AutomationUpdateRequest_Triggers_Item, using the provided GithubPullRequestMergedTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) MergeGithubPullRequestMergedTriggerUpdateTypeAndConfig(v GithubPullRequestMergedTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_merged"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGithubPullRequestOpenedTriggerUpdateTypeAndConfig returns the union data inside the AutomationUpdateRequest_Triggers_Item as a GithubPullRequestOpenedTriggerUpdateTypeAndConfig
+func (t AutomationUpdateRequest_Triggers_Item) AsGithubPullRequestOpenedTriggerUpdateTypeAndConfig() (GithubPullRequestOpenedTriggerUpdateTypeAndConfig, error) {
+	var body GithubPullRequestOpenedTriggerUpdateTypeAndConfig
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGithubPullRequestOpenedTriggerUpdateTypeAndConfig overwrites any union data inside the AutomationUpdateRequest_Triggers_Item as the provided GithubPullRequestOpenedTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) FromGithubPullRequestOpenedTriggerUpdateTypeAndConfig(v GithubPullRequestOpenedTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_opened"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGithubPullRequestOpenedTriggerUpdateTypeAndConfig performs a merge with any union data inside the AutomationUpdateRequest_Triggers_Item, using the provided GithubPullRequestOpenedTriggerUpdateTypeAndConfig
+func (t *AutomationUpdateRequest_Triggers_Item) MergeGithubPullRequestOpenedTriggerUpdateTypeAndConfig(v GithubPullRequestOpenedTriggerUpdateTypeAndConfig) error {
+	v.TriggerType = "github_pull_request_opened"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AutomationUpdateRequest_Triggers_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"trigger_type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AutomationUpdateRequest_Triggers_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "github_pull_request_merged":
+		return t.AsGithubPullRequestMergedTriggerUpdateTypeAndConfig()
+	case "github_pull_request_opened":
+		return t.AsGithubPullRequestOpenedTriggerUpdateTypeAndConfig()
+	case "incoming_webhook":
+		return t.AsIncomingWebhookTriggerUpdateTypeAndConfig()
+	case "manual":
+		return t.AsManualTriggerUpdateTypeAndConfig()
+	case "schedule":
+		return t.AsScheduleTriggerUpdateTypeAndConfig()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AutomationUpdateRequest_Triggers_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AutomationUpdateRequest_Triggers_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsActionBlock returns the union data inside the BlocksCreationRequest_Blocks_Item as a ActionBlock
 func (t BlocksCreationRequest_Blocks_Item) AsActionBlock() (ActionBlock, error) {
 	var body ActionBlock
@@ -19913,6 +21356,155 @@ func (t ComputerSucceeded_Result) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ComputerSucceeded_Result) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsPullRequestRepositoryIsAnyOfFilter returns the union data inside the GithubPullRequestTriggerConfig_Filters_Item as a PullRequestRepositoryIsAnyOfFilter
+func (t GithubPullRequestTriggerConfig_Filters_Item) AsPullRequestRepositoryIsAnyOfFilter() (PullRequestRepositoryIsAnyOfFilter, error) {
+	var body PullRequestRepositoryIsAnyOfFilter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPullRequestRepositoryIsAnyOfFilter overwrites any union data inside the GithubPullRequestTriggerConfig_Filters_Item as the provided PullRequestRepositoryIsAnyOfFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) FromPullRequestRepositoryIsAnyOfFilter(v PullRequestRepositoryIsAnyOfFilter) error {
+	v.FilterType = "pull_request_repository_is_any_of"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePullRequestRepositoryIsAnyOfFilter performs a merge with any union data inside the GithubPullRequestTriggerConfig_Filters_Item, using the provided PullRequestRepositoryIsAnyOfFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) MergePullRequestRepositoryIsAnyOfFilter(v PullRequestRepositoryIsAnyOfFilter) error {
+	v.FilterType = "pull_request_repository_is_any_of"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPullRequestBaseBranchIsAnyOfFilter returns the union data inside the GithubPullRequestTriggerConfig_Filters_Item as a PullRequestBaseBranchIsAnyOfFilter
+func (t GithubPullRequestTriggerConfig_Filters_Item) AsPullRequestBaseBranchIsAnyOfFilter() (PullRequestBaseBranchIsAnyOfFilter, error) {
+	var body PullRequestBaseBranchIsAnyOfFilter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPullRequestBaseBranchIsAnyOfFilter overwrites any union data inside the GithubPullRequestTriggerConfig_Filters_Item as the provided PullRequestBaseBranchIsAnyOfFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) FromPullRequestBaseBranchIsAnyOfFilter(v PullRequestBaseBranchIsAnyOfFilter) error {
+	v.FilterType = "pull_request_base_branch_is_any_of"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePullRequestBaseBranchIsAnyOfFilter performs a merge with any union data inside the GithubPullRequestTriggerConfig_Filters_Item, using the provided PullRequestBaseBranchIsAnyOfFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) MergePullRequestBaseBranchIsAnyOfFilter(v PullRequestBaseBranchIsAnyOfFilter) error {
+	v.FilterType = "pull_request_base_branch_is_any_of"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPullRequestAuthorIsAnyOfFilter returns the union data inside the GithubPullRequestTriggerConfig_Filters_Item as a PullRequestAuthorIsAnyOfFilter
+func (t GithubPullRequestTriggerConfig_Filters_Item) AsPullRequestAuthorIsAnyOfFilter() (PullRequestAuthorIsAnyOfFilter, error) {
+	var body PullRequestAuthorIsAnyOfFilter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPullRequestAuthorIsAnyOfFilter overwrites any union data inside the GithubPullRequestTriggerConfig_Filters_Item as the provided PullRequestAuthorIsAnyOfFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) FromPullRequestAuthorIsAnyOfFilter(v PullRequestAuthorIsAnyOfFilter) error {
+	v.FilterType = "pull_request_author_is_any_of"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePullRequestAuthorIsAnyOfFilter performs a merge with any union data inside the GithubPullRequestTriggerConfig_Filters_Item, using the provided PullRequestAuthorIsAnyOfFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) MergePullRequestAuthorIsAnyOfFilter(v PullRequestAuthorIsAnyOfFilter) error {
+	v.FilterType = "pull_request_author_is_any_of"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPullRequestHasAnyLabelFilter returns the union data inside the GithubPullRequestTriggerConfig_Filters_Item as a PullRequestHasAnyLabelFilter
+func (t GithubPullRequestTriggerConfig_Filters_Item) AsPullRequestHasAnyLabelFilter() (PullRequestHasAnyLabelFilter, error) {
+	var body PullRequestHasAnyLabelFilter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPullRequestHasAnyLabelFilter overwrites any union data inside the GithubPullRequestTriggerConfig_Filters_Item as the provided PullRequestHasAnyLabelFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) FromPullRequestHasAnyLabelFilter(v PullRequestHasAnyLabelFilter) error {
+	v.FilterType = "pull_request_has_any_label"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePullRequestHasAnyLabelFilter performs a merge with any union data inside the GithubPullRequestTriggerConfig_Filters_Item, using the provided PullRequestHasAnyLabelFilter
+func (t *GithubPullRequestTriggerConfig_Filters_Item) MergePullRequestHasAnyLabelFilter(v PullRequestHasAnyLabelFilter) error {
+	v.FilterType = "pull_request_has_any_label"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t GithubPullRequestTriggerConfig_Filters_Item) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"filter_type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t GithubPullRequestTriggerConfig_Filters_Item) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "pull_request_author_is_any_of":
+		return t.AsPullRequestAuthorIsAnyOfFilter()
+	case "pull_request_base_branch_is_any_of":
+		return t.AsPullRequestBaseBranchIsAnyOfFilter()
+	case "pull_request_has_any_label":
+		return t.AsPullRequestHasAnyLabelFilter()
+	case "pull_request_repository_is_any_of":
+		return t.AsPullRequestRepositoryIsAnyOfFilter()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t GithubPullRequestTriggerConfig_Filters_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *GithubPullRequestTriggerConfig_Filters_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

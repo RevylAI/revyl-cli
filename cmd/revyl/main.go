@@ -199,6 +199,7 @@ func init() {
 	rootCmd.AddCommand(newReportCommand())
 	rootCmd.AddCommand(proofCmd)
 	rootCmd.AddCommand(newAgentCommand())
+	rootCmd.AddCommand(newAutomationCommand())
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(gitlabCmd)
