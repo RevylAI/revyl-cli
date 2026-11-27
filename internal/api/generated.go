@@ -4544,20 +4544,26 @@ func (e SessionProfileInstructionKind) Valid() bool {
 
 // Defines values for SessionProfileReportOutcome.
 const (
-	SessionProfileReportOutcomeOutputInvalid     SessionProfileReportOutcome = "output_invalid"
-	SessionProfileReportOutcomeRunnerFailed      SessionProfileReportOutcome = "runner_failed"
-	SessionProfileReportOutcomeScriptFailed      SessionProfileReportOutcome = "script_failed"
-	SessionProfileReportOutcomeScriptTimedOut    SessionProfileReportOutcome = "script_timed_out"
-	SessionProfileReportOutcomeScriptUnavailable SessionProfileReportOutcome = "script_unavailable"
-	SessionProfileReportOutcomeSucceeded         SessionProfileReportOutcome = "succeeded"
+	SessionProfileReportOutcomeCancelledBeforeScriptExecution SessionProfileReportOutcome = "cancelled_before_script_execution"
+	SessionProfileReportOutcomeOutputInvalid                  SessionProfileReportOutcome = "output_invalid"
+	SessionProfileReportOutcomeRunnerFailed                   SessionProfileReportOutcome = "runner_failed"
+	SessionProfileReportOutcomeScriptExecutionUnknown         SessionProfileReportOutcome = "script_execution_unknown"
+	SessionProfileReportOutcomeScriptFailed                   SessionProfileReportOutcome = "script_failed"
+	SessionProfileReportOutcomeScriptTimedOut                 SessionProfileReportOutcome = "script_timed_out"
+	SessionProfileReportOutcomeScriptUnavailable              SessionProfileReportOutcome = "script_unavailable"
+	SessionProfileReportOutcomeSucceeded                      SessionProfileReportOutcome = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the SessionProfileReportOutcome enum.
 func (e SessionProfileReportOutcome) Valid() bool {
 	switch e {
+	case SessionProfileReportOutcomeCancelledBeforeScriptExecution:
+		return true
 	case SessionProfileReportOutcomeOutputInvalid:
 		return true
 	case SessionProfileReportOutcomeRunnerFailed:
+		return true
+	case SessionProfileReportOutcomeScriptExecutionUnknown:
 		return true
 	case SessionProfileReportOutcomeScriptFailed:
 		return true
@@ -13008,12 +13014,12 @@ type SessionProfileReport struct {
 	MissingGitBranchName *string `json:"missing_git_branch_name,omitempty"`
 	Name                 string  `json:"name"`
 
-	// Outcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.
+	// Outcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, runner_failed a failure on Revyl's side or of the checkout, script_execution_unknown a runner lost after the script was allowed to run, so whether it ran is unknown, and cancelled_before_script_execution a session that ended before the script ran.
 	Outcome *SessionProfileReportOutcome `json:"outcome,omitempty"`
 	Status  SessionProfileReportStatus   `json:"status"`
 }
 
-// SessionProfileReportOutcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, and runner_failed a failure on Revyl's side or of the checkout.
+// SessionProfileReportOutcome Once the run has ended, how: script_failed is a nonzero exit, script_timed_out the script's time limit, script_unavailable a missing script or project root at the commit, output_invalid an output file that broke a rule, runner_failed a failure on Revyl's side or of the checkout, script_execution_unknown a runner lost after the script was allowed to run, so whether it ran is unknown, and cancelled_before_script_execution a session that ended before the script ran.
 type SessionProfileReportOutcome string
 
 // SessionProfileReportStatus defines model for SessionProfileReport.Status.
