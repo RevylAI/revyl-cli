@@ -1,7 +1,7 @@
 {
   "name": "revyl-cli",
   "displayName": "Revyl CLI",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "description": "Check app changes on Revyl's web browsers, iOS simulators, Android emulators and macOS computers through the Revyl CLI, with screenshots and step results as evidence and Atlas as the record.",
   "author": {
     "name": "Revyl",

@@ -2,7 +2,7 @@
   "name": "revyl",
   "displayName": "Revyl",
   "description": "Installs the Revyl CLI and signs you in so Cursor can check app changes on web browsers, iOS simulators, Android emulators and macOS computers, and query Atlas for what earlier sessions saw.",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai"
