@@ -212,7 +212,7 @@ func confirmUploadDestination(t *testing.T, upload uploadBuildModel, fixture *up
 	if session.Version != "reviewed_version" || completion.Version != session.Version || session.FileName != "app.apk" || fixture.artifactBodies[0] != "artifact" || completion.UploadId.String() != pickerBuildID {
 		t.Errorf("upload identity changed: session=%#v, completion=%#v, artifact=%q", session, completion, fixture.artifactBodies)
 	}
-	if completion.Metadata == nil || (*completion.Metadata)["source"] != "cli_upload" {
+	if completion.Metadata == nil || completion.Metadata.AdditionalProperties["source"] != "cli_upload" {
 		t.Errorf("upload metadata changed: %#v", completion)
 	}
 	for _, field := range []string{"pin", "set_as_current"} {

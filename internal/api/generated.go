@@ -1038,6 +1038,24 @@ func (e BuildConfigPlatform) Valid() bool {
 	}
 }
 
+// Defines values for BuildCreateFromUploadRequestMetadataScmProvider.
+const (
+	BuildCreateFromUploadRequestMetadataScmProviderGithub BuildCreateFromUploadRequestMetadataScmProvider = "github"
+	BuildCreateFromUploadRequestMetadataScmProviderGitlab BuildCreateFromUploadRequestMetadataScmProvider = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the BuildCreateFromUploadRequestMetadataScmProvider enum.
+func (e BuildCreateFromUploadRequestMetadataScmProvider) Valid() bool {
+	switch e {
+	case BuildCreateFromUploadRequestMetadataScmProviderGithub:
+		return true
+	case BuildCreateFromUploadRequestMetadataScmProviderGitlab:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildPromoEligibilityReason.
 const (
 	BuildPromoEligibilityReasonBillingExempt  BuildPromoEligibilityReason = "billing_exempt"
@@ -1107,6 +1125,36 @@ func (e BuildResolutionResponseResolutionStatus) Valid() bool {
 	case BuildResolutionResponseResolutionStatusNoCompatibleBuild:
 		return true
 	case BuildResolutionResponseResolutionStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BuildReviewCorrelationStatus.
+const (
+	BuildReviewCorrelationStatusAmbiguousReview BuildReviewCorrelationStatus = "ambiguous_review"
+	BuildReviewCorrelationStatusAssociated      BuildReviewCorrelationStatus = "associated"
+	BuildReviewCorrelationStatusClosedReview    BuildReviewCorrelationStatus = "closed_review"
+	BuildReviewCorrelationStatusNotOwned        BuildReviewCorrelationStatus = "not_owned"
+	BuildReviewCorrelationStatusStaleReview     BuildReviewCorrelationStatus = "stale_review"
+	BuildReviewCorrelationStatusUnmatched       BuildReviewCorrelationStatus = "unmatched"
+)
+
+// Valid indicates whether the value is a known member of the BuildReviewCorrelationStatus enum.
+func (e BuildReviewCorrelationStatus) Valid() bool {
+	switch e {
+	case BuildReviewCorrelationStatusAmbiguousReview:
+		return true
+	case BuildReviewCorrelationStatusAssociated:
+		return true
+	case BuildReviewCorrelationStatusClosedReview:
+		return true
+	case BuildReviewCorrelationStatusNotOwned:
+		return true
+	case BuildReviewCorrelationStatusStaleReview:
+		return true
+	case BuildReviewCorrelationStatusUnmatched:
 		return true
 	default:
 		return false
@@ -7814,10 +7862,12 @@ type BuildConfigPlatform string
 
 // BuildCreateFromUploadRequest Request to create a build from a completed staging upload.
 type BuildCreateFromUploadRequest struct {
-	BranchId      *openapi_types.UUID     `json:"branch_id,omitempty"`
-	BranchName    *string                 `json:"branch_name,omitempty"`
-	GitBranchName *string                 `json:"git_branch_name,omitempty"`
-	Metadata      *map[string]interface{} `json:"metadata,omitempty"`
+	BranchId      *openapi_types.UUID `json:"branch_id,omitempty"`
+	BranchName    *string             `json:"branch_name,omitempty"`
+	GitBranchName *string             `json:"git_branch_name,omitempty"`
+
+	// Metadata Build metadata, stored on the build apart from keys the route sets itself. Its SCM identity keys are declared and stored normalized; any other key is allowed. A build upload can name the pull or merge request whose proof it serves. The identity comes from X-CI-* headers or from the SCM keys of `metadata`. Headers count only when X-CI-System is `github-actions` (provider `github`) or `gitlab-ci` (provider `gitlab`) and X-CI-Repository and X-CI-Commit-SHA are both set; any other X-CI-System value, `external` included, sets no provider and the headers contribute nothing. Metadata counts when `metadata.scm_provider` is set, and is the supported path outside GitHub Actions and GitLab CI. When both count, each key the headers derive overrides the same metadata key, and metadata keys the headers do not derive, such as `pr_number` without X-CI-PR-Number, still apply. The identity is complete with a provider, a namespace and project, and a head SHA, on an iOS or Android app. A complete identity matches, within the caller's organization and that repository (namespace and project compared case-insensitively), the review with that pull request number, or without one the review whose current head equals the head SHA. The build is associated when that review is open, its current head equals the head SHA exactly, and its frozen project policy is `ci_upload_to_revyl` with a selected target for this app and platform. The normalized identity is stored in the build's metadata.
+	Metadata *BuildCreateFromUploadRequest_Metadata `json:"metadata,omitempty"`
 
 	// Pin True pins the destination branch to this build. False, the default, never changes a pin: a branch following Latest uses this build because it is the newest, and a pinned branch keeps its pin
 	Pin *bool `json:"pin,omitempty"`
@@ -7827,6 +7877,91 @@ type BuildCreateFromUploadRequest struct {
 
 	// Version Version string (must be unique)
 	Version string `json:"version"`
+}
+
+// BuildCreateFromUploadRequestMetadataPrNumber0 defines model for .
+type BuildCreateFromUploadRequestMetadataPrNumber0 = int
+
+// BuildCreateFromUploadRequestMetadataPrNumber1 defines model for .
+type BuildCreateFromUploadRequestMetadataPrNumber1 = string
+
+// BuildCreateFromUploadRequest_Metadata_PrNumber Pull or merge request number, as an integer or a decimal string. Without one the build matches by head SHA
+type BuildCreateFromUploadRequest_Metadata_PrNumber struct {
+	union json.RawMessage
+}
+
+// BuildCreateFromUploadRequestMetadataScmProvider SCM provider of the repository. Required for metadata to carry an identity; any other value carries none
+type BuildCreateFromUploadRequestMetadataScmProvider string
+
+// BuildCreateFromUploadRequestMetadataScmReviewNumber0 defines model for .
+type BuildCreateFromUploadRequestMetadataScmReviewNumber0 = int
+
+// BuildCreateFromUploadRequestMetadataScmReviewNumber1 defines model for .
+type BuildCreateFromUploadRequestMetadataScmReviewNumber1 = string
+
+// BuildCreateFromUploadRequest_Metadata_ScmReviewNumber Same as pr_number. When set, pr_number is not read, even if this value is not an integer
+type BuildCreateFromUploadRequest_Metadata_ScmReviewNumber struct {
+	union json.RawMessage
+}
+
+// BuildCreateFromUploadRequest_Metadata Build metadata, stored on the build apart from keys the route sets itself. Its SCM identity keys are declared and stored normalized; any other key is allowed. A build upload can name the pull or merge request whose proof it serves. The identity comes from X-CI-* headers or from the SCM keys of `metadata`. Headers count only when X-CI-System is `github-actions` (provider `github`) or `gitlab-ci` (provider `gitlab`) and X-CI-Repository and X-CI-Commit-SHA are both set; any other X-CI-System value, `external` included, sets no provider and the headers contribute nothing. Metadata counts when `metadata.scm_provider` is set, and is the supported path outside GitHub Actions and GitLab CI. When both count, each key the headers derive overrides the same metadata key, and metadata keys the headers do not derive, such as `pr_number` without X-CI-PR-Number, still apply. The identity is complete with a provider, a namespace and project, and a head SHA, on an iOS or Android app. A complete identity matches, within the caller's organization and that repository (namespace and project compared case-insensitively), the review with that pull request number, or without one the review whose current head equals the head SHA. The build is associated when that review is open, its current head equals the head SHA exactly, and its frozen project policy is `ci_upload_to_revyl` with a selected target for this app and platform. The normalized identity is stored in the build's metadata.
+type BuildCreateFromUploadRequest_Metadata struct {
+	// CiRunUrl HTTP(S) URL of the CI run, linked from the review. Kept without credentials, query or fragment, and dropped when longer than 2048 characters
+	CiRunUrl *string `json:"ci_run_url,omitempty"`
+
+	// CiSystem Label of the CI system that built the artifact
+	CiSystem *string `json:"ci_system,omitempty"`
+
+	// PrNumber Pull or merge request number, as an integer or a decimal string. Without one the build matches by head SHA
+	PrNumber *BuildCreateFromUploadRequest_Metadata_PrNumber `json:"pr_number,omitempty"`
+
+	// ScmHeadSha Full commit SHA the artifact was built from, as the provider reports it (lowercase hex). Compared exactly with the review's current head
+	ScmHeadSha *string `json:"scm_head_sha,omitempty"`
+
+	// ScmNamespace Repository owner or group path; set together with scm_project
+	ScmNamespace *string `json:"scm_namespace,omitempty"`
+
+	// ScmProject Repository name; set together with scm_namespace
+	ScmProject *string `json:"scm_project,omitempty"`
+
+	// ScmProvider SCM provider of the repository. Required for metadata to carry an identity; any other value carries none
+	ScmProvider *BuildCreateFromUploadRequestMetadataScmProvider `json:"scm_provider,omitempty"`
+
+	// ScmRepo Repository as `namespace/project`, split at its last `/`. Used when scm_namespace or scm_project is missing
+	ScmRepo *string `json:"scm_repo,omitempty"`
+
+	// ScmReviewNumber Same as pr_number. When set, pr_number is not read, even if this value is not an integer
+	ScmReviewNumber      *BuildCreateFromUploadRequest_Metadata_ScmReviewNumber `json:"scm_review_number,omitempty"`
+	AdditionalProperties map[string]interface{}                                 `json:"-"`
+}
+
+// BuildCreateFromUploadResponse Build created or reused from a staging upload.
+type BuildCreateFromUploadResponse struct {
+	AppId *openapi_types.UUID `json:"app_id,omitempty"`
+
+	// AppName The name of the app that owns this build
+	AppName                *string                                   `json:"app_name,omitempty"`
+	ArtifactKind           *string                                   `json:"artifact_kind,omitempty"`
+	ArtifactUrl            *string                                   `json:"artifact_url,omitempty"`
+	BranchId               *openapi_types.UUID                       `json:"branch_id,omitempty"`
+	BranchName             *string                                   `json:"branch_name,omitempty"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	DeployUrl              *string                                   `json:"deploy_url,omitempty"`
+	DownloadUrl            *string                                   `json:"download_url,omitempty"`
+	Id                     *openapi_types.UUID                       `json:"id,omitempty"`
+	IsBranchPinned         *bool                                     `json:"is_branch_pinned,omitempty"`
+	Metadata               *map[string]interface{}                   `json:"metadata,omitempty"`
+	Owner                  *openapi_types.UUID                       `json:"owner,omitempty"`
+	PackageName            *string                                   `json:"package_name,omitempty"`
+
+	// Platform The platform of the app that owns this build
+	Platform *string `json:"platform,omitempty"`
+
+	// ReviewCorrelation Outcome of matching an uploaded build's SCM identity to a review.
+	ReviewCorrelation *BuildReviewCorrelation `json:"review_correlation,omitempty"`
+	UploadedAt        *time.Time              `json:"uploaded_at,omitempty"`
+	Version           *string                 `json:"version,omitempty"`
+	WasReused         *bool                   `json:"was_reused,omitempty"`
 }
 
 // BuildCreateResponse Response model for creating a build with upload URL.
@@ -8102,6 +8237,18 @@ type BuildResponse struct {
 	Version    *string    `json:"version,omitempty"`
 	WasReused  *bool      `json:"was_reused,omitempty"`
 }
+
+// BuildReviewCorrelation Outcome of matching an uploaded build's SCM identity to a review.
+type BuildReviewCorrelation struct {
+	// MatchedTargetCount Review targets the build is associated with; 0 unless associated
+	MatchedTargetCount int `json:"matched_target_count"`
+
+	// Status `associated`: attached to the review's frozen targets for this app and platform. `not_owned`: no review of the organization matches the repository and pull request number, or head SHA. `ambiguous_review`: more than one review matches. `stale_review`: the matching review's current head is another commit, checked before its state. `closed_review`: the matching review is not open. `unmatched`: the review has no frozen `ci_upload_to_revyl` target for this app and platform, which includes targets not frozen yet. A `not_owned` or `unmatched` build can still be associated later, when the review freezes targets for this head and this is the app's newest matching upload. Treat an unknown value as not associated
+	Status BuildReviewCorrelationStatus `json:"status"`
+}
+
+// BuildReviewCorrelationStatus `associated`: attached to the review's frozen targets for this app and platform. `not_owned`: no review of the organization matches the repository and pull request number, or head SHA. `ambiguous_review`: more than one review matches. `stale_review`: the matching review's current head is another commit, checked before its state. `closed_review`: the matching review is not open. `unmatched`: the review has no frozen `ci_upload_to_revyl` target for this app and platform, which includes targets not frozen yet. A `not_owned` or `unmatched` build can still be associated later, when the review freezes targets for this head and this is the app's newest matching upload. Treat an unknown value as not associated
+type BuildReviewCorrelationStatus string
 
 // BuildRunItem defines model for BuildRunItem.
 type BuildRunItem struct {
@@ -14732,6 +14879,21 @@ type ListBuildsApiV1AppsAppIdBuildsGetParamsArtifactKinds string
 type CreateBuildFromUploadApiV1AppsAppIdBuildsPostParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+
+	// XCISystem CI system. `github-actions` sets provider `github` and `gitlab-ci` sets `gitlab`; any other value, `external` included, makes every X-CI-* header ignored for review matching. The overrides below apply only when the headers carry an identity. X-CI-Branch, X-CI-Run-ID, X-CI-Actor, X-CI-Actor-URL and X-CI-PR-URL are accepted and unused here
+	XCISystem *string `json:"X-CI-System,omitempty"`
+
+	// XCIRepository Repository as `namespace/project`, split at its last `/`. Required with X-CI-Commit-SHA for the headers to carry an identity
+	XCIRepository *string `json:"X-CI-Repository,omitempty"`
+
+	// XCICommitSHA Full commit SHA the artifact was built from (lowercase hex). Required with X-CI-Repository for the headers to carry an identity
+	XCICommitSHA *string `json:"X-CI-Commit-SHA,omitempty"`
+
+	// XCIPRNumber Pull or merge request number; overrides metadata.scm_review_number and metadata.pr_number. A missing or non-integer value leaves those keys or, without them, the head SHA to match on
+	XCIPRNumber *int `json:"X-CI-PR-Number,omitempty"`
+
+	// XCIRunURL HTTP(S) URL of the CI run; overrides metadata.ci_run_url
+	XCIRunURL *string `json:"X-CI-Run-URL,omitempty"`
 }
 
 // CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostParams defines parameters for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost.
@@ -15855,6 +16017,194 @@ type UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONRequestBody = 
 
 // UpdateWorkflowTestFailurePolicyApiV1WorkflowsWorkflowTestsWorkflowTestIdPatchJSONRequestBody defines body for UpdateWorkflowTestFailurePolicyApiV1WorkflowsWorkflowTestsWorkflowTestIdPatch for application/json ContentType.
 type UpdateWorkflowTestFailurePolicyApiV1WorkflowsWorkflowTestsWorkflowTestIdPatchJSONRequestBody = UpdateFailurePolicyRequest
+
+// Getter for additional properties for BuildCreateFromUploadRequest_Metadata. Returns the specified
+// element and whether it was found
+func (a BuildCreateFromUploadRequest_Metadata) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for BuildCreateFromUploadRequest_Metadata
+func (a *BuildCreateFromUploadRequest_Metadata) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for BuildCreateFromUploadRequest_Metadata to handle AdditionalProperties
+func (a *BuildCreateFromUploadRequest_Metadata) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["ci_run_url"]; found {
+		err = json.Unmarshal(raw, &a.CiRunUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'ci_run_url': %w", err)
+		}
+		delete(object, "ci_run_url")
+	}
+
+	if raw, found := object["ci_system"]; found {
+		err = json.Unmarshal(raw, &a.CiSystem)
+		if err != nil {
+			return fmt.Errorf("error reading 'ci_system': %w", err)
+		}
+		delete(object, "ci_system")
+	}
+
+	if raw, found := object["pr_number"]; found {
+		err = json.Unmarshal(raw, &a.PrNumber)
+		if err != nil {
+			return fmt.Errorf("error reading 'pr_number': %w", err)
+		}
+		delete(object, "pr_number")
+	}
+
+	if raw, found := object["scm_head_sha"]; found {
+		err = json.Unmarshal(raw, &a.ScmHeadSha)
+		if err != nil {
+			return fmt.Errorf("error reading 'scm_head_sha': %w", err)
+		}
+		delete(object, "scm_head_sha")
+	}
+
+	if raw, found := object["scm_namespace"]; found {
+		err = json.Unmarshal(raw, &a.ScmNamespace)
+		if err != nil {
+			return fmt.Errorf("error reading 'scm_namespace': %w", err)
+		}
+		delete(object, "scm_namespace")
+	}
+
+	if raw, found := object["scm_project"]; found {
+		err = json.Unmarshal(raw, &a.ScmProject)
+		if err != nil {
+			return fmt.Errorf("error reading 'scm_project': %w", err)
+		}
+		delete(object, "scm_project")
+	}
+
+	if raw, found := object["scm_provider"]; found {
+		err = json.Unmarshal(raw, &a.ScmProvider)
+		if err != nil {
+			return fmt.Errorf("error reading 'scm_provider': %w", err)
+		}
+		delete(object, "scm_provider")
+	}
+
+	if raw, found := object["scm_repo"]; found {
+		err = json.Unmarshal(raw, &a.ScmRepo)
+		if err != nil {
+			return fmt.Errorf("error reading 'scm_repo': %w", err)
+		}
+		delete(object, "scm_repo")
+	}
+
+	if raw, found := object["scm_review_number"]; found {
+		err = json.Unmarshal(raw, &a.ScmReviewNumber)
+		if err != nil {
+			return fmt.Errorf("error reading 'scm_review_number': %w", err)
+		}
+		delete(object, "scm_review_number")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for BuildCreateFromUploadRequest_Metadata to handle AdditionalProperties
+func (a BuildCreateFromUploadRequest_Metadata) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.CiRunUrl != nil {
+		object["ci_run_url"], err = json.Marshal(a.CiRunUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'ci_run_url': %w", err)
+		}
+	}
+
+	if a.CiSystem != nil {
+		object["ci_system"], err = json.Marshal(a.CiSystem)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'ci_system': %w", err)
+		}
+	}
+
+	if a.PrNumber != nil {
+		object["pr_number"], err = json.Marshal(a.PrNumber)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'pr_number': %w", err)
+		}
+	}
+
+	if a.ScmHeadSha != nil {
+		object["scm_head_sha"], err = json.Marshal(a.ScmHeadSha)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scm_head_sha': %w", err)
+		}
+	}
+
+	if a.ScmNamespace != nil {
+		object["scm_namespace"], err = json.Marshal(a.ScmNamespace)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scm_namespace': %w", err)
+		}
+	}
+
+	if a.ScmProject != nil {
+		object["scm_project"], err = json.Marshal(a.ScmProject)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scm_project': %w", err)
+		}
+	}
+
+	if a.ScmProvider != nil {
+		object["scm_provider"], err = json.Marshal(a.ScmProvider)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scm_provider': %w", err)
+		}
+	}
+
+	if a.ScmRepo != nil {
+		object["scm_repo"], err = json.Marshal(a.ScmRepo)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scm_repo': %w", err)
+		}
+	}
+
+	if a.ScmReviewNumber != nil {
+		object["scm_review_number"], err = json.Marshal(a.ScmReviewNumber)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scm_review_number': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for DOMMetadata. Returns the specified
 // element and whether it was found
@@ -19806,6 +20156,130 @@ func (t BlocksCreationRequest_Blocks_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *BlocksCreationRequest_Blocks_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsBuildCreateFromUploadRequestMetadataPrNumber0 returns the union data inside the BuildCreateFromUploadRequest_Metadata_PrNumber as a BuildCreateFromUploadRequestMetadataPrNumber0
+func (t BuildCreateFromUploadRequest_Metadata_PrNumber) AsBuildCreateFromUploadRequestMetadataPrNumber0() (BuildCreateFromUploadRequestMetadataPrNumber0, error) {
+	var body BuildCreateFromUploadRequestMetadataPrNumber0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBuildCreateFromUploadRequestMetadataPrNumber0 overwrites any union data inside the BuildCreateFromUploadRequest_Metadata_PrNumber as the provided BuildCreateFromUploadRequestMetadataPrNumber0
+func (t *BuildCreateFromUploadRequest_Metadata_PrNumber) FromBuildCreateFromUploadRequestMetadataPrNumber0(v BuildCreateFromUploadRequestMetadataPrNumber0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBuildCreateFromUploadRequestMetadataPrNumber0 performs a merge with any union data inside the BuildCreateFromUploadRequest_Metadata_PrNumber, using the provided BuildCreateFromUploadRequestMetadataPrNumber0
+func (t *BuildCreateFromUploadRequest_Metadata_PrNumber) MergeBuildCreateFromUploadRequestMetadataPrNumber0(v BuildCreateFromUploadRequestMetadataPrNumber0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsBuildCreateFromUploadRequestMetadataPrNumber1 returns the union data inside the BuildCreateFromUploadRequest_Metadata_PrNumber as a BuildCreateFromUploadRequestMetadataPrNumber1
+func (t BuildCreateFromUploadRequest_Metadata_PrNumber) AsBuildCreateFromUploadRequestMetadataPrNumber1() (BuildCreateFromUploadRequestMetadataPrNumber1, error) {
+	var body BuildCreateFromUploadRequestMetadataPrNumber1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBuildCreateFromUploadRequestMetadataPrNumber1 overwrites any union data inside the BuildCreateFromUploadRequest_Metadata_PrNumber as the provided BuildCreateFromUploadRequestMetadataPrNumber1
+func (t *BuildCreateFromUploadRequest_Metadata_PrNumber) FromBuildCreateFromUploadRequestMetadataPrNumber1(v BuildCreateFromUploadRequestMetadataPrNumber1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBuildCreateFromUploadRequestMetadataPrNumber1 performs a merge with any union data inside the BuildCreateFromUploadRequest_Metadata_PrNumber, using the provided BuildCreateFromUploadRequestMetadataPrNumber1
+func (t *BuildCreateFromUploadRequest_Metadata_PrNumber) MergeBuildCreateFromUploadRequestMetadataPrNumber1(v BuildCreateFromUploadRequestMetadataPrNumber1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t BuildCreateFromUploadRequest_Metadata_PrNumber) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *BuildCreateFromUploadRequest_Metadata_PrNumber) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsBuildCreateFromUploadRequestMetadataScmReviewNumber0 returns the union data inside the BuildCreateFromUploadRequest_Metadata_ScmReviewNumber as a BuildCreateFromUploadRequestMetadataScmReviewNumber0
+func (t BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) AsBuildCreateFromUploadRequestMetadataScmReviewNumber0() (BuildCreateFromUploadRequestMetadataScmReviewNumber0, error) {
+	var body BuildCreateFromUploadRequestMetadataScmReviewNumber0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBuildCreateFromUploadRequestMetadataScmReviewNumber0 overwrites any union data inside the BuildCreateFromUploadRequest_Metadata_ScmReviewNumber as the provided BuildCreateFromUploadRequestMetadataScmReviewNumber0
+func (t *BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) FromBuildCreateFromUploadRequestMetadataScmReviewNumber0(v BuildCreateFromUploadRequestMetadataScmReviewNumber0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBuildCreateFromUploadRequestMetadataScmReviewNumber0 performs a merge with any union data inside the BuildCreateFromUploadRequest_Metadata_ScmReviewNumber, using the provided BuildCreateFromUploadRequestMetadataScmReviewNumber0
+func (t *BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) MergeBuildCreateFromUploadRequestMetadataScmReviewNumber0(v BuildCreateFromUploadRequestMetadataScmReviewNumber0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsBuildCreateFromUploadRequestMetadataScmReviewNumber1 returns the union data inside the BuildCreateFromUploadRequest_Metadata_ScmReviewNumber as a BuildCreateFromUploadRequestMetadataScmReviewNumber1
+func (t BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) AsBuildCreateFromUploadRequestMetadataScmReviewNumber1() (BuildCreateFromUploadRequestMetadataScmReviewNumber1, error) {
+	var body BuildCreateFromUploadRequestMetadataScmReviewNumber1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBuildCreateFromUploadRequestMetadataScmReviewNumber1 overwrites any union data inside the BuildCreateFromUploadRequest_Metadata_ScmReviewNumber as the provided BuildCreateFromUploadRequestMetadataScmReviewNumber1
+func (t *BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) FromBuildCreateFromUploadRequestMetadataScmReviewNumber1(v BuildCreateFromUploadRequestMetadataScmReviewNumber1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBuildCreateFromUploadRequestMetadataScmReviewNumber1 performs a merge with any union data inside the BuildCreateFromUploadRequest_Metadata_ScmReviewNumber, using the provided BuildCreateFromUploadRequestMetadataScmReviewNumber1
+func (t *BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) MergeBuildCreateFromUploadRequestMetadataScmReviewNumber1(v BuildCreateFromUploadRequestMetadataScmReviewNumber1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *BuildCreateFromUploadRequest_Metadata_ScmReviewNumber) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
