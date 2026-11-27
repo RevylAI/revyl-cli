@@ -631,8 +631,9 @@ deleted. Deleting a snapshot never changes a computer already created from it.`
 
 func newComputerSnapshotCommand() *cobra.Command {
 	command := &cobra.Command{Use: "snapshot", Short: "Save, list, show and delete snapshots of stopped persistent computers", Long: computerSnapshotHelp, RunE: computerHelp}
-	save := &cobra.Command{Use: "save C1 --name NAME", Short: "Save a stopped persistent computer's saved disk as a named snapshot", Long: computerSnapshotHelp}
+	save := &cobra.Command{Use: "save C1 --name NAME [--description TEXT]", Short: "Save a stopped persistent computer's saved disk as a named snapshot", Long: computerSnapshotHelp}
 	save.Flags().String("name", "", "Snapshot name: 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit")
+	save.Flags().StringP("description", "d", "", fmt.Sprintf("What the snapshot holds, so others can tell snapshots apart (optional, up to %d characters)", api.ComputerSnapshotDescriptionMaxChars))
 	save.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
 			if len(args) != 1 {
@@ -644,11 +645,12 @@ func newComputerSnapshotCommand() *cobra.Command {
 			}
 			invocation.ComputerSessionID = id.String()
 			name, _ := cmd.Flags().GetString("name")
+			description, _ := cmd.Flags().GetString("description")
 			client, err := computerClient(cmd)
 			if err != nil {
 				return nil, err
 			}
-			return client.SaveComputerSnapshot(cmd.Context(), id, name)
+			return client.SaveComputerSnapshot(cmd.Context(), id, name, description)
 		})
 	}
 	list := &cobra.Command{Use: "list", Short: "Show your organization's newest snapshots"}

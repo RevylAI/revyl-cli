@@ -55,7 +55,7 @@ func TestComputerSnapshotRefusalsKeepTheirCodes(t *testing.T) {
 			w.WriteHeader(http.StatusConflict)
 			fmt.Fprintf(w, `{"detail":%q}`, code)
 		}))
-		_, err := NewClientWithBaseURL("fixture-key", server.URL).SaveComputerSnapshot(context.Background(), computerValidationID, "golden-1")
+		_, err := NewClientWithBaseURL("fixture-key", server.URL).SaveComputerSnapshot(context.Background(), computerValidationID, "golden-1", "")
 		server.Close()
 		var refusal *APIError
 		if !errors.As(err, &refusal) || refusal.Code != code {

@@ -293,6 +293,9 @@ func writePersistentComputerList(writer io.Writer, list *api.PersistentComputerL
 
 func writeComputerSnapshot(writer io.Writer, snapshot *api.ComputerSnapshot) error {
 	line := fmt.Sprintf("snapshot_id=%s name=%s computer_id=%s saved_at=%s", snapshot.ID, snapshot.Name, snapshot.ComputerID, snapshot.SavedAt.UTC().Format(time.RFC3339))
+	if snapshot.Description != nil {
+		line += " description=" + strconv.Quote(*snapshot.Description)
+	}
 	if snapshot.ExpiresAt != nil {
 		line += " expires_at=" + snapshot.ExpiresAt.UTC().Format(time.RFC3339)
 	}
@@ -303,12 +306,25 @@ func writeComputerSnapshot(writer io.Writer, snapshot *api.ComputerSnapshot) err
 	return err
 }
 
+const computerSnapshotDescriptionCellChars = 60
+
+func computerSnapshotDescriptionCell(description *string) string {
+	if description == nil {
+		return "-"
+	}
+	cell := []rune(strings.Join(strings.Fields(*description), " "))
+	if len(cell) > computerSnapshotDescriptionCellChars {
+		return string(cell[:computerSnapshotDescriptionCellChars-3]) + "..."
+	}
+	return string(cell)
+}
+
 func writeComputerSnapshotList(writer io.Writer, list *api.ComputerSnapshotListResponse) error {
 	if len(list.Snapshots) == 0 {
 		_, err := fmt.Fprintln(writer, "No snapshots yet. Save one with: revyl computer snapshot save C1 --name NAME")
 		return err
 	}
-	rows := [][]string{{"ID", "NAME", "COMPUTER", "SAVED", "EXPIRES"}}
+	rows := [][]string{{"ID", "NAME", "COMPUTER", "SAVED", "EXPIRES", "DESCRIPTION"}}
 	for _, snapshot := range list.Snapshots {
 		expires := "-"
 		if snapshot.SavedDiskExpiresAt != nil {
@@ -316,7 +332,7 @@ func writeComputerSnapshotList(writer io.Writer, list *api.ComputerSnapshotListR
 		} else if snapshot.ExpiresAt != nil {
 			expires = computerTime(*snapshot.ExpiresAt)
 		}
-		rows = append(rows, []string{snapshot.ID.String(), snapshot.Name, snapshot.ComputerID.String(), computerTime(snapshot.SavedAt), expires})
+		rows = append(rows, []string{snapshot.ID.String(), snapshot.Name, snapshot.ComputerID.String(), computerTime(snapshot.SavedAt), expires, computerSnapshotDescriptionCell(snapshot.Description)})
 	}
 	if err := writeComputerTable(writer, rows); err != nil {
 		return err

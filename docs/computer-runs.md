@@ -415,7 +415,7 @@ name unique in your organization. It copies nothing, so it is ready at once.
 ```sh
 revyl computer stop "$C1" --wait
 revyl computer list --persistent        # wait for: stopped (saved off host)
-revyl computer snapshot save "$C1" --name xcode-ready
+revyl computer snapshot save "$C1" --name xcode-ready --description "Xcode 26, iOS 26 simulators, app repo built"
 revyl computer snapshot list
 revyl computer snapshot get xcode-ready --json
 revyl computer create --from-snapshot xcode-ready --wait --wait-timeout 10m --json
@@ -428,9 +428,17 @@ letter or digit, and can't be a UUID. A deleted snapshot's name can be used
 again. The snapshot keeps the save it named: later starts and stops of the
 computer don't change it, and neither does deleting the computer.
 
+`--description TEXT` (`-d`) is optional and tells your team what the snapshot
+holds. It is trimmed, may be up to 500 characters, and a blank one counts as
+none. A snapshot keeps the description it was saved with; it can't be edited
+later. `snapshot get` prints it as `description="..."`, `--json` output carries
+`description` (`null` when there is none), and `snapshot list` shows it in a
+`DESCRIPTION` column, cut to one line of 60 characters, or `-` when there is
+none.
+
 `snapshot list` prints the organization's snapshots, newest save first
 (`--limit 1..100`, default 25), with each one's ID, name, source computer,
-`saved_at`, and in `EXPIRES` when create from it stops working. `snapshot get` and `snapshot delete` take a
+`saved_at`, in `EXPIRES` when create from it stops working, and its description. `snapshot get` and `snapshot delete` take a
 snapshot ID or name; `delete` asks for confirmation in a terminal and needs
 `--yes` otherwise. Deleting a snapshot again by its ID prints the same
 `state=deleted`; its name stops resolving once it is deleted, so deleting it

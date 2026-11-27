@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -336,11 +337,14 @@ func (c *Client) ListPersistentComputers(ctx context.Context, limit int) (*Persi
 }
 
 type ComputerSnapshot struct {
-	ID         uuid.UUID  `json:"id"`
-	Name       string     `json:"name"`
-	ComputerID uuid.UUID  `json:"computer_id"`
-	SavedAt    time.Time  `json:"saved_at"`
-	ExpiresAt  *time.Time `json:"expires_at"`
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// Description is null for a snapshot saved without one, and from backends
+	// that predate descriptions.
+	Description *string    `json:"description"`
+	ComputerID  uuid.UUID  `json:"computer_id"`
+	SavedAt     time.Time  `json:"saved_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
 	// SavedDiskExpiresAt is when a create from this snapshot starts answering
 	// snapshot_expired; absent from backends that predate it.
 	SavedDiskExpiresAt *time.Time `json:"saved_disk_expires_at,omitempty"`
@@ -359,11 +363,20 @@ func ValidComputerSnapshotReference(value string) bool {
 	return computerSnapshotReferencePattern.MatchString(value)
 }
 
-func (c *Client) SaveComputerSnapshot(ctx context.Context, computerID uuid.UUID, name string) (*ComputerSnapshot, error) {
+const ComputerSnapshotDescriptionMaxChars = 500
+
+func (c *Client) SaveComputerSnapshot(ctx context.Context, computerID uuid.UUID, name, description string) (*ComputerSnapshot, error) {
 	if _, err := uuid.Parse(name); err == nil || !ValidComputerSnapshotReference(name) {
 		return nil, errors.New("snapshot name must be 1-64 letters, digits, '.', '_' or '-', start with a letter or digit, and not be a UUID")
 	}
-	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/snapshots", computerID), map[string]string{"name": name}, computerID.String(), DefaultTimeout)
+	request := map[string]string{"name": name}
+	if description = strings.TrimSpace(description); description != "" {
+		if utf8.RuneCountInString(description) > ComputerSnapshotDescriptionMaxChars {
+			return nil, fmt.Errorf("snapshot description must be at most %d characters", ComputerSnapshotDescriptionMaxChars)
+		}
+		request["description"] = description
+	}
+	response, err := c.doComputerMutationOnce(ctx, fmt.Sprintf("/api/v1/computer-runs/%s/snapshots", computerID), request, computerID.String(), DefaultTimeout)
 	snapshot, err := readComputerSnapshot(response, err)
 	if err != nil {
 		return nil, err
