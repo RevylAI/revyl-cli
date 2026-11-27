@@ -398,7 +398,8 @@ long-computer limit like a create.
 
 `delete` removes a persistent computer and its saved disk for good. It asks
 for confirmation in a terminal; pass `--yes` otherwise. A running computer is
-stopped first, without saving. Deleting a computer again prints the same
+stopped first, which saves its disk as any stop does, and that save is deleted
+too. Deleting a computer again prints the same
 `state=deleted`. Snapshots of the computer stay; each keeps the save it names
 until you delete the snapshot.
 

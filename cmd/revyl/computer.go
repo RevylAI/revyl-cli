@@ -313,7 +313,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 		})
 	}
 	command.AddCommand(start)
-	deleteComputer := &cobra.Command{Use: "delete C1", Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nstops first, without saving. Its snapshots stay: each keeps the save it names\nuntil you delete the snapshot.\n\n" + computerPersistentHelp}
+	deleteComputer := &cobra.Command{Use: "delete C1", Short: "Delete a persistent computer and its saved disk", Long: "Delete a persistent computer and its saved disk for good. A running computer\nis stopped first, which saves its disk as any stop does, and that save is deleted\ntoo. Its snapshots stay: each keeps the save it names\nuntil you delete the snapshot.\n\n" + computerPersistentHelp}
 	deleteComputer.Flags().Bool("yes", false, "Delete without asking; required when not run in a terminal")
 	deleteComputer.RunE = func(cmd *cobra.Command, args []string) error {
 		return runComputerCommand(cmd, func(invocation *computerInvocation) (any, error) {
