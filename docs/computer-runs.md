@@ -401,7 +401,8 @@ shows in the `SAVE EXPIRES` column of `list --persistent`, the `Save expires`
 row of `get`, and the `start` and `stop` lines. A computer created from a
 snapshot that hasn't saved its own disk yet shows the snapshot's. It is empty
 before a first save otherwise, and for a save that never ends. A persistent computer bills Mac computer time like
-any other computer, only while a run is running. Storing a stopped persistent computer's saved disk and its snapshots is free for now.
+any other computer, only while a run is running. Its saved disk and snapshots
+bill as [storage](#storage-pricing).
 
 If persistent computers are turned off for your organization, `list --persistent`,
 `snapshot list`, `snapshot get` and both deletes keep working, so you can still
@@ -475,6 +476,31 @@ end: from `saved_disk_expires_at`, 24 hours before the save's `expires_at`,
 create from it answers `snapshot_expired`. `snapshot save` and `snapshot get`
 print both, and both are empty when the save has no end. Deleting a snapshot never
 changes a computer already created from it.
+
+### Storage pricing
+
+Saved disks and snapshots bill at $0.04 per GB-month,
+with no free allowance.
+They're one line, Computer storage, charged to the same credit as Mac computer
+minutes. A GB is 1,000,000,000 bytes.
+
+- **What counts:** each persistent computer's current saved disk, plus the
+  saves your snapshots keep. Each stored chunk counts once, even when several
+  saves or snapshots share it. Revyl's base images, the sealed images every
+  computer starts from, never count; a computer stores only the blocks it
+  changed from its base image.
+- **Snapshots:** a snapshot copies nothing; it keeps one save of its computer.
+  A snapshot of the computer's current save adds nothing, and a snapshot of an
+  older save adds the blocks that differ.
+- **Measured:** once a day, in UTC. Each day adds that day's GB divided by the
+  number of days in the month, so a month bills your average stored GB.
+- **Where to see it:** Billing & Usage in the Revyl app shows Computer storage
+  beside computer minutes.
+- **To reduce it:** `snapshot delete` the snapshots and `delete` the persistent
+  computers you no longer need; they stop counting from the next daily
+  measurement. A snapshot of a deleted computer keeps that one save until you
+  delete the snapshot. Expired saves, past `SAVE EXPIRES` in
+  `list --persistent`, stop counting too.
 
 ### Refusals
 
