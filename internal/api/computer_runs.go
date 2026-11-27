@@ -326,11 +326,14 @@ type PersistentComputerListResponse struct {
 	Total     int                        `json:"total"`
 }
 
-func (c *Client) ListPersistentComputers(ctx context.Context, limit int) (*PersistentComputerListResponse, error) {
+func (c *Client) ListPersistentComputers(ctx context.Context, limit, offset int) (*PersistentComputerListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("computer list limit must be from 1 to %d", ComputerListMaxLimit)
 	}
-	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/persistent?limit=%d", limit))
+	if offset < 0 {
+		return nil, errors.New("computer list offset must not be negative")
+	}
+	response, err := c.doComputerRead(ctx, computerPageQuery("/api/v1/computer-runs/persistent", limit, offset))
 	body, err := readComputerBody(response, err)
 	if err != nil {
 		return nil, err
@@ -339,7 +342,7 @@ func (c *Client) ListPersistentComputers(ctx context.Context, limit int) (*Persi
 	var items struct {
 		Computers []json.RawMessage `json:"computers"`
 	}
-	if response.StatusCode != http.StatusOK || decodeComputerJSON(body, &list, "computers", "total", "limit", "offset") != nil || json.Unmarshal(body, &items) != nil || list.Limit != limit || list.Offset != 0 || len(list.Computers) > limit || list.Total < len(list.Computers) {
+	if response.StatusCode != http.StatusOK || decodeComputerJSON(body, &list, "computers", "total", "limit", "offset") != nil || json.Unmarshal(body, &items) != nil || list.Limit != limit || list.Offset != offset || len(list.Computers) > limit || list.Total < len(list.Computers) {
 		return nil, errComputerResponse
 	}
 	for _, item := range items.Computers {
@@ -401,11 +404,14 @@ func (c *Client) SaveComputerSnapshot(ctx context.Context, computerID uuid.UUID,
 	return snapshot, nil
 }
 
-func (c *Client) ListComputerSnapshots(ctx context.Context, limit int) (*ComputerSnapshotListResponse, error) {
+func (c *Client) ListComputerSnapshots(ctx context.Context, limit, offset int) (*ComputerSnapshotListResponse, error) {
 	if limit < 1 || limit > ComputerListMaxLimit {
 		return nil, fmt.Errorf("snapshot list limit must be from 1 to %d", ComputerListMaxLimit)
 	}
-	response, err := c.doComputerRead(ctx, fmt.Sprintf("/api/v1/computer-runs/snapshots?limit=%d", limit))
+	if offset < 0 {
+		return nil, errors.New("snapshot list offset must not be negative")
+	}
+	response, err := c.doComputerRead(ctx, computerPageQuery("/api/v1/computer-runs/snapshots", limit, offset))
 	body, err := readComputerBody(response, err)
 	if err != nil {
 		return nil, err
@@ -414,7 +420,7 @@ func (c *Client) ListComputerSnapshots(ctx context.Context, limit int) (*Compute
 	var items struct {
 		Snapshots []json.RawMessage `json:"snapshots"`
 	}
-	if response.StatusCode != http.StatusOK || decodeComputerJSON(body, &list, "snapshots", "total", "limit", "offset") != nil || json.Unmarshal(body, &items) != nil || list.Limit != limit || list.Offset != 0 || len(list.Snapshots) > limit || list.Total < len(list.Snapshots) {
+	if response.StatusCode != http.StatusOK || decodeComputerJSON(body, &list, "snapshots", "total", "limit", "offset") != nil || json.Unmarshal(body, &items) != nil || list.Limit != limit || list.Offset != offset || len(list.Snapshots) > limit || list.Total < len(list.Snapshots) {
 		return nil, errComputerResponse
 	}
 	for _, item := range items.Snapshots {
@@ -606,4 +612,11 @@ func (c *Client) doComputerRead(ctx context.Context, path string) (*http.Respons
 	client.Timeout = DefaultTimeout
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c.doRequestOnceWithClient(ctx, http.MethodGet, path, nil, &client)
+}
+
+func computerPageQuery(path string, limit, offset int) string {
+	if offset == 0 {
+		return fmt.Sprintf("%s?limit=%d", path, limit)
+	}
+	return fmt.Sprintf("%s?limit=%d&offset=%d", path, limit, offset)
 }

@@ -44,7 +44,7 @@ func TestComputerSnapshotListRejectsAMalformedSnapshot(t *testing.T) {
 		fmt.Fprintf(w, `{"snapshots":[%s],"total":1,"limit":5,"offset":0}`, computerSnapshotFixture("has space"))
 	}))
 	defer server.Close()
-	if _, err := NewClientWithBaseURL("fixture-key", server.URL).ListComputerSnapshots(context.Background(), 5); err == nil {
+	if _, err := NewClientWithBaseURL("fixture-key", server.URL).ListComputerSnapshots(context.Background(), 5, 0); err == nil {
 		t.Fatal("list accepted a snapshot whose name no reference could match")
 	}
 }

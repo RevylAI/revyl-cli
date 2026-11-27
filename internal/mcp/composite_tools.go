@@ -50,6 +50,7 @@ func (s *Server) registerCompositeTools(profile Profile) {
 
 	s.registerManageTestsTool()
 	s.registerManageBuildsTool()
+	s.registerManagePersistentComputersTool()
 	s.registerUtilityTools()
 	s.registerInvestigateTool()
 

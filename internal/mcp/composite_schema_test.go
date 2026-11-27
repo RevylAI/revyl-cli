@@ -27,8 +27,8 @@ func TestCompositeToolsAdvertiseObjectParameters(t *testing.T) {
 		count++
 		requireSchemaPropertyType(t, tool.InputSchema, "params", []any{"object", "null"})
 	}
-	if count != 8 {
-		t.Fatalf("checked %d composite tools, want 8", count)
+	if count != 9 {
+		t.Fatalf("checked %d composite tools, want 9", count)
 	}
 }
 

@@ -229,6 +229,7 @@ func (s *Server) registerTools() {
 	s.registerDevLoopTools()
 	s.registerRunInspectTools()
 	s.registerInvestigateTool()
+	s.registerManagePersistentComputersTool()
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_test",

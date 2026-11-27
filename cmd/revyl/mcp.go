@@ -42,7 +42,8 @@ TOOL PROFILES:
     Recommended for Cursor.
 
   --tool-profile core
-    Broad flat device surface plus test/build management, schema, and auth.
+    Broad flat device surface plus test/build management, persistent Mac
+    computers, schema, and auth.
     Kept for compatibility and advanced development/test workflows.
 
   --tool-profile full

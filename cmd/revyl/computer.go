@@ -253,7 +253,7 @@ Agents running on the Mac itself read /opt/revyl/computer-guide.md there.`,
 				return nil, err
 			}
 			if persistent, _ := cmd.Flags().GetBool("persistent"); persistent {
-				return client.ListPersistentComputers(cmd.Context(), limit)
+				return client.ListPersistentComputers(cmd.Context(), limit, 0)
 			}
 			return client.ListComputerRuns(cmd.Context(), limit)
 		})
@@ -667,7 +667,7 @@ func newComputerSnapshotCommand() *cobra.Command {
 			if err != nil {
 				return nil, err
 			}
-			return client.ListComputerSnapshots(cmd.Context(), limit)
+			return client.ListComputerSnapshots(cmd.Context(), limit, 0)
 		})
 	}
 	get := &cobra.Command{Use: "get S1", Short: "Show one snapshot by ID or name"}

@@ -70,12 +70,16 @@ const flatToolCategories = `### Test Management
 ### Test Variables
 - list_variables, set_variable, delete_variable, delete_all_variables
 
+### Persistent Mac Computers
+- manage_persistent_computers (action: create, list, get, start, stop, delete, snapshot_save, snapshot_list, snapshot_get, snapshot_delete)
+
 ### System
 - auth_status, get_billing_status`
 
 const coreToolCategories = `### Test & Build Management
 - **manage_tests** (action: run, list, list_remote, create, update, delete, status, cancel)
 - **manage_builds** (action: list, upload, create_app, delete_app)
+- **manage_persistent_computers** (action: create, list, get, start, stop, delete, snapshot_save, snapshot_list, snapshot_get, snapshot_delete)
 - **Reference**: get_schema (YAML format reference)
 
 ### Dev Loop & Investigation
