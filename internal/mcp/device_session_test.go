@@ -1962,7 +1962,8 @@ func TestDeviceSessionManager_ResolveTargetForSession_WorkerMissDoesNotFallback(
 	if err == nil {
 		t.Fatal("expected error for unresolved target")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "could not locate") {
+	var notFound *TargetNotFoundError
+	if !errors.As(err, &notFound) || notFound.Target != "Continue button" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if groundCalls != 0 {

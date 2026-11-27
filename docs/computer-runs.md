@@ -320,6 +320,8 @@ An ordinary computer is deleted when it stops. A persistent computer keeps its
 whole disk instead, so it can start again later under the same ID with your
 files, Homebrew installs, repositories, LaunchAgents, simulators and other
 system changes in place. Persistent computers are macOS only.
+[Persistent Mac computers](https://docs.revyl.com/computers/persistent) has a
+quickstart and guides for coding agents, CI from a snapshot and troubleshooting.
 
 ```sh
 revyl computer create --persistent --os macos --wait --json
@@ -359,7 +361,8 @@ Stopping a computer that is still starting ends that start and leaves its disk
 as it was. Reaching the end of a run's lifetime also stops the computer and
 keeps its disk. A persistent run starts saving 3 minutes before its
 `expires_at`, so a run lasts about 3 minutes less than its lifetime, and a
-lifetime under 3 minutes stops almost as soon as the computer is running. Give
+lifetime under 5 minutes stops almost as soon as the computer is running, and
+the CLI warns about one. Give
 each run a lifetime of at least several minutes, or extend it with
 `revyl computer extend`.
 

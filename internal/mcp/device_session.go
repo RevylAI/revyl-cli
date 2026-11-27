@@ -4077,13 +4077,11 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerWithToken(ctx context.Conte
 	}
 
 	if !resolvedResp.Found {
-		errMsg := fmt.Sprintf("could not locate '%s' in the screenshot", target)
+		reason := resolvedResp.Error
 		if session.Platform == "web" {
-			errMsg = "target_not_found: resolve a visible target from a fresh screenshot"
-		} else if resolvedResp.Error != "" {
-			errMsg = resolvedResp.Error
+			reason = ""
 		}
-		return nil, fmt.Errorf("%s. %s", errMsg, m.nextStep(nextStepScreenshot))
+		return nil, m.targetNotFound(target, reason)
 	}
 	if resolvedResp.X == nil || resolvedResp.Y == nil {
 		return nil, fmt.Errorf("worker resolve_target response omitted resolved coordinates")
@@ -4140,11 +4138,7 @@ func (m *DeviceSessionManager) resolveTargetFromImageForSession(
 	}
 
 	if !groundResp.Found {
-		errMsg := fmt.Sprintf("could not locate '%s' in the screenshot", target)
-		if groundResp.Error != "" {
-			errMsg = groundResp.Error
-		}
-		return nil, fmt.Errorf("%s. %s", errMsg, m.nextStep(nextStepScreenshot))
+		return nil, m.targetNotFound(target, groundResp.Error)
 	}
 
 	resolvedX := groundResp.X

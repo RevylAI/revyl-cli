@@ -148,6 +148,7 @@ func (e *commandExitError) Unwrap() error { return e.err }
 func executeWithNotices(root *cobra.Command) error {
 	cmd, err := root.ExecuteC()
 	writeBillingErrorJSON(root.OutOrStdout(), cmd, err)
+	writeTargetNotFoundJSON(root.OutOrStdout(), cmd, err)
 	printBillingRefusalGuidance(root.ErrOrStderr(), cmd, err)
 	printVersionWarning(cmd)
 	printUncommittedConfigMigrationReminder(cmd)

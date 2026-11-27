@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -282,6 +283,38 @@ func deviceScreenCenter(ctx context.Context, mgr *mcppkg.DeviceSessionManager, s
 }
 
 // jsonOrPrint outputs result as JSON if --json flag is set, otherwise prints the message.
+type targetNotFoundJSON struct {
+	Success   bool   `json:"success"`
+	Action    string `json:"action"`
+	Target    string `json:"target"`
+	ErrorCode string `json:"error_code"`
+	Error     string `json:"error"`
+	NextStep  string `json:"next_step"`
+}
+
+// writeTargetNotFoundJSON writes a grounded action's target_not_found failure
+// to stdout when the command ran with --json, so agents parsing stdout get
+// success:false and a stable code instead of an empty stdout.
+func writeTargetNotFoundJSON(w io.Writer, cmd *cobra.Command, err error) {
+	if cmd == nil || err == nil {
+		return
+	}
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); !jsonOutput {
+		return
+	}
+	var notFound *mcppkg.TargetNotFoundError
+	if !errors.As(err, &notFound) {
+		return
+	}
+	_ = writeIndentedJSON(w, targetNotFoundJSON{
+		Action:    cmd.Name(),
+		Target:    notFound.Target,
+		ErrorCode: mcppkg.TargetNotFoundCode,
+		Error:     notFound.Error(),
+		NextStep:  notFound.NextStep,
+	})
+}
+
 func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if jsonOutput {

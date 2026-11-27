@@ -992,6 +992,10 @@ func errorNextSteps(err error) []NextStep {
 			Reason: "This live-step type is unavailable on this Web session; check the page directly",
 		}}
 	}
+	var notFound *TargetNotFoundError
+	if errors.As(err, &notFound) {
+		return []NextStep{{Tool: "screenshot", Reason: "See the screen, then describe an element you can see or pass x and y"}}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no active device session"):
@@ -1323,8 +1327,17 @@ type DeviceTapOutput struct {
 	X         int        `json:"x"`
 	Y         int        `json:"y"`
 	LatencyMs float64    `json:"latency_ms"`
+	ErrorCode string     `json:"error_code,omitempty"`
 	Error     string     `json:"error,omitempty"`
 	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func deviceErrorCode(err error) string {
+	var notFound *TargetNotFoundError
+	if errors.As(err, &notFound) {
+		return TargetNotFoundCode
+	}
+	return ""
 }
 
 type workerTapTargetResponse struct {
@@ -1361,7 +1374,7 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 		if session.Platform == "web" {
 			resolved, err := s.sessionMgr.ResolveTargetOnSession(ctx, session, input.Target)
 			if err != nil {
-				return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+				return nil, DeviceTapOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 			}
 			_, err = s.sessionMgr.WorkerRequestOnSession(ctx, session, "/tap", map[string]interface{}{"x": resolved.X, "y": resolved.Y, "screen_token": resolved.ScreenToken})
 			if err != nil {
@@ -1381,6 +1394,10 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 		if err := json.Unmarshal(respBody, &resp); err != nil {
 			return nil, DeviceTapOutput{Success: false, LatencyMs: latency, Error: fmt.Sprintf("worker tap_target returned invalid JSON: %v", err), NextSteps: errorNextSteps(err)}, nil
 		}
+		if !resp.Found {
+			err := s.sessionMgr.targetNotFound(input.Target, resp.Error)
+			return nil, DeviceTapOutput{Success: false, LatencyMs: latency, ErrorCode: TargetNotFoundCode, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		}
 		if !resp.Success {
 			err := fmt.Errorf("%s", resp.Error)
 			if resp.Error == "" {
@@ -1398,7 +1415,7 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
-		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceTapOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y}
@@ -1428,7 +1445,7 @@ func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolReq
 	start := time.Now()
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
-		return nil, DeviceDoubleTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceDoubleTapOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y}
@@ -1459,7 +1476,7 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 	start := time.Now()
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
-		return nil, DeviceLongPressOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceLongPressOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	dur := input.DurationMs
@@ -1532,7 +1549,7 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 	start := time.Now()
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
-		return nil, DeviceTypeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceTypeOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	clearFirst := true
@@ -1595,7 +1612,7 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 	start := time.Now()
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID, "swipe")
 	if err != nil {
-		return nil, DeviceSwipeOutput{Success: false, Error: err.Error(),
+		return nil, DeviceSwipeOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(),
 			NextSteps: errorNextSteps(err),
 		}, nil
 	}
@@ -1676,7 +1693,7 @@ func (s *Server) handleDevicePinch(ctx context.Context, req *mcp.CallToolRequest
 	start := time.Now()
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID, "pinch")
 	if err != nil {
-		return nil, DevicePinchOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DevicePinchOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	scale := input.Scale
@@ -1714,7 +1731,7 @@ func (s *Server) handleDeviceClearText(ctx context.Context, req *mcp.CallToolReq
 	start := time.Now()
 	rc, err := s.resolveCoordsWithAnchor(ctx, input.Target, input.X, input.Y, input.ScreenToken, input.SessionIndex, input.SessionID)
 	if err != nil {
-		return nil, DeviceClearTextOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceClearTextOutput{Success: false, ErrorCode: deviceErrorCode(err), Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y}
