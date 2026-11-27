@@ -113,9 +113,13 @@ CLI releases before Mac proofs reject `macos` as an unknown key. Before the
 agent starts, Revyl checks each target on the Mac; one that doesn't resolve
 ends the proof as Inconclusive instead of a guess. A Mac proof passes only on
 work the agent did on the Mac. Mac proofs run under every `harness.kind`.
-See [Proof on a Mac](https://docs.revyl.com/agents/proof#proof-on-a-mac) for
-the profile script, the profiles the agent can run during the proof, and what
-each Inconclusive cause means.
+Revyl reads which session profiles exist from the project's published
+configuration, the default branch's or the last `revyl config push`, while
+each profile's script comes from the pull request's head, so a profile added in
+a pull request runs in proofs only after it merges.
+See [Proof on a Mac](https://docs.revyl.com/agents/proof-mac) for who can use
+it, the profile script, the profiles the agent can run during the proof,
+examples, and what each Inconclusive cause means.
 
 ## Filter changed paths
 
