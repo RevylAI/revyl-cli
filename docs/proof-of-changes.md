@@ -216,13 +216,13 @@ of the first line and optional guidance after it:
 @revyl proof ios check the sign-in screen in dark mode
 ```
 
-`@revyl proof [ios|android|web] [guidance]` builds the current head when its
+`@revyl proof [ios|android|web|macos] [guidance]` builds the current head when its
 build is missing, then starts the proof for that platform in each project the
 pull request changes. Omit the platform to start every configured platform of
 those projects. Guidance applies to this proof only.
 
-`@revyl rerun [ios|android|web] [guidance]` and
-`@revyl retry [ios|android|web] [guidance]` are reserved for finished proofs and
+`@revyl rerun [ios|android|web|macos] [guidance]` and
+`@revyl retry [ios|android|web|macos] [guidance]` are reserved for finished proofs and
 never start a missing build.
 The `run` command is reserved for Automations; use `proof` for a current-head
 proof request and `rerun` or `retry` for a finished proof.
